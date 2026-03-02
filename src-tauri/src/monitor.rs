@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
+use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -249,6 +250,24 @@ pub struct MonitorSecurityState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorSetupStatus {
+    pub required_wizard_version: u32,
+    pub completed: bool,
+    pub completed_wizard_version: u32,
+    pub completed_at_utc: Option<String>,
+    pub physical_machine_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorLocalVpnIdentity {
+    pub detected: bool,
+    pub vpn_ip: Option<String>,
+    pub physical_machine_id: Option<String>,
+    pub logical_machine_ids: Vec<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorBulkControlResult {
     pub scope: String,
     pub action: String,
@@ -288,6 +307,18 @@ pub struct MonitorTerminalCommandResult {
     pub executed_at_utc: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct MonitorSetupState {
+    #[serde(default)]
+    completed: bool,
+    #[serde(default)]
+    wizard_version: u32,
+    #[serde(default)]
+    completed_at_utc: Option<String>,
+    #[serde(default)]
+    physical_machine_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MonitorSecurityConfig {
     version: u32,
@@ -295,6 +326,8 @@ struct MonitorSecurityConfig {
     operators: Vec<MonitorOperatorProfile>,
     ssh_profiles: Vec<MonitorSshProfile>,
     machine_bindings: Vec<MonitorMachineSshBinding>,
+    #[serde(default)]
+    setup: MonitorSetupState,
 }
 
 #[tauri::command]
@@ -337,6 +370,109 @@ pub fn monitor_initialize_workspace(app_handle: AppHandle) -> Result<String, Str
 #[tauri::command]
 pub fn get_monitor_security_state() -> Result<MonitorSecurityState, String> {
     load_monitor_security_state()
+}
+
+#[tauri::command]
+pub fn monitor_get_setup_status() -> Result<MonitorSetupStatus, String> {
+    let config = load_security_config()?;
+    Ok(build_monitor_setup_status(&config))
+}
+
+#[tauri::command]
+pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, String> {
+    let maybe_vpn_ip = detect_local_vpn_ip();
+    let Some(vpn_ip) = maybe_vpn_ip else {
+        return Ok(MonitorLocalVpnIdentity {
+            detected: false,
+            vpn_ip: None,
+            physical_machine_id: None,
+            logical_machine_ids: Vec::new(),
+            message: "No local 10.50.0.x WireGuard/VPN address was detected.".to_string(),
+        });
+    };
+
+    let maybe_machine = physical_machine_for_vpn_ip(&vpn_ip);
+    let Some(physical_machine_id) = maybe_machine else {
+        return Ok(MonitorLocalVpnIdentity {
+            detected: false,
+            vpn_ip: Some(vpn_ip.clone()),
+            physical_machine_id: None,
+            logical_machine_ids: Vec::new(),
+            message: format!(
+                "Detected local VPN IP {vpn_ip}, but it does not map to machine-01..machine-08."
+            ),
+        });
+    };
+
+    let logical_machine_ids = logical_nodes_for_physical_machine(physical_machine_id)?
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    Ok(MonitorLocalVpnIdentity {
+        detected: true,
+        vpn_ip: Some(vpn_ip.clone()),
+        physical_machine_id: Some(physical_machine_id.to_string()),
+        logical_machine_ids,
+        message: format!(
+            "Detected VPN IP {vpn_ip}; mapped to {physical_machine_id}."
+        ),
+    })
+}
+
+#[tauri::command]
+pub fn monitor_mark_setup_complete(physical_machine_id: String) -> Result<MonitorSetupStatus, String> {
+    let mut config = load_security_config()?;
+    let actor = resolve_active_operator(&config)?;
+    enforce_security_admin(&actor)?;
+
+    let normalized_machine = physical_machine_id.trim().to_ascii_lowercase();
+    if normalized_machine.is_empty() {
+        return Err("physical_machine_id is required (machine-01..machine-08)".to_string());
+    }
+
+    let logical_nodes = logical_nodes_for_physical_machine(&normalized_machine)?;
+    if config.ssh_profiles.is_empty() {
+        return Err(
+            "Setup cannot be marked complete: no SSH profiles exist. Create an SSH profile first."
+                .to_string(),
+        );
+    }
+
+    let missing_bindings = logical_nodes
+        .iter()
+        .filter(|machine_id| {
+            !config
+                .machine_bindings
+                .iter()
+                .any(|binding| binding.machine_id.eq_ignore_ascii_case(machine_id))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing_bindings.is_empty() {
+        return Err(format!(
+            "Setup cannot be marked complete: missing SSH bindings for {}",
+            missing_bindings.join(", ")
+        ));
+    }
+
+    let now = Utc::now().to_rfc3339();
+    config.setup.completed = true;
+    config.setup.wizard_version = MONITOR_SETUP_WIZARD_VERSION;
+    config.setup.completed_at_utc = Some(now.clone());
+    config.setup.physical_machine_id = Some(normalized_machine.clone());
+    save_security_config(&config)?;
+
+    append_audit_event(json!({
+        "event_type": "setup.completed",
+        "actor_operator_id": actor.operator_id,
+        "physical_machine_id": normalized_machine,
+        "logical_nodes": logical_nodes,
+        "wizard_version": MONITOR_SETUP_WIZARD_VERSION,
+        "timestamp_utc": now,
+    }))?;
+
+    Ok(build_monitor_setup_status(&config))
 }
 
 #[tauri::command]
@@ -1150,6 +1286,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
     }
 
     let mut nodes = Vec::new();
+    let local_vpn_ip = detect_local_vpn_ip();
 
     for (line_number, line) in lines.enumerate() {
         let trimmed = line.trim();
@@ -1197,7 +1334,8 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         let grpc_port = parse_port(get("grpc_port")?, "grpc_port")?;
         let discovery_port = parse_port(get("discovery_port")?, "discovery_port")?;
 
-        let rpc_url = build_rpc_url(&host, rpc_port);
+        let rpc_host = resolve_local_rpc_host(&host, local_vpn_ip.as_deref());
+        let rpc_url = build_rpc_url(&rpc_host, rpc_port);
 
         nodes.push(MonitorNode {
             node_address: node_addresses.get(&machine_id.to_lowercase()).cloned(),
@@ -1223,42 +1361,77 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
     Ok(nodes)
 }
 
-fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
-    let mut output = HashMap::new();
-    let Some(parent) = inventory_path.parent() else {
-        return output;
-    };
-
-    let hosts_file = parent.join("hosts.env");
-    if !hosts_file.is_file() {
-        return output;
+fn resolve_local_rpc_host(host: &str, local_vpn_ip: Option<&str>) -> String {
+    let trimmed = host.trim();
+    if trimmed.is_empty() {
+        return host.to_string();
     }
 
-    let Ok(content) = fs::read_to_string(&hosts_file) else {
-        return output;
-    };
+    if trimmed.eq_ignore_ascii_case("localhost") || trimmed == "127.0.0.1" {
+        return "127.0.0.1".to_string();
+    }
 
-    for raw_line in content.lines() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
+    if let Some(local_ip) = local_vpn_ip {
+        if trimmed == local_ip {
+            return "127.0.0.1".to_string();
         }
+    }
 
-        let stripped = line.strip_prefix("export ").unwrap_or(line).trim();
-        let Some((raw_key, raw_value)) = stripped.split_once('=') else {
-            continue;
-        };
+    host.to_string()
+}
 
-        let key = raw_key.trim().to_lowercase();
-        let value = raw_value
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .trim()
-            .to_string();
+fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
+    let mut output = HashMap::new();
+    if let Some(parent) = inventory_path.parent() {
+        let hosts_file = parent.join("hosts.env");
+        if hosts_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&hosts_file) {
+                for raw_line in content.lines() {
+                    let line = raw_line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
 
-        if !key.is_empty() && !value.is_empty() {
-            output.insert(key, value);
+                    let stripped = line.strip_prefix("export ").unwrap_or(line).trim();
+                    let Some((raw_key, raw_value)) = stripped.split_once('=') else {
+                        continue;
+                    };
+
+                    let key = raw_key.trim().to_lowercase();
+                    let value = raw_value
+                        .trim()
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .trim()
+                        .to_string();
+
+                    if !key.is_empty() && !value.is_empty() {
+                        output.insert(key, value);
+                    }
+                }
+            }
+        }
+    }
+
+    // Security machine bindings (if configured) override hosts.env for control and diagnostics.
+    if let Ok(config) = load_security_config() {
+        for binding in config.machine_bindings {
+            let machine = binding.machine_id.trim().to_ascii_lowercase();
+            let Some(host_override) = binding
+                .host_override
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            if machine.is_empty() {
+                continue;
+            }
+            let machine_snake = machine.replace('-', "_");
+            output.insert(machine.clone(), host_override.clone());
+            output.insert(machine_snake.clone(), host_override.clone());
+            output.insert(format!("{machine_snake}_host"), host_override);
         }
     }
 
@@ -2457,6 +2630,7 @@ fn resolve_control_commands(
         let default_custom_actions = [
             ("install_node", "install_node"),
             ("bootstrap_node", "bootstrap_node"),
+            ("reset_chain", "reset_chain"),
             ("wireguard_install", "wireguard_install"),
             ("wireguard_connect", "wireguard_connect"),
             ("wireguard_disconnect", "wireguard_disconnect"),
@@ -3042,6 +3216,7 @@ const MONITOR_WORKSPACE_ENV: &str = "SYNERGY_MONITOR_WORKSPACE";
 const MONITOR_SECURITY_CONFIG_RELATIVE: &str = "config/security.json";
 const MONITOR_AUDIT_LOG_RELATIVE: &str = "audit/control-actions.jsonl";
 const MONITOR_USER_MANUAL_RELATIVE: &str = "guides/NETWORK_NODE_MONITOR_USER_MANUAL.md";
+const MONITOR_SETUP_WIZARD_VERSION: u32 = 2;
 
 pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let workspace_root = preferred_workspace_root();
@@ -3146,6 +3321,24 @@ fn extract_bundled_resources_to_workspace(
     {
         let destination = workspace_root.join(MONITOR_USER_MANUAL_RELATIVE);
         copy_file_force(&source, &destination)?;
+    }
+
+    // Always refresh critical orchestration scripts so existing installs receive runtime fixes.
+    let always_refresh = [
+        "scripts/devnet15/remote-node-orchestrator.sh",
+        "scripts/devnet15/generate-monitor-hosts-env.sh",
+        "scripts/devnet15/render-configs.sh",
+        "scripts/devnet15/reset-devnet.sh",
+    ];
+    for relative in always_refresh {
+        if let Some(source) = roots
+            .iter()
+            .map(|root| root.join(relative))
+            .find(|candidate| candidate.exists())
+        {
+            let destination = workspace_root.join(relative);
+            copy_file_force(&source, &destination)?;
+        }
     }
 
     let hosts_env = workspace_root.join("devnet/lean15/hosts.env");
@@ -3549,6 +3742,7 @@ fn ensure_security_config_exists(workspace: &Path) -> Result<(), String> {
         }],
         ssh_profiles: Vec::new(),
         machine_bindings: Vec::new(),
+        setup: MonitorSetupState::default(),
     };
 
     let encoded = serde_json::to_vec_pretty(&default_config)
@@ -3638,6 +3832,141 @@ fn load_monitor_security_state() -> Result<MonitorSecurityState, String> {
     })
 }
 
+fn build_monitor_setup_status(config: &MonitorSecurityConfig) -> MonitorSetupStatus {
+    let completed = config.setup.completed
+        && config.setup.wizard_version >= MONITOR_SETUP_WIZARD_VERSION
+        && config.setup.completed_at_utc.is_some();
+
+    MonitorSetupStatus {
+        required_wizard_version: MONITOR_SETUP_WIZARD_VERSION,
+        completed,
+        completed_wizard_version: config.setup.wizard_version,
+        completed_at_utc: config.setup.completed_at_utc.clone(),
+        physical_machine_id: config.setup.physical_machine_id.clone(),
+    }
+}
+
+fn logical_nodes_for_physical_machine(physical_machine_id: &str) -> Result<Vec<&'static str>, String> {
+    match physical_machine_id {
+        "machine-01" => Ok(vec!["machine-01"]),
+        "machine-02" => Ok(vec!["machine-02", "machine-15"]),
+        "machine-03" => Ok(vec!["machine-03", "machine-07"]),
+        "machine-04" => Ok(vec!["machine-04", "machine-06"]),
+        "machine-05" => Ok(vec!["machine-05", "machine-10"]),
+        "machine-06" => Ok(vec!["machine-11", "machine-08"]),
+        "machine-07" => Ok(vec!["machine-09", "machine-13"]),
+        "machine-08" => Ok(vec!["machine-14", "machine-12"]),
+        _ => Err(format!(
+            "Unknown physical_machine_id '{}'. Expected machine-01..machine-08.",
+            physical_machine_id
+        )),
+    }
+}
+
+fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<&'static str> {
+    match vpn_ip.trim() {
+        "10.50.0.1" => Some("machine-01"),
+        "10.50.0.2" => Some("machine-02"),
+        "10.50.0.3" => Some("machine-03"),
+        "10.50.0.4" => Some("machine-04"),
+        "10.50.0.5" => Some("machine-05"),
+        "10.50.0.6" => Some("machine-06"),
+        "10.50.0.7" => Some("machine-07"),
+        "10.50.0.8" => Some("machine-08"),
+        _ => None,
+    }
+}
+
+fn detect_local_vpn_ip() -> Option<String> {
+    if let Ok(override_ip) = std::env::var("SYNERGY_MACHINE_VPN_IP") {
+        let trimmed = override_ip.trim().to_string();
+        if is_wireguard_vpn_ip(&trimmed) {
+            return Some(trimmed);
+        }
+    }
+
+    let route_targets = ["10.50.0.1:51820", "10.50.0.2:51820", "10.50.0.254:51820"];
+    for target in route_targets {
+        let socket = UdpSocket::bind("0.0.0.0:0").ok();
+        let Some(socket) = socket else {
+            continue;
+        };
+        if socket.connect(target).is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                let ip = addr.ip().to_string();
+                if is_wireguard_vpn_ip(&ip) {
+                    return Some(ip);
+                }
+            }
+        }
+    }
+
+    detect_vpn_ip_from_system_commands()
+}
+
+fn detect_vpn_ip_from_system_commands() -> Option<String> {
+    let command_sets: Vec<Vec<&str>> = if cfg!(target_os = "windows") {
+        vec![vec!["cmd", "/C", "ipconfig"]]
+    } else {
+        vec![
+            vec!["bash", "-lc", "ip -o -4 addr show 2>/dev/null || true"],
+            vec!["bash", "-lc", "ifconfig 2>/dev/null || true"],
+        ]
+    };
+
+    for parts in command_sets {
+        if parts.is_empty() {
+            continue;
+        }
+        let mut command = ProcessCommand::new(parts[0]);
+        if parts.len() > 1 {
+            command.args(&parts[1..]);
+        }
+        let output = command.output().ok();
+        let Some(output) = output else {
+            continue;
+        };
+
+        let combined = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if let Some(ip) = find_vpn_ip_in_text(&combined) {
+            return Some(ip);
+        }
+    }
+
+    None
+}
+
+fn find_vpn_ip_in_text(text: &str) -> Option<String> {
+    for raw_token in text
+        .split(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '/'))
+        .filter(|token| !token.is_empty())
+    {
+        let candidate = raw_token.split('/').next().unwrap_or_default();
+        if is_wireguard_vpn_ip(candidate) {
+            return Some(candidate.to_string());
+        }
+    }
+    None
+}
+
+fn is_wireguard_vpn_ip(value: &str) -> bool {
+    if !value.starts_with("10.50.0.") {
+        return false;
+    }
+    let octets = value
+        .split('.')
+        .filter_map(|part| part.parse::<u8>().ok())
+        .collect::<Vec<_>>();
+    if octets.len() != 4 {
+        return false;
+    }
+    octets[0] == 10 && octets[1] == 50 && octets[2] == 0 && octets[3] > 0
+}
+
 fn resolve_active_operator(
     config: &MonitorSecurityConfig,
 ) -> Result<MonitorOperatorProfile, String> {
@@ -3717,6 +4046,7 @@ fn role_allows_control(role: &str, action: &str) -> bool {
     let admin_only = [
         "install_node",
         "bootstrap_node",
+        "reset_chain",
         "wireguard_install",
         "wireguard_connect",
         "wireguard_disconnect",

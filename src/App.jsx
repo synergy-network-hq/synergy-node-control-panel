@@ -11,29 +11,14 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 const SPLASH_DURATION_MS = 6000;
 const SPLASH_FADE_OUT_MS = 800;
-const REQUIRED_LOGICAL_MACHINE_IDS = [
-  'machine-01',
-  'machine-02',
-  'machine-03',
-  'machine-04',
-  'machine-05',
-  'machine-06',
-  'machine-07',
-  'machine-08',
-  'machine-09',
-  'machine-10',
-  'machine-11',
-  'machine-12',
-  'machine-13',
-  'machine-14',
-  'machine-15',
-];
+const POST_SPLASH_FADE_IN_DELAY_MS = 60;
 
 function App() {
   const [progress, setProgress] = useState(0);
   const [splashPhase, setSplashPhase] = useState('showing');
   const [setupComplete, setSetupComplete] = useState(false);
   const [setupStateReady, setSetupStateReady] = useState(false);
+  const [postSplashVisible, setPostSplashVisible] = useState(false);
 
   useEffect(() => {
     let raf = null;
@@ -63,6 +48,7 @@ function App() {
 
   useEffect(() => {
     if (splashPhase !== 'hidden') {
+      setPostSplashVisible(false);
       return;
     }
 
@@ -70,18 +56,8 @@ function App() {
       try {
         await invoke('monitor_initialize_workspace');
         await invoke('monitor_apply_eight_machine_topology');
-        const state = await invoke('get_monitor_security_state');
-        const sshProfiles = Array.isArray(state?.ssh_profiles) ? state.ssh_profiles : [];
-        const machineBindings = Array.isArray(state?.machine_bindings) ? state.machine_bindings : [];
-        const bindingSet = new Set(
-          machineBindings
-            .map((binding) => String(binding?.machine_id || '').toLowerCase())
-            .filter((value) => value.length > 0),
-        );
-        const allLogicalMachinesBound = REQUIRED_LOGICAL_MACHINE_IDS.every((machineId) =>
-          bindingSet.has(machineId.toLowerCase()),
-        );
-        setSetupComplete(sshProfiles.length > 0 && allLogicalMachinesBound);
+        const setupStatus = await invoke('monitor_get_setup_status');
+        setSetupComplete(Boolean(setupStatus?.completed));
       } catch (error) {
         setSetupComplete(false);
       } finally {
@@ -90,6 +66,20 @@ function App() {
     };
 
     resolveSetupState();
+  }, [splashPhase]);
+
+  useEffect(() => {
+    if (splashPhase !== 'hidden') {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setPostSplashVisible(true);
+    }, POST_SPLASH_FADE_IN_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [splashPhase]);
 
   const handleSetupComplete = () => {
@@ -101,8 +91,10 @@ function App() {
     return <StartupLoadingScreen progress={progress} phase={splashPhase} />;
   }
 
+  let nextScreen = null;
+
   if (!setupStateReady) {
-    return (
+    nextScreen = (
       <section className="wizard-shell">
         <div className="loading-container">
           <div className="spinner"></div>
@@ -110,22 +102,26 @@ function App() {
         </div>
       </section>
     );
-  }
-
-  if (!setupComplete) {
-    return <InitialSetupWizard onComplete={handleSetupComplete} />;
+  } else if (!setupComplete) {
+    nextScreen = <InitialSetupWizard onComplete={handleSetupComplete} />;
+  } else {
+    nextScreen = (
+      <Layout>
+        <Routes>
+          <Route path="/" element={<NetworkMonitorDashboard />} />
+          <Route path="/settings" element={<OperatorConfigurationPage />} />
+          <Route path="/node/:machineId" element={<NetworkMonitorNodePage />} />
+          <Route path="/help" element={<HelpArticlesPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+    );
   }
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<NetworkMonitorDashboard />} />
-        <Route path="/settings" element={<OperatorConfigurationPage />} />
-        <Route path="/node/:machineId" element={<NetworkMonitorNodePage />} />
-        <Route path="/help" element={<HelpArticlesPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <div className={`app-post-splash ${postSplashVisible ? 'is-visible' : ''}`}>
+      {nextScreen}
+    </div>
   );
 }
 

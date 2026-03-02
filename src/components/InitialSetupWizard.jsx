@@ -100,6 +100,29 @@ const PHYSICAL_MACHINE_VPN_IP = {
   'machine-08': '10.50.0.8',
 };
 
+const LOGICAL_NODE_METADATA = {
+  'machine-01': 'validator',
+  'machine-02': 'validator',
+  'machine-03': 'validator',
+  'machine-04': 'validator',
+  'machine-05': 'validator',
+  'machine-06': 'relayer',
+  'machine-07': 'cross-chain-verifier',
+  'machine-08': 'oracle',
+  'machine-09': 'witness',
+  'machine-10': 'committee',
+  'machine-11': 'security-council',
+  'machine-12': 'pqc-crypto',
+  'machine-13': 'rpc-gateway',
+  'machine-14': 'indexer',
+  'machine-15': 'observer',
+};
+
+const ALL_LOGICAL_MACHINE_IDS = Object.values(PHYSICAL_TO_LOGICAL_NODE_MAP)
+  .flat()
+  .filter((machineId, index, source) => source.indexOf(machineId) === index)
+  .sort();
+
 const STEPS = [
   { id: 1, title: 'Operator Profile' },
   { id: 2, title: 'SSH Key Commands' },
@@ -108,6 +131,31 @@ const STEPS = [
   { id: 5, title: 'Node Setup' },
   { id: 6, title: 'Finish' },
 ];
+
+const AUTOPILOT_PLAN = [
+  { key: 'workspace', label: 'Initialize Workspace' },
+  { key: 'topology', label: 'Apply 8-Machine Topology' },
+  { key: 'username', label: 'Detect Local Username' },
+  { key: 'sshkey', label: 'Create SSH Key (if missing)' },
+  { key: 'operator', label: 'Save Active Operator' },
+  { key: 'sshprofile', label: 'Save SSH Profile' },
+  { key: 'binding', label: 'Bind Logical Nodes To VPN IP' },
+  { key: 'installers', label: 'Run Local Node Installers' },
+  { key: 'validation', label: 'Validate Node Readiness' },
+  { key: 'complete', label: 'Mark Setup Complete' },
+];
+
+const AUTOPILOT_STEP_PAUSE_MS = 520;
+const AUTOPILOT_NODE_PAUSE_MS = 320;
+const AUTOPILOT_RUN_START_PAUSE_MS = 260;
+
+function newAutopilotSteps() {
+  return AUTOPILOT_PLAN.map((entry) => ({
+    ...entry,
+    status: 'pending',
+    detail: '',
+  }));
+}
 
 function nowLabel() {
   return new Date().toLocaleTimeString();
@@ -120,6 +168,27 @@ function normalizeOutputLines(value) {
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0);
   return lines;
+}
+
+function newLogicalNodeStates() {
+  return ALL_LOGICAL_MACHINE_IDS.reduce((acc, machineId) => {
+    acc[machineId] = {
+      status: 'idle',
+      detail: 'not scheduled',
+      updated_at: Date.now(),
+    };
+    return acc;
+  }, {});
+}
+
+function sleep(ms) {
+  const waitMs = Number(ms || 0);
+  if (!waitMs) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, waitMs);
+  });
 }
 
 function InitialSetupWizard({ onComplete }) {
@@ -144,7 +213,7 @@ function InitialSetupWizard({ onComplete }) {
     ssh_user: '',
     ssh_port: '22',
     ssh_key_path: '',
-    remote_root: '/opt/synergy',
+    remote_root: '',
   });
   const [bindingForm, setBindingForm] = useState({
     machine_id: 'machine-01',
@@ -155,6 +224,16 @@ function InitialSetupWizard({ onComplete }) {
   const [selectedPhysicalMachine, setSelectedPhysicalMachine] = useState('machine-01');
   const [nodeSetupBusy, setNodeSetupBusy] = useState(false);
   const [nodeSetupSummary, setNodeSetupSummary] = useState('');
+
+  const [autopilotBusy, setAutopilotBusy] = useState(false);
+  const [autopilotSteps, setAutopilotSteps] = useState(() => newAutopilotSteps());
+  const [autopilotProgress, setAutopilotProgress] = useState(0);
+  const [autopilotSummary, setAutopilotSummary] = useState('');
+  const [autoStartMachineId, setAutoStartMachineId] = useState('');
+  const [vpnDetectionMessage, setVpnDetectionMessage] = useState('');
+  const [autopilotCurrentStepLabel, setAutopilotCurrentStepLabel] = useState('');
+  const [autopilotCurrentCommand, setAutopilotCurrentCommand] = useState('');
+  const [logicalNodeStates, setLogicalNodeStates] = useState(() => newLogicalNodeStates());
 
   const [terminalCwd, setTerminalCwd] = useState('');
   const [terminalInput, setTerminalInput] = useState('');
@@ -172,6 +251,12 @@ function InitialSetupWizard({ onComplete }) {
         at: nowLabel(),
       },
     ]);
+  };
+
+  const updateAutopilotStep = (key, status, detail = '') => {
+    setAutopilotSteps((prev) =>
+      prev.map((entry) => (entry.key === key ? { ...entry, status, detail } : entry)),
+    );
   };
 
   useEffect(() => {
@@ -197,6 +282,7 @@ function InitialSetupWizard({ onComplete }) {
           invoke('get_monitor_workspace_path'),
           refreshSecurityState(),
         ]);
+
         const resolvedWorkspace = String(workspace || '');
         setWorkspacePath(resolvedWorkspace);
         setTerminalCwd(resolvedWorkspace);
@@ -204,11 +290,43 @@ function InitialSetupWizard({ onComplete }) {
         const topologyMessage = await invoke('monitor_apply_eight_machine_topology');
         addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
+        const identity = await invoke('monitor_detect_local_vpn_identity');
+        if (identity?.detected && identity?.physical_machine_id) {
+          const detectedMachine = String(identity.physical_machine_id).toLowerCase();
+          const detectedVpnIp =
+            String(identity?.vpn_ip || '').trim() || PHYSICAL_MACHINE_VPN_IP[detectedMachine] || '';
+          const logicalNodes = Array.isArray(identity?.logical_machine_ids) ? identity.logical_machine_ids : [];
+
+          setSelectedPhysicalMachine(detectedMachine);
+          setBindingForm((prev) => ({
+            ...prev,
+            machine_id: detectedMachine,
+            host_override: detectedVpnIp || prev.host_override,
+          }));
+          setVpnDetectionMessage(
+            `Detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Logical nodes: ${logicalNodes.join(', ')}`,
+          );
+          setAutoStartMachineId(detectedMachine);
+          addTerminalLine(
+            'success',
+            `Auto-detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Queueing autonomous setup...`,
+          );
+        } else {
+          const message = String(identity?.message || 'VPN machine auto-detection unavailable. Select machine manually.');
+          setVpnDetectionMessage(message);
+          addTerminalLine('info', message);
+        }
+
         const defaultKeyPath = `${resolvedWorkspace}/keys/ssh/ops_ed25519`;
+        const defaultRemoteRoot = `${resolvedWorkspace}/devnet/lean15/installers`;
         setSshProfileForm((prev) => ({
           ...prev,
           ssh_key_path: defaultKeyPath,
           ssh_user: prev.ssh_user || 'ops',
+          remote_root:
+            String(prev.remote_root || '').trim() && String(prev.remote_root || '').trim() !== '/opt/synergy'
+              ? prev.remote_root
+              : defaultRemoteRoot,
         }));
 
         const activeOperator = (state?.operators || []).find((entry) => entry.operator_id === state?.active_operator_id);
@@ -220,7 +338,7 @@ function InitialSetupWizard({ onComplete }) {
           });
         }
 
-        addTerminalLine('info', 'Embedded terminal ready. Run commands here to prepare SSH keys and verify environment.');
+        addTerminalLine('info', 'Setup terminal ready. Autonomous setup will print each command/result here.');
         addTerminalLine('info', `Working directory: ${resolvedWorkspace}`);
       } catch (setupError) {
         setError(String(setupError));
@@ -228,43 +346,70 @@ function InitialSetupWizard({ onComplete }) {
         setLoading(false);
       }
     };
+
     initialize();
   }, []);
 
   const activeMachineSet = useMemo(() => new Set(ACTIVE_MACHINE_PLAN.map((entry) => entry.machineId)), []);
   const sshProfiles = securityState?.ssh_profiles || [];
   const machineBindings = securityState?.machine_bindings || [];
+  const recentSetupLines = useMemo(() => terminalLines.slice(-8), [terminalLines]);
+  const selectedLogicalNodes = useMemo(
+    () => PHYSICAL_TO_LOGICAL_NODE_MAP[selectedPhysicalMachine] || [],
+    [selectedPhysicalMachine],
+  );
+  const selectedLogicalNodeSet = useMemo(
+    () => new Set(selectedLogicalNodes),
+    [selectedLogicalNodes],
+  );
+  const overlayTopologyRows = useMemo(
+    () =>
+      ACTIVE_MACHINE_PLAN.map((entry) => ({
+        ...entry,
+        logicalNodes: (PHYSICAL_TO_LOGICAL_NODE_MAP[entry.machineId] || []).map((logicalId) => ({
+          machineId: logicalId,
+          role: LOGICAL_NODE_METADATA[logicalId] || 'node',
+          state: logicalNodeStates[logicalId] || { status: 'idle', detail: 'not scheduled' },
+          isTarget: selectedLogicalNodeSet.has(logicalId),
+        })),
+      })),
+    [logicalNodeStates, selectedLogicalNodeSet],
+  );
 
-  const runTerminalCommand = async (rawCommand) => {
-    const command = String(rawCommand || '').trim();
-    if (!command || terminalBusy) return;
+  const setLogicalNodeState = (machineId, status, detail = '') => {
+    setLogicalNodeStates((prev) => ({
+      ...prev,
+      [machineId]: {
+        status,
+        detail,
+        updated_at: Date.now(),
+      },
+    }));
+  };
 
-    setTerminalBusy(true);
-    addTerminalLine('prompt', `${terminalCwd || '~'} $ ${command}`);
+  const resetLogicalNodeStateForMachine = (machineId, targetNodes) => {
+    const targetSet = new Set(targetNodes);
+    setLogicalNodeStates(() =>
+      ALL_LOGICAL_MACHINE_IDS.reduce((acc, logicalId) => {
+        acc[logicalId] = {
+          status: targetSet.has(logicalId) ? 'pending' : 'idle',
+          detail: targetSet.has(logicalId) ? `queued for ${machineId}` : 'not scheduled',
+          updated_at: Date.now(),
+        };
+        return acc;
+      }, {}),
+    );
+  };
 
+  const executeCommandAndLog = async (command, cwdOverride = null) => {
+    const effectiveCwd = cwdOverride || terminalCwd || workspacePath || null;
+    const promptPrefix = effectiveCwd || '~';
+    addTerminalLine('prompt', `${promptPrefix} $ ${command}`);
+    setAutopilotCurrentCommand(command);
     try {
-      const cdOnlyMatch = command.match(/^cd(?:\s+(.+))?$/i);
-      if (cdOnlyMatch) {
-        const target = (cdOnlyMatch[1] || '~').trim();
-        const resolveCommand = target === '~' ? 'cd ~ && pwd' : `cd ${target} && pwd`;
-        const result = await invoke('monitor_run_terminal_command', {
-          command: resolveCommand,
-          cwd: terminalCwd || null,
-        });
-        if (result.success) {
-          const lines = normalizeOutputLines(result.stdout);
-          const updatedCwd = lines[lines.length - 1] || terminalCwd;
-          setTerminalCwd(updatedCwd);
-          addTerminalLine('success', updatedCwd);
-        } else {
-          addTerminalLine('error', result.stderr || `cd failed (exit ${result.exit_code})`);
-        }
-        return;
-      }
-
       const result = await invoke('monitor_run_terminal_command', {
         command,
-        cwd: terminalCwd || null,
+        cwd: effectiveCwd,
       });
 
       if (result.cwd) {
@@ -276,16 +421,42 @@ function InitialSetupWizard({ onComplete }) {
       stdoutLines.forEach((line) => addTerminalLine('output', line));
       stderrLines.forEach((line) => addTerminalLine('error', line));
 
-      if (command.toLowerCase() === 'whoami' && result.success && stdoutLines.length > 0) {
-        const detected = stdoutLines[0].trim();
-        setLastWhoami(detected);
-        setSshProfileForm((prev) => ({
-          ...prev,
-          ssh_user: detected || prev.ssh_user,
-        }));
+      return result;
+    } finally {
+      setAutopilotCurrentCommand('');
+    }
+  };
+
+  const runStrictCommand = async (command, cwdOverride = null) => {
+    const result = await executeCommandAndLog(command, cwdOverride);
+    if (!result.success) {
+      throw new Error(result.stderr || `Command failed (exit ${result.exit_code}): ${command}`);
+    }
+    return result;
+  };
+
+  const runTerminalCommand = async (rawCommand) => {
+    const command = String(rawCommand || '').trim();
+    if (!command || terminalBusy || autopilotBusy) return;
+
+    setTerminalBusy(true);
+    try {
+      if (command.toLowerCase() === 'whoami') {
+        const result = await executeCommandAndLog(command, terminalCwd || null);
+        const lines = normalizeOutputLines(result.stdout);
+        if (result.success && lines.length > 0) {
+          const detected = lines[0].trim();
+          setLastWhoami(detected);
+          setSshProfileForm((prev) => ({ ...prev, ssh_user: detected || prev.ssh_user }));
+        }
+        if (!result.success && lines.length === 0) {
+          addTerminalLine('error', `Command failed with exit code ${result.exit_code}`);
+        }
+        return;
       }
 
-      if (!result.success && stderrLines.length === 0) {
+      const result = await executeCommandAndLog(command, terminalCwd || null);
+      if (!result.success && normalizeOutputLines(result.stderr).length === 0) {
         addTerminalLine('error', `Command failed with exit code ${result.exit_code}`);
       }
     } catch (runError) {
@@ -332,7 +503,9 @@ function InitialSetupWizard({ onComplete }) {
         ssh_user: String(sshProfileForm.ssh_user || '').trim(),
         ssh_port: Number(sshProfileForm.ssh_port || 22),
         ssh_key_path: String(sshProfileForm.ssh_key_path || '').trim() || null,
-        remote_root: String(sshProfileForm.remote_root || '').trim() || null,
+        remote_root:
+          String(sshProfileForm.remote_root || '').trim() ||
+          (workspacePath ? `${workspacePath}/devnet/lean15/installers` : null),
         strict_host_key_checking: null,
         extra_ssh_args: null,
       };
@@ -368,11 +541,12 @@ function InitialSetupWizard({ onComplete }) {
       }
 
       for (const logicalMachineId of logicalNodes) {
-        const payload = {
-          ...basePayload,
-          machine_id: logicalMachineId,
-        };
-        await invoke('monitor_assign_machine_ssh_profile', { input: payload });
+        await invoke('monitor_assign_machine_ssh_profile', {
+          input: {
+            ...basePayload,
+            machine_id: logicalMachineId,
+          },
+        });
       }
       await refreshSecurityState();
       setStep(5);
@@ -408,16 +582,12 @@ function InitialSetupWizard({ onComplete }) {
       }
       await refreshSecurityState();
 
-      addTerminalLine(
-        'info',
-        `Starting local node setup for ${selectedPhysicalMachine}: ${logicalNodes.join(', ')}`,
-      );
+      addTerminalLine('info', `Starting local node setup for ${selectedPhysicalMachine}: ${logicalNodes.join(', ')}`);
 
       const basePath = `${workspacePath}/devnet/lean15/installers`;
       for (const logicalMachineId of logicalNodes) {
         const installScript = `${basePath}/${logicalMachineId}/install_and_start.sh`;
-        const command = `bash "${installScript}"`;
-        await runTerminalCommand(command);
+        await runStrictCommand(`bash "${installScript}"`, workspacePath || null);
       }
 
       const summary = `Completed setup commands for ${selectedPhysicalMachine} node slots: ${logicalNodes.join(', ')}`;
@@ -427,6 +597,366 @@ function InitialSetupWizard({ onComplete }) {
       setError(String(setupError));
     } finally {
       setNodeSetupBusy(false);
+    }
+  };
+
+  const runAutonomousSetup = async (machineOverride = null, triggerSource = 'manual') => {
+    if (autopilotBusy || nodeSetupBusy) return;
+
+    setError('');
+    setAutopilotSummary('');
+    setAutopilotBusy(true);
+    setAutopilotProgress(0);
+    setAutopilotSteps(newAutopilotSteps());
+    setAutopilotCurrentStepLabel('Preparing setup run...');
+    setAutopilotCurrentCommand('');
+
+    let completed = 0;
+    const total = AUTOPILOT_PLAN.length;
+    let runLogicalNodes = [];
+
+    const runStep = async (key, label, action) => {
+      updateAutopilotStep(key, 'running', label);
+      setAutopilotCurrentStepLabel(label);
+      addTerminalLine('info', `Autopilot: ${label}`);
+      try {
+        await action();
+        completed += 1;
+        setAutopilotProgress(Math.round((completed / total) * 100));
+        updateAutopilotStep(key, 'success', `${label} complete`);
+        await sleep(AUTOPILOT_STEP_PAUSE_MS);
+      } catch (stepError) {
+        updateAutopilotStep(key, 'failed', String(stepError));
+        throw stepError;
+      }
+    };
+
+    try {
+      await sleep(AUTOPILOT_RUN_START_PAUSE_MS);
+
+      const selectedMachine = String(machineOverride || selectedPhysicalMachine || '').trim().toLowerCase();
+      const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [];
+      runLogicalNodes = logicalNodes;
+      const vpnHost = PHYSICAL_MACHINE_VPN_IP[selectedMachine] || String(bindingForm.host_override || '').trim();
+
+      if (!logicalNodes.length) {
+        throw new Error(`No logical node mapping found for ${selectedMachine}`);
+      }
+      if (!vpnHost) {
+        throw new Error(`No VPN IP mapping found for ${selectedMachine}`);
+      }
+
+      setSelectedPhysicalMachine(selectedMachine);
+      setBindingForm((prev) => ({
+        ...prev,
+        machine_id: selectedMachine,
+        host_override: vpnHost,
+      }));
+      resetLogicalNodeStateForMachine(selectedMachine, logicalNodes);
+      addTerminalLine('info', `Autopilot trigger: ${triggerSource}. Target machine: ${selectedMachine}.`);
+
+      let resolvedWorkspace = workspacePath;
+      const desiredKeyPath = `${workspacePath}/keys/ssh/ops_ed25519`;
+      let detectedUser = String(sshProfileForm.ssh_user || '').trim();
+
+      await runStep('workspace', 'Initialize workspace', async () => {
+        const workspace = await invoke('monitor_initialize_workspace');
+        resolvedWorkspace = String(workspace || workspacePath || '');
+        if (!resolvedWorkspace) {
+          throw new Error('Unable to resolve monitor workspace path.');
+        }
+        setWorkspacePath(resolvedWorkspace);
+        setTerminalCwd(resolvedWorkspace);
+      });
+
+      await runStep('topology', 'Apply topology mapping', async () => {
+        const message = await invoke('monitor_apply_eight_machine_topology');
+        addTerminalLine('success', String(message || 'Topology applied.'));
+      });
+
+      await runStep('username', 'Detect local username', async () => {
+        const result = await runStrictCommand('whoami', resolvedWorkspace || null);
+        const lines = normalizeOutputLines(result.stdout);
+        const username = (lines[0] || '').trim();
+        if (!username) {
+          throw new Error('whoami returned empty username.');
+        }
+        detectedUser = username;
+        setLastWhoami(username);
+        setSshProfileForm((prev) => ({
+          ...prev,
+          ssh_user: username,
+        }));
+      });
+
+      await runStep('sshkey', 'Generate SSH key if missing', async () => {
+        const command = [
+          'mkdir -p keys/ssh',
+          'if [ ! -f keys/ssh/ops_ed25519 ]; then ssh-keygen -t ed25519 -a 64 -f keys/ssh/ops_ed25519 -C "devnet-ops" -N ""; else echo "SSH key already exists; skipping generation."; fi',
+          'ls -lah keys/ssh',
+        ].join(' && ');
+        await runStrictCommand(command, resolvedWorkspace || null);
+
+        setSshProfileForm((prev) => ({
+          ...prev,
+          ssh_key_path: prev.ssh_key_path || desiredKeyPath,
+        }));
+      });
+
+      await runStep('operator', 'Save operator profile', async () => {
+        const operatorId = String(operatorForm.operator_id || '').trim().toLowerCase() || 'ops_lead';
+        const displayName = String(operatorForm.display_name || '').trim() || 'Ops Lead';
+        const role = String(operatorForm.role || 'admin').trim().toLowerCase() || 'admin';
+
+        await invoke('monitor_upsert_operator', {
+          input: {
+            operator_id: operatorId,
+            display_name: displayName,
+            role,
+          },
+        });
+        await invoke('monitor_set_active_operator', { operatorId });
+
+        setOperatorForm({
+          operator_id: operatorId,
+          display_name: displayName,
+          role,
+        });
+      });
+
+      await runStep('sshprofile', 'Save SSH profile', async () => {
+        const defaultRemoteRoot = `${resolvedWorkspace}/devnet/lean15/installers`;
+        const payload = {
+          profile_id: String(sshProfileForm.profile_id || '').trim().toLowerCase() || 'ops',
+          label: String(sshProfileForm.label || '').trim() || 'Ops SSH Profile',
+          ssh_user: detectedUser || String(sshProfileForm.ssh_user || '').trim(),
+          ssh_port: Number(sshProfileForm.ssh_port || 22),
+          ssh_key_path: String(sshProfileForm.ssh_key_path || '').trim() || `${resolvedWorkspace}/keys/ssh/ops_ed25519`,
+          remote_root: String(sshProfileForm.remote_root || '').trim() || defaultRemoteRoot,
+          strict_host_key_checking: null,
+          extra_ssh_args: null,
+        };
+
+        if (!payload.ssh_user) {
+          throw new Error('SSH user is empty. Run whoami or enter SSH user manually.');
+        }
+
+        await invoke('monitor_upsert_ssh_profile', { input: payload });
+
+        setSshProfileForm((prev) => ({
+          ...prev,
+          ...payload,
+          ssh_port: String(payload.ssh_port),
+        }));
+        setBindingForm((prev) => ({
+          ...prev,
+          profile_id: payload.profile_id,
+        }));
+      });
+
+      await runStep('binding', 'Bind mapped logical nodes', async () => {
+        const profileId = String(bindingForm.profile_id || sshProfileForm.profile_id || 'ops').trim().toLowerCase();
+        if (!profileId) {
+          throw new Error('No SSH profile is selected for machine binding.');
+        }
+
+        for (const logicalMachineId of logicalNodes) {
+          setLogicalNodeState(logicalMachineId, 'running', 'binding ssh profile');
+          await invoke('monitor_assign_machine_ssh_profile', {
+            input: {
+              machine_id: logicalMachineId,
+              profile_id: profileId,
+              host_override: vpnHost,
+              remote_dir_override: String(bindingForm.remote_dir_override || '').trim() || null,
+            },
+          });
+          setLogicalNodeState(logicalMachineId, 'pending', 'bound, waiting installer');
+          await sleep(AUTOPILOT_NODE_PAUSE_MS);
+        }
+
+        setBindingForm((prev) => ({
+          ...prev,
+          machine_id: selectedMachine,
+          profile_id: profileId,
+          host_override: vpnHost,
+        }));
+      });
+
+      await runStep('installers', 'Run local installer scripts', async () => {
+        const basePath = `${resolvedWorkspace}/devnet/lean15/installers`;
+        for (const [index, logicalMachineId] of logicalNodes.entries()) {
+          updateAutopilotStep(
+            'installers',
+            'running',
+            `Installing ${logicalMachineId} (${index + 1}/${logicalNodes.length})`,
+          );
+          const installScript = `${basePath}/${logicalMachineId}/install_and_start.sh`;
+          setLogicalNodeState(logicalMachineId, 'running', 'running installer');
+          try {
+            await runStrictCommand(`bash "${installScript}"`, resolvedWorkspace || null);
+            setLogicalNodeState(logicalMachineId, 'success', 'installer complete');
+            await sleep(AUTOPILOT_NODE_PAUSE_MS);
+          } catch (installError) {
+            setLogicalNodeState(logicalMachineId, 'failed', String(installError));
+            throw installError;
+          }
+        }
+      });
+
+      await runStep('validation', 'Validate local node readiness and snapshot', async () => {
+        const statusFailures = [];
+        const basePath = `${resolvedWorkspace}/devnet/lean15/installers`;
+
+        for (const [index, logicalMachineId] of logicalNodes.entries()) {
+          updateAutopilotStep(
+            'validation',
+            'running',
+            `Checking ${logicalMachineId} (${index + 1}/${logicalNodes.length})`,
+          );
+
+          let validated = false;
+          let localError = '';
+          let remoteError = '';
+          setLogicalNodeState(logicalMachineId, 'running', 'running status checks');
+
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            updateAutopilotStep(
+              'validation',
+              'running',
+              `Checking ${logicalMachineId} attempt ${attempt}/3`,
+            );
+
+            try {
+              await runStrictCommand(`bash "${basePath}/${logicalMachineId}/nodectl.sh" status`, resolvedWorkspace || null);
+              validated = true;
+              break;
+            } catch (localStatusError) {
+              localError = String(localStatusError);
+            }
+
+            try {
+              const result = await invoke('monitor_node_control', {
+                machineId: logicalMachineId,
+                action: 'status',
+              });
+              if (result?.success) {
+                validated = true;
+                break;
+              }
+              remoteError = String(result?.stderr || result?.stdout || 'remote status action unsuccessful');
+            } catch (remoteStatusError) {
+              remoteError = String(remoteStatusError);
+            }
+
+            await new Promise((resolve) => {
+              window.setTimeout(resolve, 2500);
+            });
+          }
+
+          if (!validated) {
+            setLogicalNodeState(logicalMachineId, 'failed', 'status validation failed');
+            statusFailures.push(
+              `${logicalMachineId}: local status failed (${localError || 'unknown'}), remote status failed (${remoteError || 'unknown'})`,
+            );
+            await sleep(AUTOPILOT_NODE_PAUSE_MS);
+            continue;
+          }
+
+          try {
+            const rpcResult = await invoke('monitor_node_control', {
+              machineId: logicalMachineId,
+              action: 'rpc:get_node_status',
+            });
+            if (!rpcResult?.success) {
+              addTerminalLine(
+                'info',
+                `${logicalMachineId}: rpc:get_node_status not ready yet (${rpcResult?.stderr || 'pending'})`,
+              );
+            }
+          } catch (rpcCheckError) {
+            addTerminalLine('info', `${logicalMachineId}: rpc:get_node_status check pending (${String(rpcCheckError)})`);
+          }
+
+          setLogicalNodeState(logicalMachineId, 'success', 'validated');
+          await sleep(AUTOPILOT_NODE_PAUSE_MS);
+        }
+
+        const snapshot = await invoke('get_monitor_snapshot');
+        const snapshotNodes = Array.isArray(snapshot?.nodes) ? snapshot.nodes : [];
+        const snapshotErrors = logicalNodes
+          .filter((machineId) =>
+            !snapshotNodes.some((entry) => String(entry?.node?.machine_id || '').toLowerCase() === machineId.toLowerCase()),
+          )
+          .map((machineId) => `${machineId}: missing from snapshot`);
+
+        statusFailures.push(...snapshotErrors);
+
+        if (statusFailures.length > 0) {
+          throw new Error(statusFailures.join(' | '));
+        }
+
+        addTerminalLine('success', `Validation passed for ${logicalNodes.join(', ')}`);
+      });
+
+      await runStep('complete', 'Mark setup complete', async () => {
+        await invoke('monitor_mark_setup_complete', {
+          physicalMachineId: selectedMachine,
+        });
+      });
+
+      await refreshSecurityState();
+      setStep(6);
+      setAutopilotSummary(
+        `Autonomous setup finished for ${selectedMachine}. Logical nodes: ${logicalNodes.join(', ')}.`,
+      );
+      setAutopilotCurrentStepLabel('Setup completed successfully');
+      setAutopilotCurrentCommand('');
+      addTerminalLine('success', `Autopilot finished for ${selectedMachine}.`);
+    } catch (autopilotError) {
+      setLogicalNodeStates((prev) => {
+        const next = { ...prev };
+        for (const logicalMachineId of runLogicalNodes) {
+          const currentStatus = next?.[logicalMachineId]?.status;
+          if (currentStatus === 'pending' || currentStatus === 'running') {
+            next[logicalMachineId] = {
+              status: 'failed',
+              detail: 'setup halted',
+              updated_at: Date.now(),
+            };
+          }
+        }
+        return next;
+      });
+      setError(String(autopilotError));
+      addTerminalLine('error', `Autopilot halted: ${String(autopilotError)}`);
+      setAutopilotCurrentStepLabel('Setup failed');
+      setAutopilotCurrentCommand('');
+    } finally {
+      setAutopilotBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (loading) return;
+    if (!autoStartMachineId) return;
+    if (autopilotBusy || nodeSetupBusy) return;
+
+    const machineId = autoStartMachineId;
+    setAutoStartMachineId('');
+    setStep(5);
+    addTerminalLine('info', `Auto-starting autonomous setup for ${machineId} from detected VPN identity.`);
+    void runAutonomousSetup(machineId, 'vpn-auto-detect');
+  }, [autoStartMachineId, autopilotBusy, loading, nodeSetupBusy]);
+
+  const finalizeSetupAndEnter = async () => {
+    setError('');
+    try {
+      await invoke('monitor_mark_setup_complete', {
+        physicalMachineId: selectedPhysicalMachine,
+      });
+      onComplete();
+    } catch (finalizeError) {
+      setError(String(finalizeError));
     }
   };
 
@@ -448,8 +978,8 @@ function InitialSetupWizard({ onComplete }) {
           <header className="wizard-title-block">
             <h2>Synergy Devnet Control Center Setup Wizard</h2>
             <p>
-              Complete operator onboarding, SSH profile configuration, and machine binding.
-              WireGuard setup is skipped because mesh VPN is already online.
+              Autonomous setup is now the recommended path. It runs each setup task visibly,
+              validates outcomes, and blocks dashboard access until setup is verified.
             </p>
             <p>
               Workspace:
@@ -468,6 +998,38 @@ function InitialSetupWizard({ onComplete }) {
                 <strong>{entry.title}</strong>
               </div>
             ))}
+          </div>
+
+          <div className="wizard-autopilot-card">
+            <div className="wizard-autopilot-header">
+              <h3>Autonomous Setup (Recommended)</h3>
+              <strong>{autopilotProgress}%</strong>
+            </div>
+            <div className="wizard-autopilot-track">
+              <div className="wizard-autopilot-fill" style={{ width: `${autopilotProgress}%` }}></div>
+            </div>
+            <div className="wizard-autopilot-grid">
+              {autopilotSteps.map((entry) => (
+                <div key={entry.key} className={`wizard-autopilot-step is-${entry.status}`}>
+                  <span>{entry.label}</span>
+                  <small>{entry.detail || entry.status}</small>
+                </div>
+              ))}
+            </div>
+            {vpnDetectionMessage ? <p className="wizard-note"><strong>{vpnDetectionMessage}</strong></p> : null}
+            {autopilotSummary ? <p className="wizard-note"><strong>{autopilotSummary}</strong></p> : null}
+            <div className="wizard-action-row">
+              <button
+                className="monitor-btn monitor-btn-primary"
+                onClick={runAutonomousSetup}
+                disabled={autopilotBusy || nodeSetupBusy}
+              >
+                {autopilotBusy ? 'Autonomous Setup Running...' : 'Run Autonomous Setup'}
+              </button>
+              <button className="monitor-btn" onClick={() => setStep(1)} disabled={autopilotBusy}>
+                Open Manual Steps
+              </button>
+            </div>
           </div>
 
           {step === 1 ? (
@@ -506,7 +1068,7 @@ function InitialSetupWizard({ onComplete }) {
                 </label>
               </div>
               <div className="wizard-action-row">
-                <button className="monitor-btn monitor-btn-primary" onClick={saveOperatorProfile}>
+                <button className="monitor-btn monitor-btn-primary" onClick={saveOperatorProfile} disabled={autopilotBusy}>
                   Save Operator And Continue
                 </button>
               </div>
@@ -542,7 +1104,7 @@ function InitialSetupWizard({ onComplete }) {
                 <li>Run <code>ls -lah keys/ssh</code> and verify private/public key files exist.</li>
               </ol>
               <div className="wizard-action-row">
-                <button className="monitor-btn monitor-btn-primary" onClick={() => setStep(3)}>
+                <button className="monitor-btn monitor-btn-primary" onClick={() => setStep(3)} disabled={autopilotBusy}>
                   Continue To SSH Profile
                 </button>
               </div>
@@ -599,7 +1161,7 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={sshProfileForm.remote_root}
                     onChange={(event) => setSshProfileForm((prev) => ({ ...prev, remote_root: event.target.value }))}
-                    placeholder="/opt/synergy"
+                    placeholder={`${workspacePath || '~/.synergy-node-monitor/monitor-workspace'}/devnet/lean15/installers`}
                   />
                 </label>
               </div>
@@ -611,7 +1173,7 @@ function InitialSetupWizard({ onComplete }) {
                 </p>
               ) : null}
               <div className="wizard-action-row">
-                <button className="monitor-btn monitor-btn-primary" onClick={saveSshProfile}>
+                <button className="monitor-btn monitor-btn-primary" onClick={saveSshProfile} disabled={autopilotBusy}>
                   Save SSH Profile And Continue
                 </button>
               </div>
@@ -683,7 +1245,7 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={bindingForm.host_override}
                     onChange={(event) => setBindingForm((prev) => ({ ...prev, host_override: event.target.value }))}
-                    placeholder="10.50.0.x or hostname"
+                    placeholder="10.50.0.x"
                   />
                 </label>
                 <label>
@@ -691,15 +1253,15 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={bindingForm.remote_dir_override}
                     onChange={(event) => setBindingForm((prev) => ({ ...prev, remote_dir_override: event.target.value }))}
-                    placeholder="/opt/synergy/machine-01"
+                    placeholder={`${workspacePath || '~/.synergy-node-monitor/monitor-workspace'}/devnet/lean15/installers/machine-01`}
                   />
                 </label>
               </div>
               <div className="wizard-action-row">
-                <button className="monitor-btn monitor-btn-primary" onClick={bindMachineProfile}>
+                <button className="monitor-btn monitor-btn-primary" onClick={bindMachineProfile} disabled={autopilotBusy}>
                   Bind Physical Machine Nodes And Continue
                 </button>
-                <button className="monitor-btn" onClick={() => setStep(5)}>
+                <button className="monitor-btn" onClick={() => setStep(5)} disabled={autopilotBusy}>
                   Skip Binding And Continue
                 </button>
               </div>
@@ -755,14 +1317,11 @@ function InitialSetupWizard({ onComplete }) {
                 <button
                   className="monitor-btn monitor-btn-primary"
                   onClick={runLocalNodeSetup}
-                  disabled={nodeSetupBusy}
+                  disabled={nodeSetupBusy || autopilotBusy}
                 >
                   {nodeSetupBusy ? 'Running Setup...' : 'Run Local Node Setup'}
                 </button>
-                <button
-                  className="monitor-btn"
-                  onClick={() => setStep(6)}
-                >
+                <button className="monitor-btn" onClick={() => setStep(6)} disabled={nodeSetupBusy || autopilotBusy}>
                   Continue
                 </button>
               </div>
@@ -773,18 +1332,11 @@ function InitialSetupWizard({ onComplete }) {
             <div className="wizard-section">
               <h3>Setup Ready</h3>
               <p>
-                You can now open the dashboard. If this machine has multiple assigned node slots,
-                verify each reports
-                {' '}
-                <code>online</code>
-                {' '}
-                after setup.
+                Entering the dashboard now requires setup completion to be marked in backend config.
+                If validation fails, this screen will show the exact blocking error.
               </p>
               <div className="wizard-action-row">
-                <button
-                  className="monitor-btn monitor-btn-primary"
-                  onClick={onComplete}
-                >
+                <button className="monitor-btn monitor-btn-primary" onClick={finalizeSetupAndEnter}>
                   Enter Control Center
                 </button>
               </div>
@@ -845,6 +1397,82 @@ function InitialSetupWizard({ onComplete }) {
         </aside>
       </div>
 
+      {autopilotBusy ? (
+        <div className="wizard-setup-overlay" role="status" aria-live="polite">
+          <div className="wizard-setup-overlay-card">
+            <div className="wizard-setup-overlay-head">
+              <h3>Autonomous Setup Running</h3>
+              <strong>{autopilotProgress}%</strong>
+            </div>
+            <p>
+              Target:
+              {' '}
+              <code>{selectedPhysicalMachine}</code>
+              {' '}
+              • Keep this window open.
+            </p>
+            <p>
+              Current step:
+              {' '}
+              <strong>{autopilotCurrentStepLabel || 'Preparing...'}</strong>
+            </p>
+            <p>
+              Current command:
+              {' '}
+              <code>{autopilotCurrentCommand || 'waiting...'}</code>
+            </p>
+            <div className="wizard-setup-overlay-track">
+              <div className="wizard-setup-overlay-fill" style={{ width: `${autopilotProgress}%` }}></div>
+            </div>
+            <div className="wizard-setup-overlay-topology">
+              <div className="wizard-setup-overlay-topology-head">
+                <h4>Node-By-Node Topology Progress</h4>
+                <p>Each logical node lights up as installer and validation steps complete.</p>
+              </div>
+              <div className="wizard-topology-physical-grid">
+                {overlayTopologyRows.map((row) => (
+                  <div key={row.machineId} className={`wizard-topology-physical-card ${selectedPhysicalMachine === row.machineId ? 'is-current' : ''}`}>
+                    <div className="wizard-topology-physical-head">
+                      <strong>{row.machineId}</strong>
+                      <small>{row.vpnIp}</small>
+                    </div>
+                    <div className="wizard-topology-node-list">
+                      {row.logicalNodes.map((logicalNode) => (
+                        <div
+                          key={logicalNode.machineId}
+                          className={`wizard-topology-node is-${logicalNode.state.status} ${logicalNode.isTarget ? 'is-target' : ''}`}
+                        >
+                          <span>{logicalNode.machineId}</span>
+                          <small>{logicalNode.role}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="wizard-setup-overlay-body">
+              <div className="wizard-setup-overlay-steps">
+                {autopilotSteps.map((entry) => (
+                  <div key={entry.key} className={`wizard-setup-overlay-step is-${entry.status}`}>
+                    <span>{entry.label}</span>
+                    <small>{entry.detail || entry.status}</small>
+                  </div>
+                ))}
+              </div>
+              <div className="wizard-setup-overlay-events">
+                {recentSetupLines.map((line) => (
+                  <div key={line.id} className={`wizard-setup-overlay-event ${line.kind}`}>
+                    <span>{line.at}</span>
+                    <strong>{line.text}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="wizard-terminal-panel">
         <div className="wizard-terminal-header">
           <span>Setup Terminal</span>
@@ -864,9 +1492,13 @@ function InitialSetupWizard({ onComplete }) {
             value={terminalInput}
             onChange={(event) => setTerminalInput(event.target.value)}
             placeholder="Run command (example: whoami)"
-            disabled={terminalBusy}
+            disabled={terminalBusy || autopilotBusy}
           />
-          <button className="monitor-btn" type="submit" disabled={terminalBusy || !terminalInput.trim()}>
+          <button
+            className="monitor-btn"
+            type="submit"
+            disabled={terminalBusy || autopilotBusy || !terminalInput.trim()}
+          >
             Run
           </button>
         </form>

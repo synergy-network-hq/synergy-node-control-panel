@@ -17,6 +17,7 @@ Operations:
   install_node          Copy installer bundle to remote machine
   setup_node            Deploy installer bundle and run install_and_start.sh
   bootstrap_node        install_node + wireguard_install + wireguard_connect + start
+  reset_chain           Stop node, delete local chain state, restart from genesis
   start                 nodectl start
   stop                  nodectl stop
   restart               nodectl restart
@@ -128,8 +129,69 @@ if [[ -z "$HOST" ]]; then
   exit 1
 fi
 
-SSH_ARGS=( -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p "$SSH_PORT" )
-SCP_ARGS=( -o BatchMode=yes -o StrictHostKeyChecking=accept-new -P "$SSH_PORT" )
+local_ipv4_list() {
+  if command -v ip >/dev/null 2>&1; then
+    ip -o -4 addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true
+  fi
+  if command -v ifconfig >/dev/null 2>&1; then
+    ifconfig 2>/dev/null | awk '/inet /{print $2}' || true
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    hostname -I 2>/dev/null | tr ' ' '\n' || true
+  fi
+}
+
+is_local_ip() {
+  local candidate="$1"
+  [[ -z "$candidate" ]] && return 1
+  [[ "$candidate" == "127.0.0.1" || "$candidate" == "::1" ]] && return 0
+  local_ipv4_list | grep -Fxq "$candidate"
+}
+
+is_local_host_token() {
+  local candidate
+  candidate="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  [[ -z "$candidate" ]] && return 1
+  [[ "$candidate" == "localhost" || "$candidate" == "127.0.0.1" || "$candidate" == "::1" ]] && return 0
+  if is_local_ip "$candidate"; then
+    return 0
+  fi
+  local host_short host_full
+  host_short="$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+  host_full="$(hostname -f 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+  [[ -n "$host_short" && "$candidate" == "$host_short" ]] && return 0
+  [[ -n "$host_full" && "$candidate" == "$host_full" ]] && return 0
+  return 1
+}
+
+IS_LOCAL_TARGET=0
+if is_local_host_token "$HOST" || { [[ -n "$VPN_IP" ]] && is_local_host_token "$VPN_IP"; }; then
+  IS_LOCAL_TARGET=1
+fi
+
+if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
+  LOCAL_INSTALLER_DIR="$INSTALLERS_DIR/$MACHINE_ID"
+  if [[ ! -d "$REMOTE_NODE_DIR" && -d "$LOCAL_INSTALLER_DIR" ]]; then
+    REMOTE_NODE_DIR="$LOCAL_INSTALLER_DIR"
+  fi
+fi
+
+SSH_ARGS=(
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=accept-new
+  -o ConnectTimeout=8
+  -o ConnectionAttempts=1
+  -o ServerAliveInterval=5
+  -o ServerAliveCountMax=2
+  -p "$SSH_PORT"
+)
+SCP_ARGS=(
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=accept-new
+  -o ConnectTimeout=8
+  -o ConnectionAttempts=1
+  -P "$SSH_PORT"
+)
 
 if [[ -n "$SSH_KEY" ]]; then
   SSH_ARGS+=( -i "$SSH_KEY" )
@@ -142,19 +204,33 @@ WG_CONFIG_FILE="$WIREGUARD_CONFIGS_DIR/$MACHINE_ID.conf"
 
 remote_run_script() {
   local script="$1"
-  ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "bash -s" <<<"$script"
+  if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
+    bash -s <<<"$script"
+  else
+    ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "bash -s" <<<"$script"
+  fi
 }
 
 copy_to_remote() {
   local local_path="$1"
   local remote_path="$2"
-  scp "${SCP_ARGS[@]}" "$local_path" "${REMOTE_TARGET}:$remote_path"
+  if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
+    mkdir -p "$(dirname "$remote_path")"
+    cp "$local_path" "$remote_path"
+  else
+    scp "${SCP_ARGS[@]}" "$local_path" "${REMOTE_TARGET}:$remote_path"
+  fi
 }
 
 copy_from_remote() {
   local remote_path="$1"
   local local_path="$2"
-  scp "${SCP_ARGS[@]}" "${REMOTE_TARGET}:$remote_path" "$local_path"
+  if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
+    mkdir -p "$(dirname "$local_path")"
+    cp "$remote_path" "$local_path"
+  else
+    scp "${SCP_ARGS[@]}" "${REMOTE_TARGET}:$remote_path" "$local_path"
+  fi
 }
 
 deploy_installer_bundle() {
@@ -193,6 +269,22 @@ fi
 cd '$REMOTE_NODE_DIR'
 ./nodectl.sh $command
 "
+}
+
+reset_chain() {
+  # Stop first, but do not fail if the process is already down.
+  run_nodectl "stop" || true
+
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+rm -rf data/chain data/devnet15/'$MACHINE_ID'/chain
+mkdir -p data/chain data/devnet15/'$MACHINE_ID'/chain data/logs
+echo 'Cleared chain data for $MACHINE_ID in $REMOTE_NODE_DIR'
+"
+
+  run_nodectl "start"
+  run_nodectl "status" || true
 }
 
 wireguard_install() {
@@ -349,6 +441,7 @@ show_info() {
 Machine:            $MACHINE_ID
 Host:               $HOST
 VPN IP:             ${VPN_IP:-unknown}
+Execution mode:     $([[ "$IS_LOCAL_TARGET" -eq 1 ]] && echo "local" || echo "ssh")
 SSH user:           $SSH_USER
 SSH port:           $SSH_PORT
 SSH key:            ${SSH_KEY:-default-agent}
@@ -373,6 +466,9 @@ case "$OPERATION" in
     wireguard_install
     wireguard_connect
     run_nodectl "start"
+    ;;
+  reset_chain)
+    reset_chain
     ;;
   start)
     run_nodectl "start"

@@ -7,6 +7,7 @@ const BULK_ACTIONS = [
   'start',
   'stop',
   'restart',
+  'reset_chain',
   'setup',
   'export_logs',
   'view_chain_data',
@@ -71,7 +72,7 @@ function OperatorConfigurationPage() {
     ssh_user: 'ops',
     ssh_port: '22',
     ssh_key_path: '~/.ssh/id_ed25519',
-    remote_root: '/opt/synergy',
+    remote_root: '',
   });
 
   const [newBinding, setNewBinding] = useState({
@@ -83,9 +84,23 @@ function OperatorConfigurationPage() {
 
   const fetchAll = async () => {
     try {
+      let resolvedWorkspace = '';
       if (!workspaceReady) {
-        await invoke('monitor_initialize_workspace');
+        const workspace = await invoke('monitor_initialize_workspace');
+        resolvedWorkspace = String(workspace || '').trim();
         setWorkspaceReady(true);
+      }
+      const defaultRemoteRoot = resolvedWorkspace
+        ? `${resolvedWorkspace}/devnet/lean15/installers`
+        : '';
+      if (defaultRemoteRoot) {
+        setNewSshProfile((prev) => ({
+          ...prev,
+          remote_root:
+            String(prev.remote_root || '').trim() && String(prev.remote_root || '').trim() !== '/opt/synergy'
+              ? prev.remote_root
+              : defaultRemoteRoot,
+        }));
       }
       const [snapshotData, securityData] = await Promise.all([
         invoke('get_monitor_snapshot'),
@@ -306,7 +321,7 @@ function OperatorConfigurationPage() {
           <code>ssh_port=22</code>
           ,
           {' '}
-          <code>remote_root=/opt/synergy</code>
+          <code>remote_root=&lt;workspace&gt;/devnet/lean15/installers</code>
           .
         </p>
       </article>
@@ -409,7 +424,7 @@ function OperatorConfigurationPage() {
           <p className="monitor-path">
             Recommended profile template:
             {' '}
-            <code>ops / Ops SSH Profile / ops / 22 / ~/.ssh/id_ed25519 /opt/synergy</code>
+            <code>ops / Ops SSH Profile / ops / 22 / ~/.ssh/id_ed25519 /&lt;workspace&gt;/devnet/lean15/installers</code>
           </p>
           <div className="monitor-form-grid">
             <input

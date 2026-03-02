@@ -60,22 +60,23 @@ ${machine_key}_SSH_PORT=22
 # ${machine_key}_WG_INTERFACE=synergy-devnet
 # ${machine_key}_WG_REMOTE_CONF=/etc/wireguard/synergy-devnet.conf
 
-${machine_key}_START_CMD=$ORCHESTRATOR_SCRIPT $machine_id start
-${machine_key}_STOP_CMD=$ORCHESTRATOR_SCRIPT $machine_id stop
-${machine_key}_RESTART_CMD=$ORCHESTRATOR_SCRIPT $machine_id restart
-${machine_key}_STATUS_CMD=$ORCHESTRATOR_SCRIPT $machine_id status
-${machine_key}_SETUP_CMD=$ORCHESTRATOR_SCRIPT $machine_id setup_node
-${machine_key}_EXPORT_LOGS_CMD=$ORCHESTRATOR_SCRIPT $machine_id export_logs
-${machine_key}_VIEW_CHAIN_DATA_CMD=$ORCHESTRATOR_SCRIPT $machine_id view_chain_data
-${machine_key}_EXPORT_CHAIN_DATA_CMD=$ORCHESTRATOR_SCRIPT $machine_id export_chain_data
+${machine_key}_START_CMD="$ORCHESTRATOR_SCRIPT $machine_id start"
+${machine_key}_STOP_CMD="$ORCHESTRATOR_SCRIPT $machine_id stop"
+${machine_key}_RESTART_CMD="$ORCHESTRATOR_SCRIPT $machine_id restart"
+${machine_key}_STATUS_CMD="$ORCHESTRATOR_SCRIPT $machine_id status"
+${machine_key}_SETUP_CMD="$ORCHESTRATOR_SCRIPT $machine_id setup_node"
+${machine_key}_EXPORT_LOGS_CMD="$ORCHESTRATOR_SCRIPT $machine_id export_logs"
+${machine_key}_VIEW_CHAIN_DATA_CMD="$ORCHESTRATOR_SCRIPT $machine_id view_chain_data"
+${machine_key}_EXPORT_CHAIN_DATA_CMD="$ORCHESTRATOR_SCRIPT $machine_id export_chain_data"
 
-${machine_key}_ACTION_INSTALL_NODE_CMD=$ORCHESTRATOR_SCRIPT $machine_id install_node
-${machine_key}_ACTION_BOOTSTRAP_NODE_CMD=$ORCHESTRATOR_SCRIPT $machine_id bootstrap_node
-${machine_key}_ACTION_WIREGUARD_INSTALL_CMD=$ORCHESTRATOR_SCRIPT $machine_id wireguard_install
-${machine_key}_ACTION_WIREGUARD_CONNECT_CMD=$ORCHESTRATOR_SCRIPT $machine_id wireguard_connect
-${machine_key}_ACTION_WIREGUARD_DISCONNECT_CMD=$ORCHESTRATOR_SCRIPT $machine_id wireguard_disconnect
-${machine_key}_ACTION_WIREGUARD_STATUS_CMD=$ORCHESTRATOR_SCRIPT $machine_id wireguard_status
-${machine_key}_ACTION_NODE_LOGS_CMD=$ORCHESTRATOR_SCRIPT $machine_id logs
+${machine_key}_ACTION_INSTALL_NODE_CMD="$ORCHESTRATOR_SCRIPT $machine_id install_node"
+${machine_key}_ACTION_BOOTSTRAP_NODE_CMD="$ORCHESTRATOR_SCRIPT $machine_id bootstrap_node"
+${machine_key}_ACTION_WIREGUARD_INSTALL_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_install"
+${machine_key}_ACTION_WIREGUARD_CONNECT_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_connect"
+${machine_key}_ACTION_WIREGUARD_DISCONNECT_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_disconnect"
+${machine_key}_ACTION_WIREGUARD_STATUS_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_status"
+${machine_key}_ACTION_NODE_LOGS_CMD="$ORCHESTRATOR_SCRIPT $machine_id logs"
+${machine_key}_ACTION_RESET_CHAIN_CMD="$ORCHESTRATOR_SCRIPT $machine_id reset_chain"
 
 ENTRY
 

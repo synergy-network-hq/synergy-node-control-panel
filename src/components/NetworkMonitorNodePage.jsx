@@ -195,6 +195,8 @@ function NetworkMonitorNodePage() {
     (nodeDetails?.role_operations || []).filter((action) => action?.category !== 'custom'),
   );
   const customActions = dedupeByKey(control?.custom_actions || []);
+  const resetChainAction = customActions.find((action) => action?.key === 'reset_chain');
+  const customActionsVisible = customActions.filter((action) => action?.key !== 'reset_chain');
 
   return (
     <section className="monitor-shell">
@@ -418,13 +420,28 @@ function NetworkMonitorNodePage() {
               >
                 {exportBusy ? 'Exporting Node Snapshot...' : 'Export Node Snapshot'}
               </button>
+              <button
+                className="monitor-btn monitor-btn-danger"
+                disabled={!resetChainAction?.configured || !!controlBusyAction}
+                onClick={() => {
+                  const approved = window.confirm(
+                    'Reset chain to genesis for this node? This stops the node, deletes local chain state, and restarts it.',
+                  );
+                  if (approved) {
+                    handleControlAction('reset_chain');
+                  }
+                }}
+                title="Stop node, delete chain data, and restart from genesis."
+              >
+                {controlBusyAction === 'reset_chain' ? 'Resetting Chain...' : 'Reset Chain (Genesis)'}
+              </button>
             </div>
 
-            {customActions.length > 0 && (
+            {customActionsVisible.length > 0 && (
               <div className="monitor-action-group">
                 <h5>Custom Machine Operations</h5>
                 <div className="monitor-control-buttons">
-                  {customActions.map((action) => (
+                  {customActionsVisible.map((action) => (
                     <button
                       key={action.key}
                       className="monitor-btn"
