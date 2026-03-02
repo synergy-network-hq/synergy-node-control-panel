@@ -39,18 +39,17 @@ fn setup_panic_hook() {
 }
 
 use crate::agent::{
-    agent_generate_wireguard_mesh, agent_get_inventory_machines, agent_monitor_initialize_workspace,
-    agent_prepare_hosts_env, agent_setup_node,
+    agent_generate_wireguard_mesh, agent_get_inventory_machines,
+    agent_monitor_initialize_workspace, agent_prepare_hosts_env, agent_setup_node,
 };
 use crate::monitor::{
     get_monitor_inventory_path, get_monitor_node_details, get_monitor_security_state,
     get_monitor_snapshot, get_monitor_user_manual_markdown, get_monitor_workspace_path,
-    monitor_assign_machine_ssh_profile, monitor_bulk_node_control, monitor_delete_operator,
-    monitor_delete_ssh_profile, monitor_export_node_data, monitor_initialize_workspace,
-    monitor_apply_eight_machine_topology,
-    monitor_detect_local_vpn_identity, monitor_get_setup_status, monitor_mark_setup_complete,
-    monitor_node_control, monitor_remove_machine_ssh_profile, monitor_run_terminal_command,
-    monitor_set_active_operator,
+    monitor_apply_eight_machine_topology, monitor_assign_machine_ssh_profile,
+    monitor_bulk_node_control, monitor_delete_operator, monitor_delete_ssh_profile,
+    monitor_detect_local_vpn_identity, monitor_export_node_data, monitor_get_setup_status,
+    monitor_initialize_workspace, monitor_mark_setup_complete, monitor_node_control,
+    monitor_remove_machine_ssh_profile, monitor_run_terminal_command, monitor_set_active_operator,
     monitor_upsert_operator, monitor_upsert_ssh_profile,
 };
 use crate::node_manager::monitoring::MonitoringService;

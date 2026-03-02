@@ -1,6 +1,6 @@
 use chrono::Utc;
 use futures_util::future::join_all;
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -414,14 +414,14 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
         vpn_ip: Some(vpn_ip.clone()),
         physical_machine_id: Some(physical_machine_id.to_string()),
         logical_machine_ids,
-        message: format!(
-            "Detected VPN IP {vpn_ip}; mapped to {physical_machine_id}."
-        ),
+        message: format!("Detected VPN IP {vpn_ip}; mapped to {physical_machine_id}."),
     })
 }
 
 #[tauri::command]
-pub fn monitor_mark_setup_complete(physical_machine_id: String) -> Result<MonitorSetupStatus, String> {
+pub fn monitor_mark_setup_complete(
+    physical_machine_id: String,
+) -> Result<MonitorSetupStatus, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
     enforce_security_admin(&actor)?;
@@ -1049,11 +1049,14 @@ pub fn monitor_run_terminal_command(
     {
         let path = PathBuf::from(candidate);
         if !path.is_dir() {
-            return Err(format!("cwd does not exist or is not a directory: {candidate}"));
+            return Err(format!(
+                "cwd does not exist or is not a directory: {candidate}"
+            ));
         }
         path
     } else {
-        std::env::current_dir().map_err(|error| format!("Failed to resolve current dir: {error}"))?
+        std::env::current_dir()
+            .map_err(|error| format!("Failed to resolve current dir: {error}"))?
     };
 
     let mut process = if cfg!(target_os = "windows") {
@@ -1072,10 +1075,7 @@ pub fn monitor_run_terminal_command(
         .map_err(|error| format!("Failed to execute command '{trimmed}': {error}"))?;
 
     let success = output.status.success();
-    let exit_code = output
-        .status
-        .code()
-        .unwrap_or(if success { 0 } else { 1 });
+    let exit_code = output.status.code().unwrap_or(if success { 0 } else { 1 });
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
@@ -1286,7 +1286,6 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
     }
 
     let mut nodes = Vec::new();
-    let local_vpn_ip = detect_local_vpn_ip();
 
     for (line_number, line) in lines.enumerate() {
         let trimmed = line.trim();
@@ -1334,8 +1333,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         let grpc_port = parse_port(get("grpc_port")?, "grpc_port")?;
         let discovery_port = parse_port(get("discovery_port")?, "discovery_port")?;
 
-        let rpc_host = resolve_local_rpc_host(&host, local_vpn_ip.as_deref());
-        let rpc_url = build_rpc_url(&rpc_host, rpc_port);
+        let rpc_url = build_rpc_url(&host, rpc_port);
 
         nodes.push(MonitorNode {
             node_address: node_addresses.get(&machine_id.to_lowercase()).cloned(),
@@ -1359,25 +1357,6 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
     }
 
     Ok(nodes)
-}
-
-fn resolve_local_rpc_host(host: &str, local_vpn_ip: Option<&str>) -> String {
-    let trimmed = host.trim();
-    if trimmed.is_empty() {
-        return host.to_string();
-    }
-
-    if trimmed.eq_ignore_ascii_case("localhost") || trimmed == "127.0.0.1" {
-        return "127.0.0.1".to_string();
-    }
-
-    if let Some(local_ip) = local_vpn_ip {
-        if trimmed == local_ip {
-            return "127.0.0.1".to_string();
-        }
-    }
-
-    host.to_string()
 }
 
 fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
@@ -1637,9 +1616,27 @@ async fn rpc_call(
         "params": params
     });
 
+    match rpc_call_once(client, rpc_url, &payload).await {
+        Ok(value) => Ok(value),
+        Err(primary_error) => {
+            if let Some(loopback_url) = maybe_local_loopback_rpc_url(rpc_url) {
+                if loopback_url != rpc_url {
+                    return rpc_call_once(client, &loopback_url, &payload)
+                        .await
+                        .map_err(|fallback_error| {
+                            format!("{primary_error} | fallback {loopback_url}: {fallback_error}")
+                        });
+                }
+            }
+            Err(primary_error)
+        }
+    }
+}
+
+async fn rpc_call_once(client: &Client, rpc_url: &str, payload: &Value) -> Result<Value, String> {
     let response = client
         .post(rpc_url)
-        .json(&payload)
+        .json(payload)
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1657,6 +1654,17 @@ async fn rpc_call(
         .get("result")
         .cloned()
         .ok_or_else(|| "Missing result field".to_string())
+}
+
+fn maybe_local_loopback_rpc_url(rpc_url: &str) -> Option<String> {
+    let local_vpn_ip = detect_local_vpn_ip()?;
+    let mut parsed = Url::parse(rpc_url).ok()?;
+    let host = parsed.host_str()?;
+    if host != local_vpn_ip {
+        return None;
+    }
+    parsed.set_host(Some("127.0.0.1")).ok()?;
+    Some(parsed.to_string())
 }
 
 fn parse_block_height(value: &Value) -> Option<u64> {
@@ -3606,13 +3614,18 @@ fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(),
     }
     let content = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read installer env {}: {error}", path.display()))?;
-    let mut lines = content.lines().map(|line| line.to_string()).collect::<Vec<_>>();
+    let mut lines = content
+        .lines()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
 
     let mut rpc_port: Option<String> = None;
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.starts_with("RPC_PORT=") {
-            rpc_port = trimmed.split_once('=').map(|(_, value)| value.trim().to_string());
+            rpc_port = trimmed
+                .split_once('=')
+                .map(|(_, value)| value.trim().to_string());
         }
     }
     let rpc_bind = format!(
@@ -3639,9 +3652,16 @@ fn apply_topology_to_installer_node_toml(path: &Path, vpn_ip: &str) -> Result<()
     if !path.is_file() {
         return Ok(());
     }
-    let content = fs::read_to_string(path)
-        .map_err(|error| format!("Failed to read installer config {}: {error}", path.display()))?;
-    let mut lines = content.lines().map(|line| line.to_string()).collect::<Vec<_>>();
+    let content = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "Failed to read installer config {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut lines = content
+        .lines()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
 
     let mut rpc_port = "48638".to_string();
     let mut p2p_port = "38638".to_string();
@@ -3690,7 +3710,10 @@ fn apply_topology_to_installer_node_toml(path: &Path, vpn_ip: &str) -> Result<()
 
 fn upsert_key_value_line(lines: &mut Vec<String>, key: &str, value: &str) {
     let prefix = format!("{key}=");
-    if let Some(index) = lines.iter().position(|line| line.trim_start().starts_with(&prefix)) {
+    if let Some(index) = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with(&prefix))
+    {
         lines[index] = format!("{key}={value}");
     } else {
         lines.push(format!("{key}={value}"));
@@ -3846,7 +3869,9 @@ fn build_monitor_setup_status(config: &MonitorSecurityConfig) -> MonitorSetupSta
     }
 }
 
-fn logical_nodes_for_physical_machine(physical_machine_id: &str) -> Result<Vec<&'static str>, String> {
+fn logical_nodes_for_physical_machine(
+    physical_machine_id: &str,
+) -> Result<Vec<&'static str>, String> {
     match physical_machine_id {
         "machine-01" => Ok(vec!["machine-01"]),
         "machine-02" => Ok(vec!["machine-02", "machine-15"]),
