@@ -1,6 +1,6 @@
 {
   "name": "synergy-node-monitor-panel",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "Synergy Network Devnet Node Monitoring Panel",
   "type": "module",
   "scripts": {
