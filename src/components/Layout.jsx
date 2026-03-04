@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { openHelpWindow } from '../lib/helpWindow';
-import { checkAndInstallAppUpdate } from '../lib/appUpdater';
+import { checkForUpdate, downloadAndInstallUpdate } from '../lib/appUpdater';
+
+const APP_VERSION = '2.0.1';
 
 function Layout({ children }) {
   const location = useLocation();
@@ -9,13 +11,58 @@ function Layout({ children }) {
   const onSettingsRoute = location.pathname === '/settings';
   const [updateStatus, setUpdateStatus] = useState('');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [availableVersion, setAvailableVersion] = useState('');
+  const [installing, setInstalling] = useState(false);
+
+  // Check for updates on mount and every 30 minutes
+  useEffect(() => {
+    const doCheck = async () => {
+      const result = await checkForUpdate();
+      if (result.available) {
+        setUpdateAvailable(true);
+        setAvailableVersion(result.version || '');
+      }
+    };
+    doCheck();
+    const interval = setInterval(doCheck, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const onCheckUpdates = async () => {
-    setCheckingUpdates(true);
-    setUpdateStatus('Checking for updates...');
-    const result = await checkAndInstallAppUpdate();
-    setUpdateStatus(result.message);
-    setCheckingUpdates(false);
+    if (updateAvailable) {
+      // Update is available — start the install process
+      setInstalling(true);
+      setUpdateStatus(`Installing update ${availableVersion}...`);
+      const result = await downloadAndInstallUpdate();
+      setUpdateStatus(result.message);
+      setInstalling(false);
+      if (result.status === 'installed') {
+        setUpdateAvailable(false);
+      }
+    } else {
+      // No update known yet — do a manual check
+      setCheckingUpdates(true);
+      setUpdateStatus('Checking for updates...');
+      const result = await checkForUpdate();
+      if (result.available) {
+        setUpdateAvailable(true);
+        setAvailableVersion(result.version || '');
+        setUpdateStatus(`Update ${result.version} is available!`);
+      } else if (result.error) {
+        setUpdateStatus(result.error);
+      } else {
+        setUpdateStatus('You are on the latest version.');
+      }
+      setCheckingUpdates(false);
+    }
+  };
+
+  const updateButtonLabel = () => {
+    if (installing) return 'Installing...';
+    if (checkingUpdates) return 'Checking...';
+    if (updateAvailable) return `Update Available${availableVersion ? ` (${availableVersion})` : ''}`;
+    return 'Check for Updates';
   };
 
   return (
@@ -29,7 +76,7 @@ function Layout({ children }) {
                 alt="Synergy Logo"
                 className="logo-icon-bg"
               />
-              <span className="brand-title">Synergy Devnet Control Center</span>
+              <span className="brand-title">Synergy Network</span>
             </div>
           </div>
 
@@ -38,11 +85,29 @@ function Layout({ children }) {
               {onSettingsRoute ? 'Dashboard' : 'Settings'}
             </Link>
             <button
-              className="btn-header"
+              className={`btn-header btn-update${updateAvailable ? ' btn-update-available' : ''}`}
               onClick={onCheckUpdates}
-              disabled={checkingUpdates}
+              disabled={checkingUpdates || installing}
+              title={updateAvailable ? `Update to ${availableVersion}` : 'Check for software updates'}
             >
-              {checkingUpdates ? 'Checking...' : 'Check Updates'}
+              {updateAvailable && !installing ? (
+                <svg
+                  className="update-icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              ) : null}
+              {updateButtonLabel()}
             </button>
             <button className="btn-header btn-help" onClick={openHelpWindow}>
               {onHelpRoute ? 'Help Window' : 'Help'}
@@ -53,8 +118,8 @@ function Layout({ children }) {
       <main className="app-main">{children}</main>
       <footer className="app-footer">
         {updateStatus ? <span>{updateStatus}</span> : null}
-        <span className="footer-copyright">© 2026 Synergy Network Devnet Operations</span>
-        <span className="footer-version">Control Center v1.0.0</span>
+        <span className="footer-copyright">&copy; 2026 Synergy Blockchain Labs Inc. All rights reserved.</span>
+        <span className="footer-version">Control Center v{APP_VERSION}</span>
       </footer>
     </div>
   );

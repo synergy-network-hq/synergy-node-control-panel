@@ -1,0 +1,326 @@
+{
+  "_meta": {
+    "description": "Synergy Devnet Genesis Block Configuration",
+    "chainId": 9999,
+    "token": "SNRG",
+    "genesisTimestamp": null,
+    "note": "Each devnet node receives 500,000 SNRG in the genesis block. Required stake amounts are automatically bonded on node setup."
+  },
+  "genesisAllocation": {
+    "perNodeAllocation": 500000,
+    "token": "SNRG",
+    "autoStake": true,
+    "autoStakeDescription": "When a node is set up, the required staking amount for its class is automatically bonded from its genesis allocation. The remainder stays liquid in the node's account."
+  },
+  "stakingRequirements": {
+    "Class I": { "amount": 100000, "token": "SNRG", "description": "Consensus Nodes — Validators, Committee, Archive, Audit" },
+    "Class II": { "amount": 250000, "token": "SNRG", "description": "Interoperability Nodes — Relayer, Witness, Oracle, UMA Coordinator, Cross-Chain Verifier" },
+    "Class III": { "amount": 50000, "token": "SNRG", "description": "Intelligence & Computation Nodes — Compute, AI Inference, PQC Crypto, Data Availability" },
+    "Class IV": { "amount": 10000, "token": "SNRG", "description": "Governance & Treasury Nodes — Governance Auditor, Treasury Controller, Security Council" },
+    "Class V": { "amount": 0, "token": "SNRG", "description": "Service & Support Nodes — RPC Gateway, Indexer, Observer (no staking required)" },
+    "N/A": { "amount": 0, "token": "SNRG", "description": "Infrastructure nodes — VPN Hub (no staking)" }
+  },
+  "nodeAccounts": {
+    "Machine-01": {
+      "nodes": [
+        {
+          "nodeType": "VPN Hub",
+          "nodeClass": "N/A",
+          "address": "synv0devnet01vpnhub0000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 0,
+          "liquidBalance": 500000,
+          "p2pPort": null
+        },
+        {
+          "nodeType": "Validator",
+          "nodeClass": "Class I",
+          "address": "synv1devnet01validator000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38638
+        }
+      ]
+    },
+    "Machine-02": {
+      "nodes": [
+        {
+          "nodeType": "Validator",
+          "nodeClass": "Class I",
+          "address": "synv1devnet02validator000000000000000000002",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38639
+        },
+        {
+          "nodeType": "Observer",
+          "nodeClass": "Class V",
+          "address": "synv5devnet02observer0000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 0,
+          "liquidBalance": 500000,
+          "p2pPort": 38640
+        }
+      ]
+    },
+    "Machine-03": {
+      "nodes": [
+        {
+          "nodeType": "Validator",
+          "nodeClass": "Class I",
+          "address": "synv1devnet03validator000000000000000000003",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38641
+        },
+        {
+          "nodeType": "Cross-Chain Verifier",
+          "nodeClass": "Class II",
+          "address": "synv2devnet03xcverifier00000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 250000,
+          "liquidBalance": 250000,
+          "p2pPort": 38642
+        }
+      ]
+    },
+    "Machine-04": {
+      "nodes": [
+        {
+          "nodeType": "Validator",
+          "nodeClass": "Class I",
+          "address": "synv1devnet04validator000000000000000000004",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38643
+        },
+        {
+          "nodeType": "Relayer",
+          "nodeClass": "Class II",
+          "address": "synv2devnet04relayer00000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 250000,
+          "liquidBalance": 250000,
+          "p2pPort": 38644
+        }
+      ]
+    },
+    "Machine-05": {
+      "nodes": [
+        {
+          "nodeType": "Validator",
+          "nodeClass": "Class I",
+          "address": "synv1devnet05validator000000000000000000005",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38645
+        },
+        {
+          "nodeType": "Committee",
+          "nodeClass": "Class I",
+          "address": "synv1devnet05committee00000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38646
+        }
+      ]
+    },
+    "Machine-06": {
+      "nodes": [
+        {
+          "nodeType": "Security Council",
+          "nodeClass": "Class IV",
+          "address": "synv4devnet06seccouncil0000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 10000,
+          "liquidBalance": 490000,
+          "p2pPort": 38647
+        },
+        {
+          "nodeType": "Oracle",
+          "nodeClass": "Class II",
+          "address": "synv2devnet06oracle000000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 250000,
+          "liquidBalance": 250000,
+          "p2pPort": 38648
+        }
+      ]
+    },
+    "Machine-07": {
+      "nodes": [
+        {
+          "nodeType": "Witness",
+          "nodeClass": "Class II",
+          "address": "synv2devnet07witness0000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 250000,
+          "liquidBalance": 250000,
+          "p2pPort": 38649
+        },
+        {
+          "nodeType": "RPC Gateway",
+          "nodeClass": "Class V",
+          "address": "synv5devnet07rpcgateway000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 0,
+          "liquidBalance": 500000,
+          "p2pPort": 38650
+        }
+      ]
+    },
+    "Machine-08": {
+      "nodes": [
+        {
+          "nodeType": "Indexer",
+          "nodeClass": "Class V",
+          "address": "synv5devnet08indexer00000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 0,
+          "liquidBalance": 500000,
+          "p2pPort": 38651
+        },
+        {
+          "nodeType": "PQC Crypto",
+          "nodeClass": "Class III",
+          "address": "synv3devnet08pqccrypto000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 50000,
+          "liquidBalance": 450000,
+          "p2pPort": 38652
+        }
+      ]
+    },
+    "Machine-09": {
+      "nodes": [
+        {
+          "nodeType": "Archive Validator",
+          "nodeClass": "Class I",
+          "address": "synv1devnet09archiveval00000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38653
+        },
+        {
+          "nodeType": "Audit Validator",
+          "nodeClass": "Class I",
+          "address": "synv1devnet09auditval000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 100000,
+          "liquidBalance": 400000,
+          "p2pPort": 38654
+        }
+      ]
+    },
+    "Machine-10": {
+      "nodes": [
+        {
+          "nodeType": "Data Availability",
+          "nodeClass": "Class III",
+          "address": "synv3devnet10dataavail000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 50000,
+          "liquidBalance": 450000,
+          "p2pPort": 38655
+        },
+        {
+          "nodeType": "GPU Node",
+          "nodeClass": null,
+          "address": "synv0devnet10gpunode00000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 0,
+          "liquidBalance": 500000,
+          "p2pPort": 38656
+        }
+      ]
+    },
+    "Machine-11": {
+      "nodes": [
+        {
+          "nodeType": "AI Inference",
+          "nodeClass": "Class III",
+          "address": "synv3devnet11aiinference0000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 50000,
+          "liquidBalance": 450000,
+          "p2pPort": 38657
+        },
+        {
+          "nodeType": "GPU Node",
+          "nodeClass": null,
+          "address": "synv0devnet11gpunode00000000000000000000002",
+          "genesisBalance": 500000,
+          "stakedAmount": 0,
+          "liquidBalance": 500000,
+          "p2pPort": 38658
+        }
+      ]
+    },
+    "Machine-12": {
+      "nodes": [
+        {
+          "nodeType": "UMA Coordinator",
+          "nodeClass": "Class II",
+          "address": "synv2devnet12umacoord000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 250000,
+          "liquidBalance": 250000,
+          "p2pPort": 38659
+        },
+        {
+          "nodeType": "Compute",
+          "nodeClass": "Class III",
+          "address": "synv3devnet12compute0000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 50000,
+          "liquidBalance": 450000,
+          "p2pPort": 38660
+        }
+      ]
+    },
+    "Machine-13": {
+      "nodes": [
+        {
+          "nodeType": "Treasury Controller",
+          "nodeClass": "Class IV",
+          "address": "synv4devnet13treasury000000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 10000,
+          "liquidBalance": 490000,
+          "p2pPort": 38661
+        },
+        {
+          "nodeType": "Governance Auditor",
+          "nodeClass": "Class IV",
+          "address": "synv4devnet13govauditor00000000000000000001",
+          "genesisBalance": 500000,
+          "stakedAmount": 10000,
+          "liquidBalance": 490000,
+          "p2pPort": 38662
+        }
+      ]
+    }
+  },
+  "genesisSummary": {
+    "totalNodes": 26,
+    "totalAllocated": 13000000,
+    "totalStaked": 2830000,
+    "totalLiquid": 10170000,
+    "breakdownByClass": {
+      "Class I": { "nodes": 8, "allocated": 4000000, "staked": 800000, "liquid": 3200000 },
+      "Class II": { "nodes": 5, "allocated": 2500000, "staked": 1250000, "liquid": 1250000 },
+      "Class III": { "nodes": 4, "allocated": 2000000, "staked": 200000, "liquid": 1800000 },
+      "Class IV": { "nodes": 3, "allocated": 1500000, "staked": 30000, "liquid": 1470000 },
+      "Class V": { "nodes": 3, "allocated": 1500000, "staked": 0, "liquid": 1500000 },
+      "N/A": { "nodes": 1, "allocated": 500000, "staked": 0, "liquid": 500000 },
+      "Special": { "nodes": 2, "allocated": 1000000, "staked": 0, "liquid": 1000000 }
+    }
+  }
+}

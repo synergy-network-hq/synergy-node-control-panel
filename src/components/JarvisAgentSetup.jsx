@@ -3,15 +3,20 @@ import { invoke } from '@tauri-apps/api/core';
 
 const WG_BOOTSTRAP_SEQUENCE = ['wireguard_install', 'wireguard_connect', 'wireguard_status'];
 const PROVISION_SEQUENCE = ['setup', 'start', 'status'];
-const EIGHT_DEVICE_NODE_LAYOUT = [
+const DEVNET_NODE_LAYOUT = [
   ['machine-01'],
-  ['machine-02', 'machine-06'],
-  ['machine-03', 'machine-07'],
-  ['machine-04', 'machine-08'],
-  ['machine-05', 'machine-09'],
+  ['machine-02', 'machine-03'],
+  ['machine-04', 'machine-05'],
+  ['machine-06', 'machine-07'],
+  ['machine-08', 'machine-09'],
   ['machine-10', 'machine-11'],
   ['machine-12', 'machine-13'],
   ['machine-14', 'machine-15'],
+  ['machine-16', 'machine-17'],
+  ['machine-18', 'machine-19'],
+  ['machine-20', 'machine-21'],
+  ['machine-22', 'machine-23'],
+  ['machine-24', 'machine-25'],
 ];
 
 function machineOrdinal(machineId) {
@@ -35,10 +40,10 @@ function computeAssignments(inventory, deviceCount, deviceHosts) {
 
   const inventorySet = new Set(inventory.map((entry) => entry.machine_id));
   if (
-    deviceCount === 8
-    && EIGHT_DEVICE_NODE_LAYOUT.every((group) => group.every((machineId) => inventorySet.has(machineId)))
+    deviceCount === 13
+    && DEVNET_NODE_LAYOUT.every((group) => group.every((machineId) => inventorySet.has(machineId)))
   ) {
-    return EIGHT_DEVICE_NODE_LAYOUT.map((machineIds, index) => ({
+    return DEVNET_NODE_LAYOUT.map((machineIds, index) => ({
       deviceIndex: index,
       deviceLabel: `device-${String(index + 1).padStart(2, '0')}`,
       host: String(deviceHosts[index] || '').trim(),
@@ -454,10 +459,10 @@ function JarvisAgentSetup() {
         } else {
           setCurrentDeviceIndex(1);
           setPhase('await_device_hosts');
-          if (parsed === 8) {
+          if (parsed === 13) {
             addMessage(
               'jarvis',
-              '8-device topology detected. I will use fixed placement: machine-01 only on device-01, then validator+secondary pairings across devices 02-08.',
+              '13-device topology detected. I will use fixed placement: machine-01 only on device-01, then node pairings across devices 02-13.',
             );
           }
           addMessage('jarvis', `Enter reachable SSH host/IP for device-02.`);

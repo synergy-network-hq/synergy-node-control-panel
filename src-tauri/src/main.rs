@@ -45,7 +45,7 @@ use crate::agent::{
 use crate::monitor::{
     get_monitor_inventory_path, get_monitor_node_details, get_monitor_security_state,
     get_monitor_snapshot, get_monitor_user_manual_markdown, get_monitor_workspace_path,
-    monitor_apply_eight_machine_topology, monitor_assign_machine_ssh_profile,
+    monitor_apply_devnet_topology, monitor_assign_machine_ssh_profile,
     monitor_bulk_node_control, monitor_delete_operator, monitor_delete_ssh_profile,
     monitor_detect_local_vpn_identity, monitor_export_node_data, monitor_get_setup_status,
     monitor_initialize_workspace, monitor_mark_setup_complete, monitor_node_control,
@@ -55,12 +55,13 @@ use crate::monitor::{
 use crate::node_manager::monitoring::MonitoringService;
 use blockchain::BlockchainService;
 use node_manager::{
-    capture_connection_diagnostics, check_initialization, check_multi_node_initialization,
-    get_all_nodes, get_available_node_types, get_block_validation_status, get_network_peers,
-    get_node_alerts, get_node_balance, get_node_by_id, get_node_config, get_node_health,
-    get_node_logs, get_node_status, get_peer_info, get_performance_history, get_rewards_data,
-    get_rpc_node_info, get_security_status, get_synergy_score_breakdown, get_system_metrics,
-    get_validator_activity, init_multi_node_environment, init_network_discovery,
+    auto_stake_node, capture_connection_diagnostics, check_initialization,
+    check_multi_node_initialization, generate_devnet_address, get_all_nodes,
+    get_available_node_types, get_block_validation_status, get_genesis_config, get_genesis_summary,
+    get_network_peers, get_node_alerts, get_node_balance, get_node_by_id, get_node_config,
+    get_node_health, get_node_logs, get_node_status, get_peer_info, get_performance_history,
+    get_rewards_data, get_rpc_node_info, get_security_status, get_synergy_score_breakdown,
+    get_system_metrics, get_validator_activity, init_multi_node_environment, init_network_discovery,
     init_node_environment, install_node_binaries, multi_node::MultiNodeManager,
     read_diagnostics_log, read_log_file, refresh_network_peers, reload_node_config, remove_node,
     restart_node, restart_node_by_id, save_node_config, setup_node, start_node, start_node_by_id,
@@ -158,6 +159,11 @@ async fn main() {
             agent_get_inventory_machines,
             agent_prepare_hosts_env,
             agent_generate_wireguard_mesh,
+            // Genesis and staking commands
+            get_genesis_config,
+            get_genesis_summary,
+            auto_stake_node,
+            generate_devnet_address,
             // Network discovery commands
             init_network_discovery,
             get_network_peers,
@@ -173,13 +179,12 @@ async fn main() {
             get_performance_history,
             capture_connection_diagnostics,
             read_diagnostics_log,
-            capture_connection_diagnostics,
             // Monitoring-only commands for remote 15-node devnet view
             get_monitor_inventory_path,
             get_monitor_workspace_path,
             get_monitor_user_manual_markdown,
             monitor_initialize_workspace,
-            monitor_apply_eight_machine_topology,
+            monitor_apply_devnet_topology,
             get_monitor_snapshot,
             get_monitor_node_details,
             monitor_node_control,

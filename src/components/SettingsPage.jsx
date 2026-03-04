@@ -4,11 +4,22 @@ import { invoke } from "@tauri-apps/api/tauri";
 import { save } from "@tauri-apps/api/dialog";
 import { writeTextFile } from "@tauri-apps/api/fs";
 
+function formatMonitorTimestamp(value) {
+  if (!value) return "N/A";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("node-details");
   const [nodeInfo, setNodeInfo] = useState(null);
   const [network, setNetwork] = useState("devnet");
   const [publicKey, setPublicKey] = useState("");
+  const [monitorInventoryPath, setMonitorInventoryPath] = useState("");
+  const [monitorCapturedAt, setMonitorCapturedAt] = useState("N/A");
+  const [monitorRoleSummary, setMonitorRoleSummary] = useState("N/A");
+  const [monitorTopologySummary, setMonitorTopologySummary] = useState("N/A");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -29,6 +40,35 @@ export default function SettingsPage() {
         // Get public key if available
         if (nodeInfo && nodeInfo.public_key) {
           setPublicKey(nodeInfo.public_key);
+        }
+
+        // Load monitor metadata for the subtle Settings panel.
+        try {
+          await invoke("monitor_initialize_workspace");
+          await invoke("monitor_apply_devnet_topology");
+          const [inventoryPath, monitorSnapshot] = await Promise.all([
+            invoke("get_monitor_inventory_path"),
+            invoke("get_monitor_snapshot"),
+          ]);
+          setMonitorInventoryPath(inventoryPath || "");
+          setMonitorCapturedAt(formatMonitorTimestamp(monitorSnapshot?.captured_at_utc));
+
+          const nodes = Array.isArray(monitorSnapshot?.nodes) ? monitorSnapshot.nodes : [];
+          const roleCounts = {};
+          nodes.forEach((entry) => {
+            const group = entry?.node?.role_group || "unknown";
+            roleCounts[group] = (roleCounts[group] || 0) + 1;
+          });
+          const roleSummary = Object.entries(roleCounts)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([group, count]) => `${group}: ${count}`)
+            .join(" | ");
+          setMonitorRoleSummary(roleSummary || "N/A");
+          setMonitorTopologySummary(
+            "25 node slots are distributed across 13 physical machines (Machine-01 through Machine-13).",
+          );
+        } catch (monitorErr) {
+          console.warn("Failed to load monitor metadata in settings:", monitorErr);
         }
 
       } catch (err) {
@@ -235,6 +275,26 @@ export default function SettingsPage() {
                 <span className="info-label">Node Identifier:</span>
                 <span className="info-value">SNR (Synergy Node Record)</span>
               </div>
+            </div>
+
+            <div className="monitor-metadata-subtle">
+              <h5>Monitor Metadata</h5>
+              <p>
+                Inventory:
+                {" "}
+                <code>{monitorInventoryPath || "Not resolved"}</code>
+              </p>
+              <p>
+                Captured:
+                {" "}
+                <span>{monitorCapturedAt}</span>
+              </p>
+              <p>{monitorRoleSummary}</p>
+              <p>
+                Topology mode:
+                {" "}
+                {monitorTopologySummary}
+              </p>
             </div>
           </div>
         )}

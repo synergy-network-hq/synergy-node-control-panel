@@ -5,6 +5,7 @@ pub mod commands;
 pub mod config;
 pub mod config_editor;
 pub mod crypto;
+pub mod genesis;
 pub mod init;
 pub mod installer;
 pub mod logs;
@@ -67,6 +68,9 @@ pub use multi_node_process::{
 
 // Re-export config editor commands
 pub use config_editor::{get_node_config, reload_node_config, save_node_config};
+
+// Re-export genesis commands
+pub use genesis::{auto_stake_node, generate_devnet_address, get_genesis_config, get_genesis_summary};
 
 // Re-export system metrics commands
 pub use system_metrics::{

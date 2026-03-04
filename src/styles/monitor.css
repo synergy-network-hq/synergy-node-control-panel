@@ -9,17 +9,27 @@
 .monitor-toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 1rem;
-  padding: 1rem 1.25rem;
+  padding: 0.95rem 1.1rem;
   background: var(--snrg-bg-glass-medium);
   border: 1px solid var(--snrg-border-neutral-medium);
   border-radius: 14px;
 }
 
+.monitor-toolbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+}
+
 .monitor-toolbar-left h2 {
-  margin: 0 0 0.35rem 0;
+  margin: 0;
   font-family: var(--snrg-font-primary);
+  font-size: 1.35rem;
+  line-height: 1.15;
 }
 
 .monitor-path {
@@ -30,9 +40,11 @@
 
 .monitor-toolbar-right {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  align-content: flex-start;
   gap: 0.65rem;
   flex-wrap: wrap;
+  max-width: 42%;
 }
 
 .monitor-btn {
@@ -109,42 +121,52 @@
 
 .monitor-cards {
   display: grid;
-  grid-template-columns: repeat(5, minmax(160px, 1fr));
-  gap: 0.85rem;
+  grid-template-columns: repeat(5, minmax(106px, 1fr));
+  gap: 0.46rem;
+}
+
+.monitor-cards-compact {
+  max-width: 760px;
 }
 
 .monitor-card {
-  padding: 0.9rem 1rem;
-  border-radius: 12px;
+  padding: 0.5rem 0.56rem;
+  border-radius: 10px;
   border: 1px solid var(--snrg-border-neutral-medium);
   background: var(--snrg-bg-glass-medium);
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.2rem;
 }
 
 .monitor-card span {
   color: var(--snrg-text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.66rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
 }
 
 .monitor-card strong {
   color: var(--snrg-text-primary);
-  font-size: 1.35rem;
+  font-size: 1rem;
+  line-height: 1.1;
 }
 
-.monitor-card-online {
-  border-color: var(--snrg-success-border);
+.monitor-card-border-lime {
+  border-color: var(--snrg-border-lime-strong);
 }
 
-.monitor-card-offline {
-  border-color: var(--snrg-error-border);
+.monitor-card-border-cyan {
+  border-color: var(--snrg-border-cyan-strong);
 }
 
-.monitor-card-sync {
-  border-color: var(--snrg-warning-border);
+.monitor-card-border-purple {
+  border-color: var(--snrg-border-purple-strong);
+}
+
+.monitor-card-border-blue {
+  border-color: var(--snrg-border-blue-strong);
 }
 
 .monitor-error-box {
@@ -154,6 +176,92 @@
   border-radius: 12px;
   padding: 0.75rem 1rem;
   font-size: 0.88rem;
+  position: relative;
+}
+
+.monitor-success-box {
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--snrg-text-primary);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font-size: 0.88rem;
+  position: relative;
+}
+
+.monitor-dismiss-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  color: var(--snrg-text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.2rem;
+}
+
+.monitor-dismiss-btn:hover {
+  color: var(--snrg-text-primary);
+}
+
+/* Global Reset Confirmation Overlay */
+.monitor-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.monitor-confirm-dialog {
+  background: var(--snrg-bg-secondary);
+  border: 1px solid var(--snrg-error-border);
+  border-radius: 16px;
+  padding: 1.5rem 2rem;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.monitor-confirm-dialog h3 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.2rem;
+  color: var(--snrg-text-primary);
+}
+
+.monitor-confirm-dialog p {
+  font-size: 0.88rem;
+  color: var(--snrg-text-secondary);
+  margin: 0.5rem 0;
+  line-height: 1.5;
+}
+
+.monitor-confirm-dialog ul {
+  margin: 0.5rem 0 0.75rem 1.2rem;
+  padding: 0;
+  font-size: 0.84rem;
+  color: var(--snrg-text-secondary);
+  line-height: 1.7;
+}
+
+.monitor-confirm-warning {
+  color: #ff5f6d !important;
+  font-weight: 600;
+  font-size: 0.85rem !important;
+}
+
+.monitor-confirm-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
 }
 
 .monitor-table-wrap {
@@ -231,6 +339,10 @@
 @media (max-width: 1100px) {
   .monitor-toolbar {
     flex-direction: column;
+  }
+
+  .monitor-toolbar-right {
+    max-width: 100%;
   }
 
   .monitor-cards {

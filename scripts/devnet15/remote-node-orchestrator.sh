@@ -13,11 +13,11 @@ usage() {
   cat <<USAGE
 Usage: $0 <machine-id> <operation>
 
-Operations:
+Core Operations:
   install_node          Copy installer bundle to remote machine
   setup_node            Deploy installer bundle and run install_and_start.sh
   bootstrap_node        install_node + wireguard_install + wireguard_connect + start
-  reset_chain           Stop node, delete local chain state, restart from genesis
+  reset_chain           Stop node, delete ALL chain state, redeploy config, restart from genesis
   start                 nodectl start
   stop                  nodectl stop
   restart               nodectl restart
@@ -26,11 +26,24 @@ Operations:
   export_logs           Download logs archive from remote machine to local reports dir
   view_chain_data       Show chain data size and top files on remote machine
   export_chain_data     Download chain data archive from remote machine to local reports dir
+  wireguard_status      Show WireGuard mesh VPN status, peer reachability, and transfer stats
   wireguard_install     Install wireguard tooling on remote machine (best-effort)
   wireguard_connect     Upload WireGuard config and bring tunnel up
   wireguard_disconnect  Bring tunnel down
-  wireguard_status      Show wireguard tunnel status
   wireguard_restart     Reapply WireGuard config (down/up)
+
+Node-Type-Specific Operations:
+  rotate_vrf_key            [Validator]       Rotate VRF keypair and restart
+  verify_archive_integrity  [Archive Val.]    Verify retained chain data integrity
+  flush_relay_queue         [Relayer]         Force-submit pending relay messages
+  force_feed_update         [Oracle]          Trigger immediate price feed refresh
+  drain_compute_queue       [Compute]         Stop accepting tasks, finish active ones
+  reload_models             [AI Inference]    Hot-reload AI model weights
+  rotate_pqc_keys           [PQC Crypto]      Rotate post-quantum keys (Aegis Suite)
+  run_pqc_benchmark         [PQC Crypto]      Benchmark PQC signing/verification
+  trigger_da_sample         [Data Avail.]     Trigger data availability sampling round
+  reindex_from_height       [Indexer]         Reindex from genesis
+
   info                  Print resolved host/ssh/paths for this machine
 
 Required local files:
@@ -316,10 +329,25 @@ reset_chain() {
   remote_run_script "
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
+
+# Remove all chain state, logs, and runtime artifacts so the node
+# reinitializes from genesis on next start.
 rm -rf data/chain data/devnet15/'$MACHINE_ID'/chain
-mkdir -p data/chain data/devnet15/'$MACHINE_ID'/chain data/logs
-echo 'Cleared chain data for $MACHINE_ID in $REMOTE_NODE_DIR'
+rm -rf data/devnet15/'$MACHINE_ID'/logs
+rm -f  data/chain.json data/token_state.json data/validator_registry.json
+rm -f  data/synergy-devnet.pid data/.reset_flag
+rm -f  data/node.pid
+
+# Recreate the directory skeleton the node binary expects.
+mkdir -p data/chain data/devnet15/'$MACHINE_ID'/chain data/devnet15/'$MACHINE_ID'/logs data/logs
+echo 'Cleared all chain state for $MACHINE_ID in $REMOTE_NODE_DIR — node will start from genesis.'
 "
+
+  # Re-deploy the installer bundle so the node picks up the latest
+  # configs and genesis parameters before restarting.
+  if [[ -d "$INSTALLER_DIR" ]]; then
+    deploy_installer_bundle
+  fi
 
   run_nodectl "start"
   run_nodectl "status" || true
@@ -328,31 +356,154 @@ echo 'Cleared chain data for $MACHINE_ID in $REMOTE_NODE_DIR'
 wireguard_install() {
   remote_run_script "
 set -euo pipefail
-if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
-  echo 'WireGuard tools already installed.'
-  exit 0
-fi
-if command -v apt-get >/dev/null 2>&1; then
-  if command -v sudo >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y wireguard wireguard-tools; else apt-get update -y && apt-get install -y wireguard wireguard-tools; fi
-elif command -v dnf >/dev/null 2>&1; then
-  if command -v sudo >/dev/null 2>&1; then sudo dnf install -y wireguard-tools; else dnf install -y wireguard-tools; fi
-elif command -v yum >/dev/null 2>&1; then
-  if command -v sudo >/dev/null 2>&1; then sudo yum install -y wireguard-tools; else yum install -y wireguard-tools; fi
-elif command -v pacman >/dev/null 2>&1; then
-  if command -v sudo >/dev/null 2>&1; then sudo pacman -Sy --noconfirm wireguard-tools; else pacman -Sy --noconfirm wireguard-tools; fi
-elif command -v brew >/dev/null 2>&1; then
-  brew list wireguard-tools >/dev/null 2>&1 || brew install wireguard-tools
+
+# ── Step 1: Install WireGuard tools if missing ──
+if ! command -v wg >/dev/null 2>&1 || ! command -v wg-quick >/dev/null 2>&1; then
+  echo 'Installing WireGuard tools...'
+  if command -v apt-get >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y wireguard wireguard-tools; else apt-get update -y && apt-get install -y wireguard wireguard-tools; fi
+  elif command -v dnf >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then sudo dnf install -y wireguard-tools; else dnf install -y wireguard-tools; fi
+  elif command -v yum >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then sudo yum install -y wireguard-tools; else yum install -y wireguard-tools; fi
+  elif command -v pacman >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then sudo pacman -Sy --noconfirm wireguard-tools; else pacman -Sy --noconfirm wireguard-tools; fi
+  elif command -v brew >/dev/null 2>&1; then
+    brew list wireguard-tools >/dev/null 2>&1 || brew install wireguard-tools
+  else
+    echo 'Unable to install wireguard-tools automatically (unsupported package manager).' >&2
+    exit 1
+  fi
 else
-  echo 'Unable to install wireguard-tools automatically (unsupported package manager).' >&2
-  exit 1
+  echo 'WireGuard tools already installed.'
+fi
+
+# ── Step 2: Import existing WireGuard config if present ──
+# Search known locations for an existing wg0.conf and install it
+# to /etc/wireguard/ so that wireguard_connect and other functions work.
+EXISTING_CONF=''
+SEARCH_PATHS=(
+  \"\$HOME/wireguard/wg0.conf\"
+  '/etc/wireguard/wg0.conf'
+  '/opt/wireguard/wg0.conf'
+  '/usr/local/etc/wireguard/wg0.conf'
+  'C:/WireGuard/wg0.conf'
+  'C:/Program Files/WireGuard/Data/Configurations/wg0.conf.dpapi'
+)
+for candidate in \"\${SEARCH_PATHS[@]}\"; do
+  if [[ -f \"\$candidate\" ]]; then
+    EXISTING_CONF=\"\$candidate\"
+    break
+  fi
+done
+
+if [[ -n \"\$EXISTING_CONF\" ]]; then
+  echo \"Found existing WireGuard config at: \$EXISTING_CONF\"
+  TARGET='/etc/wireguard/wg0.conf'
+  # Only copy if the config isn't already at the target location
+  if [[ \"\$EXISTING_CONF\" != \"\$TARGET\" ]]; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo mkdir -p /etc/wireguard
+      sudo install -m 600 \"\$EXISTING_CONF\" \"\$TARGET\"
+    else
+      mkdir -p /etc/wireguard
+      install -m 600 \"\$EXISTING_CONF\" \"\$TARGET\"
+    fi
+    echo \"Imported WireGuard config to \$TARGET\"
+  else
+    echo \"Config already at \$TARGET — no import needed.\"
+  fi
+  # Bring up the interface if it's not already running
+  if command -v wg-quick >/dev/null 2>&1; then
+    IFACE='wg0'
+    if command -v sudo >/dev/null 2>&1; then
+      if ! sudo wg show \"\$IFACE\" >/dev/null 2>&1; then
+        echo \"Bringing up WireGuard interface \$IFACE...\"
+        sudo wg-quick up \"\$IFACE\" || echo \"Warning: failed to bring up \$IFACE (may need manual config).\"
+      else
+        echo \"WireGuard interface \$IFACE is already active.\"
+      fi
+    else
+      if ! wg show \"\$IFACE\" >/dev/null 2>&1; then
+        echo \"Bringing up WireGuard interface \$IFACE...\"
+        wg-quick up \"\$IFACE\" || echo \"Warning: failed to bring up \$IFACE (may need manual config).\"
+      else
+        echo \"WireGuard interface \$IFACE is already active.\"
+      fi
+    fi
+  fi
+else
+  echo 'No existing WireGuard config found at known locations.'
+  echo 'Searched: ~/wireguard/wg0.conf, /etc/wireguard/wg0.conf, /opt/wireguard/wg0.conf, /usr/local/etc/wireguard/wg0.conf'
+  echo 'You can upload a config via wireguard_connect, or place wg0.conf in one of the above paths and re-run.'
 fi
 "
 }
 
 wireguard_connect() {
   if [[ ! -f "$WG_CONFIG_FILE" ]]; then
-    echo "WireGuard config missing: $WG_CONFIG_FILE" >&2
-    echo "Run scripts/devnet15/generate-wireguard-mesh.sh first." >&2
+    # Try to use existing remote config instead of failing
+    echo "Local WireGuard config not found at: $WG_CONFIG_FILE"
+    echo "Checking if remote machine already has a WireGuard config..."
+
+    local remote_has_config
+    remote_has_config="$(remote_run_script "
+set -euo pipefail
+SEARCH_PATHS=(
+  \"\$HOME/wireguard/wg0.conf\"
+  '/etc/wireguard/wg0.conf'
+  '/opt/wireguard/wg0.conf'
+  '/usr/local/etc/wireguard/wg0.conf'
+)
+for candidate in \"\${SEARCH_PATHS[@]}\"; do
+  if [[ -f \"\$candidate\" ]]; then
+    echo \"\$candidate\"
+    exit 0
+  fi
+done
+echo ''
+" 2>/dev/null | tr -d '\r' | tail -n1)"
+
+    if [[ -n "$remote_has_config" ]]; then
+      echo "Found existing config on remote at: $remote_has_config"
+      echo "Importing and activating..."
+      local wg_interface_effective
+      wg_interface_effective="$(resolve_remote_wireguard_interface "$WG_INTERFACE")"
+      local wg_remote_conf_effective="$WG_REMOTE_CONF"
+      if [[ "$WG_REMOTE_CONF" == "/etc/wireguard/${WG_INTERFACE}.conf" ]]; then
+        wg_remote_conf_effective="/etc/wireguard/${wg_interface_effective}.conf"
+      fi
+
+      remote_run_script "
+set -euo pipefail
+SOURCE='$remote_has_config'
+TARGET='$wg_remote_conf_effective'
+if [[ \"\$SOURCE\" != \"\$TARGET\" ]]; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo mkdir -p /etc/wireguard
+    sudo install -m 600 \"\$SOURCE\" \"\$TARGET\"
+  else
+    mkdir -p /etc/wireguard
+    install -m 600 \"\$SOURCE\" \"\$TARGET\"
+  fi
+fi
+if command -v sudo >/dev/null 2>&1; then
+  sudo wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
+  sudo wg-quick up '$wg_interface_effective'
+  sudo wg show '$wg_interface_effective' || true
+else
+  wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
+  wg-quick up '$wg_interface_effective'
+  wg show '$wg_interface_effective' || true
+fi
+"
+      WG_INTERFACE="$wg_interface_effective"
+      WG_REMOTE_CONF="$wg_remote_conf_effective"
+      return 0
+    fi
+
+    echo "No WireGuard config found on remote machine either." >&2
+    echo "Run scripts/devnet15/generate-wireguard-mesh.sh or place wg0.conf on the remote machine." >&2
     exit 1
   fi
 
@@ -416,10 +567,49 @@ wireguard_status() {
 
   remote_run_script "
 set -euo pipefail
-if command -v sudo >/dev/null 2>&1; then
-  sudo wg show '$wg_interface_effective' || true
-else
-  wg show '$wg_interface_effective' || true
+echo '=== WireGuard Mesh VPN Status for $MACHINE_ID ==='
+echo ''
+
+# Interface and endpoint info
+WG_CMD='wg'
+if command -v sudo >/dev/null 2>&1; then WG_CMD='sudo wg'; fi
+
+if ! command -v wg >/dev/null 2>&1; then
+  echo 'WireGuard tools NOT installed on this machine.'
+  exit 0
+fi
+
+echo '--- Interface: $wg_interface_effective ---'
+\$WG_CMD show '$wg_interface_effective' 2>/dev/null || {
+  echo 'Interface $wg_interface_effective is DOWN or not configured.'
+  exit 0
+}
+
+echo ''
+echo '--- Local VPN Address ---'
+ip -4 addr show dev '$wg_interface_effective' 2>/dev/null | grep inet || echo 'No IPv4 address assigned'
+
+echo ''
+echo '--- Mesh Peer Reachability ---'
+for peer_ip in \$(ip -4 route show dev '$wg_interface_effective' 2>/dev/null | awk '{print \$1}' | grep -v '/'); do
+  if ping -c 1 -W 1 \"\$peer_ip\" >/dev/null 2>&1; then
+    echo \"  \$peer_ip  ✓ reachable\"
+  else
+    echo \"  \$peer_ip  ✗ unreachable\"
+  fi
+done
+
+echo ''
+echo '--- Connection Summary ---'
+TOTAL_PEERS=\$(\$WG_CMD show '$wg_interface_effective' peers 2>/dev/null | wc -l)
+HANDSHAKE_PEERS=\$(\$WG_CMD show '$wg_interface_effective' latest-handshakes 2>/dev/null | awk '\$2 != \"0\" {n++} END {print n+0}')
+echo \"Connected peers: \$HANDSHAKE_PEERS / \$TOTAL_PEERS\"
+
+TRANSFER=\$(\$WG_CMD show '$wg_interface_effective' transfer 2>/dev/null)
+if [[ -n \"\$TRANSFER\" ]]; then
+  echo ''
+  echo '--- Transfer Stats (bytes rx / tx per peer) ---'
+  echo \"\$TRANSFER\"
 fi
 "
 
@@ -494,6 +684,179 @@ echo '$remote_archive'
   echo "Exported chain data to $local_archive"
 }
 
+# ── Node-type-specific shell operations ──────────────────────────────────
+
+# Class I — Validator: rotate VRF keypair
+rotate_vrf_key() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Rotating VRF key for $MACHINE_ID...'
+if [[ -f keys/vrf_private.key ]]; then
+  cp keys/vrf_private.key keys/vrf_private.key.bak.\$(date +%s)
+fi
+./bin/synergy-devnet-\$(uname -s | tr A-Z a-z)-\$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') keygen --type vrf --output keys/ 2>/dev/null || {
+  echo 'VRF key generation tool not available in binary. Generate manually.' >&2
+  exit 1
+}
+echo 'VRF key rotated. Restart the node to apply the new key.'
+"
+  run_nodectl "restart"
+  run_nodectl "status" || true
+}
+
+# Class I — Archive Validator: verify integrity of retained chain data
+verify_archive_integrity() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Verifying archive integrity for $MACHINE_ID...'
+CHAIN_DIR=data/devnet15/$MACHINE_ID/chain
+if [[ ! -d \"\$CHAIN_DIR\" ]]; then
+  echo 'Chain directory not found: \$CHAIN_DIR' >&2
+  exit 1
+fi
+BLOCK_COUNT=\$(find \"\$CHAIN_DIR\" -name '*.db' -o -name '*.sst' -o -name '*.ldb' 2>/dev/null | wc -l)
+TOTAL_SIZE=\$(du -sh \"\$CHAIN_DIR\" | cut -f1)
+echo \"Archive data directory: \$CHAIN_DIR\"
+echo \"Total size: \$TOTAL_SIZE\"
+echo \"Database files: \$BLOCK_COUNT\"
+# Check for corruption markers
+if ls \"\$CHAIN_DIR\"/*.corrupt 2>/dev/null | head -1 >/dev/null 2>&1; then
+  echo 'WARNING: Corruption markers found!'
+  ls -la \"\$CHAIN_DIR\"/*.corrupt
+else
+  echo 'No corruption markers detected.'
+fi
+echo 'Archive integrity check complete.'
+"
+}
+
+# Class II — Relayer: flush pending relay queue
+flush_relay_queue() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Flushing relay queue for $MACHINE_ID...'
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_flushRelayQueue\",\"params\":[],\"id\":1}'
+echo ''
+echo 'Relay queue flush requested.'
+"
+}
+
+# Class II — Oracle: force an immediate price feed update
+force_feed_update() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Forcing oracle feed update for $MACHINE_ID...'
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_forceOracleFeedUpdate\",\"params\":[],\"id\":1}'
+echo ''
+echo 'Feed update triggered.'
+"
+}
+
+# Class III — Compute: drain task queue gracefully
+drain_compute_queue() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Draining compute queue for $MACHINE_ID...'
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_drainComputeQueue\",\"params\":[],\"id\":1}'
+echo ''
+echo 'Compute queue drain initiated. Node will finish active tasks and reject new ones.'
+"
+}
+
+# Class III — AI Inference: hot-reload models without restart
+reload_models() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Reloading AI models for $MACHINE_ID...'
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_reloadModels\",\"params\":[],\"id\":1}'
+echo ''
+echo 'Model reload requested.'
+"
+}
+
+# Class III — PQC Crypto: rotate post-quantum keys
+rotate_pqc_keys() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Rotating PQC keys for $MACHINE_ID (Aegis Suite: ML-KEM-512, Dilithium-3, SLH-DSA, FN-DSA)...'
+if [[ -d keys/pqc ]]; then
+  cp -r keys/pqc keys/pqc.bak.\$(date +%s)
+fi
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_rotatePqcKeys\",\"params\":[],\"id\":1}'
+echo ''
+echo 'PQC key rotation requested.'
+"
+}
+
+# Class III — PQC Crypto: benchmark signing/verification performance
+run_pqc_benchmark() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Running PQC benchmark on $MACHINE_ID...'
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_runPqcBenchmark\",\"params\":[],\"id\":1}'
+echo ''
+echo 'PQC benchmark complete.'
+"
+}
+
+# Class III — Data Availability: trigger a DA sampling round
+trigger_da_sample() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Triggering DA sampling round on $MACHINE_ID...'
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_triggerDaSample\",\"params\":[],\"id\":1}'
+echo ''
+echo 'DA sampling round triggered.'
+"
+}
+
+# Class V — Indexer: reindex from a specific block height
+reindex_from_height() {
+  remote_run_script "
+set -euo pipefail
+cd '$REMOTE_NODE_DIR'
+source node.env
+echo 'Triggering reindex from genesis for $MACHINE_ID...'
+curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+  -H 'Content-Type: application/json' \
+  -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_reindexFromHeight\",\"params\":[0],\"id\":1}'
+echo ''
+echo 'Reindex initiated from block 0.'
+"
+}
+
 show_info() {
   cat <<INFO
 Machine:            $MACHINE_ID
@@ -512,65 +875,47 @@ INFO
 }
 
 case "$OPERATION" in
-  install_node)
-    deploy_installer_bundle
-    ;;
-  setup_node)
-    deploy_installer_bundle
-    remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh"
-    ;;
-  bootstrap_node)
-    deploy_installer_bundle
-    wireguard_install
-    wireguard_connect
-    run_nodectl "start"
-    ;;
-  reset_chain)
-    reset_chain
-    ;;
-  start)
-    run_nodectl "start"
-    ;;
-  stop)
-    run_nodectl "stop"
-    ;;
-  restart)
-    run_nodectl "restart"
-    ;;
-  status)
-    run_nodectl "status"
-    ;;
-  logs)
-    run_nodectl "logs"
-    ;;
-  export_logs)
-    export_logs
-    ;;
-  view_chain_data)
-    view_chain_data
-    ;;
-  export_chain_data)
-    export_chain_data
-    ;;
-  wireguard_install)
-    wireguard_install
-    ;;
-  wireguard_connect)
-    wireguard_connect
-    ;;
-  wireguard_disconnect)
-    wireguard_disconnect
-    ;;
-  wireguard_status)
-    wireguard_status
-    ;;
-  wireguard_restart)
-    wireguard_disconnect
-    wireguard_connect
-    ;;
-  info)
-    show_info
-    ;;
+  # ── Core lifecycle ─────────────────────────────────────────────────────
+  install_node)       deploy_installer_bundle ;;
+  setup_node)         deploy_installer_bundle
+                      remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh" ;;
+  bootstrap_node)     deploy_installer_bundle; wireguard_install; wireguard_connect || echo "WireGuard connect skipped (may already be active)."; run_nodectl "start" ;;
+  reset_chain)        reset_chain ;;
+  start)              run_nodectl "start" ;;
+  stop)               run_nodectl "stop" ;;
+  restart)            run_nodectl "restart" ;;
+  status)             run_nodectl "status" ;;
+  logs)               run_nodectl "logs" ;;
+  export_logs)        export_logs ;;
+  view_chain_data)    view_chain_data ;;
+  export_chain_data)  export_chain_data ;;
+
+  # ── WireGuard (status only exposed in UI) ──────────────────────────────
+  wireguard_install)    wireguard_install ;;
+  wireguard_connect)    wireguard_connect ;;
+  wireguard_disconnect) wireguard_disconnect ;;
+  wireguard_status)     wireguard_status ;;
+  wireguard_restart)    wireguard_disconnect; wireguard_connect ;;
+
+  # ── Class I — Consensus ────────────────────────────────────────────────
+  rotate_vrf_key)             rotate_vrf_key ;;
+  verify_archive_integrity)   verify_archive_integrity ;;
+
+  # ── Class II — Interoperability ────────────────────────────────────────
+  flush_relay_queue)    flush_relay_queue ;;
+  force_feed_update)    force_feed_update ;;
+
+  # ── Class III — Intelligence & Computation ─────────────────────────────
+  drain_compute_queue)  drain_compute_queue ;;
+  reload_models)        reload_models ;;
+  rotate_pqc_keys)      rotate_pqc_keys ;;
+  run_pqc_benchmark)    run_pqc_benchmark ;;
+  trigger_da_sample)    trigger_da_sample ;;
+
+  # ── Class V — Service & Support ────────────────────────────────────────
+  reindex_from_height)  reindex_from_height ;;
+
+  info)                 show_info ;;
   *)
     echo "Unsupported operation: $OPERATION" >&2
     usage

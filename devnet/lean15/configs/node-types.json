@@ -1,0 +1,743 @@
+{
+  "_meta": {
+    "source": "Synergy Network Node Whitepaper v1.0",
+    "totalNodeTypes": 19,
+    "totalClasses": 5,
+    "productionBinary": "synergyd",
+    "devnetBinary": "synergy-devnet",
+    "consensusLibraries": "PoSy Core v3.x + Aegis Crypto Suite",
+    "vm": "AIVM Runtime (EVM-compatible + Aegis precompiles)",
+    "networking": "libp2p v0.53+, QUIC support, dynamic peer-discovery",
+    "database": "RocksDB or LMDB (local state) + PostgreSQL (indexer/explorer)",
+    "securityStack": "HSM integration (FIPS 140-2 or YubiHSM2), TLS 1.3",
+    "pqcAlgorithms": ["ML-KEM-512", "Dilithium-3", "SLH-DSA", "FN-DSA"],
+    "operationalStandards": {
+      "validatorUptimeSla": "99%",
+      "relayerUptimeSla": "97%",
+      "interClusterLatency": "<250ms RTT for PoSy",
+      "sxcpRelayerLatency": "<500ms",
+      "snapshotInterval": "every 512 blocks (~30 min)",
+      "rotationEpoch": "12 hours (default)",
+      "governanceSyncInterval": "every epoch",
+      "securityAuditFrequency": "monthly"
+    }
+  },
+  "nodeTypes": {
+    "VPN Hub": {
+      "whitepaperType": null,
+      "description": "Central VPN hub that manages the WireGuard mesh network connecting all devnet machines (devnet-only infrastructure, not in mainnet whitepaper)",
+      "class": "N/A",
+      "binary": "synergy-vpn-hub",
+      "productionBinary": null,
+      "configTemplate": "vpn-hub.toml",
+      "capabilities": ["vpn_management", "peer_routing", "nat_traversal", "key_distribution"],
+      "requiredServices": ["wireguard"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "defaultPorts": { "management": 51820, "api": 7780 },
+      "hardwareRequirements": {
+        "cpu": "1 core",
+        "ram": "256 MB",
+        "storage": "5 GB SSD",
+        "network": "100 Mbps"
+      },
+      "resources": { "minMemoryMB": 256, "minCpuCores": 1, "minDiskGB": 5 },
+      "stakingRequirement": null,
+      "functionality": {
+        "primary": "Manages WireGuard VPN mesh topology for the devnet",
+        "tasks": [
+          "Maintain peer configuration for all machines",
+          "Distribute WireGuard public keys across network",
+          "Handle NAT traversal and endpoint updates",
+          "Monitor tunnel health and latency between peers",
+          "Auto-configure new machines joining the VPN"
+        ]
+      }
+    },
+    "Validator": {
+      "whitepaperType": 1,
+      "description": "Executes PoSy consensus rounds, proposes and signs blocks. Must maintain >= 99.5% uptime. Runs full chain.",
+      "class": "Class I",
+      "addressPrefix": "synv1",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "validator.toml",
+      "capabilities": ["block_production", "block_validation", "tx_validation", "consensus_voting", "state_commitment", "full_chain_sync"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["synergy_status", "getBlock", "getTx", "getAddress", "tx"],
+      "defaultPorts": { "p2p": 38638, "rpc": 48638, "ws": 58638 },
+      "hardwareRequirements": {
+        "cpu": "8 core (3.0 GHz+)",
+        "ram": "32 GB",
+        "storage": "NVMe 1 TB SSD",
+        "network": "1 Gbps"
+      },
+      "resources": { "minMemoryMB": 32768, "minCpuCores": 8, "minDiskGB": 1000 },
+      "stakingRequirement": { "amount": 100000, "token": "SNRG" },
+      "uptimeSla": "99.5%",
+      "estimatedSetupCost": "$1800-$2500",
+      "monthlyBandwidth": "~1.2 TB in/out",
+      "powerDraw": "250W",
+      "functionality": {
+        "primary": "Executes PoSy consensus rounds, proposes and signs blocks",
+        "tasks": [
+          "Participate in cooperative BFT consensus rounds",
+          "Propose and sign new blocks in PoSy rotation",
+          "Validate and attest to blocks from other validators",
+          "Maintain full chain state with RocksDB/LMDB",
+          "Process incoming transactions from the mempool",
+          "Earn staking rewards through Synergy Score contributions",
+          "Participate in committee rotation every epoch (12h default)"
+        ]
+      }
+    },
+    "Committee": {
+      "whitepaperType": 2,
+      "description": "Participates in weighted-committee voting and Synergy-Score updates. Rotates every epoch; receives performance bonuses.",
+      "class": "Class I",
+      "addressPrefix": "synv1",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "committee.toml",
+      "capabilities": ["committee_voting", "synergy_score_updates", "epoch_management", "finality_attestation", "leader_election"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["committee_status", "committee_epoch", "committee_members", "committee_synergyScore"],
+      "defaultPorts": { "p2p": 38646, "rpc": 48646, "ws": 58646 },
+      "hardwareRequirements": {
+        "cpu": "6 core",
+        "ram": "24 GB",
+        "storage": "512 GB SSD"
+      },
+      "resources": { "minMemoryMB": 24576, "minCpuCores": 6, "minDiskGB": 512 },
+      "stakingRequirement": { "amount": 100000, "token": "SNRG" },
+      "functionality": {
+        "primary": "Participates in weighted-committee voting and Synergy-Score updates",
+        "tasks": [
+          "Join epoch-based committee rotations (12h default epoch)",
+          "Vote on block proposals with weighted committee authority",
+          "Update and propagate Synergy Score calculations",
+          "Attest to finalized blocks for deterministic finality",
+          "Participate in leader election for block proposal",
+          "Receive performance bonuses for uptime and contribution quality"
+        ]
+      }
+    },
+    "Archive Validator": {
+      "whitepaperType": 3,
+      "description": "Stores full historical ledger, reconstructs Merkle proofs. Not required for consensus; supports explorers and analytics.",
+      "class": "Class I",
+      "addressPrefix": "synv1",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "archive-validator.toml",
+      "capabilities": ["block_validation", "full_archive", "merkle_proof_reconstruction", "historical_queries", "state_snapshots"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["synergy_status", "getBlock", "getTx", "getAddress", "archive_getStateAt", "archive_getMerkleProof"],
+      "defaultPorts": { "p2p": 38653, "rpc": 48653, "ws": 58653 },
+      "hardwareRequirements": {
+        "cpu": "12 core",
+        "ram": "64 GB",
+        "storage": "SSD >= 4 TB, optional RAID Z2"
+      },
+      "resources": { "minMemoryMB": 65536, "minCpuCores": 12, "minDiskGB": 4000 },
+      "stakingRequirement": { "amount": 100000, "token": "SNRG" },
+      "functionality": {
+        "primary": "Stores full historical ledger and reconstructs Merkle proofs",
+        "tasks": [
+          "Store complete historical state from genesis including pruned data",
+          "Reconstruct Merkle proofs for any historical state",
+          "Serve historical state queries at any block height",
+          "Generate and distribute state snapshots every 512 blocks (~30 min)",
+          "Support blockchain explorers and analytics platforms",
+          "Provide audit trail data for compliance queries"
+        ]
+      }
+    },
+    "Audit Validator": {
+      "whitepaperType": 4,
+      "description": "Runs replicated consensus for security verification. Cross-checks signatures and QCs for fraud detection.",
+      "class": "Class I",
+      "addressPrefix": "synv1",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "audit-validator.toml",
+      "capabilities": ["replicated_consensus", "signature_cross_check", "qc_verification", "fraud_detection", "integrity_verification"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["audit_status", "audit_verifyState", "audit_getReport", "audit_crossCheckQC"],
+      "defaultPorts": { "p2p": 38654, "rpc": 48654, "ws": 58654 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "32 GB",
+        "storage": "1 TB SSD"
+      },
+      "resources": { "minMemoryMB": 32768, "minCpuCores": 8, "minDiskGB": 1000 },
+      "stakingRequirement": { "amount": 100000, "token": "SNRG" },
+      "functionality": {
+        "primary": "Runs replicated consensus for security verification and fraud detection",
+        "tasks": [
+          "Run replicated consensus independently to verify block validity",
+          "Cross-check signatures and Quorum Certificates (QCs) for fraud",
+          "Perform periodic Merkle root verification of global state",
+          "Audit validator reward distributions for correctness",
+          "Generate audit reports with cryptographic proofs",
+          "Alert Security Council nodes of detected inconsistencies"
+        ]
+      }
+    },
+    "Relayer": {
+      "whitepaperType": 5,
+      "description": "Executes SXCP cross-chain signatures via Aegis PQC threshold cryptography. Must run full light-clients for ETH, SOL, BTC etc.",
+      "class": "Class II",
+      "addressPrefix": "synv2",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "relayer.toml",
+      "capabilities": ["sxcp_signing", "pqc_threshold_crypto", "light_client_sync", "message_relay", "state_propagation", "fee_collection"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["relay_status", "relay_pendingMessages", "relay_submit", "relay_lightClientStatus"],
+      "defaultPorts": { "p2p": 38644, "rpc": 48644, "ws": 58644 },
+      "hardwareRequirements": {
+        "cpu": "12 core",
+        "ram": "64 GB",
+        "storage": "NVMe 2 TB",
+        "network": "1 Gbps",
+        "gpu": "optional"
+      },
+      "resources": { "minMemoryMB": 65536, "minCpuCores": 12, "minDiskGB": 2000 },
+      "stakingRequirement": { "amount": 250000, "token": "SNRG", "bond": true },
+      "uptimeSla": "97%",
+      "estimatedSetupCost": "$2500-$3200",
+      "monthlyBandwidth": "~1.8 TB",
+      "powerDraw": "300W",
+      "functionality": {
+        "primary": "Executes SXCP cross-chain signatures via Aegis PQC threshold cryptography",
+        "tasks": [
+          "Execute cross-chain signatures using Aegis PQC threshold crypto (Dilithium-3 + ML-KEM)",
+          "Run full light-clients for connected chains (ETH, SOL, BTC, etc.)",
+          "Relay finalized state proofs between Synergy and external networks",
+          "Collect relay fees for cross-chain message delivery",
+          "Maintain connection state with external chain RPCs",
+          "Participate in relayer cluster rotation (10-15 nodes per connected chain)"
+        ]
+      }
+    },
+    "Witness": {
+      "whitepaperType": 6,
+      "description": "Observes external-chain events and submits attestations to the SXCP Validator contract. Provides verified proofs (SPV/ZK) for cross-chain deposits or swaps.",
+      "class": "Class II",
+      "addressPrefix": "synv2",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "witness.toml",
+      "capabilities": ["event_witnessing", "attestation_signing", "spv_proof_generation", "zk_proof_generation", "registry_participation"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["witness_status", "witness_attestations", "witness_registry", "witness_verifyProof"],
+      "defaultPorts": { "p2p": 38649, "rpc": 48649, "ws": 58649 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "32 GB",
+        "storage": "1 TB SSD"
+      },
+      "resources": { "minMemoryMB": 32768, "minCpuCores": 8, "minDiskGB": 1000 },
+      "stakingRequirement": { "amount": 250000, "token": "SNRG", "bond": true },
+      "functionality": {
+        "primary": "Observes external-chain events and submits attestations to SXCP Validator contract",
+        "tasks": [
+          "Monitor connected chains for cross-chain deposit and swap events",
+          "Submit attestations to SXCP Validator smart contract",
+          "Generate verified proofs (SPV/ZK) for deposits and swaps",
+          "Participate in SXCP witness registry with uptime reputation score",
+          "Participate in threshold signing for cross-chain proofs",
+          "Maintain witness uptime for registry reputation scoring"
+        ]
+      }
+    },
+    "Oracle": {
+      "whitepaperType": 7,
+      "description": "Fetches off-chain data feeds (price, time, identity). Uses authenticated data channels; bonded and slashable.",
+      "class": "Class II",
+      "addressPrefix": "synv2",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "oracle.toml",
+      "capabilities": ["data_feeds", "price_oracle", "time_oracle", "identity_oracle", "authenticated_channels", "data_attestation"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["oracle_getPrice", "oracle_getFeed", "oracle_status", "oracle_getTimestamp"],
+      "defaultPorts": { "p2p": 38648, "rpc": 48648, "ws": 58648 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "16 GB"
+      },
+      "resources": { "minMemoryMB": 16384, "minCpuCores": 8, "minDiskGB": 500 },
+      "stakingRequirement": { "amount": 50000, "token": "SNRG", "bond": true, "slashable": true },
+      "estimatedSetupCost": "$800-$1200",
+      "monthlyBandwidth": "~700 GB",
+      "powerDraw": "150W",
+      "functionality": {
+        "primary": "Fetches off-chain data feeds (price, time, identity) via authenticated data channels",
+        "tasks": [
+          "Fetch and aggregate external price data from multiple authenticated sources",
+          "Provide time and identity oracle feeds for smart contracts",
+          "Publish signed data attestations on-chain",
+          "Maintain data freshness within configurable thresholds",
+          "Participate in multi-oracle consensus for data integrity",
+          "Subject to slashing for providing fraudulent data"
+        ]
+      }
+    },
+    "UMA Coordinator": {
+      "whitepaperType": 8,
+      "description": "Manages Universal Meta-Address mapping and key-share coordination. Performs threshold-key refresh and rotation events.",
+      "class": "Class II",
+      "addressPrefix": "synv2",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "uma-coordinator.toml",
+      "capabilities": ["uma_mapping", "key_share_coordination", "threshold_key_refresh", "key_rotation", "identity_management"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["uma_status", "uma_mapAddress", "uma_getKeyShares", "uma_refreshThresholdKey", "uma_rotateKeys", "uma_challenge"],
+      "defaultPorts": { "p2p": 38659, "rpc": 48659, "ws": 58659 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "32 GB",
+        "storage": "1 TB SSD"
+      },
+      "resources": { "minMemoryMB": 32768, "minCpuCores": 8, "minDiskGB": 1000 },
+      "stakingRequirement": { "amount": 250000, "token": "SNRG", "bond": true },
+      "functionality": {
+        "primary": "Manages Universal Meta-Address mapping and key-share coordination",
+        "tasks": [
+          "Manage UMA (Universal Meta-Address) mapping across chains",
+          "Coordinate key-share distribution among SXCP relay participants",
+          "Perform threshold-key refresh and rotation events per epoch",
+          "Maintain UMA registry for cross-chain address resolution",
+          "Coordinate attestation challenges and dispute resolution",
+          "Provide identity lookups for other node types across the SXCP"
+        ]
+      }
+    },
+    "Cross-Chain Verifier": {
+      "whitepaperType": 9,
+      "description": "Validates foreign-chain proofs (e.g., zk-proofs, Merkle-roots). Verifies SXCP proof bundles asynchronously from PoSy rounds.",
+      "class": "Class II",
+      "addressPrefix": "synv2",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "cross-chain-verifier.toml",
+      "capabilities": ["zk_proof_verification", "merkle_root_validation", "sxcp_proof_bundles", "async_verification", "state_attestation"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["sxcp_verifyProof", "sxcp_getAttestation", "sxcp_chainStatus", "sxcp_verifyBundle"],
+      "defaultPorts": { "p2p": 38642, "rpc": 48642, "ws": 58642 },
+      "hardwareRequirements": {
+        "cpu": "16 core",
+        "ram": "64 GB",
+        "gpu": "8 GB VRAM (for ZK verification)"
+      },
+      "resources": { "minMemoryMB": 65536, "minCpuCores": 16, "minDiskGB": 1000, "gpuVram": 8192 },
+      "stakingRequirement": { "amount": 250000, "token": "SNRG", "bond": true },
+      "functionality": {
+        "primary": "Validates foreign-chain proofs (zk-proofs, Merkle-roots) for SXCP",
+        "tasks": [
+          "Validate foreign-chain zk-proofs and Merkle-root proofs",
+          "Verify SXCP proof bundles asynchronously (decoupled from PoSy rounds)",
+          "Generate and sign attestations for verified cross-chain state",
+          "Maintain light client state for connected chains",
+          "Use GPU-accelerated ZK proof verification when available",
+          "Report verification failures to Security Council and relay operators"
+        ]
+      }
+    },
+    "Compute": {
+      "whitepaperType": 10,
+      "description": "Executes decentralized off-chain tasks (AI training, simulations, rendering). Connects to AIVM via task-registry contracts; rewarded per task.",
+      "class": "Class III",
+      "addressPrefix": "synv3",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "compute.toml",
+      "capabilities": ["aivm_execution", "off_chain_compute", "ai_training", "simulation", "rendering", "task_registry"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["compute_status", "compute_execute", "compute_estimateGas", "compute_getState", "compute_submitTask"],
+      "defaultPorts": { "p2p": 38660, "rpc": 48660, "ws": 58660 },
+      "hardwareRequirements": {
+        "cpu": "16 core",
+        "ram": "64 GB",
+        "gpu": ">= 12 GB VRAM",
+        "storage": "NVMe 2 TB"
+      },
+      "resources": { "minMemoryMB": 65536, "minCpuCores": 16, "minDiskGB": 2000, "gpuVram": 12288 },
+      "stakingRequirement": { "amount": 50000, "token": "SNRG" },
+      "functionality": {
+        "primary": "Executes decentralized off-chain tasks (AI training, simulations, rendering) via AIVM",
+        "tasks": [
+          "Execute AIVM off-chain compute tasks (AI training, simulations, rendering)",
+          "Connect to task-registry contracts for job assignment and reward",
+          "Execute SynQ smart contract transactions in WASM runtime",
+          "Manage contract state storage and retrieval",
+          "Estimate gas costs for contract execution",
+          "Provide deterministic execution results for consensus verification"
+        ]
+      }
+    },
+    "AI Inference": {
+      "whitepaperType": 11,
+      "description": "Runs lightweight inference for Synergy AI VM agents and oracle analytics. Handles validator behavior analysis, anomaly detection.",
+      "class": "Class III",
+      "addressPrefix": "synv3",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "ai-inference.toml",
+      "capabilities": ["aivm_inference", "validator_behavior_analysis", "anomaly_detection", "oracle_analytics", "network_intelligence"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["ai_status", "ai_predict", "ai_anomalies", "ai_modelInfo", "ai_validatorAnalysis"],
+      "defaultPorts": { "p2p": 38657, "rpc": 48657, "ws": 58657 },
+      "hardwareRequirements": {
+        "cpu": "12 core",
+        "gpu": "8 GB VRAM",
+        "ram": "48 GB"
+      },
+      "resources": { "minMemoryMB": 49152, "minCpuCores": 12, "minDiskGB": 500, "gpuVram": 8192 },
+      "stakingRequirement": { "amount": 50000, "token": "SNRG" },
+      "functionality": {
+        "primary": "Runs lightweight inference for Synergy AIVM agents and oracle analytics",
+        "tasks": [
+          "Run inference for Synergy AI VM agents on-demand",
+          "Analyze validator behavior patterns for anomaly detection",
+          "Provide oracle analytics and data quality scoring",
+          "Predict validator churn and staking behavior",
+          "Detect transaction patterns indicating fraud or abuse",
+          "Generate network health scores and predictive alerts"
+        ]
+      }
+    },
+    "PQC Crypto": {
+      "whitepaperType": 12,
+      "description": "Benchmarks and provides quantum-safe key generation, KEM, signature verification. Runs Aegis libraries (ML-KEM, SLH-DSA, FN-DSA modules).",
+      "class": "Class III",
+      "addressPrefix": "synv3",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "pqc-crypto.toml",
+      "capabilities": ["pqc_keygen", "pqc_kem", "pqc_signing", "pqc_verification", "ml_kem", "slh_dsa", "fn_dsa", "dilithium3"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["pqc_generateKeypair", "pqc_sign", "pqc_verify", "pqc_encapsulate", "pqc_benchmark", "pqc_status"],
+      "defaultPorts": { "p2p": 38652, "rpc": 48652, "ws": 58652 },
+      "hardwareRequirements": {
+        "cpu": "8 core (AVX2+ required)",
+        "ram": "16 GB"
+      },
+      "resources": { "minMemoryMB": 16384, "minCpuCores": 8, "minDiskGB": 500, "avx2Required": true },
+      "stakingRequirement": { "amount": 50000, "token": "SNRG" },
+      "functionality": {
+        "primary": "Provides quantum-safe key generation, KEM, and signature verification via Aegis PQC suite",
+        "tasks": [
+          "Generate ML-KEM-512 keypairs for key encapsulation",
+          "Sign and verify messages using Dilithium-3 signatures",
+          "Run SLH-DSA (stateless hash-based) signature operations",
+          "Execute FN-DSA (Falcon-based) signature operations",
+          "Benchmark PQC algorithm performance for network optimization",
+          "Manage epoch-scoped key lifecycles and rotation"
+        ]
+      }
+    },
+    "Data Availability": {
+      "whitepaperType": 13,
+      "description": "Stores erasure-coded shards of blocks for DA verification. Ensures MEV integrity and data availability proofs for PoSy epochs.",
+      "class": "Class III",
+      "addressPrefix": "synv3",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "data-availability.toml",
+      "capabilities": ["erasure_coding", "da_verification", "mev_integrity", "blob_storage", "availability_proofs"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["da_status", "da_getBlob", "da_submitBlob", "da_sampleAvailability", "da_verifyMevIntegrity"],
+      "defaultPorts": { "p2p": 38655, "rpc": 48655, "ws": 58655 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "32 GB",
+        "storage": "HDD >= 6 TB"
+      },
+      "resources": { "minMemoryMB": 32768, "minCpuCores": 8, "minDiskGB": 6000 },
+      "stakingRequirement": { "amount": 50000, "token": "SNRG" },
+      "functionality": {
+        "primary": "Stores erasure-coded shards and provides DA verification for PoSy epochs",
+        "tasks": [
+          "Store erasure-coded shards of block data",
+          "Respond to data availability sampling queries from validators",
+          "Generate availability proofs for committed data",
+          "Ensure MEV integrity through DA verification proofs",
+          "Garbage-collect expired blob data after retention period",
+          "Serve block shard data to new nodes during chain sync"
+        ]
+      }
+    },
+    "Governance Auditor": {
+      "whitepaperType": 14,
+      "description": "Verifies DAO proposals, performs Synergy Score audits, ensures rule compliance. Weighted 10% governance influence; logs immutable audit trails.",
+      "class": "Class IV",
+      "addressPrefix": "synv4",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "governance-auditor.toml",
+      "capabilities": ["proposal_auditing", "synergy_score_audit", "rule_compliance", "immutable_audit_trail", "governance_influence"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["gov_status", "gov_auditProposal", "gov_verifyUpgrade", "gov_complianceReport", "gov_auditTrail"],
+      "defaultPorts": { "p2p": 38662, "rpc": 48662, "ws": 58662 },
+      "hardwareRequirements": {
+        "cpu": "6 core",
+        "ram": "16 GB"
+      },
+      "resources": { "minMemoryMB": 16384, "minCpuCores": 6, "minDiskGB": 500 },
+      "stakingRequirement": { "amount": 10000, "token": "SNRG", "bond": true },
+      "governanceWeight": "10%",
+      "estimatedSetupCost": "$600-$900",
+      "monthlyBandwidth": "~400 GB",
+      "powerDraw": "120W",
+      "functionality": {
+        "primary": "Verifies DAO proposals, performs Synergy Score audits, ensures rule compliance",
+        "tasks": [
+          "Verify DAO proposal validity and rule compliance",
+          "Perform Synergy Score audits for validator performance",
+          "Log immutable audit trails for all governance actions",
+          "Reconcile DAO state every epoch (per operational standards)",
+          "Validate protocol upgrade bytecode before activation",
+          "Exercise 10% weighted governance influence on audited proposals"
+        ]
+      }
+    },
+    "Treasury Controller": {
+      "whitepaperType": 15,
+      "description": "Executes approved fund transfers from DAO treasury smart contracts. Requires 5-of-7 multi-sig among controllers.",
+      "class": "Class IV",
+      "addressPrefix": "synv4",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "treasury-controller.toml",
+      "capabilities": ["treasury_management", "fund_disbursement", "multisig_5of7", "budget_tracking", "hsm_integration"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["treasury_status", "treasury_balance", "treasury_proposals", "treasury_disburse", "treasury_multisigStatus"],
+      "defaultPorts": { "p2p": 38661, "rpc": 48661, "ws": 58661 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "16 GB",
+        "hsm": "recommended (FIPS 140-2 or YubiHSM2)"
+      },
+      "resources": { "minMemoryMB": 16384, "minCpuCores": 8, "minDiskGB": 500 },
+      "stakingRequirement": { "amount": 10000, "token": "SNRG", "bond": true },
+      "multisigThreshold": "5-of-7",
+      "functionality": {
+        "primary": "Executes approved fund transfers from DAO treasury via 5-of-7 multi-sig",
+        "tasks": [
+          "Execute approved fund transfers from DAO treasury contracts",
+          "Enforce 5-of-7 multi-sig requirement for all disbursements",
+          "Track treasury balance, allocations, and fund movements",
+          "Process approved disbursement proposals from governance",
+          "Generate treasury reports for governance visibility",
+          "Integrate with HSM for secure key storage (recommended)"
+        ]
+      }
+    },
+    "Security Council": {
+      "whitepaperType": 16,
+      "description": "Holds emergency multi-sig keys to pause or rollback the network. 5-of-7 threshold; triggers Paused Mode per rollback policy.",
+      "class": "Class IV",
+      "addressPrefix": "synv4",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "security-council.toml",
+      "capabilities": ["emergency_multisig", "network_pause", "network_rollback", "threat_detection", "policy_enforcement"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["council_status", "council_proposals", "council_vote", "council_emergencyPause", "council_rollbackStatus"],
+      "defaultPorts": { "p2p": 38647, "rpc": 48647, "ws": 58647 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "16 GB",
+        "hsm": "mandatory (FIPS 140-2 or YubiHSM2)"
+      },
+      "resources": { "minMemoryMB": 16384, "minCpuCores": 8, "minDiskGB": 500, "hsmRequired": true },
+      "stakingRequirement": { "amount": 10000, "token": "SNRG", "bond": true },
+      "multisigThreshold": "5-of-7",
+      "functionality": {
+        "primary": "Holds emergency multi-sig keys to pause or rollback the network (5-of-7 threshold)",
+        "tasks": [
+          "Hold emergency multi-sig keys for network pause/rollback",
+          "Trigger Paused Mode per Emergency Governance Rollback Policy section 3",
+          "Monitor network for security threats and anomalies",
+          "Coordinate incident response across all node classes",
+          "Execute emergency governance actions with 5-of-7 threshold",
+          "Undergo monthly code integrity checks (per operational standards)"
+        ]
+      }
+    },
+    "RPC Gateway": {
+      "whitepaperType": 17,
+      "description": "Provides public JSON-RPC & WebSocket access. Mirrors main chain; rate-limited and DDoS-protected.",
+      "class": "Class V",
+      "addressPrefix": "synv5",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "rpc-gateway.toml",
+      "capabilities": ["json_rpc", "websocket", "chain_mirror", "rate_limiting", "ddos_protection", "request_caching"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["synergy_status", "getBlock", "getTx", "getAddress", "tx", "gateway_status"],
+      "defaultPorts": { "p2p": 38650, "rpc": 48650, "ws": 58650 },
+      "hardwareRequirements": {
+        "cpu": "4 core",
+        "ram": "8 GB",
+        "storage": "500 GB SSD",
+        "network": "1 Gbps"
+      },
+      "resources": { "minMemoryMB": 8192, "minCpuCores": 4, "minDiskGB": 500 },
+      "stakingRequirement": null,
+      "estimatedSetupCost": "$1000-$1500",
+      "monthlyBandwidth": "~900 GB",
+      "powerDraw": "200W",
+      "functionality": {
+        "primary": "Provides public JSON-RPC & WebSocket access with DDoS protection",
+        "tasks": [
+          "Serve public JSON-RPC and WebSocket API endpoints",
+          "Mirror main chain state for read-only queries",
+          "Enforce per-IP and per-key rate limiting",
+          "Protect against DDoS attacks with traffic filtering",
+          "Cache frequently-requested data (block headers, chain state)",
+          "Serve WebSocket subscriptions for real-time updates"
+        ]
+      }
+    },
+    "Indexer": {
+      "whitepaperType": 18,
+      "description": "Indexes blocks, transactions, events for Synergy Explorer frontend. Hosts searchable APIs and analytics endpoints.",
+      "class": "Class V",
+      "addressPrefix": "synv5",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "indexer.toml",
+      "capabilities": ["block_indexing", "tx_indexing", "event_indexing", "search_api", "analytics_api", "explorer_backend"],
+      "requiredServices": ["synergy-devnet", "postgresql", "elasticsearch"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["index_search", "index_stats", "index_status", "index_events"],
+      "defaultPorts": { "p2p": 38651, "rpc": 48651, "ws": 58651 },
+      "hardwareRequirements": {
+        "cpu": "8 core",
+        "ram": "32 GB",
+        "storage": "1 TB SSD (PostgreSQL + Elasticsearch)"
+      },
+      "resources": { "minMemoryMB": 32768, "minCpuCores": 8, "minDiskGB": 1000 },
+      "stakingRequirement": null,
+      "estimatedSetupCost": "$1000-$1500",
+      "monthlyBandwidth": "~900 GB",
+      "powerDraw": "200W",
+      "functionality": {
+        "primary": "Indexes blocks, transactions, events for Synergy Explorer frontend",
+        "tasks": [
+          "Index all blocks, transactions, and events in real-time",
+          "Host searchable APIs for address, tx hash, block number queries",
+          "Serve analytics endpoints (TPS, gas usage, active addresses)",
+          "Provide backend data for Synergy Explorer frontend",
+          "Maintain PostgreSQL + Elasticsearch indices",
+          "Maintain historical data for explorer and dashboard views"
+        ]
+      }
+    },
+    "Observer": {
+      "whitepaperType": 19,
+      "description": "Verifies headers only; designed for wallets and mobile devices. Provides fast read-only verification without full sync.",
+      "class": "Class V",
+      "addressPrefix": "synv5",
+      "binary": "synergy-devnet",
+      "productionBinary": "synergyd",
+      "configTemplate": "observer.toml",
+      "capabilities": ["header_verification", "light_sync", "read_only_queries", "wallet_support", "mobile_support"],
+      "requiredServices": ["synergy-devnet"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["synergy_status", "getBlock", "getTx", "getAddress"],
+      "defaultPorts": { "p2p": 38640, "rpc": 48640, "ws": 58640 },
+      "hardwareRequirements": {
+        "cpu": "2 core",
+        "ram": "4 GB",
+        "storage": "128 GB SSD"
+      },
+      "resources": { "minMemoryMB": 4096, "minCpuCores": 2, "minDiskGB": 128 },
+      "stakingRequirement": null,
+      "functionality": {
+        "primary": "Verifies headers only; provides fast read-only verification for wallets and light clients",
+        "tasks": [
+          "Verify block headers without full chain sync",
+          "Provide fast read-only state verification for wallets",
+          "Support mobile device and light client connections",
+          "Serve read-only RPC queries with header-level verification",
+          "Monitor network health and validator participation"
+        ]
+      }
+    },
+    "GPU Node": {
+      "whitepaperType": null,
+      "description": "GPU-accelerated compute node supporting Compute and AI Inference nodes. Devnet infrastructure node (supplements Class III nodes).",
+      "class": null,
+      "binary": "synergy-gpu-node",
+      "productionBinary": null,
+      "configTemplate": "gpu-node.toml",
+      "capabilities": ["gpu_compute", "parallel_processing", "zk_proof_generation", "model_inference"],
+      "requiredServices": ["synergy-devnet", "nvidia-driver"],
+      "healthEndpoint": "/health",
+      "metricsEndpoint": "/metrics",
+      "rpcMethods": ["gpu_status", "gpu_submitJob", "gpu_getResult"],
+      "defaultPorts": { "p2p": 38656, "rpc": 48656, "ws": 58656 },
+      "hardwareRequirements": {
+        "cpu": "8+ core",
+        "ram": "32+ GB",
+        "gpu": ">= 12 GB VRAM (NVIDIA)",
+        "storage": "1 TB NVMe"
+      },
+      "resources": { "minMemoryMB": 32768, "minCpuCores": 8, "minDiskGB": 1000, "gpuRequired": true },
+      "special": true,
+      "stakingRequirement": null,
+      "functionality": {
+        "primary": "Provides GPU-accelerated compute for Compute and AI Inference nodes",
+        "tasks": [
+          "Execute GPU-parallel ZK proof generation",
+          "Run batched cryptographic verification operations",
+          "Provide GPU compute resources for AI Inference nodes",
+          "Accelerate PQC key generation operations",
+          "Report GPU utilization and available compute capacity"
+        ]
+      }
+    }
+  }
+}

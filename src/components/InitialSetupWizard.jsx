@@ -10,7 +10,7 @@ const ACTIVE_MACHINE_PLAN = [
     os: 'macOS',
     vpnIp: '10.50.0.1',
     primaryRole: 'Validator',
-    secondaryRole: 'Hub Control',
+    secondaryRole: 'VPN Hub',
     notes: 'VPN hub host. Only validator node on this device.',
   },
   {
@@ -47,7 +47,7 @@ const ACTIVE_MACHINE_PLAN = [
     vpnIp: '10.50.0.5',
     primaryRole: 'Validator',
     secondaryRole: 'Committee',
-    notes: 'Class I + governance support',
+    notes: 'Class I + Class I',
   },
   {
     machineId: 'machine-06',
@@ -76,17 +76,67 @@ const ACTIVE_MACHINE_PLAN = [
     secondaryRole: 'PQC Crypto',
     notes: 'Class V + Class III',
   },
+  {
+    machineId: 'machine-09',
+    owner: 'David',
+    os: '',
+    vpnIp: '10.50.0.9',
+    primaryRole: 'Archive Validator',
+    secondaryRole: 'Audit Validator',
+    notes: 'Class I + Class I',
+  },
+  {
+    machineId: 'machine-10',
+    owner: 'Mark',
+    os: '',
+    vpnIp: '10.50.0.10',
+    primaryRole: 'Data Availability',
+    secondaryRole: 'GPU Node',
+    notes: 'Class III + GPU',
+  },
+  {
+    machineId: 'machine-11',
+    owner: 'Mark',
+    os: '',
+    vpnIp: '10.50.0.11',
+    primaryRole: 'AI Inference',
+    secondaryRole: 'GPU Node',
+    notes: 'Class III + GPU',
+  },
+  {
+    machineId: 'machine-12',
+    owner: 'Gunther',
+    os: 'Ubuntu',
+    vpnIp: '10.50.0.12',
+    primaryRole: 'UMA Coordinator',
+    secondaryRole: 'Compute',
+    notes: 'Class III + Class III',
+  },
+  {
+    machineId: 'machine-13',
+    owner: 'David',
+    os: '',
+    vpnIp: '10.50.0.13',
+    primaryRole: 'Treasury Controller',
+    secondaryRole: 'Governance Auditor',
+    notes: 'Class IV + Class IV',
+  },
 ];
 
 const PHYSICAL_TO_LOGICAL_NODE_MAP = {
   'machine-01': ['machine-01'],
-  'machine-02': ['machine-02', 'machine-15'],
-  'machine-03': ['machine-03', 'machine-07'],
-  'machine-04': ['machine-04', 'machine-06'],
-  'machine-05': ['machine-05', 'machine-10'],
-  'machine-06': ['machine-11', 'machine-08'],
-  'machine-07': ['machine-09', 'machine-13'],
-  'machine-08': ['machine-14', 'machine-12'],
+  'machine-02': ['machine-02', 'machine-03'],
+  'machine-03': ['machine-04', 'machine-05'],
+  'machine-04': ['machine-06', 'machine-07'],
+  'machine-05': ['machine-08', 'machine-09'],
+  'machine-06': ['machine-10', 'machine-11'],
+  'machine-07': ['machine-12', 'machine-13'],
+  'machine-08': ['machine-14', 'machine-15'],
+  'machine-09': ['machine-16', 'machine-17'],
+  'machine-10': ['machine-18', 'machine-19'],
+  'machine-11': ['machine-20', 'machine-21'],
+  'machine-12': ['machine-22', 'machine-23'],
+  'machine-13': ['machine-24', 'machine-25'],
 };
 
 const PHYSICAL_MACHINE_VPN_IP = {
@@ -98,24 +148,39 @@ const PHYSICAL_MACHINE_VPN_IP = {
   'machine-06': '10.50.0.6',
   'machine-07': '10.50.0.7',
   'machine-08': '10.50.0.8',
+  'machine-09': '10.50.0.9',
+  'machine-10': '10.50.0.10',
+  'machine-11': '10.50.0.11',
+  'machine-12': '10.50.0.12',
+  'machine-13': '10.50.0.13',
 };
 
 const LOGICAL_NODE_METADATA = {
   'machine-01': 'validator',
   'machine-02': 'validator',
-  'machine-03': 'validator',
+  'machine-03': 'observer',
   'machine-04': 'validator',
-  'machine-05': 'validator',
-  'machine-06': 'relayer',
-  'machine-07': 'cross-chain-verifier',
-  'machine-08': 'oracle',
-  'machine-09': 'witness',
-  'machine-10': 'committee',
-  'machine-11': 'security-council',
-  'machine-12': 'pqc-crypto',
+  'machine-05': 'cross-chain-verifier',
+  'machine-06': 'validator',
+  'machine-07': 'relayer',
+  'machine-08': 'validator',
+  'machine-09': 'committee',
+  'machine-10': 'security-council',
+  'machine-11': 'oracle',
+  'machine-12': 'witness',
   'machine-13': 'rpc-gateway',
   'machine-14': 'indexer',
-  'machine-15': 'observer',
+  'machine-15': 'pqc-crypto',
+  'machine-16': 'archive-validator',
+  'machine-17': 'audit-validator',
+  'machine-18': 'data-availability',
+  'machine-19': 'gpu-node',
+  'machine-20': 'ai-inference',
+  'machine-21': 'gpu-node',
+  'machine-22': 'uma-coordinator',
+  'machine-23': 'compute',
+  'machine-24': 'treasury-controller',
+  'machine-25': 'governance-auditor',
 };
 
 const ALL_LOGICAL_MACHINE_IDS = Object.values(PHYSICAL_TO_LOGICAL_NODE_MAP)
@@ -134,7 +199,7 @@ const STEPS = [
 
 const AUTOPILOT_PLAN = [
   { key: 'workspace', label: 'Initialize Workspace' },
-  { key: 'topology', label: 'Apply 8-Machine Topology' },
+  { key: 'topology', label: 'Apply 13-Machine Devnet Topology' },
   { key: 'username', label: 'Detect Local Username' },
   { key: 'sshkey', label: 'Create SSH Key (if missing)' },
   { key: 'operator', label: 'Save Active Operator' },
@@ -287,7 +352,7 @@ function InitialSetupWizard({ onComplete }) {
         setWorkspacePath(resolvedWorkspace);
         setTerminalCwd(resolvedWorkspace);
 
-        const topologyMessage = await invoke('monitor_apply_eight_machine_topology');
+        const topologyMessage = await invoke('monitor_apply_devnet_topology');
         addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
         const identity = await invoke('monitor_detect_local_vpn_identity');
@@ -560,7 +625,7 @@ function InitialSetupWizard({ onComplete }) {
     setNodeSetupBusy(true);
     setNodeSetupSummary('');
     try {
-      const topologyMessage = await invoke('monitor_apply_eight_machine_topology');
+      const topologyMessage = await invoke('monitor_apply_devnet_topology');
       addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
       const selectedMachine = selectedPhysicalMachine;
@@ -670,7 +735,7 @@ function InitialSetupWizard({ onComplete }) {
       });
 
       await runStep('topology', 'Apply topology mapping', async () => {
-        const message = await invoke('monitor_apply_eight_machine_topology');
+        const message = await invoke('monitor_apply_devnet_topology');
         addTerminalLine('success', String(message || 'Topology applied.'));
       });
 
@@ -1353,8 +1418,8 @@ function InitialSetupWizard({ onComplete }) {
         </article>
 
         <aside className="wizard-side-panel">
-          <h3>Active 8-Machine Topology</h3>
-          <p>Validators are fixed on machine-01 through machine-05.</p>
+          <h3>Active 13-Machine Devnet Topology</h3>
+          <p>25 nodes across 13 physical machines. Validators on machine-01 through machine-05.</p>
           <div className="wizard-plan-table-wrap">
             <table className="wizard-plan-table">
               <thead>

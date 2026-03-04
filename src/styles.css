@@ -86,7 +86,7 @@ code {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  padding: 0.35rem 0.5rem;
+  padding: 0.24rem 0.5rem;
   min-width: auto;
   border-radius: 1rem;
   background: transparent;
@@ -94,20 +94,20 @@ code {
 
 .logo-icon-bg {
   position: absolute;
-  width: 125px;
-  height: 125px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
-  opacity: 0.65;
+  opacity: 0.82;
   z-index: 0;
 }
 
 .brand-title {
   font-family: 'Orbitron', var(--snrg-font-primary), sans-serif;
-  font-size: 2.05rem;
+  font-size: 1.18rem;
   font-weight: 700;
   font-variant: small-caps;
   color: #ffffff;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   z-index: 1;
   position: relative;
 }
@@ -258,6 +258,44 @@ code {
     rgba(0, 206, 209, 0.22),
     rgba(0, 96, 255, 0.28)
   );
+}
+
+/* Update Button */
+.btn-update {
+  font-size: 0.72rem;
+}
+
+.btn-update-available {
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.2),
+    rgba(5, 150, 105, 0.3)
+  );
+  border-color: rgba(16, 185, 129, 0.7);
+  color: #10b981;
+  font-weight: 600;
+  animation: pulse-update 2s ease-in-out infinite;
+}
+
+.btn-update-available:hover:not(:disabled) {
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.3),
+    rgba(5, 150, 105, 0.4)
+  );
+  border-color: #10b981;
+}
+
+.update-icon {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 0.3rem;
+  margin-top: -1px;
+}
+
+@keyframes pulse-update {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 /* Loading Container */
@@ -2633,6 +2671,35 @@ code {
   color: var(--text-muted);
   font-style: italic;
   margin-top: 0.5rem;
+}
+
+.monitor-metadata-subtle {
+  margin-top: 1rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--snrg-border-neutral);
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.015);
+  opacity: 0.9;
+}
+
+.monitor-metadata-subtle h5 {
+  margin: 0 0 0.45rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.monitor-metadata-subtle p {
+  margin: 0.2rem 0;
+  color: var(--text-muted);
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
+.monitor-metadata-subtle code {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
 }
 
 .key-section {

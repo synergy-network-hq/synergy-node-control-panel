@@ -27,6 +27,7 @@ pub struct MonitorNode {
     pub discovery_port: u16,
     pub rpc_url: String,
     pub node_address: Option<String>,
+    pub physical_machine: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,22 +279,32 @@ pub struct MonitorBulkControlResult {
     pub results: Vec<MonitorControlResult>,
 }
 
-const EIGHT_MACHINE_LOGICAL_VPN: [(&str, &str); 15] = [
-    ("machine-01", "10.50.0.1"),
-    ("machine-02", "10.50.0.2"),
-    ("machine-03", "10.50.0.3"),
-    ("machine-04", "10.50.0.4"),
-    ("machine-05", "10.50.0.5"),
-    ("machine-06", "10.50.0.4"),
-    ("machine-07", "10.50.0.3"),
-    ("machine-08", "10.50.0.6"),
-    ("machine-09", "10.50.0.7"),
-    ("machine-10", "10.50.0.5"),
-    ("machine-11", "10.50.0.6"),
-    ("machine-12", "10.50.0.8"),
-    ("machine-13", "10.50.0.7"),
-    ("machine-14", "10.50.0.8"),
-    ("machine-15", "10.50.0.2"),
+const DEVNET_NODE_VPN_MAP: [(&str, &str); 25] = [
+    ("machine-01", "10.50.0.1"),   // Machine-01: validator
+    ("machine-02", "10.50.0.2"),   // Machine-02: validator
+    ("machine-03", "10.50.0.2"),   // Machine-02: observer
+    ("machine-04", "10.50.0.3"),   // Machine-03: validator
+    ("machine-05", "10.50.0.3"),   // Machine-03: cross-chain-verifier
+    ("machine-06", "10.50.0.4"),   // Machine-04: validator
+    ("machine-07", "10.50.0.4"),   // Machine-04: relayer
+    ("machine-08", "10.50.0.5"),   // Machine-05: validator
+    ("machine-09", "10.50.0.5"),   // Machine-05: committee
+    ("machine-10", "10.50.0.6"),   // Machine-06: security-council
+    ("machine-11", "10.50.0.6"),   // Machine-06: oracle
+    ("machine-12", "10.50.0.7"),   // Machine-07: witness
+    ("machine-13", "10.50.0.7"),   // Machine-07: rpc-gateway
+    ("machine-14", "10.50.0.8"),   // Machine-08: indexer
+    ("machine-15", "10.50.0.8"),   // Machine-08: pqc-crypto
+    ("machine-16", "10.50.0.9"),   // Machine-09: archive-validator
+    ("machine-17", "10.50.0.9"),   // Machine-09: audit-validator
+    ("machine-18", "10.50.0.10"),  // Machine-10: data-availability
+    ("machine-19", "10.50.0.10"),  // Machine-10: gpu-node
+    ("machine-20", "10.50.0.11"),  // Machine-11: ai-inference
+    ("machine-21", "10.50.0.11"),  // Machine-11: gpu-node
+    ("machine-22", "10.50.0.12"),  // Machine-12: uma-coordinator
+    ("machine-23", "10.50.0.12"),  // Machine-12: compute
+    ("machine-24", "10.50.0.13"),  // Machine-13: treasury-controller
+    ("machine-25", "10.50.0.13"),  // Machine-13: governance-auditor
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -399,7 +410,7 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
             physical_machine_id: None,
             logical_machine_ids: Vec::new(),
             message: format!(
-                "Detected local VPN IP {vpn_ip}, but it does not map to machine-01..machine-08."
+                "Detected local VPN IP {vpn_ip}, but it does not map to machine-01..machine-13."
             ),
         });
     };
@@ -428,7 +439,7 @@ pub fn monitor_mark_setup_complete(
 
     let normalized_machine = physical_machine_id.trim().to_ascii_lowercase();
     if normalized_machine.is_empty() {
-        return Err("physical_machine_id is required (machine-01..machine-08)".to_string());
+        return Err("physical_machine_id is required (machine-01..machine-13)".to_string());
     }
 
     let logical_nodes = logical_nodes_for_physical_machine(&normalized_machine)?;
@@ -1091,9 +1102,9 @@ pub fn monitor_run_terminal_command(
 }
 
 #[tauri::command]
-pub fn monitor_apply_eight_machine_topology(app_handle: AppHandle) -> Result<String, String> {
+pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, String> {
     let workspace = ensure_monitor_workspace(&app_handle)?;
-    let mapping = EIGHT_MACHINE_LOGICAL_VPN
+    let mapping = DEVNET_NODE_VPN_MAP
         .iter()
         .map(|(machine, vpn)| (machine.to_string(), vpn.to_string()))
         .collect::<HashMap<String, String>>();
@@ -1163,7 +1174,7 @@ pub fn monitor_apply_eight_machine_topology(app_handle: AppHandle) -> Result<Str
     }
 
     let mut message = format!(
-        "Applied 8-machine topology mapping to {} and installer configs; hosts.env refreshed.",
+        "Applied 13-machine devnet topology to {} and installer configs; hosts.env refreshed.",
         inventory_path.display()
     );
     if let Some(warning) = rebuild_warning {
@@ -1374,8 +1385,19 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
 
         let rpc_url = build_rpc_url(&host, rpc_port);
 
+        let physical_machine = if index_map.contains_key("physical_machine") {
+            get("physical_machine").unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         nodes.push(MonitorNode {
             node_address: node_addresses.get(&machine_id.to_lowercase()).cloned(),
+            physical_machine: if physical_machine.is_empty() {
+                machine_id.clone()
+            } else {
+                physical_machine
+            },
             machine_id,
             node_id,
             role_group: get("role_group")?,
@@ -2661,15 +2683,26 @@ fn resolve_control_commands(
         commands.export_chain_data = Some(command_for("export_chain_data"));
 
         let default_custom_actions = [
+            // Core lifecycle
             ("install_node", "install_node"),
             ("bootstrap_node", "bootstrap_node"),
             ("reset_chain", "reset_chain"),
-            ("wireguard_install", "wireguard_install"),
-            ("wireguard_connect", "wireguard_connect"),
-            ("wireguard_disconnect", "wireguard_disconnect"),
             ("wireguard_status", "wireguard_status"),
-            ("wireguard_restart", "wireguard_restart"),
             ("node_logs", "logs"),
+            // Class I — Consensus
+            ("rotate_vrf_key", "rotate_vrf_key"),
+            ("verify_archive_integrity", "verify_archive_integrity"),
+            // Class II — Interoperability
+            ("flush_relay_queue", "flush_relay_queue"),
+            ("force_feed_update", "force_feed_update"),
+            // Class III — Intelligence & Computation
+            ("drain_compute_queue", "drain_compute_queue"),
+            ("reload_models", "reload_models"),
+            ("rotate_pqc_keys", "rotate_pqc_keys"),
+            ("run_pqc_benchmark", "run_pqc_benchmark"),
+            ("trigger_da_sample", "trigger_da_sample"),
+            // Class V — Service & Support
+            ("reindex_from_height", "reindex_from_height"),
         ];
 
         for (action_key, operation) in default_custom_actions {
@@ -2694,9 +2727,24 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
     let view_chain_data_configured = commands.view_chain_data.is_some();
     let export_chain_data_configured = commands.export_chain_data.is_some();
 
+    // Node-type-specific shell actions are surfaced in role_operations, not here.
+    let role_operation_keys: &[&str] = &[
+        "rotate_vrf_key",
+        "verify_archive_integrity",
+        "flush_relay_queue",
+        "force_feed_update",
+        "drain_compute_queue",
+        "reload_models",
+        "rotate_pqc_keys",
+        "run_pqc_benchmark",
+        "trigger_da_sample",
+        "reindex_from_height",
+    ];
+
     let mut custom_actions = commands
         .custom_actions
         .keys()
+        .filter(|key| !role_operation_keys.contains(&key.as_str()))
         .cloned()
         .map(|key| MonitorControlAction {
             label: humanize_action_label(&key),
@@ -2744,8 +2792,6 @@ fn build_role_operations(
     status: &MonitorNodeStatus,
     commands: &NodeControlCommands,
 ) -> Vec<MonitorControlAction> {
-    let role_group = status.node.role_group.to_ascii_lowercase();
-    let role = status.node.role.to_ascii_lowercase();
     let node_type = status.node.node_type.to_ascii_lowercase();
     let mut operations = Vec::new();
 
@@ -2764,6 +2810,28 @@ fn build_role_operations(
         });
     };
 
+    let push_shell = |key: &str,
+                      label: &str,
+                      description: &str,
+                      category: &str,
+                      cmds: &NodeControlCommands,
+                      ops: &mut Vec<MonitorControlAction>| {
+        let configured = cmds.custom_actions.contains_key(key);
+        ops.push(MonitorControlAction {
+            key: key.to_string(),
+            label: label.to_string(),
+            description: description.to_string(),
+            category: category.to_string(),
+            configured,
+            source: if configured {
+                "orchestrator".to_string()
+            } else {
+                "unavailable".to_string()
+            },
+        });
+    };
+
+    // ── Common operations for every node ────────────────────────────────
     push_rpc(
         "rpc:get_node_status",
         "RPC Node Status",
@@ -2785,122 +2853,263 @@ fn build_role_operations(
         "runtime",
         &mut operations,
     );
+    push_rpc(
+        "rpc:get_latest_block",
+        "Latest Block",
+        "Fetch the latest block from this node.",
+        "runtime",
+        &mut operations,
+    );
 
-    let is_interop = role_group == "interop"
-        || role.contains("relayer")
-        || role.contains("witness")
-        || role.contains("oracle")
-        || node_type.contains("relayer")
-        || node_type.contains("cross-chain")
-        || node_type.contains("oracle")
-        || node_type.contains("witness");
-
-    let is_consensus = role_group == "consensus"
-        || role_group == "governance"
-        || role.contains("validator")
-        || node_type == "validator";
-
-    let is_pqc = role_group == "pqc" || role.contains("pqc") || node_type.contains("pqc");
-
-    let is_services = role_group == "services"
-        || node_type.contains("rpc")
-        || node_type.contains("indexer")
-        || node_type.contains("observer");
-
-    if is_interop {
-        push_rpc(
-            "rpc:get_sxcp_status",
-            "SXCP Status",
-            "Check relayer quorum and heartbeat window health.",
-            "interop",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_relayer_set",
-            "Relayer Set",
-            "Fetch registered relayers and active/slashed flags.",
-            "interop",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_relayer_health",
-            "Relayer Health",
-            "Inspect per-relayer liveness and heartbeat metrics.",
-            "interop",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_attestations",
-            "Recent Attestations",
-            "Fetch recent SXCP attestations for cross-chain test traffic.",
-            "interop",
-            &mut operations,
-        );
+    // ── Class I — Consensus nodes ───────────────────────────────────────
+    // Validator
+    if node_type == "validator" {
+        push_rpc("rpc:get_validator_activity", "Validator Activity",
+            "Inspect validator stake, blocks produced, epoch participation, and synergy score.", "consensus", &mut operations);
+        push_rpc("rpc:get_validators", "Validator Set",
+            "Fetch the active validator set and verify this node's membership.", "consensus", &mut operations);
+        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
+            "Compare state root hash across validators for fork detection.", "consensus", &mut operations);
+        push_rpc("rpc:get_epoch_info", "Epoch Info",
+            "Fetch current epoch number, progress, and time remaining.", "consensus", &mut operations);
+        push_rpc("rpc:get_staking_info", "Staking Info",
+            "Check staked SNRG amount, rewards earned, and slashing history.", "consensus", &mut operations);
+        push_shell("rotate_vrf_key", "Rotate VRF Key",
+            "Generate and register a new VRF keypair for committee selection.", "consensus", &commands, &mut operations);
     }
 
-    if is_consensus {
-        push_rpc(
-            "rpc:get_validator_activity",
-            "Validator Activity",
-            "Inspect validator stake, blocks produced, and participation.",
-            "consensus",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_validators",
-            "Validator Set",
-            "Fetch active validators and verify membership.",
-            "consensus",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_determinism_digest",
-            "Determinism Digest",
-            "Read deterministic digest to compare state consistency across nodes.",
-            "consensus",
-            &mut operations,
-        );
+    // Committee
+    if node_type == "committee" {
+        push_rpc("rpc:get_validator_activity", "Committee Activity",
+            "Inspect committee member participation and voting record.", "consensus", &mut operations);
+        push_rpc("rpc:get_validators", "Validator Set",
+            "Fetch the active validator set and verify committee membership.", "consensus", &mut operations);
+        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
+            "Compare state root hash for consensus consistency.", "consensus", &mut operations);
+        push_rpc("rpc:get_committee_status", "Committee Status",
+            "Fetch current committee composition and rotation schedule.", "consensus", &mut operations);
+        push_rpc("rpc:get_epoch_info", "Epoch Info",
+            "Fetch current epoch number and committee rotation progress.", "consensus", &mut operations);
     }
 
-    if is_pqc {
-        push_rpc(
-            "rpc:get_latest_block",
-            "Latest Block Payload",
-            "Inspect latest block and signature metadata from this PQC node.",
-            "pqc",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_determinism_digest",
-            "Determinism Digest",
-            "Validate deterministic state proof from PQC service node.",
-            "pqc",
-            &mut operations,
-        );
+    // Archive Validator
+    if node_type == "archive-validator" || node_type == "archive_validator" {
+        push_rpc("rpc:get_validator_activity", "Validator Activity",
+            "Inspect archive validator stake and block production.", "consensus", &mut operations);
+        push_rpc("rpc:get_validators", "Validator Set",
+            "Verify archive validator is in the active set.", "consensus", &mut operations);
+        push_rpc("rpc:get_archive_status", "Archive Status",
+            "Check archive completeness, oldest retained block, and storage usage.", "consensus", &mut operations);
+        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
+            "Validate full-history state consistency.", "consensus", &mut operations);
+        push_shell("verify_archive_integrity", "Verify Archive Integrity",
+            "Run integrity check across all retained chain data.", "consensus", &commands, &mut operations);
     }
 
-    if is_services {
-        push_rpc(
-            "rpc:get_network_stats",
-            "Network Stats",
-            "Fetch RPC-facing throughput and network counters.",
-            "services",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_all_wallets",
-            "Wallet Inventory",
-            "Fetch wallet list for quick explorer comparison.",
-            "services",
-            &mut operations,
-        );
-        push_rpc(
-            "rpc:get_latest_block",
-            "Latest Block",
-            "Fetch latest block for explorer/indexer parity checks.",
-            "services",
-            &mut operations,
-        );
+    // Audit Validator
+    if node_type == "audit-validator" || node_type == "audit_validator" {
+        push_rpc("rpc:get_validator_activity", "Validator Activity",
+            "Inspect audit validator participation and attestations.", "consensus", &mut operations);
+        push_rpc("rpc:get_validators", "Validator Set",
+            "Verify audit validator is in the active set.", "consensus", &mut operations);
+        push_rpc("rpc:get_audit_report", "Audit Report",
+            "Fetch latest audit findings: fork anomalies, state mismatches, invalid transitions.", "consensus", &mut operations);
+        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
+            "Cross-validate state proofs against other validators.", "consensus", &mut operations);
+    }
+
+    // ── Class II — Interoperability nodes ────────────────────────────────
+    // Relayer
+    if node_type == "relayer" {
+        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
+            "Check SXCP relayer quorum, heartbeat window, and protocol health.", "interop", &mut operations);
+        push_rpc("rpc:get_relayer_set", "Relayer Set",
+            "Fetch registered relayers and their active/slashed status.", "interop", &mut operations);
+        push_rpc("rpc:get_relayer_health", "Relayer Health",
+            "Inspect this relayer's liveness, message throughput, and heartbeat metrics.", "interop", &mut operations);
+        push_rpc("rpc:get_attestations", "Recent Attestations",
+            "Fetch recent SXCP cross-chain attestations relayed by this node.", "interop", &mut operations);
+        push_rpc("rpc:get_relay_queue", "Relay Queue",
+            "Check pending cross-chain messages awaiting relay.", "interop", &mut operations);
+        push_shell("flush_relay_queue", "Flush Relay Queue",
+            "Force-submit all pending relay messages.", "interop", &commands, &mut operations);
+    }
+
+    // Witness
+    if node_type == "witness" {
+        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
+            "Check SXCP protocol health from the witness perspective.", "interop", &mut operations);
+        push_rpc("rpc:get_witness_status", "Witness Status",
+            "Fetch witness attestation count, challenge responses, and uptime.", "interop", &mut operations);
+        push_rpc("rpc:get_attestations", "Recent Attestations",
+            "Fetch cross-chain attestations co-signed by this witness.", "interop", &mut operations);
+        push_rpc("rpc:get_relayer_health", "Relayer Health",
+            "Cross-check relayer health from the witness vantage point.", "interop", &mut operations);
+    }
+
+    // Oracle
+    if node_type == "oracle" {
+        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
+            "Check SXCP oracle feed health and quorum.", "interop", &mut operations);
+        push_rpc("rpc:get_oracle_feeds", "Oracle Feeds",
+            "Fetch active price feeds, data sources, and last update timestamps.", "interop", &mut operations);
+        push_rpc("rpc:get_oracle_health", "Oracle Health",
+            "Check feed freshness, deviation alerts, and source availability.", "interop", &mut operations);
+        push_shell("force_feed_update", "Force Feed Update",
+            "Trigger an immediate oracle price feed refresh.", "interop", &commands, &mut operations);
+    }
+
+    // UMA Coordinator
+    if node_type == "uma-coordinator" || node_type == "uma_coordinator" {
+        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
+            "Check SXCP health and UMA routing status.", "interop", &mut operations);
+        push_rpc("rpc:get_uma_routing_table", "UMA Routing Table",
+            "Fetch the Universal Meta-Address resolution table and peer mappings.", "interop", &mut operations);
+        push_rpc("rpc:get_uma_resolution_stats", "UMA Resolution Stats",
+            "Check address resolution throughput, cache hit rate, and latency.", "interop", &mut operations);
+        push_rpc("rpc:get_relayer_set", "Relayer Set",
+            "Inspect relayer connectivity for cross-chain UMA resolution.", "interop", &mut operations);
+    }
+
+    // Cross-Chain Verifier
+    if node_type == "cross-chain-verifier" || node_type == "cross_chain_verifier" {
+        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
+            "Check SXCP verification pipeline health.", "interop", &mut operations);
+        push_rpc("rpc:get_verification_queue", "Verification Queue",
+            "Fetch pending cross-chain proofs awaiting verification.", "interop", &mut operations);
+        push_rpc("rpc:get_attestations", "Recent Attestations",
+            "Fetch attestations verified by this node.", "interop", &mut operations);
+        push_rpc("rpc:get_verification_stats", "Verification Stats",
+            "Check proof verification throughput, rejection rate, and latency.", "interop", &mut operations);
+    }
+
+    // ── Class III — Intelligence & Computation nodes ────────────────────
+    // Compute
+    if node_type == "compute" {
+        push_rpc("rpc:get_compute_tasks", "Compute Tasks",
+            "Fetch active and queued compute tasks assigned to this node.", "compute", &mut operations);
+        push_rpc("rpc:get_compute_metrics", "Compute Metrics",
+            "Check CPU/GPU utilization, task throughput, and queue depth.", "compute", &mut operations);
+        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
+            "Validate deterministic compute output consistency.", "compute", &mut operations);
+        push_shell("drain_compute_queue", "Drain Queue",
+            "Stop accepting new tasks and finish active ones gracefully.", "compute", &commands, &mut operations);
+    }
+
+    // AI Inference
+    if node_type == "ai-inference" || node_type == "ai_inference" {
+        push_rpc("rpc:get_inference_status", "Inference Status",
+            "Check loaded models, GPU memory, and inference throughput.", "compute", &mut operations);
+        push_rpc("rpc:get_compute_tasks", "Inference Queue",
+            "Fetch pending and active inference requests.", "compute", &mut operations);
+        push_rpc("rpc:get_model_registry", "Model Registry",
+            "List loaded AI models, versions, and readiness state.", "compute", &mut operations);
+        push_shell("reload_models", "Reload Models",
+            "Hot-reload AI model weights without restarting the node.", "compute", &commands, &mut operations);
+    }
+
+    // PQC Crypto
+    if node_type == "pqc-crypto" || node_type == "pqc_crypto" {
+        push_rpc("rpc:get_pqc_status", "PQC Status",
+            "Check Aegis PQC suite status: ML-KEM-512, Dilithium-3, SLH-DSA, FN-DSA availability.", "pqc", &mut operations);
+        push_rpc("rpc:get_pqc_key_inventory", "Key Inventory",
+            "Fetch PQC keypair inventory and expiration schedules.", "pqc", &mut operations);
+        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
+            "Validate PQC signature state consistency across the network.", "pqc", &mut operations);
+        push_shell("rotate_pqc_keys", "Rotate PQC Keys",
+            "Trigger PQC key rotation using the Aegis suite.", "pqc", &commands, &mut operations);
+        push_shell("run_pqc_benchmark", "Run PQC Benchmark",
+            "Benchmark PQC signing and verification performance.", "pqc", &commands, &mut operations);
+    }
+
+    // Data Availability
+    if node_type == "data-availability" || node_type == "data_availability" {
+        push_rpc("rpc:get_da_status", "DA Layer Status",
+            "Check data availability layer health, sampling rate, and blob count.", "compute", &mut operations);
+        push_rpc("rpc:get_da_storage_stats", "DA Storage Stats",
+            "Fetch blob storage utilization, retention window, and pruning state.", "compute", &mut operations);
+        push_rpc("rpc:get_da_sampling_results", "DA Sampling",
+            "Fetch recent data availability sampling results and attestations.", "compute", &mut operations);
+        push_shell("trigger_da_sample", "Trigger DA Sample",
+            "Force an immediate data availability sampling round.", "compute", &commands, &mut operations);
+    }
+
+    // GPU Node (dedicated GPU acceleration)
+    if node_type == "gpu-node" || node_type == "gpu_node" {
+        push_rpc("rpc:get_compute_tasks", "GPU Tasks",
+            "Fetch active and queued GPU compute tasks.", "compute", &mut operations);
+        push_rpc("rpc:get_compute_metrics", "GPU Metrics",
+            "Check GPU utilization, VRAM usage, temperature, and throughput.", "compute", &mut operations);
+        push_rpc("rpc:get_inference_status", "Inference Status",
+            "Check GPU inference pipeline health and loaded models.", "compute", &mut operations);
+    }
+
+    // ── Class IV — Governance & Treasury nodes ──────────────────────────
+    // Governance Auditor
+    if node_type == "governance-auditor" || node_type == "governance_auditor" {
+        push_rpc("rpc:get_governance_proposals", "Active Proposals",
+            "Fetch active governance proposals and voting status.", "governance", &mut operations);
+        push_rpc("rpc:get_governance_audit_log", "Audit Log",
+            "Review governance action audit trail and compliance events.", "governance", &mut operations);
+        push_rpc("rpc:get_staking_info", "Staking Info",
+            "Check governance auditor staking bond and slashing status.", "governance", &mut operations);
+    }
+
+    // Treasury Controller
+    if node_type == "treasury-controller" || node_type == "treasury_controller" {
+        push_rpc("rpc:get_treasury_balance", "Treasury Balance",
+            "Fetch current treasury SNRG balance and recent disbursements.", "governance", &mut operations);
+        push_rpc("rpc:get_treasury_transactions", "Treasury Transactions",
+            "List recent treasury inflows, outflows, and pending approvals.", "governance", &mut operations);
+        push_rpc("rpc:get_staking_info", "Staking Info",
+            "Check treasury controller staking bond status.", "governance", &mut operations);
+    }
+
+    // Security Council
+    if node_type == "security-council" || node_type == "security_council" {
+        push_rpc("rpc:get_security_alerts", "Security Alerts",
+            "Fetch active security alerts, threat detections, and incident reports.", "governance", &mut operations);
+        push_rpc("rpc:get_slashing_events", "Slashing Events",
+            "Review recent slashing events and penalty enforcement.", "governance", &mut operations);
+        push_rpc("rpc:get_governance_proposals", "Active Proposals",
+            "Fetch governance proposals requiring security council review.", "governance", &mut operations);
+        push_rpc("rpc:get_network_stats", "Network Stats",
+            "Monitor network-wide health metrics for anomaly detection.", "governance", &mut operations);
+    }
+
+    // ── Class V — Service & Support nodes ───────────────────────────────
+    // RPC Gateway
+    if node_type == "rpc-gateway" || node_type == "rpc_gateway" {
+        push_rpc("rpc:get_network_stats", "Network Stats",
+            "Fetch RPC-facing throughput, request rate, and error rate.", "services", &mut operations);
+        push_rpc("rpc:get_all_wallets", "Wallet Inventory",
+            "Fetch known wallet list for developer tooling.", "services", &mut operations);
+        push_rpc("rpc:get_rpc_method_stats", "RPC Method Stats",
+            "Check per-method call counts, latency percentiles, and error rates.", "services", &mut operations);
+        push_rpc("rpc:get_rate_limit_status", "Rate Limit Status",
+            "Fetch current rate limit configuration and active throttles.", "services", &mut operations);
+    }
+
+    // Indexer
+    if node_type == "indexer" {
+        push_rpc("rpc:get_network_stats", "Network Stats",
+            "Fetch network throughput and block propagation metrics.", "services", &mut operations);
+        push_rpc("rpc:get_indexer_status", "Indexer Status",
+            "Check indexing progress, head lag, and indexed block height.", "services", &mut operations);
+        push_rpc("rpc:get_indexer_stats", "Indexer Stats",
+            "Fetch transaction indexing throughput and query performance.", "services", &mut operations);
+        push_shell("reindex_from_height", "Reindex from Height",
+            "Trigger a reindex starting from a specific block height.", "services", &commands, &mut operations);
+    }
+
+    // Observer
+    if node_type == "observer" {
+        push_rpc("rpc:get_network_stats", "Network Stats",
+            "Fetch network-wide health metrics and block propagation.", "services", &mut operations);
+        push_rpc("rpc:get_all_wallets", "Wallet Inventory",
+            "Fetch wallet state for read-only observation.", "services", &mut operations);
+        push_rpc("rpc:get_observer_status", "Observer Status",
+            "Check observer sync height, peer count, and read-only mode status.", "services", &mut operations);
     }
 
     let mut custom_ops = commands
@@ -3032,12 +3241,15 @@ fn resolve_control_action_command(commands: &NodeControlCommands, action: &str) 
 fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
     let rpc_action = action.strip_prefix("rpc:")?;
     match rpc_action {
+        // ── Common ──────────────────────────────────────────────────────
         "get_node_status" | "node_status" => Some(("synergy_getNodeStatus", json!([]))),
         "get_sync_status" | "sync_status" => Some(("synergy_getSyncStatus", json!([]))),
         "get_peer_info" | "peer_info" => Some(("synergy_getPeerInfo", json!([]))),
         "get_latest_block" | "latest_block" => Some(("synergy_getLatestBlock", json!([]))),
         "get_network_stats" | "network_stats" => Some(("synergy_getNetworkStats", json!([]))),
         "get_all_wallets" | "all_wallets" => Some(("synergy_getAllWallets", json!([]))),
+
+        // ── Class I — Consensus ─────────────────────────────────────────
         "get_validator_activity" | "validator_activity" => {
             Some(("synergy_getValidatorActivity", json!([])))
         }
@@ -3045,10 +3257,100 @@ fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
         "get_determinism_digest" | "determinism_digest" => {
             Some(("synergy_getDeterminismDigest", json!([])))
         }
+        "get_epoch_info" | "epoch_info" => Some(("synergy_getEpochInfo", json!([]))),
+        "get_staking_info" | "staking_info" => Some(("synergy_getStakingInfo", json!([]))),
+        "get_committee_status" | "committee_status" => {
+            Some(("synergy_getCommitteeStatus", json!([])))
+        }
+        "get_archive_status" | "archive_status" => {
+            Some(("synergy_getArchiveStatus", json!([])))
+        }
+        "get_audit_report" | "audit_report" => Some(("synergy_getAuditReport", json!([]))),
+
+        // ── Class II — Interoperability ─────────────────────────────────
         "get_sxcp_status" | "sxcp_status" => Some(("synergy_getSxcpStatus", json!([]))),
         "get_relayer_set" | "relayer_set" => Some(("synergy_getRelayerSet", json!([]))),
         "get_relayer_health" | "relayer_health" => Some(("synergy_getRelayerHealth", json!([]))),
         "get_attestations" | "attestations" => Some(("synergy_getAttestations", json!([25_u64]))),
+        "get_relay_queue" | "relay_queue" => Some(("synergy_getRelayQueue", json!([]))),
+        "get_witness_status" | "witness_status" => {
+            Some(("synergy_getWitnessStatus", json!([])))
+        }
+        "get_oracle_feeds" | "oracle_feeds" => Some(("synergy_getOracleFeeds", json!([]))),
+        "get_oracle_health" | "oracle_health" => Some(("synergy_getOracleHealth", json!([]))),
+        "get_uma_routing_table" | "uma_routing_table" => {
+            Some(("synergy_getUmaRoutingTable", json!([])))
+        }
+        "get_uma_resolution_stats" | "uma_resolution_stats" => {
+            Some(("synergy_getUmaResolutionStats", json!([])))
+        }
+        "get_verification_queue" | "verification_queue" => {
+            Some(("synergy_getVerificationQueue", json!([])))
+        }
+        "get_verification_stats" | "verification_stats" => {
+            Some(("synergy_getVerificationStats", json!([])))
+        }
+
+        // ── Class III — Intelligence & Computation ──────────────────────
+        "get_compute_tasks" | "compute_tasks" => Some(("synergy_getComputeTasks", json!([]))),
+        "get_compute_metrics" | "compute_metrics" => {
+            Some(("synergy_getComputeMetrics", json!([])))
+        }
+        "get_inference_status" | "inference_status" => {
+            Some(("synergy_getInferenceStatus", json!([])))
+        }
+        "get_model_registry" | "model_registry" => {
+            Some(("synergy_getModelRegistry", json!([])))
+        }
+        "get_pqc_status" | "pqc_status" => Some(("synergy_getPqcStatus", json!([]))),
+        "get_pqc_key_inventory" | "pqc_key_inventory" => {
+            Some(("synergy_getPqcKeyInventory", json!([])))
+        }
+        "get_da_status" | "da_status" => Some(("synergy_getDaStatus", json!([]))),
+        "get_da_storage_stats" | "da_storage_stats" => {
+            Some(("synergy_getDaStorageStats", json!([])))
+        }
+        "get_da_sampling_results" | "da_sampling_results" => {
+            Some(("synergy_getDaSamplingResults", json!([])))
+        }
+
+        // ── Class IV — Governance & Treasury ────────────────────────────
+        "get_governance_proposals" | "governance_proposals" => {
+            Some(("synergy_getGovernanceProposals", json!([])))
+        }
+        "get_governance_audit_log" | "governance_audit_log" => {
+            Some(("synergy_getGovernanceAuditLog", json!([])))
+        }
+        "get_treasury_balance" | "treasury_balance" => {
+            Some(("synergy_getTreasuryBalance", json!([])))
+        }
+        "get_treasury_transactions" | "treasury_transactions" => {
+            Some(("synergy_getTreasuryTransactions", json!([])))
+        }
+        "get_security_alerts" | "security_alerts" => {
+            Some(("synergy_getSecurityAlerts", json!([])))
+        }
+        "get_slashing_events" | "slashing_events" => {
+            Some(("synergy_getSlashingEvents", json!([])))
+        }
+
+        // ── Class V — Service & Support ─────────────────────────────────
+        "get_rpc_method_stats" | "rpc_method_stats" => {
+            Some(("synergy_getRpcMethodStats", json!([])))
+        }
+        "get_rate_limit_status" | "rate_limit_status" => {
+            Some(("synergy_getRateLimitStatus", json!([])))
+        }
+        "get_indexer_status" | "indexer_status" => {
+            Some(("synergy_getIndexerStatus", json!([])))
+        }
+        "get_indexer_stats" | "indexer_stats" => {
+            Some(("synergy_getIndexerStats", json!([])))
+        }
+        "get_observer_status" | "observer_status" => {
+            Some(("synergy_getObserverStatus", json!([])))
+        }
+
         _ => None,
     }
 }
@@ -3989,15 +4291,20 @@ fn logical_nodes_for_physical_machine(
 ) -> Result<Vec<&'static str>, String> {
     match physical_machine_id {
         "machine-01" => Ok(vec!["machine-01"]),
-        "machine-02" => Ok(vec!["machine-02", "machine-15"]),
-        "machine-03" => Ok(vec!["machine-03", "machine-07"]),
-        "machine-04" => Ok(vec!["machine-04", "machine-06"]),
-        "machine-05" => Ok(vec!["machine-05", "machine-10"]),
-        "machine-06" => Ok(vec!["machine-11", "machine-08"]),
-        "machine-07" => Ok(vec!["machine-09", "machine-13"]),
-        "machine-08" => Ok(vec!["machine-14", "machine-12"]),
+        "machine-02" => Ok(vec!["machine-02", "machine-03"]),
+        "machine-03" => Ok(vec!["machine-04", "machine-05"]),
+        "machine-04" => Ok(vec!["machine-06", "machine-07"]),
+        "machine-05" => Ok(vec!["machine-08", "machine-09"]),
+        "machine-06" => Ok(vec!["machine-10", "machine-11"]),
+        "machine-07" => Ok(vec!["machine-12", "machine-13"]),
+        "machine-08" => Ok(vec!["machine-14", "machine-15"]),
+        "machine-09" => Ok(vec!["machine-16", "machine-17"]),
+        "machine-10" => Ok(vec!["machine-18", "machine-19"]),
+        "machine-11" => Ok(vec!["machine-20", "machine-21"]),
+        "machine-12" => Ok(vec!["machine-22", "machine-23"]),
+        "machine-13" => Ok(vec!["machine-24", "machine-25"]),
         _ => Err(format!(
-            "Unknown physical_machine_id '{}'. Expected machine-01..machine-08.",
+            "Unknown physical_machine_id '{}'. Expected machine-01..machine-13.",
             physical_machine_id
         )),
     }
@@ -4013,6 +4320,11 @@ fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<&'static str> {
         "10.50.0.6" => Some("machine-06"),
         "10.50.0.7" => Some("machine-07"),
         "10.50.0.8" => Some("machine-08"),
+        "10.50.0.9" => Some("machine-09"),
+        "10.50.0.10" => Some("machine-10"),
+        "10.50.0.11" => Some("machine-11"),
+        "10.50.0.12" => Some("machine-12"),
+        "10.50.0.13" => Some("machine-13"),
         _ => None,
     }
 }
@@ -4187,10 +4499,11 @@ fn role_allows_control(role: &str, action: &str) -> bool {
         "install_node",
         "bootstrap_node",
         "reset_chain",
-        "wireguard_install",
-        "wireguard_connect",
-        "wireguard_disconnect",
-        "wireguard_restart",
+        "rotate_vrf_key",
+        "rotate_pqc_keys",
+        "flush_relay_queue",
+        "drain_compute_queue",
+        "reindex_from_height",
     ];
     !admin_only
         .iter()

@@ -55,7 +55,7 @@ function App() {
     const resolveSetupState = async () => {
       try {
         await invoke('monitor_initialize_workspace');
-        await invoke('monitor_apply_eight_machine_topology');
+        await invoke('monitor_apply_devnet_topology');
         const setupStatus = await invoke('monitor_get_setup_status');
         setSetupComplete(Boolean(setupStatus?.completed));
       } catch (error) {
