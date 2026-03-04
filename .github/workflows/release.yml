@@ -69,6 +69,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      # Ensure .env exists (embedded at compile time by env_config.rs)
+      - name: Create .env if missing
+        run: |
+          if [ ! -f .env ]; then
+            echo "# CI placeholder — real values are set per-machine at runtime" > .env
+          fi
+        shell: bash
+
       # Linux-specific: install system libraries Tauri needs
       - name: Install Linux dependencies
         if: matrix.label == 'linux-x64'
