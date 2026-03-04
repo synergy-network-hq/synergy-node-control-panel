@@ -1,14 +1,5 @@
 import { check } from '@tauri-apps/plugin-updater';
 
-// Try to import relaunch — if plugin-process isn't available, fall back gracefully.
-let relaunchApp = null;
-try {
-  const processModule = await import('@tauri-apps/plugin-process');
-  relaunchApp = processModule.relaunch;
-} catch (_) {
-  // plugin-process not installed; relaunch will require manual app restart
-}
-
 function normalizeUpdateError(error) {
   const text = String(error ?? '').trim();
   const lower = text.toLowerCase();
@@ -50,7 +41,8 @@ export async function checkForUpdate() {
 }
 
 /**
- * Download and install an available update, then relaunch the app.
+ * Download and install an available update.
+ * The app will need to be restarted manually to apply the update.
  * Returns { status: string, message: string }
  */
 export async function downloadAndInstallUpdate() {
@@ -62,16 +54,9 @@ export async function downloadAndInstallUpdate() {
 
     await update.downloadAndInstall();
 
-    // Relaunch the app to apply the update
-    try {
-      if (relaunchApp) await relaunchApp();
-    } catch (_) {
-      // relaunch may not return (or may not be available)
-    }
-
     return {
       status: 'installed',
-      message: `Update ${update.version} installed. The app will restart momentarily.`,
+      message: `Update ${update.version} installed. Restart the app to apply the update.`,
     };
   } catch (error) {
     return { status: 'error', message: normalizeUpdateError(error) };
@@ -101,15 +86,9 @@ export async function checkAndInstallAppUpdate() {
 
     await update.downloadAndInstall();
 
-    try {
-      if (relaunchApp) await relaunchApp();
-    } catch (_) {
-      // relaunch may not return (or may not be available)
-    }
-
     return {
       status: 'installed',
-      message: `Update ${update.version} installed. Restart the app to run the new version.`,
+      message: `Update ${update.version} installed. Restart the app to apply the update.`,
     };
   } catch (error) {
     return { status: 'error', message: normalizeUpdateError(error) };

@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Synergy Devnet Control Center — Cross-Platform Release Build
 # ─────────────────────────────────────────────────────────────────────────────
-# Triggers when you push a tag like "v2.0.1".
+# Triggers when you push a tag like "v2.0.3".
 # Builds for macOS (ARM + Intel), Linux (x86_64), and Windows (x86_64).
 # Publishes installers + signed update bundles to the PUBLIC releases repo.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v2.0.1)'
+        description: 'Release tag (e.g. v2.0.3)'
         required: true
 
 env:
@@ -32,10 +32,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest     # Apple Silicon (builds both targets)
+          - platform: macos-latest
             target: aarch64-apple-darwin
             label: macos-arm64
-          - platform: macos-latest     # Intel Mac (cross-compile on ARM runner)
+          - platform: macos-latest
             target: x86_64-apple-darwin
             label: macos-x64
           - platform: ubuntu-22.04
@@ -84,19 +84,20 @@ jobs:
             libsoup-3.0-dev \
             javascriptcoregtk-4.1-dev
 
-      # Build the Tauri app with update bundle signing
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      # Build the Tauri app directly via npx (not tauri-action)
+      - name: Build Tauri app (Unix)
+        if: runner.os != 'Windows'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
-        with:
-          # Don't let tauri-action create a release — we do that ourselves
-          # on the public releases repo
-          tagName: ''
-          releaseName: ''
-          args: --target ${{ matrix.target }}
+        run: npx tauri build --target ${{ matrix.target }}
+
+      - name: Build Tauri app (Windows)
+        if: runner.os == 'Windows'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: npx tauri build --target ${{ matrix.target }}
 
       # ─── Collect build artifacts ──────────────────────────────────────────
       - name: Collect artifacts (macOS)
@@ -108,6 +109,19 @@ jobs:
           # .app.tar.gz + .sig for Tauri updater
           cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.tar.gz artifacts/ 2>/dev/null || true
           cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.sig artifacts/ 2>/dev/null || true
+          # Rename to include arch for clarity
+          cd artifacts
+          for f in *.dmg; do
+            [ -f "$f" ] && mv "$f" "${f%.dmg}_${{ matrix.label }}.dmg" 2>/dev/null || true
+          done
+          for f in *.app.tar.gz; do
+            [ -f "$f" ] && mv "$f" "${f%.app.tar.gz}_${{ matrix.label }}.app.tar.gz" 2>/dev/null || true
+          done
+          for f in *.app.tar.gz.sig; do
+            [ -f "$f" ] && mv "$f" "${f%.app.tar.gz.sig}_${{ matrix.label }}.app.tar.gz.sig" 2>/dev/null || true
+          done
+          cd ..
+          echo "=== Artifacts ==="
           ls -la artifacts/
 
       - name: Collect artifacts (Linux)
@@ -120,6 +134,7 @@ jobs:
           # .AppImage.tar.gz + .sig for Tauri updater
           cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.tar.gz artifacts/ 2>/dev/null || true
           cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.sig artifacts/ 2>/dev/null || true
+          echo "=== Artifacts ==="
           ls -la artifacts/
 
       - name: Collect artifacts (Windows)
@@ -135,6 +150,7 @@ jobs:
           Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.sig" artifacts\ -ErrorAction SilentlyContinue
           Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.zip" artifacts\ -ErrorAction SilentlyContinue
           Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.sig" artifacts\ -ErrorAction SilentlyContinue
+          Write-Host "=== Artifacts ==="
           Get-ChildItem artifacts\
 
       - name: Upload artifacts
@@ -183,70 +199,70 @@ jobs:
           RELEASE_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           BASE_URL="https://github.com/${{ env.RELEASES_REPO }}/releases/download/${VERSION}"
 
-          # Read .sig files for each platform
-          read_sig() {
+          # Helper: find a file matching a pattern and return its basename
+          find_file() {
             local pattern="$1"
-            local sig_file
-            sig_file=$(find release-assets -name "$pattern" -type f | head -1)
-            if [[ -f "$sig_file" ]]; then
-              cat "$sig_file"
-            else
-              echo ""
+            local result
+            result=$(find release-assets -name "$pattern" -type f 2>/dev/null | head -1)
+            if [[ -n "$result" ]]; then
+              basename "$result"
             fi
           }
 
-          # Find update bundle filenames (the .tar.gz and .zip files, NOT installers)
-          find_update_bundle() {
+          # Helper: read signature from a .sig file
+          read_sig() {
             local pattern="$1"
-            find release-assets -name "$pattern" -type f | head -1 | xargs -I{} basename {} 2>/dev/null || echo ""
+            local sig_file
+            sig_file=$(find release-assets -name "$pattern" -type f 2>/dev/null | head -1)
+            if [[ -f "$sig_file" ]]; then
+              cat "$sig_file"
+            fi
           }
 
           # macOS ARM
-          MACOS_ARM_BUNDLE=$(find_update_bundle "*.app.tar.gz")
-          MACOS_ARM_SIG=$(read_sig "*.app.tar.gz.sig")
+          MACOS_ARM_BUNDLE=$(find_file "*macos-arm64.app.tar.gz")
+          MACOS_ARM_SIG=$(read_sig "*macos-arm64.app.tar.gz.sig")
 
-          # macOS Intel — may have a different name or same pattern
-          # We differentiate by which artifact folder they came from
-          MACOS_X64_BUNDLE="$MACOS_ARM_BUNDLE"
-          MACOS_X64_SIG="$MACOS_ARM_SIG"
+          # macOS Intel
+          MACOS_X64_BUNDLE=$(find_file "*macos-x64.app.tar.gz")
+          MACOS_X64_SIG=$(read_sig "*macos-x64.app.tar.gz.sig")
 
           # Linux
-          LINUX_BUNDLE=$(find_update_bundle "*.AppImage.tar.gz")
+          LINUX_BUNDLE=$(find_file "*.AppImage.tar.gz")
           LINUX_SIG=$(read_sig "*.AppImage.tar.gz.sig")
 
           # Windows (NSIS preferred, fallback to MSI)
-          WIN_BUNDLE=$(find_update_bundle "*-setup.nsis.zip")
+          WIN_BUNDLE=$(find_file "*-setup.nsis.zip")
           WIN_SIG=$(read_sig "*-setup.nsis.zip.sig")
           if [[ -z "$WIN_BUNDLE" ]]; then
-            WIN_BUNDLE=$(find_update_bundle "*.msi.zip")
+            WIN_BUNDLE=$(find_file "*.msi.zip")
             WIN_SIG=$(read_sig "*.msi.zip.sig")
           fi
 
-          cat > release-assets/latest.json << MANIFEST
-          {
-            "version": "${VERSION_NUM}",
-            "notes": "Synergy Devnet Control Center ${VERSION}",
-            "pub_date": "${RELEASE_DATE}",
-            "platforms": {
-              "darwin-aarch64": {
-                "url": "${BASE_URL}/${MACOS_ARM_BUNDLE}",
-                "signature": "${MACOS_ARM_SIG}"
-              },
-              "darwin-x86_64": {
-                "url": "${BASE_URL}/${MACOS_X64_BUNDLE}",
-                "signature": "${MACOS_X64_SIG}"
-              },
-              "linux-x86_64": {
-                "url": "${BASE_URL}/${LINUX_BUNDLE}",
-                "signature": "${LINUX_SIG}"
-              },
-              "windows-x86_64": {
-                "url": "${BASE_URL}/${WIN_BUNDLE}",
-                "signature": "${WIN_SIG}"
+          # Build the JSON — use jq for proper escaping
+          jq -n \
+            --arg version "$VERSION_NUM" \
+            --arg notes "Synergy Devnet Control Center ${VERSION}" \
+            --arg pub_date "$RELEASE_DATE" \
+            --arg darwin_arm_url "${BASE_URL}/${MACOS_ARM_BUNDLE}" \
+            --arg darwin_arm_sig "${MACOS_ARM_SIG:-}" \
+            --arg darwin_x64_url "${BASE_URL}/${MACOS_X64_BUNDLE}" \
+            --arg darwin_x64_sig "${MACOS_X64_SIG:-}" \
+            --arg linux_url "${BASE_URL}/${LINUX_BUNDLE}" \
+            --arg linux_sig "${LINUX_SIG:-}" \
+            --arg win_url "${BASE_URL}/${WIN_BUNDLE}" \
+            --arg win_sig "${WIN_SIG:-}" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { url: $darwin_arm_url, signature: $darwin_arm_sig },
+                "darwin-x86_64": { url: $darwin_x64_url, signature: $darwin_x64_sig },
+                "linux-x86_64": { url: $linux_url, signature: $linux_sig },
+                "windows-x86_64": { url: $win_url, signature: $win_sig }
               }
-            }
-          }
-          MANIFEST
+            }' > release-assets/latest.json
 
           echo "=== latest.json ==="
           cat release-assets/latest.json
