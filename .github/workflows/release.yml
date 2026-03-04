@@ -1,0 +1,282 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Synergy Devnet Control Center — Cross-Platform Release Build
+# ─────────────────────────────────────────────────────────────────────────────
+# Triggers when you push a tag like "v2.0.1".
+# Builds for macOS (ARM + Intel), Linux (x86_64), and Windows (x86_64).
+# Publishes installers + signed update bundles to the PUBLIC releases repo.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+  # Allow manual trigger from the Actions tab
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v2.0.1)'
+        required: true
+
+env:
+  RELEASES_REPO: synergy-network-hq/devnet-control-panel-releases
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Build matrix: macOS ARM, macOS Intel, Linux, Windows
+  # ───────────────────────────────────────────────────────────────────────────
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest     # Apple Silicon
+            target: aarch64-apple-darwin
+            label: macos-arm64
+          - platform: macos-13         # Intel Mac
+            target: x86_64-apple-darwin
+            label: macos-x64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: linux-x64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # Linux-specific: install system libraries Tauri needs
+      - name: Install Linux dependencies
+        if: matrix.label == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            javascriptcoregtk-4.1-dev
+
+      # Build the Tauri app with update bundle signing
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        with:
+          # Don't let tauri-action create a release — we do that ourselves
+          # on the public releases repo
+          tagName: ''
+          releaseName: ''
+          args: --target ${{ matrix.target }}
+
+      # ─── Collect build artifacts ──────────────────────────────────────────
+      - name: Collect artifacts (macOS)
+        if: startsWith(matrix.label, 'macos')
+        run: |
+          mkdir -p artifacts
+          # .dmg installer for new installs
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
+          # .app.tar.gz + .sig for Tauri updater
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.tar.gz artifacts/ 2>/dev/null || true
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.sig artifacts/ 2>/dev/null || true
+          ls -la artifacts/
+
+      - name: Collect artifacts (Linux)
+        if: matrix.label == 'linux-x64'
+        run: |
+          mkdir -p artifacts
+          # .deb and .AppImage for new installs
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb artifacts/ 2>/dev/null || true
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+          # .AppImage.tar.gz + .sig for Tauri updater
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.tar.gz artifacts/ 2>/dev/null || true
+          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.sig artifacts/ 2>/dev/null || true
+          ls -la artifacts/
+
+      - name: Collect artifacts (Windows)
+        if: matrix.label == 'windows-x64'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts
+          # .msi and .nsis installer for new installs
+          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.msi" artifacts\ -ErrorAction SilentlyContinue
+          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.exe" artifacts\ -ErrorAction SilentlyContinue
+          # .msi.zip + .sig for Tauri updater
+          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.zip" artifacts\ -ErrorAction SilentlyContinue
+          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.sig" artifacts\ -ErrorAction SilentlyContinue
+          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.zip" artifacts\ -ErrorAction SilentlyContinue
+          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.sig" artifacts\ -ErrorAction SilentlyContinue
+          Get-ChildItem artifacts\
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.label }}
+          path: artifacts/*
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Publish: collect all artifacts + generate latest.json + push to releases repo
+  # ───────────────────────────────────────────────────────────────────────────
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source (for version info)
+        uses: actions/checkout@v4
+
+      - name: Determine version tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release-assets
+          find all-artifacts -type f -exec cp {} release-assets/ \;
+          echo "=== Release assets ==="
+          ls -la release-assets/
+
+      # ─── Generate latest.json for Tauri updater ───────────────────────────
+      - name: Generate latest.json
+        run: |
+          VERSION="${{ steps.tag.outputs.version }}"
+          VERSION_NUM="${VERSION#v}"
+          RELEASE_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          BASE_URL="https://github.com/${{ env.RELEASES_REPO }}/releases/download/${VERSION}"
+
+          # Read .sig files for each platform
+          read_sig() {
+            local pattern="$1"
+            local sig_file
+            sig_file=$(find release-assets -name "$pattern" -type f | head -1)
+            if [[ -f "$sig_file" ]]; then
+              cat "$sig_file"
+            else
+              echo ""
+            fi
+          }
+
+          # Find update bundle filenames (the .tar.gz and .zip files, NOT installers)
+          find_update_bundle() {
+            local pattern="$1"
+            find release-assets -name "$pattern" -type f | head -1 | xargs -I{} basename {} 2>/dev/null || echo ""
+          }
+
+          # macOS ARM
+          MACOS_ARM_BUNDLE=$(find_update_bundle "*.app.tar.gz")
+          MACOS_ARM_SIG=$(read_sig "*.app.tar.gz.sig")
+
+          # macOS Intel — may have a different name or same pattern
+          # We differentiate by which artifact folder they came from
+          MACOS_X64_BUNDLE="$MACOS_ARM_BUNDLE"
+          MACOS_X64_SIG="$MACOS_ARM_SIG"
+
+          # Linux
+          LINUX_BUNDLE=$(find_update_bundle "*.AppImage.tar.gz")
+          LINUX_SIG=$(read_sig "*.AppImage.tar.gz.sig")
+
+          # Windows (NSIS preferred, fallback to MSI)
+          WIN_BUNDLE=$(find_update_bundle "*-setup.nsis.zip")
+          WIN_SIG=$(read_sig "*-setup.nsis.zip.sig")
+          if [[ -z "$WIN_BUNDLE" ]]; then
+            WIN_BUNDLE=$(find_update_bundle "*.msi.zip")
+            WIN_SIG=$(read_sig "*.msi.zip.sig")
+          fi
+
+          cat > release-assets/latest.json << MANIFEST
+          {
+            "version": "${VERSION_NUM}",
+            "notes": "Synergy Devnet Control Center ${VERSION}",
+            "pub_date": "${RELEASE_DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "url": "${BASE_URL}/${MACOS_ARM_BUNDLE}",
+                "signature": "${MACOS_ARM_SIG}"
+              },
+              "darwin-x86_64": {
+                "url": "${BASE_URL}/${MACOS_X64_BUNDLE}",
+                "signature": "${MACOS_X64_SIG}"
+              },
+              "linux-x86_64": {
+                "url": "${BASE_URL}/${LINUX_BUNDLE}",
+                "signature": "${LINUX_SIG}"
+              },
+              "windows-x86_64": {
+                "url": "${BASE_URL}/${WIN_BUNDLE}",
+                "signature": "${WIN_SIG}"
+              }
+            }
+          }
+          MANIFEST
+
+          echo "=== latest.json ==="
+          cat release-assets/latest.json
+
+      # ─── Create release on the PUBLIC releases repo ───────────────────────
+      - name: Create GitHub Release on releases repo
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ env.RELEASES_REPO }}
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: "Synergy Devnet Control Center ${{ steps.tag.outputs.version }}"
+          body: |
+            ## Synergy Devnet Control Center ${{ steps.tag.outputs.version }}
+
+            ### Installation
+            | Platform | Installer |
+            |----------|-----------|
+            | macOS (Apple Silicon) | `.dmg` |
+            | macOS (Intel) | `.dmg` |
+            | Linux (x86_64) | `.deb` or `.AppImage` |
+            | Windows (x86_64) | `.msi` or `.exe` (NSIS) |
+
+            ### Auto-Update
+            Machines with the control panel already installed will receive this update
+            automatically via the **Check for Updates** button.
+
+            ---
+            *Built from source commit ${{ github.sha }}*
+          files: release-assets/*
+          token: ${{ secrets.RELEASES_REPO_TOKEN }}
+          draft: false
+          prerelease: false
