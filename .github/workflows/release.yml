@@ -91,6 +91,24 @@ jobs:
             exit 1
           fi
 
+      - name: Validate updater artifact generation config
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const confPath = 'src-tauri/tauri.conf.json';
+          const conf = JSON.parse(fs.readFileSync(confPath, 'utf8'));
+          const value = conf?.bundle?.createUpdaterArtifacts;
+          const valid = value === true || value === 'v1Compatible';
+          if (!valid) {
+            console.error(
+              '::error::src-tauri/tauri.conf.json must set bundle.createUpdaterArtifacts=true (or "v1Compatible") so updater bundles/signatures are produced.'
+            );
+            process.exit(1);
+          }
+          console.log(`bundle.createUpdaterArtifacts=${value}`);
+          NODE
+
       # Linux-specific: install system libraries Tauri needs
       - name: Install Linux dependencies
         if: matrix.label == 'linux-x64'
