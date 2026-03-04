@@ -36,10 +36,12 @@ and add these two repository secrets:
 
 This is the signing key that signs update bundles so the app trusts them.
 
-Use the **base64 key payload** value for the secret (the line that starts with `RW...`).
-If you copied a full minisign key file, do **not** include the `untrusted comment: ...` line.
+Recommended: store the **full minisign secret key text** (comment line + payload line),
+or store the **base64 of that full text**.
+The release workflow normalizes both formats before calling Tauri.
 
 ```text
+untrusted comment: minisign encrypted secret key
 RWQAAE...<base64 minisign secret key payload>...==
 ```
 

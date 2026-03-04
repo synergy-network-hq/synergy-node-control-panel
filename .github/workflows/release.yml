@@ -100,37 +100,68 @@ jobs:
             process.exit(1);
           }
 
-          // Support both formats:
-          // 1) raw base64 key (expected by Tauri)
-          // 2) full minisign secret file content that includes "untrusted comment: ..."
-          const lines = raw
+          const normalizeInput = (value) =>
+            value
+              .replace(/\r/g, '')
+              .replace(/\\n/g, '\n')
+              .trim();
+          const looksBase64 = (value) =>
+            /^[A-Za-z0-9+/=]+$/.test(value) && value.length % 4 === 0;
+          const isValidUtf8Bytes = (buf) =>
+            Buffer.from(buf.toString('utf8'), 'utf8').equals(buf);
+
+          const input = normalizeInput(raw);
+          let keyText = '';
+          let keyBase64 = '';
+
+          // Case 1: Already the expected format (base64 of full minisign key text).
+          if (looksBase64(input)) {
+            const decoded = Buffer.from(input, 'base64');
+            if (decoded.length > 0 && isValidUtf8Bytes(decoded)) {
+              const decodedText = decoded.toString('utf8');
+              if (decodedText.includes('untrusted comment:')) {
+                keyText = decodedText;
+                keyBase64 = input;
+              }
+            }
+          }
+
+          // Case 2: Raw minisign key text OR payload-only line.
+          if (!keyBase64) {
+            if (input.includes('untrusted comment:')) {
+              keyText = input;
+            } else {
+              const payload = input
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0)
+                .at(-1)
+                ?.replace(/\s+/g, '') ?? '';
+
+              if (!payload || !looksBase64(payload)) {
+                console.error('::error::TAURI_SIGNING_PRIVATE_KEY is malformed. Expected one of: (1) base64 of full minisign key text, (2) full minisign key text, or (3) minisign payload line.');
+                process.exit(1);
+              }
+
+              keyText = `untrusted comment: minisign encrypted secret key\n${payload}`;
+            }
+
+            keyBase64 = Buffer.from(keyText, 'utf8').toString('base64');
+          }
+
+          const keyLines = keyText
             .replace(/\r/g, '')
             .split('\n')
             .map((line) => line.trim())
-            .filter((line) => line.length > 0 && !line.startsWith('untrusted comment:'));
-          const normalized = (lines.at(-1) ?? '').replace(/\s+/g, '');
+            .filter((line) => line.length > 0);
+          const payloadLine = keyLines.at(-1) ?? '';
 
-          if (!normalized) {
-            console.error('::error::TAURI_SIGNING_PRIVATE_KEY is set but no usable key payload was found after normalization.');
+          if (!keyText.includes('untrusted comment:') || !looksBase64(payloadLine)) {
+            console.error('::error::TAURI_SIGNING_PRIVATE_KEY did not normalize into a valid minisign secret key text.');
             process.exit(1);
           }
 
-          if (!/^[A-Za-z0-9+/=]+$/.test(normalized) || normalized.length % 4 !== 0) {
-            console.error('::error::TAURI_SIGNING_PRIVATE_KEY must be a base64 minisign secret key payload. Current value appears malformed.');
-            process.exit(1);
-          }
-
-          try {
-            const decoded = Buffer.from(normalized, 'base64');
-            if (!decoded.length) {
-              throw new Error('empty decode');
-            }
-          } catch (error) {
-            console.error(`::error::Failed to decode TAURI_SIGNING_PRIVATE_KEY: ${String(error.message || error)}`);
-            process.exit(1);
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${normalized}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${keyBase64}\n`);
           NODE
 
       - name: Validate updater artifact generation config
