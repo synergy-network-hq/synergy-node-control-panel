@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { openHelpWindow } from '../lib/helpWindow';
 import { checkForUpdate, downloadAndInstallUpdate } from '../lib/appUpdater';
 
-const APP_VERSION = '2.1.7';
+const APP_VERSION = '2.1.8';
 
 function Layout({ children }) {
   const location = useLocation();
