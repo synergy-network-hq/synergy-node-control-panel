@@ -220,6 +220,7 @@ pub async fn stop_node_by_id(
 
         #[cfg(windows)]
         {
+            use std::process::Command;
             let _ = Command::new("taskkill")
                 .args(["/PID", &pid.to_string(), "/F"])
                 .output();

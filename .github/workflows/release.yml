@@ -93,12 +93,20 @@ jobs:
             javascriptcoregtk-4.1-dev
 
       # Build the Tauri app directly via npx (not tauri-action)
+      # Note: macOS Intel cross-compile on ARM runners can fail DMG bundling,
+      # so we skip the DMG for that target and only produce the .app bundle
+      # (the updater only needs .app.tar.gz + .sig anyway).
       - name: Build Tauri app (Unix)
         if: runner.os != 'Windows'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
-        run: npx tauri build --target ${{ matrix.target }}
+        run: |
+          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            npx tauri build --target ${{ matrix.target }} --bundles app,updater
+          else
+            npx tauri build --target ${{ matrix.target }}
+          fi
 
       - name: Build Tauri app (Windows)
         if: runner.os == 'Windows'
@@ -289,7 +297,7 @@ jobs:
             | Platform | Installer |
             |----------|-----------|
             | macOS (Apple Silicon) | `.dmg` |
-            | macOS (Intel) | `.dmg` |
+            | macOS (Intel) | `.app.tar.gz` (extract and move to Applications) |
             | Linux (x86_64) | `.deb` or `.AppImage` |
             | Windows (x86_64) | `.msi` or `.exe` (NSIS) |
 
