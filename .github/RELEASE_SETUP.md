@@ -36,9 +36,11 @@ and add these two repository secrets:
 
 This is the signing key that signs update bundles so the app trusts them.
 
-```
-untrusted comment: minisign encrypted secret key
-RWQAAEIyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADGcMxW/lKhRlUByrToVxQzu+a07HwQ348l4SWcx3yTb/Ph5mnzmPZmgk5jDRUmJSRG1f9UADbW09Og+UD0loNLATzWEwz+lOmvBWY5M5xscr/hPiWWUqpWtlaEs3NfnpIsEhIndlthp
+Use the **base64 key payload** value for the secret (the line that starts with `RW...`).
+If you copied a full minisign key file, do **not** include the `untrusted comment: ...` line.
+
+```text
+RWQAAE...<base64 minisign secret key payload>...==
 ```
 
 > **IMPORTANT:** Keep this key secret. Anyone with this key can sign fake
