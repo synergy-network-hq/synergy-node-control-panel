@@ -1,5 +1,9 @@
 # Local host overrides
 hosts.env
+hosts.env.bak.*
 
 # Generated private key material
 keys/
+
+# Generated WireGuard configs (contain machine-specific keys/endpoints)
+wireguard/configs/

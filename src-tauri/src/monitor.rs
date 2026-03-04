@@ -279,7 +279,7 @@ pub struct MonitorBulkControlResult {
     pub results: Vec<MonitorControlResult>,
 }
 
-const DEVNET_NODE_VPN_MAP: [(&str, &str); 25] = [
+const DEVNET_NODE_VPN_MAP: [(&str, &str); 23] = [
     ("machine-01", "10.50.0.1"),   // Machine-01: validator
     ("machine-02", "10.50.0.2"),   // Machine-02: validator
     ("machine-03", "10.50.0.2"),   // Machine-02: observer
@@ -298,9 +298,7 @@ const DEVNET_NODE_VPN_MAP: [(&str, &str); 25] = [
     ("machine-16", "10.50.0.9"),   // Machine-09: archive-validator
     ("machine-17", "10.50.0.9"),   // Machine-09: audit-validator
     ("machine-18", "10.50.0.10"),  // Machine-10: data-availability
-    ("machine-19", "10.50.0.10"),  // Machine-10: gpu-node
     ("machine-20", "10.50.0.11"),  // Machine-11: ai-inference
-    ("machine-21", "10.50.0.11"),  // Machine-11: gpu-node
     ("machine-22", "10.50.0.12"),  // Machine-12: uma-coordinator
     ("machine-23", "10.50.0.12"),  // Machine-12: compute
     ("machine-24", "10.50.0.13"),  // Machine-13: treasury-controller
@@ -650,7 +648,7 @@ pub fn monitor_upsert_ssh_profile(
         existing.ssh_user = ssh_user.to_string();
         existing.ssh_port = ssh_port;
         existing.ssh_key_path = normalize_opt(&input.ssh_key_path);
-        existing.remote_root = normalize_opt(&input.remote_root);
+        existing.remote_root = normalize_remote_root_opt(&input.remote_root);
         existing.strict_host_key_checking = normalize_opt(&input.strict_host_key_checking);
         existing.extra_ssh_args = normalize_opt(&input.extra_ssh_args);
         existing.updated_at_utc = now.clone();
@@ -661,7 +659,7 @@ pub fn monitor_upsert_ssh_profile(
             ssh_user: ssh_user.to_string(),
             ssh_port,
             ssh_key_path: normalize_opt(&input.ssh_key_path),
-            remote_root: normalize_opt(&input.remote_root),
+            remote_root: normalize_remote_root_opt(&input.remote_root),
             strict_host_key_checking: normalize_opt(&input.strict_host_key_checking),
             extra_ssh_args: normalize_opt(&input.extra_ssh_args),
             created_at_utc: now.clone(),
@@ -752,14 +750,18 @@ pub fn monitor_assign_machine_ssh_profile(
     {
         existing.profile_id = profile_id.clone();
         existing.host_override = normalized_opt(&input.host_override);
-        existing.remote_dir_override = normalized_opt(&input.remote_dir_override);
+        existing.remote_dir_override =
+            normalize_remote_dir_override(&machine_id, &input.remote_dir_override);
         existing.updated_at_utc = now.clone();
     } else {
         config.machine_bindings.push(MonitorMachineSshBinding {
             machine_id: machine_id.clone(),
             profile_id: profile_id.clone(),
             host_override: normalized_opt(&input.host_override),
-            remote_dir_override: normalized_opt(&input.remote_dir_override),
+            remote_dir_override: normalize_remote_dir_override(
+                &machine_id,
+                &input.remote_dir_override,
+            ),
             updated_at_utc: now.clone(),
         });
     }
@@ -3659,7 +3661,9 @@ fn extract_bundled_resources_to_workspace(
 
     // Always refresh critical orchestration scripts so existing installs receive runtime fixes.
     let always_refresh = [
+        "devnet/lean15/node-inventory.csv",
         "scripts/devnet15/remote-node-orchestrator.sh",
+        "scripts/devnet15/generate-wireguard-mesh.sh",
         "scripts/devnet15/generate-monitor-hosts-env.sh",
         "scripts/devnet15/build-node-installers.sh",
         "scripts/devnet15/render-configs.sh",
@@ -4196,6 +4200,43 @@ fn ensure_security_config_exists(workspace: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn is_legacy_local_installers_path(value: &str) -> bool {
+    value.contains("/devnet/lean15/installers")
+        || value.contains("\\devnet\\lean15\\installers")
+}
+
+fn normalize_remote_root_opt(value: &Option<String>) -> Option<String> {
+    let trimmed = value
+        .as_ref()
+        .map(|entry| entry.trim())
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| entry.to_string());
+    let Some(raw) = trimmed else {
+        return None;
+    };
+    if is_legacy_local_installers_path(&raw) {
+        Some("/opt/synergy".to_string())
+    } else {
+        Some(raw)
+    }
+}
+
+fn normalize_remote_dir_override(machine_id: &str, value: &Option<String>) -> Option<String> {
+    let trimmed = value
+        .as_ref()
+        .map(|entry| entry.trim())
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| entry.to_string());
+    let Some(raw) = trimmed else {
+        return None;
+    };
+    if is_legacy_local_installers_path(&raw) {
+        Some(format!("/opt/synergy/{}", machine_id.trim()))
+    } else {
+        Some(raw)
+    }
+}
+
 fn load_security_config() -> Result<MonitorSecurityConfig, String> {
     let path = security_config_path()?;
     if !path.is_file() {
@@ -4212,6 +4253,26 @@ fn load_security_config() -> Result<MonitorSecurityConfig, String> {
         )
     })?;
 
+    let mut migrated = false;
+    for profile in config.ssh_profiles.iter_mut() {
+        let normalized = normalize_remote_root_opt(&profile.remote_root);
+        if normalized != profile.remote_root {
+            profile.remote_root = normalized;
+            profile.updated_at_utc = Utc::now().to_rfc3339();
+            migrated = true;
+        }
+    }
+
+    for binding in config.machine_bindings.iter_mut() {
+        let normalized =
+            normalize_remote_dir_override(&binding.machine_id, &binding.remote_dir_override);
+        if normalized != binding.remote_dir_override {
+            binding.remote_dir_override = normalized;
+            binding.updated_at_utc = Utc::now().to_rfc3339();
+            migrated = true;
+        }
+    }
+
     if config.operators.is_empty() {
         let now = Utc::now().to_rfc3339();
         config.operators.push(MonitorOperatorProfile {
@@ -4223,6 +4284,10 @@ fn load_security_config() -> Result<MonitorSecurityConfig, String> {
             updated_at_utc: now,
         });
         config.active_operator_id = "local_admin".to_string();
+        migrated = true;
+    }
+
+    if migrated {
         save_security_config(&config)?;
     }
 
@@ -4299,8 +4364,8 @@ fn logical_nodes_for_physical_machine(
         "machine-07" => Ok(vec!["machine-12", "machine-13"]),
         "machine-08" => Ok(vec!["machine-14", "machine-15"]),
         "machine-09" => Ok(vec!["machine-16", "machine-17"]),
-        "machine-10" => Ok(vec!["machine-18", "machine-19"]),
-        "machine-11" => Ok(vec!["machine-20", "machine-21"]),
+        "machine-10" => Ok(vec!["machine-18"]),
+        "machine-11" => Ok(vec!["machine-20"]),
         "machine-12" => Ok(vec!["machine-22", "machine-23"]),
         "machine-13" => Ok(vec!["machine-24", "machine-25"]),
         _ => Err(format!(

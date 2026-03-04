@@ -13,8 +13,8 @@ const DEVNET_NODE_LAYOUT = [
   ['machine-12', 'machine-13'],
   ['machine-14', 'machine-15'],
   ['machine-16', 'machine-17'],
-  ['machine-18', 'machine-19'],
-  ['machine-20', 'machine-21'],
+  ['machine-18'],
+  ['machine-20'],
   ['machine-22', 'machine-23'],
   ['machine-24', 'machine-25'],
 ];

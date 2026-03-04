@@ -322,9 +322,37 @@ cd '$REMOTE_NODE_DIR'
 "
 }
 
+kill_machine_processes() {
+  local reason="${1:-cleanup}"
+  remote_run_script "
+set -euo pipefail
+config_path='$REMOTE_NODE_DIR/config/node.toml'
+if [[ ! -f \"\$config_path\" ]]; then
+  exit 0
+fi
+
+pids=\"\$(pgrep -f \"\$config_path\" || true)\"
+if [[ -z \"\$pids\" ]]; then
+  exit 0
+fi
+
+echo \"Killing stale $MACHINE_ID processes (\$(printf '%s' \"\$pids\" | tr '\n' ' ')) for $reason...\"
+for pid in \$pids; do
+  kill \"\$pid\" 2>/dev/null || true
+done
+sleep 1
+for pid in \$pids; do
+  if kill -0 \"\$pid\" 2>/dev/null; then
+    kill -9 \"\$pid\" 2>/dev/null || true
+  fi
+done
+"
+}
+
 reset_chain() {
   # Stop first, but do not fail if the process is already down.
   run_nodectl "stop" || true
+  kill_machine_processes "reset_chain"
 
   remote_run_script "
 set -euo pipefail
@@ -882,8 +910,8 @@ case "$OPERATION" in
   bootstrap_node)     deploy_installer_bundle; wireguard_install; wireguard_connect || echo "WireGuard connect skipped (may already be active)."; run_nodectl "start" ;;
   reset_chain)        reset_chain ;;
   start)              run_nodectl "start" ;;
-  stop)               run_nodectl "stop" ;;
-  restart)            run_nodectl "restart" ;;
+  stop)               run_nodectl "stop" || true; kill_machine_processes "stop" ;;
+  restart)            run_nodectl "stop" || true; kill_machine_processes "restart"; run_nodectl "start" ;;
   status)             run_nodectl "status" ;;
   logs)               run_nodectl "logs" ;;
   export_logs)        export_logs ;;

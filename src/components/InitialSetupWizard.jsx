@@ -91,8 +91,8 @@ const ACTIVE_MACHINE_PLAN = [
     os: '',
     vpnIp: '10.50.0.10',
     primaryRole: 'Data Availability',
-    secondaryRole: 'GPU Node',
-    notes: 'Class III + GPU',
+    secondaryRole: '',
+    notes: 'Class III. GPU node is a host capability note, not a second logical node.',
   },
   {
     machineId: 'machine-11',
@@ -100,8 +100,8 @@ const ACTIVE_MACHINE_PLAN = [
     os: '',
     vpnIp: '10.50.0.11',
     primaryRole: 'AI Inference',
-    secondaryRole: 'GPU Node',
-    notes: 'Class III + GPU',
+    secondaryRole: '',
+    notes: 'Class III. GPU node is a host capability note, not a second logical node.',
   },
   {
     machineId: 'machine-12',
@@ -133,8 +133,8 @@ const PHYSICAL_TO_LOGICAL_NODE_MAP = {
   'machine-07': ['machine-12', 'machine-13'],
   'machine-08': ['machine-14', 'machine-15'],
   'machine-09': ['machine-16', 'machine-17'],
-  'machine-10': ['machine-18', 'machine-19'],
-  'machine-11': ['machine-20', 'machine-21'],
+  'machine-10': ['machine-18'],
+  'machine-11': ['machine-20'],
   'machine-12': ['machine-22', 'machine-23'],
   'machine-13': ['machine-24', 'machine-25'],
 };
@@ -174,9 +174,7 @@ const LOGICAL_NODE_METADATA = {
   'machine-16': 'archive-validator',
   'machine-17': 'audit-validator',
   'machine-18': 'data-availability',
-  'machine-19': 'gpu-node',
   'machine-20': 'ai-inference',
-  'machine-21': 'gpu-node',
   'machine-22': 'uma-coordinator',
   'machine-23': 'compute',
   'machine-24': 'treasury-controller',
@@ -278,7 +276,7 @@ function InitialSetupWizard({ onComplete }) {
     ssh_user: '',
     ssh_port: '22',
     ssh_key_path: '',
-    remote_root: '',
+    remote_root: '/opt/synergy',
   });
   const [bindingForm, setBindingForm] = useState({
     machine_id: 'machine-01',
@@ -383,15 +381,11 @@ function InitialSetupWizard({ onComplete }) {
         }
 
         const defaultKeyPath = `${resolvedWorkspace}/keys/ssh/ops_ed25519`;
-        const defaultRemoteRoot = `${resolvedWorkspace}/devnet/lean15/installers`;
         setSshProfileForm((prev) => ({
           ...prev,
           ssh_key_path: defaultKeyPath,
           ssh_user: prev.ssh_user || 'ops',
-          remote_root:
-            String(prev.remote_root || '').trim() && String(prev.remote_root || '').trim() !== '/opt/synergy'
-              ? prev.remote_root
-              : defaultRemoteRoot,
+          remote_root: String(prev.remote_root || '').trim() || '/opt/synergy',
         }));
 
         const activeOperator = (state?.operators || []).find((entry) => entry.operator_id === state?.active_operator_id);
@@ -568,9 +562,7 @@ function InitialSetupWizard({ onComplete }) {
         ssh_user: String(sshProfileForm.ssh_user || '').trim(),
         ssh_port: Number(sshProfileForm.ssh_port || 22),
         ssh_key_path: String(sshProfileForm.ssh_key_path || '').trim() || null,
-        remote_root:
-          String(sshProfileForm.remote_root || '').trim() ||
-          (workspacePath ? `${workspacePath}/devnet/lean15/installers` : null),
+        remote_root: String(sshProfileForm.remote_root || '').trim() || '/opt/synergy',
         strict_host_key_checking: null,
         extra_ssh_args: null,
       };
@@ -790,14 +782,13 @@ function InitialSetupWizard({ onComplete }) {
       });
 
       await runStep('sshprofile', 'Save SSH profile', async () => {
-        const defaultRemoteRoot = `${resolvedWorkspace}/devnet/lean15/installers`;
         const payload = {
           profile_id: String(sshProfileForm.profile_id || '').trim().toLowerCase() || 'ops',
           label: String(sshProfileForm.label || '').trim() || 'Ops SSH Profile',
           ssh_user: detectedUser || String(sshProfileForm.ssh_user || '').trim(),
           ssh_port: Number(sshProfileForm.ssh_port || 22),
           ssh_key_path: String(sshProfileForm.ssh_key_path || '').trim() || `${resolvedWorkspace}/keys/ssh/ops_ed25519`,
-          remote_root: String(sshProfileForm.remote_root || '').trim() || defaultRemoteRoot,
+          remote_root: String(sshProfileForm.remote_root || '').trim() || '/opt/synergy',
           strict_host_key_checking: null,
           extra_ssh_args: null,
         };
@@ -1226,7 +1217,7 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={sshProfileForm.remote_root}
                     onChange={(event) => setSshProfileForm((prev) => ({ ...prev, remote_root: event.target.value }))}
-                    placeholder={`${workspacePath || '~/.synergy-node-monitor/monitor-workspace'}/devnet/lean15/installers`}
+                    placeholder="/opt/synergy"
                   />
                 </label>
               </div>
@@ -1318,7 +1309,7 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={bindingForm.remote_dir_override}
                     onChange={(event) => setBindingForm((prev) => ({ ...prev, remote_dir_override: event.target.value }))}
-                    placeholder={`${workspacePath || '~/.synergy-node-monitor/monitor-workspace'}/devnet/lean15/installers/machine-01`}
+                    placeholder="/opt/synergy/machine-01"
                   />
                 </label>
               </div>
