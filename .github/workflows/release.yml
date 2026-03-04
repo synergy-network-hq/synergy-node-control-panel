@@ -77,6 +77,16 @@ jobs:
           fi
         shell: bash
 
+      - name: Validate updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "::error::Missing TAURI_SIGNING_PRIVATE_KEY secret. Updater bundles/signatures cannot be generated."
+            exit 1
+          fi
+
       # Linux-specific: install system libraries Tauri needs
       - name: Install Linux dependencies
         if: matrix.label == 'linux-x64'
@@ -92,28 +102,21 @@ jobs:
             libsoup-3.0-dev \
             javascriptcoregtk-4.1-dev
 
-      # Build the Tauri app directly via npx (not tauri-action)
-      # Note: macOS Intel cross-compile on ARM runners can fail DMG bundling,
-      # so we skip the DMG for that target and only produce the .app bundle
-      # (the updater only needs .app.tar.gz + .sig anyway).
+      # Build the Tauri app directly via npx (not tauri-action).
+      # Always request both installer bundles and updater bundles.
       - name: Build Tauri app (Unix)
         if: runner.os != 'Windows'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
-        run: |
-          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            npx tauri build --target ${{ matrix.target }} --bundles app,updater
-          else
-            npx tauri build --target ${{ matrix.target }}
-          fi
+        run: npx tauri build --target ${{ matrix.target }} --bundles app,updater
 
       - name: Build Tauri app (Windows)
         if: runner.os == 'Windows'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
-        run: npx tauri build --target ${{ matrix.target }}
+        run: npx tauri build --target ${{ matrix.target }} --bundles app,updater
 
       # ─── Collect build artifacts ──────────────────────────────────────────
       - name: Collect artifacts (macOS)
@@ -235,25 +238,43 @@ jobs:
             fi
           }
 
+          require_non_empty() {
+            local value="$1"
+            local label="$2"
+            if [[ -z "$value" ]]; then
+              echo "::error::Missing ${label} in release-assets."
+              ls -la release-assets/
+              exit 1
+            fi
+          }
+
           # macOS ARM
           MACOS_ARM_BUNDLE=$(find_file "*macos-arm64.app.tar.gz")
           MACOS_ARM_SIG=$(read_sig "*macos-arm64.app.tar.gz.sig")
+          require_non_empty "$MACOS_ARM_BUNDLE" "macOS ARM updater bundle (*.app.tar.gz)"
+          require_non_empty "$MACOS_ARM_SIG" "macOS ARM updater signature (*.app.tar.gz.sig)"
 
           # macOS Intel
           MACOS_X64_BUNDLE=$(find_file "*macos-x64.app.tar.gz")
           MACOS_X64_SIG=$(read_sig "*macos-x64.app.tar.gz.sig")
+          require_non_empty "$MACOS_X64_BUNDLE" "macOS Intel updater bundle (*.app.tar.gz)"
+          require_non_empty "$MACOS_X64_SIG" "macOS Intel updater signature (*.app.tar.gz.sig)"
 
           # Linux
           LINUX_BUNDLE=$(find_file "*.AppImage.tar.gz")
           LINUX_SIG=$(read_sig "*.AppImage.tar.gz.sig")
+          require_non_empty "$LINUX_BUNDLE" "Linux updater bundle (*.AppImage.tar.gz)"
+          require_non_empty "$LINUX_SIG" "Linux updater signature (*.AppImage.tar.gz.sig)"
 
           # Windows (NSIS preferred, fallback to MSI)
           WIN_BUNDLE=$(find_file "*-setup.nsis.zip")
           WIN_SIG=$(read_sig "*-setup.nsis.zip.sig")
-          if [[ -z "$WIN_BUNDLE" ]]; then
+          if [[ -z "$WIN_BUNDLE" || -z "$WIN_SIG" ]]; then
             WIN_BUNDLE=$(find_file "*.msi.zip")
             WIN_SIG=$(read_sig "*.msi.zip.sig")
           fi
+          require_non_empty "$WIN_BUNDLE" "Windows updater bundle (*.nsis.zip or *.msi.zip)"
+          require_non_empty "$WIN_SIG" "Windows updater signature (*.nsis.zip.sig or *.msi.zip.sig)"
 
           # Build the JSON — use jq for proper escaping
           jq -n \

@@ -2,7 +2,7 @@ Synergy Devnet Node Command Reference
 ====================================
 
 Node: machine-07
-Type: cross-chain-verifier
+Type: relayer
 
 Ports
 -----

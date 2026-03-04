@@ -2,7 +2,7 @@ Synergy Devnet Node Command Reference
 ====================================
 
 Node: machine-05
-Type: validator
+Type: cross-chain-verifier
 
 Ports
 -----

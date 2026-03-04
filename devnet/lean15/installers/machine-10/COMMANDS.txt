@@ -2,7 +2,7 @@ Synergy Devnet Node Command Reference
 ====================================
 
 Node: machine-10
-Type: committee
+Type: security-council
 
 Ports
 -----

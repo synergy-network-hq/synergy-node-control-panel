@@ -2207,6 +2207,7 @@ fn build_role_execution(
     {
         let local_validator = find_local_validator_entry(status, rpc);
         let strict_validator_presence = role_group == "consensus" || role.contains("validator");
+        let sync_complete = matches!(status.syncing, Some(false));
 
         if local_validator.is_some() {
             add_execution_check(
@@ -2216,13 +2217,21 @@ fn build_role_execution(
                 "pass",
                 "Node address appears in active validator activity.",
             );
-        } else if strict_validator_presence {
+        } else if strict_validator_presence && sync_complete {
             add_execution_check(
                 &mut checks,
                 "validator_registry_presence",
                 "Validator Registry Presence",
                 "fail",
                 "Consensus/validator node is missing from active validator set.",
+            );
+        } else if strict_validator_presence {
+            add_execution_check(
+                &mut checks,
+                "validator_registry_presence",
+                "Validator Registry Presence",
+                "warn",
+                "Node is still syncing; validator-set membership may not appear until sync completes.",
             );
         } else {
             add_execution_check(

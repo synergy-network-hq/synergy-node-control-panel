@@ -2,7 +2,7 @@ Synergy Devnet Node Command Reference
 ====================================
 
 Node: machine-03
-Type: validator
+Type: observer
 
 Ports
 -----

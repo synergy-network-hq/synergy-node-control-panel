@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/devnet/lean15/node-inventory.csv"
 NODE_ADDRESSES_FILE="$ROOT_DIR/devnet/lean15/keys/node-addresses.csv"
-OUTPUT_FILE="${1:-$ROOT_DIR/config/genesis.json}"
+OUTPUT_FILE="${1:-$ROOT_DIR/devnet/lean15/configs/genesis/genesis.json}"
 
 if [[ ! -f "$INVENTORY_FILE" ]]; then
   echo "Missing inventory file: $INVENTORY_FILE" >&2
@@ -30,6 +30,8 @@ inventory_file, addresses_file, output_file = sys.argv[1:4]
 chain_id = int(os.environ.get("DEVNET_CHAIN_ID", "338638"))
 genesis_time = os.environ.get("DEVNET_GENESIS_TIME", "2026-01-01T00:00:00Z")
 validator_stake = int(os.environ.get("DEVNET_VALIDATOR_STAKE", "5000000000000"))
+min_validators = int(os.environ.get("DEVNET_MIN_VALIDATORS", "2"))
+max_validators = int(os.environ.get("DEVNET_MAX_VALIDATORS", "15"))
 
 faucet_address = os.environ.get("DEVNET_FAUCET_ADDRESS", "synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07")
 rewards_pool_address = os.environ.get("DEVNET_REWARDS_POOL_ADDRESS", "synw1zwy4m4mpdxyvz4nf8f7s0hk8nesc2cv09ex8pg")
@@ -75,7 +77,18 @@ for bootnode_id in ("machine-01", "machine-02"):
     if endpoint_ip and p2p_port and address:
         bootnodes.append(f"snr://{address}@{endpoint_ip}:{p2p_port}")
 
-validator_rows = [row for row in inventory_rows if parse_bool(row.get("auto_register_validator", ""))]
+def is_consensus_validator(row: dict) -> bool:
+    role_group = (row.get("role_group") or "").strip().lower()
+    role = (row.get("role") or "").strip().lower()
+    node_type = (row.get("node_type") or "").strip().lower()
+    return role_group == "consensus" and (node_type == "validator" or role == "validator")
+
+
+validator_rows = [
+    row
+    for row in inventory_rows
+    if parse_bool(row.get("auto_register_validator", "")) and is_consensus_validator(row)
+]
 validators = []
 validator_allocations = []
 for index, row in enumerate(validator_rows, start=1):
@@ -167,8 +180,8 @@ genesis = {
         "parameters": {
             "block_time_ms": 2000,
             "epoch_length": 50,
-            "min_validators": 5,
-            "max_validators": 15,
+            "min_validators": min_validators,
+            "max_validators": max_validators,
             "quorum_threshold": 0.67,
             "min_stake_amount": str(validator_stake),
             "allow_zero_stake_validators": False,

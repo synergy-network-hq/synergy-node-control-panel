@@ -17,6 +17,13 @@ function normalizeUpdateError(error) {
     return 'Update check failed due to network/timeout. Verify internet access and updater endpoint availability.';
   }
 
+  if (
+    lower.includes('download request failed with status: 404')
+    || lower.includes('404 not found')
+  ) {
+    return 'Updater release metadata points to a missing asset (404). Regenerate and publish latest.json with valid updater bundle URLs and signatures, then retry.';
+  }
+
   return `Update check failed: ${text || 'unknown error'}`;
 }
 

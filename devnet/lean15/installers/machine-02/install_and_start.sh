@@ -206,6 +206,9 @@ start_node() {
     echo "Warning: NODE_ADDRESS is empty; validator identity will fallback to node_name."
   fi
 
+  # Keep relative storage/log paths in node.toml anchored to the installer directory.
+  cd "$BASE_DIR"
+
   nohup env \
     SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
     NODE_ADDRESS="$validator_address" \

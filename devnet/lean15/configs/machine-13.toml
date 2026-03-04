@@ -37,13 +37,13 @@ collaboration = 0.2
 
 [logging]
 log_level = "debug"
-log_file = "data/devnet15/machine-13/logs/service-01.log"
+log_file = "data/devnet15/machine-13/logs/service-02.log"
 enable_console = true
 max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "10.50.0.13:48650"
+bind_address = "10.50.0.7:48650"
 enable_http = true
 http_port = 48650
 enable_ws = true
@@ -54,9 +54,9 @@ cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "10.50.0.13:38650"
-public_address = "10.50.0.13:38650"
-node_name = "service-01"
+listen_address = "10.50.0.7:38650"
+public_address = "10.50.0.7:38650"
+node_name = "service-02"
 enable_discovery = false
 discovery_port = 39650
 heartbeat_interval = 30
@@ -71,4 +71,4 @@ pruning_interval = 86400
 auto_register_validator = false
 validator_address = "synv5372c7cc52e3b131042bb639392a30bc85689"
 strict_validator_allowlist = true
-allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv166ed2c95b408fcc400ec88a262c5fff78665","synv195e26a83cadf8636c052835b2d72ba232ed3","synv10708faf79bc9aaf136a8d39c0235290bfe01","synv3cace1e19e4d4b466e8123aa14570c84cb231","synv38af8af7bca27a20ddf0733924d10a1afeeab"]
+allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44","synv1d8bb566d5f963416c3a0367a53e28b2dd2cd"]

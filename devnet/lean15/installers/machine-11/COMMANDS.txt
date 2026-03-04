@@ -2,7 +2,7 @@ Synergy Devnet Node Command Reference
 ====================================
 
 Node: machine-11
-Type: security-council
+Type: oracle
 
 Ports
 -----

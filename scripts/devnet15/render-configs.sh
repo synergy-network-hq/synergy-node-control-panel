@@ -164,9 +164,19 @@ lookup_node_address() {
 
 collect_allowed_validator_addresses() {
   local addresses=()
-  while IFS=, read -r machine_id _ _ _ _ _ _ _ _ _ _ _ _ auto_register _ _ || [[ -n "${machine_id:-}" ]]; do
+  while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
     [[ "$machine_id" == "machine_id" ]] && continue
+    local normalized_group normalized_role normalized_type
+    normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+    normalized_role="$(echo "${role:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+    normalized_type="$(echo "${node_type:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
     if [[ "$(normalize_bool "$auto_register")" != "true" ]]; then
+      continue
+    fi
+    if [[ "$normalized_group" != "consensus" ]]; then
+      continue
+    fi
+    if [[ "$normalized_type" != "validator" && "$normalized_role" != "validator" ]]; then
       continue
     fi
     local validator_address
@@ -218,7 +228,9 @@ BOOTNODE1="snr://bootstrap@${BOOTNODE1_HOST}:${BOOTNODE1_PORT}"
 BOOTNODE2="snr://bootstrap@${BOOTNODE2_HOST}:${BOOTNODE2_PORT}"
 ALLOWED_VALIDATOR_ADDRESSES="$(collect_allowed_validator_addresses)"
 
-while IFS=, read -r machine_id node_id role_group role node_type _ p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip auto_register enable_pruning vrf_enabled || [[ -n "${machine_id:-}" ]]; do
+generated_count=0
+
+while IFS=, read -r machine_id node_id role_group role node_type _ p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
   [[ "$machine_id" == "machine_id" ]] && continue
 
   resolved_public_host="$(resolve_public_host "$machine_id" "$host")"
@@ -320,6 +332,7 @@ allowed_validator_addresses = ${ALLOWED_VALIDATOR_ADDRESSES}
 CONFIG
 
   echo "Generated ${OUT_DIR}/${machine_id}.toml"
+  generated_count=$((generated_count + 1))
 done < "$INVENTORY_FILE"
 
-echo "Rendered 15-node configs into: $OUT_DIR"
+echo "Rendered ${generated_count} node configs into: $OUT_DIR"

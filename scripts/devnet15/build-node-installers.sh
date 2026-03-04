@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/devnet/lean15/node-inventory.csv"
 CONFIG_DIR="$ROOT_DIR/devnet/lean15/configs"
+GENESIS_FILE="$ROOT_DIR/devnet/lean15/configs/genesis/genesis.json"
 KEYS_DIR="$ROOT_DIR/devnet/lean15/keys"
 OUT_DIR="$ROOT_DIR/devnet/lean15/installers"
 
@@ -53,9 +54,19 @@ normalize_bool() {
 
 collect_allowlisted_validators_csv() {
   local addresses=()
-  while IFS=, read -r machine_id _ _ _ _ _ _ _ _ _ _ _ _ auto_register _ _ || [[ -n "${machine_id:-}" ]]; do
+  while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
     [[ "$machine_id" == "machine_id" ]] && continue
+    local normalized_group normalized_role normalized_type
+    normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+    normalized_role="$(echo "${role:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+    normalized_type="$(echo "${node_type:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
     if [[ "$(normalize_bool "$auto_register")" != "true" ]]; then
+      continue
+    fi
+    if [[ "$normalized_group" != "consensus" ]]; then
+      continue
+    fi
+    if [[ "$normalized_type" != "validator" && "$normalized_role" != "validator" ]]; then
       continue
     fi
     local address_file="$KEYS_DIR/${machine_id}/address.txt"
@@ -132,6 +143,12 @@ resolve_binaries() {
 
 if [[ ! -f "$INVENTORY_FILE" ]]; then
   echo "Missing inventory file: $INVENTORY_FILE" >&2
+  exit 1
+fi
+
+if [[ ! -f "$GENESIS_FILE" ]]; then
+  echo "Missing genesis file: $GENESIS_FILE" >&2
+  echo "Run scripts/devnet15/generate-devnet-genesis.sh first." >&2
   exit 1
 fi
 
@@ -359,6 +376,9 @@ start_node() {
   if [[ -z "$validator_address" ]]; then
     echo "Warning: NODE_ADDRESS is empty; validator identity will fallback to node_name."
   fi
+
+  # Keep relative storage/log paths in node.toml anchored to the installer directory.
+  cd "$BASE_DIR"
 
   nohup env \
     SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
@@ -661,7 +681,7 @@ function Start-Node {
   }
 
   $args = @("start", "--config", $ConfigPath)
-  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
+  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
   Set-Content -Path $PidFile -Value $proc.Id
 
   Write-Host "Started $($NodeEnv['MACHINE_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"
@@ -975,7 +995,7 @@ TXT
 
 ALLOWED_VALIDATOR_ADDRESSES_CSV="$(collect_allowlisted_validators_csv)"
 
-while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip auto_register enable_pruning vrf_enabled || [[ -n "${machine_id:-}" ]]; do
+while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
   [[ "$machine_id" == "machine_id" ]] && continue
 
   auto_register="$(normalize_bool "$auto_register")"
@@ -992,6 +1012,7 @@ while IFS=, read -r machine_id node_id role_group role node_type address_class p
   chmod +x "$node_dir/bin/synergy-devnet-linux-amd64" "$node_dir/bin/synergy-devnet-darwin-arm64"
 
   cp "$CONFIG_DIR/${machine_id}.toml" "$node_dir/config/node.toml"
+  cp "$GENESIS_FILE" "$node_dir/config/genesis.json"
   cp "$KEYS_DIR/${machine_id}"/* "$node_dir/keys/"
 
   cat > "$node_dir/node.env" <<ENV

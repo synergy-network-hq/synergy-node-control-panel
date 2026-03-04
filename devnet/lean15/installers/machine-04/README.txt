@@ -34,6 +34,6 @@ Notes
 - Public DNS should resolve to public hosts only; never point public DNS at private VPN IPs.
 - Binary provenance:
   - Linux: fallback-prebuilt(binaries/synergy-devnet-linux-amd64)
-  - macOS: fallback-prebuilt(binaries/synergy-devnet-darwin-arm64)
+  - macOS: fresh-local-build(target/release/synergy-devnet)
   - Windows: fallback-prebuilt(binaries/synergy-devnet-windows-amd64.exe)
 - See BINARY_STATUS.txt for SHA-256 checksums and build-source details.

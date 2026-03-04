@@ -2,7 +2,7 @@ Synergy Devnet Node Command Reference
 ====================================
 
 Node: machine-15
-Type: observer
+Type: pqc-crypto
 
 Ports
 -----

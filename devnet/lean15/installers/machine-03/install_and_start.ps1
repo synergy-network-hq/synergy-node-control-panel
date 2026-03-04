@@ -127,7 +127,7 @@ function Start-Node {
   }
 
   $args = @("start", "--config", $ConfigPath)
-  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
+  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
   Set-Content -Path $PidFile -Value $proc.Id
 
   Write-Host "Started $($NodeEnv['MACHINE_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"

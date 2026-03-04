@@ -233,6 +233,19 @@ function normalizeOutputLines(value) {
   return lines;
 }
 
+function toLogicalNodeLabel(machineId) {
+  const value = String(machineId || '').trim();
+  if (!value) return '';
+  return value.replace(/^machine-/i, 'node-');
+}
+
+function formatLogicalNodeList(machineIds) {
+  return (Array.isArray(machineIds) ? machineIds : [])
+    .map((machineId) => toLogicalNodeLabel(machineId))
+    .filter(Boolean)
+    .join(', ');
+}
+
 function newLogicalNodeStates() {
   return ALL_LOGICAL_MACHINE_IDS.reduce((acc, machineId) => {
     acc[machineId] = {
@@ -367,7 +380,7 @@ function InitialSetupWizard({ onComplete }) {
             host_override: detectedVpnIp || prev.host_override,
           }));
           setVpnDetectionMessage(
-            `Detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Logical nodes: ${logicalNodes.join(', ')}`,
+            `Detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Logical nodes: ${formatLogicalNodeList(logicalNodes)}`,
           );
           setAutoStartMachineId(detectedMachine);
           addTerminalLine(
@@ -639,7 +652,7 @@ function InitialSetupWizard({ onComplete }) {
       }
       await refreshSecurityState();
 
-      addTerminalLine('info', `Starting local node setup for ${selectedPhysicalMachine}: ${logicalNodes.join(', ')}`);
+      addTerminalLine('info', `Starting local node setup for ${selectedPhysicalMachine}: ${formatLogicalNodeList(logicalNodes)}`);
 
       const basePath = `${workspacePath}/devnet/lean15/installers`;
       for (const logicalMachineId of logicalNodes) {
@@ -647,7 +660,7 @@ function InitialSetupWizard({ onComplete }) {
         await runStrictCommand(`bash "${installScript}"`, workspacePath || null);
       }
 
-      const summary = `Completed setup commands for ${selectedPhysicalMachine} node slots: ${logicalNodes.join(', ')}`;
+      const summary = `Completed setup commands for ${selectedPhysicalMachine} node slots: ${formatLogicalNodeList(logicalNodes)}`;
       setNodeSetupSummary(summary);
       addTerminalLine('success', summary);
     } catch (setupError) {
@@ -844,7 +857,7 @@ function InitialSetupWizard({ onComplete }) {
           updateAutopilotStep(
             'installers',
             'running',
-            `Installing ${logicalMachineId} (${index + 1}/${logicalNodes.length})`,
+            `Installing ${toLogicalNodeLabel(logicalMachineId)} (${index + 1}/${logicalNodes.length})`,
           );
           const installScript = `${basePath}/${logicalMachineId}/install_and_start.sh`;
           setLogicalNodeState(logicalMachineId, 'running', 'running installer');
@@ -867,7 +880,7 @@ function InitialSetupWizard({ onComplete }) {
           updateAutopilotStep(
             'validation',
             'running',
-            `Checking ${logicalMachineId} (${index + 1}/${logicalNodes.length})`,
+            `Checking ${toLogicalNodeLabel(logicalMachineId)} (${index + 1}/${logicalNodes.length})`,
           );
 
           let validated = false;
@@ -879,7 +892,7 @@ function InitialSetupWizard({ onComplete }) {
             updateAutopilotStep(
               'validation',
               'running',
-              `Checking ${logicalMachineId} attempt ${attempt}/3`,
+              `Checking ${toLogicalNodeLabel(logicalMachineId)} attempt ${attempt}/3`,
             );
 
             try {
@@ -951,7 +964,7 @@ function InitialSetupWizard({ onComplete }) {
           throw new Error(statusFailures.join(' | '));
         }
 
-        addTerminalLine('success', `Validation passed for ${logicalNodes.join(', ')}`);
+        addTerminalLine('success', `Validation passed for ${formatLogicalNodeList(logicalNodes)}`);
       });
 
       await runStep('complete', 'Mark setup complete', async () => {
@@ -963,7 +976,7 @@ function InitialSetupWizard({ onComplete }) {
       await refreshSecurityState();
       setStep(6);
       setAutopilotSummary(
-        `Autonomous setup finished for ${selectedMachine}. Logical nodes: ${logicalNodes.join(', ')}.`,
+        `Autonomous setup finished for ${selectedMachine}. Logical nodes: ${formatLogicalNodeList(logicalNodes)}.`,
       );
       setAutopilotCurrentStepLabel('Setup completed successfully');
       setAutopilotCurrentCommand('');
@@ -1359,7 +1372,7 @@ function InitialSetupWizard({ onComplete }) {
                 <label>
                   Logical Node Slots
                   <input
-                    value={(PHYSICAL_TO_LOGICAL_NODE_MAP[selectedPhysicalMachine] || []).join(', ')}
+                    value={formatLogicalNodeList(PHYSICAL_TO_LOGICAL_NODE_MAP[selectedPhysicalMachine] || [])}
                     readOnly
                   />
                 </label>
@@ -1498,7 +1511,7 @@ function InitialSetupWizard({ onComplete }) {
                           key={logicalNode.machineId}
                           className={`wizard-topology-node is-${logicalNode.state.status} ${logicalNode.isTarget ? 'is-target' : ''}`}
                         >
-                          <span>{logicalNode.machineId}</span>
+                          <span>{toLogicalNodeLabel(logicalNode.machineId)}</span>
                           <small>{logicalNode.role}</small>
                         </div>
                       ))}

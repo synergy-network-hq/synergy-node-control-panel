@@ -1,0 +1,28 @@
+Synergy Devnet Binary Status
+============================
+
+Generated At: 2026-03-04T07:39:01Z
+
+Linux Binary
+------------
+Path: ./bin/synergy-devnet-linux-amd64
+Source: fallback-prebuilt(binaries/synergy-devnet-linux-amd64)
+SHA-256: b634227e3516dfc76d6f967d3f247e6d0b8eb0e2133cc2eaef30e68695415eaa
+
+Darwin Binary
+-------------
+Path: ./bin/synergy-devnet-darwin-arm64
+Source: fresh-local-build(target/release/synergy-devnet)
+SHA-256: b63f31cb8299773866631d023de7254f61fb64755710283927a1369318f064a3
+
+Windows Binary
+--------------
+Path: ./bin/synergy-devnet-windows-amd64.exe
+Source: fallback-prebuilt(binaries/synergy-devnet-windows-amd64.exe)
+SHA-256: 8a21e2aef5dfbb0770fe14e774424381cc35a7ca0e6ca3a5363510504d81722d
+
+Interpretation
+--------------
+- Source containing "fresh" indicates locally built binaries from this workspace.
+- Source containing "fallback-prebuilt" indicates prebuilt artifacts copied from /binaries.
+- For production-grade deployment, prefer fresh builds for all target platforms.

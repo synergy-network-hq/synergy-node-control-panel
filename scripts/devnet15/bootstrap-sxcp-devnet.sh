@@ -33,7 +33,7 @@ if [[ -n "$ROLE_FILTER" ]]; then
 fi
 
 id_counter=1
-while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip auto_register enable_pruning vrf_enabled || [[ -n "${machine_id:-}" ]]; do
+while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
   [[ "$machine_id" == "machine_id" ]] && continue
 
   if [[ ",$ROLE_GROUP_FILTER," != *",$role_group,"* ]]; then
