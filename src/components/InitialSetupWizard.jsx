@@ -234,7 +234,7 @@ function normalizeOutputLines(value) {
 }
 
 function toLogicalNodeLabel(machineId) {
-  const value = String(machineId || '').trim();
+  const value = toCanonicalMachineId(machineId);
   if (!value) return '';
   return value.replace(/^machine-/i, 'node-');
 }
@@ -244,6 +244,36 @@ function formatLogicalNodeList(machineIds) {
     .map((machineId) => toLogicalNodeLabel(machineId))
     .filter(Boolean)
     .join(', ');
+}
+
+function toCanonicalMachineId(value, fallback = '') {
+  const normalize = (candidate) => {
+    const parsed = String(candidate || '').trim().toLowerCase();
+    if (!parsed) return '';
+    if (parsed.startsWith('[object ') && parsed.endsWith(']')) return '';
+    return parsed;
+  };
+
+  const direct = normalize(value);
+  if (direct) return direct;
+
+  if (value && typeof value === 'object') {
+    const objectCandidates = [
+      value.machine_id,
+      value.machineId,
+      value.physical_machine_id,
+      value.physicalMachineId,
+      value.value,
+      value.id,
+      value.target?.value,
+    ];
+    for (const candidate of objectCandidates) {
+      const resolved = normalize(candidate);
+      if (resolved) return resolved;
+    }
+  }
+
+  return normalize(fallback);
 }
 
 function newLogicalNodeStates() {
@@ -367,8 +397,8 @@ function InitialSetupWizard({ onComplete }) {
         addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
         const identity = await invoke('monitor_detect_local_vpn_identity');
-        if (identity?.detected && identity?.physical_machine_id) {
-          const detectedMachine = String(identity.physical_machine_id).toLowerCase();
+        const detectedMachine = toCanonicalMachineId(identity?.physical_machine_id);
+        if (identity?.detected && detectedMachine) {
           const detectedVpnIp =
             String(identity?.vpn_ip || '').trim() || PHYSICAL_MACHINE_VPN_IP[detectedMachine] || '';
           const logicalNodes = Array.isArray(identity?.logical_machine_ids) ? identity.logical_machine_ids : [];
@@ -599,7 +629,7 @@ function InitialSetupWizard({ onComplete }) {
   const bindMachineProfile = async () => {
     setError('');
     try {
-      const selectedMachine = String(bindingForm.machine_id || '').trim();
+      const selectedMachine = toCanonicalMachineId(bindingForm.machine_id);
       const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [selectedMachine];
       const basePayload = {
         profile_id: String(bindingForm.profile_id || '').trim().toLowerCase(),
@@ -633,10 +663,10 @@ function InitialSetupWizard({ onComplete }) {
       const topologyMessage = await invoke('monitor_apply_devnet_topology');
       addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
-      const selectedMachine = selectedPhysicalMachine;
-      const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedPhysicalMachine] || [];
+      const selectedMachine = toCanonicalMachineId(selectedPhysicalMachine);
+      const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [];
       if (logicalNodes.length === 0) {
-        throw new Error(`No logical node mapping found for ${selectedPhysicalMachine}`);
+        throw new Error(`No logical node mapping found for ${selectedMachine || String(selectedPhysicalMachine || '')}`);
       }
 
       const hostOverride = String(bindingForm.host_override || '').trim() || PHYSICAL_MACHINE_VPN_IP[selectedMachine] || '';
@@ -652,7 +682,7 @@ function InitialSetupWizard({ onComplete }) {
       }
       await refreshSecurityState();
 
-      addTerminalLine('info', `Starting local node setup for ${selectedPhysicalMachine}: ${formatLogicalNodeList(logicalNodes)}`);
+      addTerminalLine('info', `Starting local node setup for ${selectedMachine}: ${formatLogicalNodeList(logicalNodes)}`);
 
       const basePath = `${workspacePath}/devnet/lean15/installers`;
       for (const logicalMachineId of logicalNodes) {
@@ -660,7 +690,7 @@ function InitialSetupWizard({ onComplete }) {
         await runStrictCommand(`bash "${installScript}"`, workspacePath || null);
       }
 
-      const summary = `Completed setup commands for ${selectedPhysicalMachine} node slots: ${formatLogicalNodeList(logicalNodes)}`;
+      const summary = `Completed setup commands for ${selectedMachine} node slots: ${formatLogicalNodeList(logicalNodes)}`;
       setNodeSetupSummary(summary);
       addTerminalLine('success', summary);
     } catch (setupError) {
@@ -704,7 +734,7 @@ function InitialSetupWizard({ onComplete }) {
     try {
       await sleep(AUTOPILOT_RUN_START_PAUSE_MS);
 
-      const selectedMachine = String(machineOverride || selectedPhysicalMachine || '').trim().toLowerCase();
+      const selectedMachine = toCanonicalMachineId(machineOverride, selectedPhysicalMachine);
       const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [];
       runLogicalNodes = logicalNodes;
       const vpnHost = PHYSICAL_MACHINE_VPN_IP[selectedMachine] || String(bindingForm.host_override || '').trim();
@@ -1010,8 +1040,9 @@ function InitialSetupWizard({ onComplete }) {
     if (!autoStartMachineId) return;
     if (autopilotBusy || nodeSetupBusy) return;
 
-    const machineId = autoStartMachineId;
+    const machineId = toCanonicalMachineId(autoStartMachineId);
     setAutoStartMachineId('');
+    if (!machineId) return;
     setStep(5);
     addTerminalLine('info', `Auto-starting autonomous setup for ${machineId} from detected VPN identity.`);
     void runAutonomousSetup(machineId, 'vpn-auto-detect');
@@ -1021,7 +1052,7 @@ function InitialSetupWizard({ onComplete }) {
     setError('');
     try {
       await invoke('monitor_mark_setup_complete', {
-        physicalMachineId: selectedPhysicalMachine,
+        physicalMachineId: toCanonicalMachineId(selectedPhysicalMachine),
       });
       onComplete();
     } catch (finalizeError) {
@@ -1090,7 +1121,9 @@ function InitialSetupWizard({ onComplete }) {
             <div className="wizard-action-row">
               <button
                 className="monitor-btn monitor-btn-primary"
-                onClick={runAutonomousSetup}
+                onClick={() => {
+                  void runAutonomousSetup();
+                }}
                 disabled={autopilotBusy || nodeSetupBusy}
               >
                 {autopilotBusy ? 'Autonomous Setup Running...' : 'Run Autonomous Setup'}
