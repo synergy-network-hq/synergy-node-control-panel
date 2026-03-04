@@ -5,6 +5,7 @@ import NetworkMonitorDashboard from './components/NetworkMonitorDashboard';
 import NetworkMonitorNodePage from './components/NetworkMonitorNodePage';
 import HelpArticlesPage from './components/HelpArticlesPage';
 import OperatorConfigurationPage from './components/OperatorConfigurationPage';
+import SXCPDashboard from './components/SXCPDashboard';
 import InitialSetupWizard from './components/InitialSetupWizard';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
 import { Navigate, Route, Routes } from 'react-router-dom';
@@ -109,6 +110,7 @@ function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<NetworkMonitorDashboard />} />
+          <Route path="/sxcp" element={<SXCPDashboard />} />
           <Route path="/settings" element={<OperatorConfigurationPage />} />
           <Route path="/node/:machineId" element={<NetworkMonitorNodePage />} />
           <Route path="/help" element={<HelpArticlesPage />} />

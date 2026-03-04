@@ -9,6 +9,7 @@ function Layout({ children }) {
   const location = useLocation();
   const onHelpRoute = location.pathname === '/help';
   const onSettingsRoute = location.pathname === '/settings';
+  const onSXCPRoute = location.pathname === '/sxcp';
   const [updateStatus, setUpdateStatus] = useState('');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -81,6 +82,9 @@ function Layout({ children }) {
           </div>
 
           <div className="header-right-controls">
+            <Link className="btn-header" to={onSXCPRoute ? '/' : '/sxcp'}>
+              {onSXCPRoute ? 'Monitor' : 'SXCP'}
+            </Link>
             <Link className="btn-header" to={onSettingsRoute ? '/' : '/settings'}>
               {onSettingsRoute ? 'Dashboard' : 'Settings'}
             </Link>
