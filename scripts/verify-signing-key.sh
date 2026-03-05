@@ -54,22 +54,45 @@ if [[ "$FIRST_LINE" != "untrusted comment: minisign secret key"* ]]; then
 fi
 pass "First line is valid minisign header: $FIRST_LINE"
 
-# 5. Extract and decode the raw key bytes
+# 5. Extract and check raw key bytes (use Python to handle null bytes correctly —
+#    bash command substitution silently strips \x00, which corrupts kdf_alg check)
 KEY_B64=$(echo "$DECODED" | sed -n '2p')
-RAW_KEY=$(echo "$KEY_B64" | base64 -d 2>/dev/null) || \
-  fail "Key line is not valid base64."
+
+KEY_CHECK=$(python3 - <<PYEOF
+import base64, sys
+
+key_b64 = """$KEY_B64"""
+try:
+    raw = base64.b64decode(key_b64.strip())
+except Exception as e:
+    print(f"FAIL:Key line is not valid base64: {e}")
+    sys.exit(0)
+
+if len(raw) < 6:
+    print(f"FAIL:Key too short ({len(raw)} bytes), expected at least 6")
+    sys.exit(0)
+
+sig_alg = raw[0:2].hex()
+kdf_alg = raw[2:4].hex()
+chk_alg = raw[4:6].hex()
+
+print(f"SIG:{sig_alg}")
+print(f"KDF:{kdf_alg}")
+print(f"CHK:{chk_alg}")
+PYEOF
+) || fail "Python3 is required to verify key bytes"
+
+if echo "$KEY_CHECK" | grep -q "^FAIL:"; then
+  fail "$(echo "$KEY_CHECK" | grep "^FAIL:" | sed 's/^FAIL://')"
+fi
 
 pass "Raw key bytes decode successfully"
 
-# 6. Check KDF algorithm bytes (bytes 2-3)
-KDF_BYTES=$(echo "$RAW_KEY" | xxd -l 6 -p 2>/dev/null || \
-            printf "%s" "$RAW_KEY" | od -A n -t x1 -N 6 | tr -d ' \n')
+SIG_ALG=$(echo "$KEY_CHECK" | grep "^SIG:" | cut -d: -f2)
+KDF_ALG=$(echo "$KEY_CHECK" | grep "^KDF:" | cut -d: -f2)
 
-SIG_ALG="${KDF_BYTES:0:4}"   # bytes 0-1
-KDF_ALG="${KDF_BYTES:4:4}"   # bytes 2-3
-
-info "Signature algorithm: ${KDF_BYTES:0:4} (expect: 4564 = 'Ed')"
-info "KDF algorithm:       ${KDF_BYTES:4:4} (expect: 0000 = no scrypt, or 5363 = scrypt with password)"
+info "Signature algorithm: ${SIG_ALG} (expect: 4564 = 'Ed')"
+info "KDF algorithm:       ${KDF_ALG} (expect: 0000 = no scrypt, or 5363 = scrypt with password)"
 
 if [[ "$SIG_ALG" != "4564" ]]; then
   fail "Not an Ed25519 key (sig_alg bytes: $SIG_ALG, expected 4564)"
