@@ -33,7 +33,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -52,12 +52,5 @@
       "../guides/NETWORK_NODE_MONITOR_USER_MANUAL.md"
     ]
   },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://github.com/synergy-network-hq/devnet-control-panel-releases/releases/latest/download/latest.json"
-      ],
-      "pubkey": "RWQotAo+2hu+/6Tf3oxGzxripk26MBpW7+sqGoHXWj5NJoCDqitDWhND"
-    }
-  }
+  "plugins": {}
 }

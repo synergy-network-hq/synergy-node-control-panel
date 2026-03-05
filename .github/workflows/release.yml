@@ -77,9 +77,6 @@ jobs:
             javascriptcoregtk-4.1-dev
 
       - name: Build Tauri app
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         shell: bash
         run: npx tauri build --target ${{ matrix.target }}
 

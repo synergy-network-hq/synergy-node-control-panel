@@ -96,7 +96,8 @@ async fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Updater disabled — re-enable when signing key is set up
+        // .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             if let Err(error) = crate::monitor::ensure_monitor_workspace(&app.handle().clone()) {
                 eprintln!("monitor workspace initialization warning: {error}");
