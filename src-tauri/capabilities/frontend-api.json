@@ -12,6 +12,7 @@
         "core:app:allow-version",
         "core:path:default",
         "core:path:allow-resolve",
-        "core:path:allow-normalize"
+        "core:path:allow-normalize",
+        "updater:default"
     ]
 }
