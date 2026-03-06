@@ -13,6 +13,9 @@ on:
 env:
   RELEASES_REPO: synergy-network-hq/devnet-control-panel-releases
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
