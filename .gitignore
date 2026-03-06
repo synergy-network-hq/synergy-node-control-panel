@@ -20,6 +20,7 @@ target
 # Tauri build artifacts
 src-tauri/target
 src-tauri/Cargo.lock
+src-tauri/devnet-agent/Cargo.lock
 
 # Editor directories and files
 .vscode/*
