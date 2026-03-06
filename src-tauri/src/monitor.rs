@@ -1501,35 +1501,52 @@ pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, St
     // Rebuild installer bundles so existing workspaces receive updated installer script logic
     // and refreshed machine-specific metadata. This is best-effort: setup must still
     // proceed when cross-platform build artifacts are unavailable.
+    let installers_dir = workspace.join("devnet/lean15/installers");
     let build_installers_script = workspace.join("scripts/devnet15/build-node-installers.sh");
     if build_installers_script.is_file() {
-        match ProcessCommand::new("bash")
-            .arg(build_installers_script.to_string_lossy().to_string())
-            .current_dir(&workspace)
-            .output()
-        {
-            Ok(output) => {
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    if stderr.is_empty() {
-                        warnings.push(
-                            "installer rebuild step failed; using bundled installer templates"
-                                .to_string(),
-                        );
-                    } else {
-                        warnings.push(format!(
-                            "installer rebuild skipped ({stderr}); using bundled installer templates"
-                        ));
-                    }
+        let rebuild_dir = workspace.join(format!(
+            "devnet/lean15/.tmp-installer-rebuild-{}",
+            Utc::now().timestamp_millis()
+        ));
+        let rebuild_result = (|| -> Result<(), String> {
+            fs::create_dir_all(&rebuild_dir).map_err(|error| {
+                format!(
+                    "Failed to create temporary installer rebuild directory {}: {error}",
+                    rebuild_dir.display()
+                )
+            })?;
+
+            let output = ProcessCommand::new("bash")
+                .arg(build_installers_script.to_string_lossy().to_string())
+                .env("OUT_DIR", rebuild_dir.to_string_lossy().to_string())
+                .current_dir(&workspace)
+                .output()
+                .map_err(|error| error.to_string())?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if stderr.is_empty() {
+                    return Err(
+                        "installer rebuild step failed; using bundled installer templates"
+                            .to_string(),
+                    );
                 }
+                return Err(format!(
+                    "installer rebuild skipped ({stderr}); using bundled installer templates"
+                ));
             }
-            Err(error) => warnings.push(format!(
-                "installer rebuild skipped ({error}); using bundled installer templates"
-            )),
+
+            refresh_installer_bundle_assets(&rebuild_dir, &installers_dir)?;
+            Ok(())
+        })();
+
+        if let Err(message) = rebuild_result {
+            warnings.push(message);
         }
+
+        let _ = fs::remove_dir_all(&rebuild_dir);
     }
 
-    let installers_dir = workspace.join("devnet/lean15/installers");
     for (node_slot_id, vpn_ip) in &mapping {
         let installer_dir = installers_dir.join(node_slot_id);
         if !installer_dir.is_dir() {

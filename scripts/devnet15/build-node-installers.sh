@@ -6,7 +6,7 @@ INVENTORY_FILE="$ROOT_DIR/devnet/lean15/node-inventory.csv"
 CONFIG_DIR="$ROOT_DIR/devnet/lean15/configs"
 GENESIS_FILE="$ROOT_DIR/devnet/lean15/configs/genesis/genesis.json"
 KEYS_DIR="$ROOT_DIR/devnet/lean15/keys"
-OUT_DIR="$ROOT_DIR/devnet/lean15/installers"
+OUT_DIR="${OUT_DIR:-$ROOT_DIR/devnet/lean15/installers}"
 DEVNET_CHAIN_ID="${DEVNET_CHAIN_ID:-338638}"
 DEVNET_NETWORK_ID="${DEVNET_NETWORK_ID:-338638}"
 
