@@ -8,6 +8,7 @@ RUN_NODE_SCRIPT="$ROOT_DIR/scripts/devnet15/run-node.sh"
 RENDER_CONFIGS_SCRIPT="$ROOT_DIR/scripts/devnet15/render-configs.sh"
 GENESIS_SCRIPT="$ROOT_DIR/scripts/devnet15/generate-devnet-genesis.sh"
 VALIDATE_CLOSED_SCRIPT="$ROOT_DIR/scripts/devnet15/validate-closed-devnet.sh"
+DEVNET_AGENT_PORT="${SYNERGY_DEVNET_AGENT_PORT:-47990}"
 
 REBUILD_INSTALLERS="false"
 SKIP_RESTART="false"
@@ -106,12 +107,50 @@ machine_hook_cmd() {
   echo "${!var_name:-}"
 }
 
+inventory_vpn_ip() {
+  local node_slot_id="$1"
+  awk -F, -v id="$node_slot_id" 'NR > 1 && tolower($1) == tolower(id) { print $13; exit }' "$INVENTORY_FILE"
+}
+
+agent_endpoint() {
+  local node_slot_id="$1"
+  local prefix
+  prefix="$(machine_var_prefix "$node_slot_id")"
+  local vpn_var="${prefix}_VPN_IP"
+  local vpn_ip="${!vpn_var:-}"
+  if [[ -z "$vpn_ip" ]]; then
+    vpn_ip="$(inventory_vpn_ip "$node_slot_id")"
+  fi
+  [[ -n "$vpn_ip" ]] || return 1
+  echo "http://${vpn_ip}:${DEVNET_AGENT_PORT}/v1/control"
+}
+
+run_agent_action() {
+  local node_slot_id="$1"
+  local action="$2"
+  local endpoint
+  endpoint="$(agent_endpoint "$node_slot_id")" || return 1
+
+  if ! command -v curl >/dev/null 2>&1; then
+    return 1
+  fi
+
+  echo "[$node_slot_id] attempting WireGuard agent action: $action"
+  curl -fsS -X POST "$endpoint" \
+    -H "Content-Type: application/json" \
+    -d "{\"node_slot_id\":\"${node_slot_id}\",\"action\":\"${action}\"}" >/dev/null
+}
+
 run_hook_or_local() {
   local node_slot_id="$1"
   local hook="$2"
   local local_action="$3"
   local cmd
   cmd="$(machine_hook_cmd "$node_slot_id" "$hook")"
+
+  if run_agent_action "$node_slot_id" "$local_action"; then
+    return
+  fi
 
   if [[ -n "$cmd" ]]; then
     echo "[$node_slot_id] running remote hook: ${hook}"
@@ -154,6 +193,9 @@ reset_local_state() {
 reset_remote_nodes() {
   while IFS= read -r node_slot_id; do
     [[ -z "$node_slot_id" ]] && continue
+    if run_agent_action "$node_slot_id" "reset_chain"; then
+      continue
+    fi
     reset_cmd="$(machine_hook_cmd "$node_slot_id" "RESET_CMD")"
     if [[ -n "$reset_cmd" ]]; then
       echo "[$node_slot_id] running remote hook: RESET_CMD"

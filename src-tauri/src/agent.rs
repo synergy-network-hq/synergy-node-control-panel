@@ -1,15 +1,19 @@
 use crate::node_manager::commands::{setup_node, NodeSetupOptions, SetupProgress};
+use crate::devnet_agent_service::DEVNET_AGENT_PORT;
 use crate::node_manager::multi_node::MultiNodeManager;
 use crate::node_manager::multi_node_process::ProcessManager;
 use crate::recipe::load_and_validate;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
-use std::process::Command as ProcessCommand;
+use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 
 /// Tauri command implementing deterministic, recipe-driven node setup.
 /// Parses and validates the provided YAML recipe and delegates to the
@@ -381,4 +385,312 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
     }
 
     Ok(output)
+}
+
+pub async fn ensure_local_devnet_agent(app_handle: AppHandle) -> Result<(), String> {
+    let workspace_root = crate::monitor::ensure_monitor_workspace(&app_handle)?;
+    if local_agent_running().await {
+        return Ok(());
+    }
+
+    let binary_source = resolve_agent_resource_binary(&workspace_root)?;
+    let installed_binary = install_agent_binary(&workspace_root, &binary_source)?;
+
+    if let Err(error) = install_agent_autostart(&workspace_root, &installed_binary) {
+        eprintln!("devnet agent autostart warning: {error}");
+    }
+
+    spawn_local_agent(&workspace_root, &installed_binary)?;
+    for _ in 0..8 {
+        sleep(Duration::from_millis(250)).await;
+        if local_agent_running().await {
+            return Ok(());
+        }
+    }
+
+    Err("Local devnet agent did not become healthy after startup".to_string())
+}
+
+async fn local_agent_running() -> bool {
+    let client = Client::builder()
+        .timeout(Duration::from_millis(800))
+        .build()
+        .unwrap_or_else(|_| Client::new());
+    client
+        .get(format!("http://127.0.0.1:{DEVNET_AGENT_PORT}/health"))
+        .send()
+        .await
+        .map(|response| response.status().is_success())
+        .unwrap_or(false)
+}
+
+fn resolve_agent_resource_binary(workspace_root: &Path) -> Result<PathBuf, String> {
+    let candidates = [
+        workspace_root
+            .join("binaries")
+            .join(agent_resource_binary_name()?),
+        workspace_root
+            .join("agent")
+            .join("bin")
+            .join(agent_installed_binary_name()),
+    ];
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            format!(
+                "Bundled devnet agent binary not found. Expected {} in workspace resources.",
+                agent_resource_binary_name().unwrap_or("synergy-devnet-agent".to_string())
+            )
+        })
+}
+
+fn install_agent_binary(workspace_root: &Path, source: &Path) -> Result<PathBuf, String> {
+    let destination = workspace_root
+        .join("agent")
+        .join("bin")
+        .join(agent_installed_binary_name());
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create devnet agent binary directory {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+
+    fs::copy(source, &destination).map_err(|error| {
+        format!(
+            "Failed to install devnet agent binary {} -> {}: {error}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&destination, fs::Permissions::from_mode(0o755)).map_err(|error| {
+            format!(
+                "Failed to mark devnet agent binary executable {}: {error}",
+                destination.display()
+            )
+        })?;
+    }
+
+    Ok(destination)
+}
+
+fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
+    let log_dir = workspace_root.join("agent").join("logs");
+    fs::create_dir_all(&log_dir).map_err(|error| {
+        format!(
+            "Failed to create devnet agent log directory {}: {error}",
+            log_dir.display()
+        )
+    })?;
+
+    let stdout = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("agent.out.log"))
+        .map_err(|error| format!("Failed to open devnet agent stdout log: {error}"))?;
+    let stderr = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("agent.err.log"))
+        .map_err(|error| format!("Failed to open devnet agent stderr log: {error}"))?;
+
+    let mut command = ProcessCommand::new(binary_path);
+    command
+        .arg("serve")
+        .arg("--workspace")
+        .arg(workspace_root)
+        .arg("--port")
+        .arg(DEVNET_AGENT_PORT.to_string())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .stdin(Stdio::null())
+        .current_dir(workspace_root);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+
+    command
+        .spawn()
+        .map_err(|error| format!("Failed to spawn local devnet agent: {error}"))?;
+
+    Ok(())
+}
+
+fn install_agent_autostart(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        install_agent_launchd(workspace_root, binary_path)?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        install_agent_systemd_user(workspace_root, binary_path)?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        install_agent_windows_startup(workspace_root, binary_path)?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn install_agent_launchd(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
+    let launch_agents = dirs::home_dir()
+        .ok_or_else(|| "Home directory not available for launchd agent".to_string())?
+        .join("Library/LaunchAgents");
+    fs::create_dir_all(&launch_agents).map_err(|error| {
+        format!(
+            "Failed to create launch agents directory {}: {error}",
+            launch_agents.display()
+        )
+    })?;
+
+    let plist_path = launch_agents.join("io.synergy.devnet.agent.plist");
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>io.synergy.devnet.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{}</string>
+      <string>serve</string>
+      <string>--workspace</string>
+      <string>{}</string>
+      <string>--port</string>
+      <string>{}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{}</string>
+    <key>StandardErrorPath</key>
+    <string>{}</string>
+  </dict>
+</plist>
+"#,
+        binary_path.display(),
+        workspace_root.display(),
+        DEVNET_AGENT_PORT,
+        workspace_root.join("agent/logs/launchd.out.log").display(),
+        workspace_root.join("agent/logs/launchd.err.log").display(),
+    );
+    fs::write(&plist_path, plist).map_err(|error| {
+        format!(
+            "Failed to write launchd plist {}: {error}",
+            plist_path.display()
+        )
+    })?;
+
+    let _ = ProcessCommand::new("launchctl")
+        .args(["unload", plist_path.to_string_lossy().as_ref()])
+        .output();
+    let _ = ProcessCommand::new("launchctl")
+        .args(["load", "-w", plist_path.to_string_lossy().as_ref()])
+        .output();
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn install_agent_systemd_user(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
+    let systemd_dir = dirs::home_dir()
+        .ok_or_else(|| "Home directory not available for systemd user agent".to_string())?
+        .join(".config/systemd/user");
+    fs::create_dir_all(&systemd_dir).map_err(|error| {
+        format!(
+            "Failed to create systemd user directory {}: {error}",
+            systemd_dir.display()
+        )
+    })?;
+
+    let service_path = systemd_dir.join("synergy-devnet-agent.service");
+    let service = format!(
+        "[Unit]\nDescription=Synergy Devnet Agent\nAfter=network-online.target\n\n[Service]\nExecStart={} serve --workspace {} --port {}\nRestart=always\nRestartSec=2\nWorkingDirectory={}\n\n[Install]\nWantedBy=default.target\n",
+        shell_argument(binary_path),
+        shell_argument(workspace_root),
+        DEVNET_AGENT_PORT,
+        shell_argument(workspace_root),
+    );
+    fs::write(&service_path, service).map_err(|error| {
+        format!(
+            "Failed to write systemd user service {}: {error}",
+            service_path.display()
+        )
+    })?;
+
+    let _ = ProcessCommand::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .output();
+    let _ = ProcessCommand::new("systemctl")
+        .args(["--user", "enable", "--now", "synergy-devnet-agent.service"])
+        .output();
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn install_agent_windows_startup(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
+    let startup_dir = dirs::config_dir()
+        .ok_or_else(|| "Config directory not available for Windows startup agent".to_string())?
+        .join("Microsoft/Windows/Start Menu/Programs/Startup");
+    fs::create_dir_all(&startup_dir).map_err(|error| {
+        format!(
+            "Failed to create Windows startup directory {}: {error}",
+            startup_dir.display()
+        )
+    })?;
+
+    let startup_cmd = startup_dir.join("Synergy Devnet Agent.cmd");
+    let command = format!(
+        "@echo off\r\nstart \"\" /B \"{}\" serve --workspace \"{}\" --port {}\r\n",
+        binary_path.display(),
+        workspace_root.display(),
+        DEVNET_AGENT_PORT
+    );
+    fs::write(&startup_cmd, command).map_err(|error| {
+        format!(
+            "Failed to write Windows startup command {}: {error}",
+            startup_cmd.display()
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn shell_argument(path: &Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
+}
+
+fn agent_installed_binary_name() -> String {
+    if cfg!(target_os = "windows") {
+        "synergy-devnet-agent.exe".to_string()
+    } else {
+        "synergy-devnet-agent".to_string()
+    }
+}
+
+fn agent_resource_binary_name() -> Result<String, String> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Ok("synergy-devnet-agent-darwin-arm64".to_string())
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Ok("synergy-devnet-agent-linux-amd64".to_string())
+    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Ok("synergy-devnet-agent-windows-amd64.exe".to_string())
+    } else {
+        Err("Unsupported platform for bundled devnet agent binary".to_string())
+    }
 }

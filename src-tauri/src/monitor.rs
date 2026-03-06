@@ -1,6 +1,9 @@
+use crate::devnet_agent_service::{
+    DevnetAgentControlRequest, DevnetAgentControlResponse, DEVNET_AGENT_PORT,
+};
 use chrono::Utc;
 use futures_util::future::join_all;
-use reqwest::{Client, Url};
+use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -3955,6 +3958,112 @@ fn resolve_control_action_command(commands: &NodeControlCommands, action: &str) 
     }
 }
 
+enum AgentControlAttempt {
+    Completed(MonitorControlResult),
+    Unavailable,
+}
+
+fn agent_supports_action(action: &str) -> bool {
+    matches!(
+        action,
+        "start"
+            | "stop"
+            | "restart"
+            | "status"
+            | "setup"
+            | "setup_node"
+            | "install_node"
+            | "bootstrap_node"
+            | "reset_chain"
+            | "logs"
+            | "node_logs"
+    )
+}
+
+fn agent_endpoint_for_node(node: &MonitorNode) -> Option<String> {
+    let host = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
+        .map(|entry| entry.to_string())
+        .or_else(|| {
+            let trimmed = node.host.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })?;
+    Some(format!("http://{host}:{DEVNET_AGENT_PORT}"))
+}
+
+async fn try_execute_monitor_agent_control(
+    node: &MonitorNode,
+    action: &str,
+) -> AgentControlAttempt {
+    let Some(base_url) = agent_endpoint_for_node(node) else {
+        return AgentControlAttempt::Unavailable;
+    };
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(12))
+        .connect_timeout(Duration::from_secs(2))
+        .build()
+        .unwrap_or_else(|_| Client::new());
+
+    let request = DevnetAgentControlRequest {
+        node_slot_id: node.node_slot_id.clone(),
+        action: action.to_string(),
+    };
+
+    let response = match client
+        .post(format!("{base_url}/v1/control"))
+        .json(&request)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => return AgentControlAttempt::Unavailable,
+    };
+
+    if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::METHOD_NOT_ALLOWED {
+        return AgentControlAttempt::Unavailable;
+    }
+
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let result = if let Ok(payload) = serde_json::from_str::<DevnetAgentControlResponse>(&text) {
+        MonitorControlResult {
+            node_slot_id: payload.node_slot_id,
+            action: payload.action,
+            success: payload.success,
+            exit_code: payload.exit_code,
+            command: payload.transport,
+            stdout: truncate_text(payload.stdout.trim(), 6000),
+            stderr: truncate_text(payload.stderr.trim(), 6000),
+            executed_at_utc: payload.executed_at_utc,
+        }
+    } else {
+        MonitorControlResult {
+            node_slot_id: node.node_slot_id.clone(),
+            action: action.to_string(),
+            success: status.is_success(),
+            exit_code: if status.is_success() { 0 } else { 1 },
+            command: "wireguard-agent".to_string(),
+            stdout: if status.is_success() {
+                truncate_text(text.trim(), 6000)
+            } else {
+                String::new()
+            },
+            stderr: if status.is_success() {
+                String::new()
+            } else {
+                truncate_text(text.trim(), 6000)
+            },
+            executed_at_utc: Utc::now().to_rfc3339(),
+        }
+    };
+
+    AgentControlAttempt::Completed(result)
+}
+
 fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
     let rpc_action = action.strip_prefix("rpc:")?;
     match rpc_action {
@@ -5772,6 +5881,35 @@ async fn execute_monitor_node_control(
                 stderr: truncate_text(error.trim(), 6000),
                 executed_at_utc: Utc::now().to_rfc3339(),
             },
+        }
+    } else if agent_supports_action(normalized_action) {
+        match try_execute_monitor_agent_control(&node, normalized_action).await {
+            AgentControlAttempt::Completed(result) => result,
+            AgentControlAttempt::Unavailable => {
+                let selected_command = resolve_control_action_command(&commands, normalized_action).ok_or_else(
+                    || {
+                        format!(
+                            "No '{normalized_action}' control command configured for {}. Configure MACHINE_XX_{ACTION}_CMD or MACHINE_XX_ACTION_<name>_CMD in hosts.env.",
+                            node.node_slot_id,
+                            ACTION = normalized_action.to_ascii_uppercase(),
+                        )
+                    },
+                )?;
+
+                let (exit_code, stdout, stderr) = run_shell_command(&selected_command)?;
+                let success = exit_code == 0;
+
+                MonitorControlResult {
+                    node_slot_id: node.node_slot_id.clone(),
+                    action: normalized_action.to_string(),
+                    success,
+                    exit_code,
+                    command: truncate_text(&selected_command, 180),
+                    stdout: truncate_text(stdout.trim(), 6000),
+                    stderr: truncate_text(stderr.trim(), 6000),
+                    executed_at_utc: Utc::now().to_rfc3339(),
+                }
+            }
         }
     } else {
         let selected_command = resolve_control_action_command(&commands, normalized_action).ok_or_else(
