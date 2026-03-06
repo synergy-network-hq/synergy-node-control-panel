@@ -11,6 +11,31 @@ It ships the active node-slot inventory in `devnet/lean15/node-inventory.csv`, r
 - manage SSH/RBAC/operator bindings for the fleet
 - check for signed app updates and install published releases
 
+## WireGuard Control Agent
+
+The control panel now ships a small local machine agent for the core fleet-control actions:
+
+- `start`
+- `stop`
+- `restart`
+- `status`
+- `setup_node`
+- `install_node`
+- `bootstrap_node`
+- `reset_chain`
+- `logs`
+
+Behavior:
+
+- On app launch, the control panel extracts the bundled agent into the monitor workspace and starts it locally.
+- The dashboard/node-control path now prefers the agent over the WireGuard VPN and falls back to SSH only if the agent is unavailable.
+- `scripts/devnet15/reset-devnet.sh` also prefers the agent for `stop`, `reset_chain`, and `start`.
+
+Operational requirement:
+
+- Each machine must run the updated control panel once so its local agent is installed and started.
+- Older installs without the agent will continue to fall back to SSH until updated.
+
 ## Project Layout
 
 - `src/`: React frontend

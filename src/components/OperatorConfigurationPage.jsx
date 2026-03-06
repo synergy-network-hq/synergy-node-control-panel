@@ -53,9 +53,11 @@ function formatLocalTimestamp(value) {
 function OperatorConfigurationPage() {
   const [snapshot, setSnapshot] = useState(null);
   const [securityState, setSecurityState] = useState(null);
+  const [agentSnapshot, setAgentSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [error, setError] = useState('');
+  const [agentError, setAgentError] = useState('');
 
   const [bulkAction, setBulkAction] = useState('status');
   const [bulkScope, setBulkScope] = useState('all');
@@ -90,12 +92,22 @@ function OperatorConfigurationPage() {
         await invoke('monitor_initialize_workspace');
         setWorkspaceReady(true);
       }
-      const [snapshotData, securityData] = await Promise.all([
+      const [snapshotData, securityData, agentData] = await Promise.allSettled([
         invoke('get_monitor_snapshot'),
         invoke('get_monitor_security_state'),
+        invoke('get_monitor_agent_snapshot'),
       ]);
-      setSnapshot(snapshotData);
-      setSecurityState(securityData);
+      if (snapshotData.status !== 'fulfilled') throw snapshotData.reason;
+      if (securityData.status !== 'fulfilled') throw securityData.reason;
+      setSnapshot(snapshotData.value);
+      setSecurityState(securityData.value);
+      if (agentData.status === 'fulfilled') {
+        setAgentSnapshot(agentData.value);
+        setAgentError('');
+      } else {
+        setAgentSnapshot(null);
+        setAgentError(String(agentData.reason));
+      }
       setError('');
     } catch (err) {
       console.error('Failed loading operator configuration context:', err);
@@ -133,6 +145,8 @@ function OperatorConfigurationPage() {
   const bindingCount = securityState?.ssh_bindings?.length || 0;
   const onlineNodes = snapshot?.online_nodes ?? 0;
   const totalNodes = snapshot?.total_nodes ?? 0;
+  const reachableAgents = agentSnapshot?.reachable_agents ?? 0;
+  const totalAgents = agentSnapshot?.total_agents ?? 0;
   const activeOperator = (securityState?.operators || []).find(
     (operator) => operator.operator_id === securityState?.active_operator_id,
   );
@@ -158,11 +172,17 @@ function OperatorConfigurationPage() {
       title: 'Run bulk control safely',
       copy: 'WireGuard bootstrap first, then status and RPC checks. Use narrow scopes before you touch the entire fleet.',
     },
+    {
+      kicker: '05',
+      title: 'Verify agent reachability',
+      copy: 'Global reset/start/stop should only be attempted once every physical machine shows a reachable WireGuard agent.',
+    },
   ];
   const sectionLinks = [
     ['operator-access', 'Operator Access'],
     ['ssh-profiles', 'SSH Profiles'],
     ['bindings', 'Bindings'],
+    ['agent-health', 'Agent Health'],
     ['bulk-actions', 'Bulk Actions'],
   ];
 
@@ -350,6 +370,14 @@ function OperatorConfigurationPage() {
         <article className="monitor-stat-card monitor-stat-card-degraded">
           <span className="monitor-stat-label">Binding Coverage</span>
           <strong className="monitor-stat-value">{bindingCoverage}</strong>
+        </article>
+        <article className={`monitor-stat-card ${totalAgents > 0 && reachableAgents === totalAgents ? 'monitor-stat-card-healthy' : 'monitor-stat-card-degraded'}`}>
+          <span className="monitor-stat-label">Agents Reachable</span>
+          <strong className="monitor-stat-value">
+            {reachableAgents}
+            /
+            {totalAgents}
+          </strong>
         </article>
       </div>
 
@@ -631,6 +659,103 @@ function OperatorConfigurationPage() {
               </div>
             ))}
           </div>
+        </article>
+
+        <article id="agent-health" className="monitor-panel monitor-panel-span-3">
+          <div className="monitor-card-heading">
+            <div>
+              <p className="monitor-card-kicker">WireGuard Control Plane</p>
+              <h3>Agent Health / Reachability</h3>
+            </div>
+            <span className={`monitor-inline-pill monitor-inline-pill-${totalAgents > 0 && reachableAgents === totalAgents ? 'healthy' : 'degraded'}`}>
+              {reachableAgents}
+              /
+              {totalAgents || 0}
+              {' '}
+              reachable
+            </span>
+          </div>
+          <p className="monitor-path">
+            Global lifecycle/reset actions use the per-machine agent over VPN first and fall back to SSH only when the agent is unavailable.
+          </p>
+
+          {agentError ? (
+            <div className="monitor-error-box">
+              <strong>Agent probe error:</strong>
+              {' '}
+              {truncate(agentError)}
+            </div>
+          ) : null}
+
+          {agentSnapshot ? (
+            <div className="monitor-bulk-result-shell">
+              <div className="monitor-bulk-result-summary">
+                <div>
+                  <span>Total Machines</span>
+                  <strong>{agentSnapshot.total_agents}</strong>
+                </div>
+                <div>
+                  <span>Reachable</span>
+                  <strong>{agentSnapshot.reachable_agents}</strong>
+                </div>
+                <div>
+                  <span>Unreachable</span>
+                  <strong>{agentSnapshot.unreachable_agents}</strong>
+                </div>
+                <div>
+                  <span>Last Probe</span>
+                  <strong>{formatLocalTimestamp(agentSnapshot.captured_at_utc)}</strong>
+                </div>
+              </div>
+
+              <div className="monitor-record-list">
+                {(agentSnapshot.agents || []).map((agent) => (
+                  <div key={`${agent.physical_machine_id}-${agent.vpn_ip}`} className="monitor-record-row">
+                    <div className="monitor-record-copy">
+                      <strong>{agent.physical_machine_id}</strong>
+                      <span>
+                        {agent.vpn_ip}
+                        {' · '}
+                        {agent.version || 'no version reported'}
+                        {' · '}
+                        {agent.response_ms}
+                        ms
+                      </span>
+                      <span>
+                        node slots:
+                        {' '}
+                        {agent.node_slot_ids.join(', ')}
+                      </span>
+                      <span>
+                        {agent.error
+                          ? truncate(agent.error)
+                          : `workspace ${truncate(agent.workspace_path || 'N/A', 120)}`}
+                      </span>
+                    </div>
+                    <div className="monitor-record-actions">
+                      {agent.local_vpn_ip ? (
+                        <span className="monitor-action-tag">
+                          local
+                          {' '}
+                          {agent.local_vpn_ip}
+                        </span>
+                      ) : null}
+                      {(agent.supported_actions || []).slice(0, 3).map((action) => (
+                        <span key={`${agent.physical_machine_id}-${action}`} className="monitor-action-tag">
+                          {action}
+                        </span>
+                      ))}
+                      <span className={`monitor-action-tag ${agent.reachable ? 'monitor-action-tag-role' : 'monitor-action-tag-disabled'}`}>
+                        {agent.reachable ? 'reachable' : 'offline'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="monitor-path">No agent probe results loaded yet.</p>
+          )}
         </article>
 
         <article id="bulk-actions" className="monitor-panel monitor-panel-span-3 monitor-panel-guide">

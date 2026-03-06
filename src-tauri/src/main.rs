@@ -2,6 +2,8 @@
 
 mod agent;
 mod blockchain;
+#[allow(dead_code)]
+mod devnet_agent_service;
 mod env_config;
 mod monitor;
 mod node_manager;
@@ -41,9 +43,11 @@ fn setup_panic_hook() {
 use crate::agent::{
     agent_generate_wireguard_mesh, agent_get_inventory_machines,
     agent_monitor_initialize_workspace, agent_prepare_hosts_env, agent_setup_node,
+    ensure_local_devnet_agent,
 };
 use crate::monitor::{
-    get_monitor_inventory_path, get_monitor_node_details, get_monitor_security_state,
+    get_monitor_agent_snapshot, get_monitor_inventory_path, get_monitor_node_details,
+    get_monitor_security_state,
     get_monitor_snapshot, get_monitor_user_manual_markdown, get_monitor_workspace_path,
     monitor_apply_devnet_topology, monitor_assign_ssh_binding,
     monitor_bulk_node_control, monitor_delete_operator, monitor_delete_ssh_profile,
@@ -131,6 +135,12 @@ async fn main() {
             if let Err(error) = crate::monitor::ensure_monitor_workspace(&app.handle().clone()) {
                 eprintln!("monitor workspace initialization warning: {error}");
             }
+            let agent_app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = ensure_local_devnet_agent(agent_app_handle).await {
+                    eprintln!("devnet agent initialization warning: {error}");
+                }
+            });
             if let Err(error) = configure_main_window(&app.handle().clone()) {
                 eprintln!("main window initialization warning: {error}");
             }
@@ -220,6 +230,7 @@ async fn main() {
             monitor_apply_devnet_topology,
             get_monitor_snapshot,
             get_monitor_node_details,
+            get_monitor_agent_snapshot,
             monitor_node_control,
             monitor_bulk_node_control,
             monitor_export_node_data,

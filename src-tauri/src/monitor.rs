@@ -1,6 +1,9 @@
+use crate::devnet_agent_service::{
+    DevnetAgentControlRequest, DevnetAgentControlResponse, DevnetAgentHealth, DEVNET_AGENT_PORT,
+};
 use chrono::Utc;
 use futures_util::future::join_all;
-use reqwest::{Client, Url};
+use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -288,6 +291,30 @@ pub struct MonitorBulkControlResult {
     pub results: Vec<MonitorControlResult>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorAgentReachability {
+    pub physical_machine_id: String,
+    pub vpn_ip: String,
+    pub node_slot_ids: Vec<String>,
+    pub reachable: bool,
+    pub response_ms: u64,
+    pub version: Option<String>,
+    pub workspace_path: Option<String>,
+    pub local_vpn_ip: Option<String>,
+    pub supported_actions: Vec<String>,
+    pub checked_at_utc: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorAgentSnapshot {
+    pub captured_at_utc: String,
+    pub total_agents: usize,
+    pub reachable_agents: usize,
+    pub unreachable_agents: usize,
+    pub agents: Vec<MonitorAgentReachability>,
+}
+
 const DEVNET_NODE_VPN_MAP: [(&str, &str); 23] = [
     ("node-01", "10.50.0.1"),   // Machine-01: validator
     ("node-02", "10.50.0.2"),   // Machine-02: validator
@@ -389,6 +416,164 @@ pub fn monitor_initialize_workspace(app_handle: AppHandle) -> Result<String, Str
 #[tauri::command]
 pub fn get_monitor_security_state() -> Result<MonitorSecurityState, String> {
     load_monitor_security_state()
+}
+
+#[tauri::command]
+pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String> {
+    let inventory_path = resolve_inventory_path()?;
+    let nodes = load_inventory_nodes(&inventory_path)?;
+
+    let mut machine_targets = HashMap::<String, (String, Vec<String>)>::new();
+    for node in nodes {
+        let physical_machine_id = if node.physical_machine_id.trim().is_empty() {
+            node.node_slot_id.clone()
+        } else {
+            node.physical_machine_id.clone()
+        };
+        let vpn_ip = canonical_vpn_ip_for_physical_machine(&physical_machine_id)
+            .map(str::to_string)
+            .or_else(|| {
+                let host = node.host.trim();
+                if is_wireguard_vpn_ip(host) {
+                    Some(host.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        let entry = machine_targets
+            .entry(physical_machine_id)
+            .or_insert_with(|| (vpn_ip.clone(), Vec::new()));
+        if entry.0.is_empty() && !vpn_ip.is_empty() {
+            entry.0 = vpn_ip.clone();
+        }
+        entry.1.push(node.node_slot_id.clone());
+    }
+
+    let mut targets = machine_targets
+        .into_iter()
+        .map(|(physical_machine_id, (vpn_ip, mut node_slot_ids))| {
+            node_slot_ids.sort();
+            (physical_machine_id, vpn_ip, node_slot_ids)
+        })
+        .collect::<Vec<_>>();
+    targets.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(3))
+        .connect_timeout(Duration::from_secs(2))
+        .build()
+        .unwrap_or_else(|_| Client::new());
+
+    let probes = targets.into_iter().map(|(physical_machine_id, vpn_ip, node_slot_ids)| {
+        let client = client.clone();
+        async move {
+            let checked_at_utc = Utc::now().to_rfc3339();
+            if vpn_ip.trim().is_empty() {
+                return MonitorAgentReachability {
+                    physical_machine_id,
+                    vpn_ip,
+                    node_slot_ids,
+                    reachable: false,
+                    response_ms: 0,
+                    version: None,
+                    workspace_path: None,
+                    local_vpn_ip: None,
+                    supported_actions: Vec::new(),
+                    checked_at_utc,
+                    error: Some("No VPN IP resolved for this machine.".to_string()),
+                };
+            }
+
+            let endpoint = format!("http://{vpn_ip}:{DEVNET_AGENT_PORT}/health");
+            let started = Instant::now();
+            match client.get(&endpoint).send().await {
+                Ok(response) => {
+                    let response_ms = started.elapsed().as_millis() as u64;
+                    let status = response.status();
+                    if !status.is_success() {
+                        let body = response.text().await.unwrap_or_default();
+                        return MonitorAgentReachability {
+                            physical_machine_id,
+                            vpn_ip,
+                            node_slot_ids,
+                            reachable: false,
+                            response_ms,
+                            version: None,
+                            workspace_path: None,
+                            local_vpn_ip: None,
+                            supported_actions: Vec::new(),
+                            checked_at_utc,
+                            error: Some(format!(
+                                "HTTP {} from agent health endpoint{}",
+                                status,
+                                if body.trim().is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(": {}", truncate_text(body.trim(), 220))
+                                }
+                            )),
+                        };
+                    }
+
+                    match response.json::<DevnetAgentHealth>().await {
+                        Ok(payload) => MonitorAgentReachability {
+                            physical_machine_id,
+                            vpn_ip,
+                            node_slot_ids,
+                            reachable: true,
+                            response_ms,
+                            version: Some(payload.version),
+                            workspace_path: Some(payload.workspace_path),
+                            local_vpn_ip: payload.local_vpn_ip,
+                            supported_actions: payload.supported_actions,
+                            checked_at_utc,
+                            error: None,
+                        },
+                        Err(error) => MonitorAgentReachability {
+                            physical_machine_id,
+                            vpn_ip,
+                            node_slot_ids,
+                            reachable: false,
+                            response_ms,
+                            version: None,
+                            workspace_path: None,
+                            local_vpn_ip: None,
+                            supported_actions: Vec::new(),
+                            checked_at_utc,
+                            error: Some(format!("Failed to decode agent health payload: {error}")),
+                        },
+                    }
+                }
+                Err(error) => MonitorAgentReachability {
+                    physical_machine_id,
+                    vpn_ip,
+                    node_slot_ids,
+                    reachable: false,
+                    response_ms: started.elapsed().as_millis() as u64,
+                    version: None,
+                    workspace_path: None,
+                    local_vpn_ip: None,
+                    supported_actions: Vec::new(),
+                    checked_at_utc,
+                    error: Some(error.to_string()),
+                },
+            }
+        }
+    });
+
+    let agents = join_all(probes).await;
+    let reachable_agents = agents.iter().filter(|entry| entry.reachable).count();
+    let total_agents = agents.len();
+
+    Ok(MonitorAgentSnapshot {
+        captured_at_utc: Utc::now().to_rfc3339(),
+        total_agents,
+        reachable_agents,
+        unreachable_agents: total_agents.saturating_sub(reachable_agents),
+        agents,
+    })
 }
 
 #[tauri::command]
@@ -3955,6 +4140,112 @@ fn resolve_control_action_command(commands: &NodeControlCommands, action: &str) 
     }
 }
 
+enum AgentControlAttempt {
+    Completed(MonitorControlResult),
+    Unavailable,
+}
+
+fn agent_supports_action(action: &str) -> bool {
+    matches!(
+        action,
+        "start"
+            | "stop"
+            | "restart"
+            | "status"
+            | "setup"
+            | "setup_node"
+            | "install_node"
+            | "bootstrap_node"
+            | "reset_chain"
+            | "logs"
+            | "node_logs"
+    )
+}
+
+fn agent_endpoint_for_node(node: &MonitorNode) -> Option<String> {
+    let host = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
+        .map(|entry| entry.to_string())
+        .or_else(|| {
+            let trimmed = node.host.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })?;
+    Some(format!("http://{host}:{DEVNET_AGENT_PORT}"))
+}
+
+async fn try_execute_monitor_agent_control(
+    node: &MonitorNode,
+    action: &str,
+) -> AgentControlAttempt {
+    let Some(base_url) = agent_endpoint_for_node(node) else {
+        return AgentControlAttempt::Unavailable;
+    };
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(12))
+        .connect_timeout(Duration::from_secs(2))
+        .build()
+        .unwrap_or_else(|_| Client::new());
+
+    let request = DevnetAgentControlRequest {
+        node_slot_id: node.node_slot_id.clone(),
+        action: action.to_string(),
+    };
+
+    let response = match client
+        .post(format!("{base_url}/v1/control"))
+        .json(&request)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => return AgentControlAttempt::Unavailable,
+    };
+
+    if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::METHOD_NOT_ALLOWED {
+        return AgentControlAttempt::Unavailable;
+    }
+
+    let status = response.status();
+    let text = response.text().await.unwrap_or_default();
+    let result = if let Ok(payload) = serde_json::from_str::<DevnetAgentControlResponse>(&text) {
+        MonitorControlResult {
+            node_slot_id: payload.node_slot_id,
+            action: payload.action,
+            success: payload.success,
+            exit_code: payload.exit_code,
+            command: payload.transport,
+            stdout: truncate_text(payload.stdout.trim(), 6000),
+            stderr: truncate_text(payload.stderr.trim(), 6000),
+            executed_at_utc: payload.executed_at_utc,
+        }
+    } else {
+        MonitorControlResult {
+            node_slot_id: node.node_slot_id.clone(),
+            action: action.to_string(),
+            success: status.is_success(),
+            exit_code: if status.is_success() { 0 } else { 1 },
+            command: "wireguard-agent".to_string(),
+            stdout: if status.is_success() {
+                truncate_text(text.trim(), 6000)
+            } else {
+                String::new()
+            },
+            stderr: if status.is_success() {
+                String::new()
+            } else {
+                truncate_text(text.trim(), 6000)
+            },
+            executed_at_utc: Utc::now().to_rfc3339(),
+        }
+    };
+
+    AgentControlAttempt::Completed(result)
+}
+
 fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
     let rpc_action = action.strip_prefix("rpc:")?;
     match rpc_action {
@@ -5772,6 +6063,35 @@ async fn execute_monitor_node_control(
                 stderr: truncate_text(error.trim(), 6000),
                 executed_at_utc: Utc::now().to_rfc3339(),
             },
+        }
+    } else if agent_supports_action(normalized_action) {
+        match try_execute_monitor_agent_control(&node, normalized_action).await {
+            AgentControlAttempt::Completed(result) => result,
+            AgentControlAttempt::Unavailable => {
+                let selected_command = resolve_control_action_command(&commands, normalized_action).ok_or_else(
+                    || {
+                        format!(
+                            "No '{normalized_action}' control command configured for {}. Configure MACHINE_XX_{ACTION}_CMD or MACHINE_XX_ACTION_<name>_CMD in hosts.env.",
+                            node.node_slot_id,
+                            ACTION = normalized_action.to_ascii_uppercase(),
+                        )
+                    },
+                )?;
+
+                let (exit_code, stdout, stderr) = run_shell_command(&selected_command)?;
+                let success = exit_code == 0;
+
+                MonitorControlResult {
+                    node_slot_id: node.node_slot_id.clone(),
+                    action: normalized_action.to_string(),
+                    success,
+                    exit_code,
+                    command: truncate_text(&selected_command, 180),
+                    stdout: truncate_text(stdout.trim(), 6000),
+                    stderr: truncate_text(stderr.trim(), 6000),
+                    executed_at_utc: Utc::now().to_rfc3339(),
+                }
+            }
         }
     } else {
         let selected_command = resolve_control_action_command(&commands, normalized_action).ok_or_else(
