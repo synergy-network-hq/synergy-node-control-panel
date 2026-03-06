@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -3988,7 +3988,7 @@ fn copy_file_force(source: &Path, destination: &Path) -> Result<(), String> {
         })?;
     }
 
-    fs::copy(source, destination).map_err(|error| {
+    copy_file_atomic(source, destination).map_err(|error| {
         format!(
             "Failed to copy {} to {}: {error}",
             source.display(),
@@ -3996,6 +3996,47 @@ fn copy_file_force(source: &Path, destination: &Path) -> Result<(), String> {
         )
     })?;
     Ok(())
+}
+
+// Replace files via temp+rename so active node executables can be refreshed
+// without opening the destination path for writing first.
+fn copy_file_atomic(source: &Path, destination: &Path) -> Result<(), io::Error> {
+    let destination_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("copy-target");
+    let temp_name = format!(
+        ".{}.tmp-{}-{}",
+        destination_name,
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let temp_path = destination.with_file_name(temp_name);
+
+    let copy_result = (|| -> Result<(), io::Error> {
+        fs::copy(source, &temp_path)?;
+        match fs::rename(&temp_path, destination) {
+            Ok(()) => Ok(()),
+            Err(rename_error) => {
+                #[cfg(target_os = "windows")]
+                {
+                    if destination.exists() {
+                        let _ = fs::remove_file(destination);
+                        if let Ok(()) = fs::rename(&temp_path, destination) {
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(rename_error)
+            }
+        }
+    })();
+
+    if copy_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+
+    copy_result
 }
 
 fn copy_directory_recursive(source: &Path, destination: &Path) -> Result<(), String> {
@@ -4067,7 +4108,7 @@ fn copy_directory_force(source: &Path, destination: &Path) -> Result<(), String>
                     format!("Failed to create directory {}: {error}", parent.display())
                 })?;
             }
-            fs::copy(&source_path, &destination_path).map_err(|error| {
+            copy_file_atomic(&source_path, &destination_path).map_err(|error| {
                 format!(
                     "Failed to copy {} to {}: {error}",
                     source_path.display(),
