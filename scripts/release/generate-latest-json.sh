@@ -24,7 +24,7 @@ find_first_match() {
   local pattern
   for pattern in "$@"; do
     local match
-    match="$(find "$ASSETS_DIR" -maxdepth 1 -type f -name "$pattern" | sort | head -n 1)"
+    match="$(find "$ASSETS_DIR" -type f -name "$pattern" | sort | head -n 1)"
     if [[ -n "$match" ]]; then
       printf '%s\n' "$match"
       return 0
@@ -50,10 +50,10 @@ read_signature() {
 
 MAC_BUNDLE_PATH="$(require_match "macOS updater bundle" "*.app.tar.gz")"
 MAC_SIG_PATH="$(require_match "macOS updater signature" "*.app.tar.gz.sig")"
-LINUX_BUNDLE_PATH="$(require_match "Linux updater bundle" "*.AppImage.tar.gz")"
-LINUX_SIG_PATH="$(require_match "Linux updater signature" "*.AppImage.tar.gz.sig")"
-WIN_BUNDLE_PATH="$(require_match "Windows updater bundle" "*.exe.zip" "*.msi.zip")"
-WIN_SIG_PATH="$(require_match "Windows updater signature" "*.exe.zip.sig" "*.msi.zip.sig")"
+LINUX_BUNDLE_PATH="$(require_match "Linux updater bundle" "*.AppImage" "*.AppImage.tar.gz")"
+LINUX_SIG_PATH="$(require_match "Linux updater signature" "*.AppImage.sig" "*.AppImage.tar.gz.sig")"
+WIN_BUNDLE_PATH="$(require_match "Windows updater bundle" "*.exe" "*.msi" "*.exe.zip" "*.msi.zip" "*.nsis.zip")"
+WIN_SIG_PATH="$(require_match "Windows updater signature" "*.exe.sig" "*.msi.sig" "*.exe.zip.sig" "*.msi.zip.sig" "*.nsis.zip.sig")"
 
 MAC_BUNDLE="$(basename "$MAC_BUNDLE_PATH")"
 LINUX_BUNDLE="$(basename "$LINUX_BUNDLE_PATH")"
