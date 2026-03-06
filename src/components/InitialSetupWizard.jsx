@@ -322,12 +322,12 @@ function InitialSetupWizard({ onComplete }) {
     remote_root: '/opt/synergy',
   });
   const [bindingForm, setBindingForm] = useState({
-    machine_id: 'machine-01',
+    machine_id: '',
     profile_id: 'ops',
-    host_override: '10.50.0.1',
+    host_override: '',
     remote_dir_override: '',
   });
-  const [selectedPhysicalMachine, setSelectedPhysicalMachine] = useState('machine-01');
+  const [selectedPhysicalMachine, setSelectedPhysicalMachine] = useState('');
   const [nodeSetupBusy, setNodeSetupBusy] = useState(false);
   const [nodeSetupSummary, setNodeSetupSummary] = useState('');
 
@@ -1319,6 +1319,7 @@ function InitialSetupWizard({ onComplete }) {
                       }
                     }}
                   >
+                    <option value="" disabled>— Select this machine —</option>
                     {MACHINE_OPTIONS.map((machineId) => (
                       <option key={machineId} value={machineId}>
                         {machineId}
@@ -1360,7 +1361,7 @@ function InitialSetupWizard({ onComplete }) {
                 </label>
               </div>
               <div className="wizard-action-row">
-                <button className="monitor-btn monitor-btn-primary" onClick={bindMachineProfile} disabled={autopilotBusy}>
+                <button className="monitor-btn monitor-btn-primary" onClick={bindMachineProfile} disabled={autopilotBusy || !bindingForm.machine_id}>
                   Bind Physical Machine Nodes And Continue
                 </button>
                 <button className="monitor-btn" onClick={() => setStep(5)} disabled={autopilotBusy}>
@@ -1392,6 +1393,7 @@ function InitialSetupWizard({ onComplete }) {
                       }));
                     }}
                   >
+                    <option value="" disabled>— Select this machine —</option>
                     {ACTIVE_MACHINE_PLAN.map((entry) => (
                       <option key={entry.machineId} value={entry.machineId}>
                         {entry.machineId}
@@ -1419,7 +1421,7 @@ function InitialSetupWizard({ onComplete }) {
                 <button
                   className="monitor-btn monitor-btn-primary"
                   onClick={runLocalNodeSetup}
-                  disabled={nodeSetupBusy || autopilotBusy}
+                  disabled={nodeSetupBusy || autopilotBusy || !selectedPhysicalMachine}
                 >
                   {nodeSetupBusy ? 'Running Setup...' : 'Run Local Node Setup'}
                 </button>

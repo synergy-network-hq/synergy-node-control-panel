@@ -67,6 +67,10 @@ path = "data/devnet15/machine-16/chain"
 enable_pruning = false
 pruning_interval = 86400
 
+[snapshots]
+enabled = true
+interval_blocks = 10000
+
 [node]
 auto_register_validator = true
 validator_address = "synv1b04dc1518d98a71e482b28dcf02c3b54d116"

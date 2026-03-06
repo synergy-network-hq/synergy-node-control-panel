@@ -4432,7 +4432,20 @@ fn detect_local_vpn_ip() -> Option<String> {
 
 fn detect_vpn_ip_from_system_commands() -> Option<String> {
     let command_sets: Vec<Vec<&str>> = if cfg!(target_os = "windows") {
-        vec![vec!["cmd", "/C", "ipconfig"]]
+        // PowerShell is the most reliable way to enumerate IPs on Windows because
+        // it returns clean, one-IP-per-line output without locale-dependent labels.
+        // ipconfig is kept as a secondary fallback for environments where PowerShell
+        // is restricted.
+        vec![
+            vec![
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-NetIPAddress -AddressFamily IPv4 | Select-Object -ExpandProperty IPAddress",
+            ],
+            vec!["cmd", "/C", "ipconfig"],
+        ]
     } else {
         vec![
             vec!["bash", "-lc", "ip -o -4 addr show 2>/dev/null || true"],
@@ -4593,14 +4606,20 @@ fn apply_security_ssh_profile(machine_id: &str, node_id: &str, commands: &mut No
         binding.machine_id.eq_ignore_ascii_case(machine_id)
             || binding.machine_id.eq_ignore_ascii_case(node_id)
     });
-    let Some(binding) = binding else {
-        return;
-    };
 
-    let profile = config
-        .ssh_profiles
-        .iter()
-        .find(|profile| profile.profile_id.eq_ignore_ascii_case(&binding.profile_id));
+    // Resolve SSH profile: prefer the machine-specific binding's profile;
+    // fall back to the first available profile so machines without an explicit
+    // binding still receive SSH credentials for remote orchestration (e.g. the
+    // global reset command targeting all nodes, not just the locally-bound one).
+    let profile_id = binding.map(|b| b.profile_id.as_str()).unwrap_or("");
+    let profile = if !profile_id.is_empty() {
+        config
+            .ssh_profiles
+            .iter()
+            .find(|profile| profile.profile_id.eq_ignore_ascii_case(profile_id))
+    } else {
+        config.ssh_profiles.first()
+    };
     let Some(profile) = profile else {
         return;
     };
@@ -4631,21 +4650,25 @@ fn apply_security_ssh_profile(machine_id: &str, node_id: &str, commands: &mut No
     {
         env_pairs.push(("SYNERGY_REMOTE_ROOT".to_string(), value.to_string()));
     }
-    if let Some(value) = binding
-        .host_override
-        .as_ref()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        env_pairs.push((format!("{machine_key}_HOST"), value.to_string()));
-    }
-    if let Some(value) = binding
-        .remote_dir_override
-        .as_ref()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        env_pairs.push((format!("{machine_key}_REMOTE_DIR"), value.to_string()));
+    // Machine-specific host/dir overrides are only applied when there is an
+    // explicit binding for this machine; don't use another machine's overrides.
+    if let Some(binding) = binding {
+        if let Some(value) = binding
+            .host_override
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            env_pairs.push((format!("{machine_key}_HOST"), value.to_string()));
+        }
+        if let Some(value) = binding
+            .remote_dir_override
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            env_pairs.push((format!("{machine_key}_REMOTE_DIR"), value.to_string()));
+        }
     }
 
     prefix_commands_with_env(commands, &env_pairs);

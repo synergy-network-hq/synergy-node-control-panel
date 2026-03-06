@@ -67,8 +67,12 @@ path = "data/devnet15/machine-10/chain"
 enable_pruning = false
 pruning_interval = 86400
 
+[snapshots]
+enabled = true
+interval_blocks = 10000
+
 [node]
 auto_register_validator = true
 validator_address = "synv4cace1e19e4d4b466e8123aa14570c84cb231"
 strict_validator_allowlist = true
-allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44","synv1d8bb566d5f963416c3a0367a53e28b2dd2cd","synv1f049708835dbf06589ea342189731fbb395c"]
+allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44","synv1d8bb566d5f963416c3a0367a53e28b2dd2cd"]
