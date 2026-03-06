@@ -114,6 +114,11 @@ function OperatorConfigurationPage() {
 
   const activeRole = securityState?.active_role || 'viewer';
   const isAdmin = activeRole === 'admin';
+  const operatorCount = securityState?.operators?.length || 0;
+  const profileCount = securityState?.ssh_profiles?.length || 0;
+  const bindingCount = securityState?.machine_bindings?.length || 0;
+  const onlineNodes = snapshot?.online_nodes ?? 0;
+  const totalNodes = snapshot?.total_nodes ?? 0;
 
   const handleSetActiveOperator = async (operatorId) => {
     try {
@@ -236,31 +241,35 @@ function OperatorConfigurationPage() {
   }
 
   return (
-    <section className="monitor-shell">
-      <div className="monitor-toolbar">
-        <div className="monitor-toolbar-left">
-          <h2>Operator Configuration</h2>
-          <p className="monitor-path">
-            Active operator:
-            {' '}
-            <strong>{securityState?.active_operator_id || 'N/A'}</strong>
-            {' '}
-            (
-            <strong>{activeRole}</strong>
-            )
+    <section className="monitor-shell monitor-shell-operator">
+      <div className="monitor-page-hero monitor-page-hero-operator">
+        <div className="monitor-hero-copy">
+          <p className="monitor-hero-eyebrow">Operations + Security</p>
+          <h2 className="monitor-hero-title">Synergy Devnet Control Panel Settings</h2>
+          <p className="monitor-hero-summary">
+            Manage operator identity, SSH reachability, node slot bindings, and fleet-wide control
+            actions from one place.
           </p>
+          <div className="monitor-inline-pills">
+            <span className="monitor-inline-pill monitor-inline-pill-healthy">
+              Active
+              {' '}
+              {securityState?.active_operator_id || 'N/A'}
+            </span>
+            <span className="monitor-inline-pill">{activeRole}</span>
+            <span className="monitor-inline-pill">
+              Snapshot
+              {' '}
+              {formatLocalTimestamp(snapshot?.captured_at_utc)}
+            </span>
+          </div>
           <p className="monitor-path">
             Workspace:
             {' '}
             <code>{securityState?.workspace_path || 'N/A'}</code>
           </p>
-          <p className="monitor-path">
-            Captured:
-            {' '}
-            <strong>{formatLocalTimestamp(snapshot?.captured_at_utc)}</strong>
-          </p>
         </div>
-        <div className="monitor-toolbar-right">
+        <div className="monitor-hero-actions">
           <Link className="monitor-link-btn" to="/">
             Back to Dashboard
           </Link>
@@ -270,7 +279,30 @@ function OperatorConfigurationPage() {
         </div>
       </div>
 
-      <article className="monitor-panel">
+      <div className="monitor-stat-grid">
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Node Slots</span>
+          <strong className="monitor-stat-value">{totalNodes}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Online Now</span>
+          <strong className="monitor-stat-value">{onlineNodes}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Operators</span>
+          <strong className="monitor-stat-value">{operatorCount}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">SSH Profiles</span>
+          <strong className="monitor-stat-value">{profileCount}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Bound Slots</span>
+          <strong className="monitor-stat-value">{bindingCount}</strong>
+        </article>
+      </div>
+
+      <article className="monitor-panel monitor-panel-guide monitor-panel-span-3">
         <h3>How To Use This Page</h3>
         <p className="monitor-path">
           1) Set
@@ -282,9 +314,9 @@ function OperatorConfigurationPage() {
           {' '}
           <strong>SSH Profiles</strong>
           .
-          3) Bind machines in
+          3) Bind node slots in
           {' '}
-          <strong>Machine Binding</strong>
+          <strong>Node Slot Binding</strong>
           .
           4) Run
           {' '}
@@ -317,7 +349,7 @@ function OperatorConfigurationPage() {
       )}
 
       <div className="monitor-admin-grid">
-        <article className="monitor-panel">
+        <article className="monitor-panel monitor-panel-emphasis">
           <h3>Operator Access (RBAC)</h3>
           <p className="monitor-path">
             <strong>Set Active Operator:</strong>
@@ -394,7 +426,7 @@ function OperatorConfigurationPage() {
           </div>
         </article>
 
-        <article className="monitor-panel">
+        <article className="monitor-panel monitor-panel-span-2">
           <h3>SSH Profiles</h3>
           <p className="monitor-path">
             Saving an SSH profile does not generate SSH keys. Create keys manually first, then set
@@ -463,19 +495,23 @@ function OperatorConfigurationPage() {
             ))}
           </div>
 
-          <h4>Machine Binding</h4>
+          <h4>Node Slot Binding</h4>
           <p className="monitor-path">
-            Bind every machine to one SSH profile unless a host-specific override is required.
+            Bind every node slot to one SSH profile unless a host-specific override is required.
           </p>
           <div className="monitor-form-grid">
             <select
               value={newBinding.machine_id}
               onChange={(event) => setNewBinding((prev) => ({ ...prev, machine_id: event.target.value }))}
             >
-              <option value="">Select machine</option>
+              <option value="">Select node slot</option>
               {nodes.map((entry) => (
                 <option key={entry.node.machine_id} value={entry.node.machine_id}>
                   {entry.node.machine_id}
+                  {' '}
+                  (
+                  {entry.node.physical_machine || 'unassigned host'}
+                  )
                 </option>
               ))}
             </select>
@@ -502,7 +538,7 @@ function OperatorConfigurationPage() {
             />
           </div>
           <button className="monitor-btn" onClick={handleAssignBinding} disabled={!isAdmin}>
-            Bind Machine
+            Bind Node Slot
           </button>
 
           <div className="monitor-chip-row">
@@ -521,7 +557,7 @@ function OperatorConfigurationPage() {
           </div>
         </article>
 
-        <article className="monitor-panel">
+        <article className="monitor-panel monitor-panel-span-3">
           <h3>Fleet Bulk Actions</h3>
           <p className="monitor-path">
             Recommended startup sequence:

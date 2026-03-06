@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# release.sh — Cut a new release of the Synergy Devnet Control Center
+# release.sh — Cut a new release of the Synergy Devnet Control Panel
 # ─────────────────────────────────────────────────────────────────────────────
 # Usage:
 #   ./scripts/release.sh <version>
@@ -11,10 +11,11 @@
 # This script will:
 #   1. Validate the version string
 #   2. Bump the version in all config files (package.json, Cargo.toml,
-#      tauri.conf.json, Layout.jsx)
-#   3. Commit the version bump
-#   4. Create a git tag (v2.0.2)
-#   5. Push the tag to origin, which triggers the GitHub Actions release build
+#      tauri.conf.json)
+#   3. Run local release preflight checks, including a signed local bundle build
+#   4. Commit the version bump
+#   5. Create a git tag (v2.0.2)
+#   6. Push the tag to origin, which triggers the GitHub Actions release build
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -65,10 +66,6 @@ echo "Bumping version in src-tauri/tauri.conf.json..."
 sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
 rm -f src-tauri/tauri.conf.json.bak
 
-echo "Bumping version in src/components/Layout.jsx..."
-sed -i.bak "s/const APP_VERSION = '[^']*'/const APP_VERSION = '$VERSION'/" src/components/Layout.jsx
-rm -f src/components/Layout.jsx.bak
-
 # Update Cargo.lock if it exists
 if [[ -f src-tauri/Cargo.lock ]]; then
   echo "Updating Cargo.lock..."
@@ -79,9 +76,17 @@ echo ""
 echo "Version bumped to $VERSION in all files."
 echo ""
 
+echo "Running release preflight..."
+chmod +x scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/verify-signing-key.sh
+./scripts/release/preflight.sh
+echo ""
+echo "Preflight passed."
+echo ""
+
 # ── Commit and tag ──
-git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json src/components/Layout.jsx
+git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
 git add src-tauri/Cargo.lock 2>/dev/null || true
+git add scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/verify-signing-key.sh .github/workflows/release.yml 2>/dev/null || true
 git commit -m "chore: bump version to $VERSION"
 git tag -a "$TAG" -m "Release $TAG"
 

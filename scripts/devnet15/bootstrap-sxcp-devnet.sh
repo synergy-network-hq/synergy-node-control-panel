@@ -7,7 +7,7 @@ KEYS_DIR="$ROOT_DIR/devnet/lean15/keys"
 ROLE_GROUP_FILTER="${SXCP_BOOTSTRAP_ROLE_GROUPS:-interop}"
 ROLE_FILTER="${SXCP_BOOTSTRAP_ROLES:-}"
 
-default_rpc_port="$(awk -F, '$1=="machine-06" {print $8}' "$INVENTORY_FILE" 2>/dev/null || true)"
+default_rpc_port="$(awk -F, '$1=="node-06" {print $8}' "$INVENTORY_FILE" 2>/dev/null || true)"
 default_rpc_port="${default_rpc_port:-48643}"
 RPC_URL="${1:-http://127.0.0.1:${default_rpc_port}}"
 

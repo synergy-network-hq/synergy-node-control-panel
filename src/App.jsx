@@ -112,7 +112,7 @@ function App() {
           <Route path="/" element={<NetworkMonitorDashboard />} />
           <Route path="/sxcp" element={<SXCPDashboard />} />
           <Route path="/settings" element={<OperatorConfigurationPage />} />
-          <Route path="/node/:machineId" element={<NetworkMonitorNodePage />} />
+          <Route path="/node/:nodeSlotId" element={<NetworkMonitorNodePage />} />
           <Route path="/help" element={<HelpArticlesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

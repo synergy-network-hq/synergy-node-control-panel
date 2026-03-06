@@ -1,16 +1,15 @@
-# Synergy Node Monitor Panel
+# Synergy Devnet Control Panel
 
-This app is a dedicated monitoring-only fork of the Synergy control panel.
+This app is the desktop operator console for the Synergy closed devnet.
 
-It reads your 15-node inventory (`node-inventory.csv`) and continuously probes each node's RPC endpoint to display:
+It ships the 25-slot inventory in `devnet/lean15/node-inventory.csv`, the rendered node configs, installer bundles, WireGuard assets, and the in-app operator manual used by the Help view.
 
-- online/offline/syncing status
-- block height
-- peer count
-- RPC response latency
-- per-node error details
+Core responsibilities:
 
-No setup wizard, no node start/stop controls, no write-side actions.
+- monitor node-slot health and sync state
+- bootstrap and operate the closed devnet from one control surface
+- manage SSH/RBAC/operator bindings for the 13 physical machines
+- check for signed app updates and install new releases
 
 ## Run (Desktop Dev)
 
@@ -73,6 +72,4 @@ machine-10=10.0.0.30
 machine-11=10.0.0.31
 machine-12=10.0.0.32
 machine-13=10.0.0.33
-machine-14=10.0.0.34
-machine-15=10.0.0.35
 ```

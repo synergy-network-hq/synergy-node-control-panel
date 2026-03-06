@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Synergy Network Control Panel now integrates **post-quantum cryptography (PQC)** for node identity generation, class-based addressing, and automatic network registration.
+The Synergy Devnet Control Panel now integrates **post-quantum cryptography (PQC)** for node identity generation, class-based addressing, and automatic network registration.
 
 ## What Changed
 

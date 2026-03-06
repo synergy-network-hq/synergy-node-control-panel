@@ -67,7 +67,7 @@ with open(inventory_file, newline="", encoding="utf-8") as handle:
 machine_by_id = {row["machine_id"]: row for row in inventory_rows}
 
 bootnodes = []
-for bootnode_id in ("machine-01", "machine-02"):
+for bootnode_id in ("node-01", "node-02"):
     row = machine_by_id.get(bootnode_id)
     if not row:
         continue

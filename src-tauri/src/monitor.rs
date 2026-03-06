@@ -280,29 +280,29 @@ pub struct MonitorBulkControlResult {
 }
 
 const DEVNET_NODE_VPN_MAP: [(&str, &str); 23] = [
-    ("machine-01", "10.50.0.1"),   // Machine-01: validator
-    ("machine-02", "10.50.0.2"),   // Machine-02: validator
-    ("machine-03", "10.50.0.2"),   // Machine-02: observer
-    ("machine-04", "10.50.0.3"),   // Machine-03: validator
-    ("machine-05", "10.50.0.3"),   // Machine-03: cross-chain-verifier
-    ("machine-06", "10.50.0.4"),   // Machine-04: validator
-    ("machine-07", "10.50.0.4"),   // Machine-04: relayer
-    ("machine-08", "10.50.0.5"),   // Machine-05: validator
-    ("machine-09", "10.50.0.5"),   // Machine-05: committee
-    ("machine-10", "10.50.0.6"),   // Machine-06: security-council
-    ("machine-11", "10.50.0.6"),   // Machine-06: oracle
-    ("machine-12", "10.50.0.7"),   // Machine-07: witness
-    ("machine-13", "10.50.0.7"),   // Machine-07: rpc-gateway
-    ("machine-14", "10.50.0.8"),   // Machine-08: indexer
-    ("machine-15", "10.50.0.8"),   // Machine-08: pqc-crypto
-    ("machine-16", "10.50.0.9"),   // Machine-09: archive-validator
-    ("machine-17", "10.50.0.9"),   // Machine-09: audit-validator
-    ("machine-18", "10.50.0.10"),  // Machine-10: data-availability
-    ("machine-20", "10.50.0.11"),  // Machine-11: ai-inference
-    ("machine-22", "10.50.0.12"),  // Machine-12: uma-coordinator
-    ("machine-23", "10.50.0.12"),  // Machine-12: compute
-    ("machine-24", "10.50.0.13"),  // Machine-13: treasury-controller
-    ("machine-25", "10.50.0.13"),  // Machine-13: governance-auditor
+    ("node-01", "10.50.0.1"),   // Machine-01: validator
+    ("node-02", "10.50.0.2"),   // Machine-02: validator
+    ("node-03", "10.50.0.2"),   // Machine-02: observer
+    ("node-04", "10.50.0.3"),   // Machine-03: validator
+    ("node-05", "10.50.0.3"),   // Machine-03: cross-chain-verifier
+    ("node-06", "10.50.0.4"),   // Machine-04: validator
+    ("node-07", "10.50.0.4"),   // Machine-04: relayer
+    ("node-08", "10.50.0.5"),   // Machine-05: validator
+    ("node-09", "10.50.0.5"),   // Machine-05: committee
+    ("node-10", "10.50.0.6"),   // Machine-06: security-council
+    ("node-11", "10.50.0.6"),   // Machine-06: oracle
+    ("node-12", "10.50.0.7"),   // Machine-07: witness
+    ("node-13", "10.50.0.7"),   // Machine-07: rpc-gateway
+    ("node-14", "10.50.0.8"),   // Machine-08: indexer
+    ("node-15", "10.50.0.8"),   // Machine-08: pqc-crypto
+    ("node-16", "10.50.0.9"),   // Machine-09: archive-validator
+    ("node-17", "10.50.0.9"),   // Machine-09: audit-validator
+    ("node-18", "10.50.0.10"),  // Machine-10: data-availability
+    ("node-20", "10.50.0.11"),  // Machine-11: ai-inference
+    ("node-22", "10.50.0.12"),  // Machine-12: uma-coordinator
+    ("node-23", "10.50.0.12"),  // Machine-12: compute
+    ("node-24", "10.50.0.13"),  // Machine-13: treasury-controller
+    ("node-25", "10.50.0.13"),  // Machine-13: governance-auditor
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1114,55 +1114,13 @@ pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, St
     let inventory_path = workspace.join("devnet/lean15/node-inventory.csv");
     apply_topology_to_inventory(&inventory_path, &mapping)?;
 
-    let installers_dir = workspace.join("devnet/lean15/installers");
-    for (machine_id, vpn_ip) in &mapping {
-        let installer_dir = installers_dir.join(machine_id);
-        if !installer_dir.is_dir() {
-            continue;
-        }
-        apply_topology_to_installer_node_env(&installer_dir.join("node.env"), vpn_ip)?;
-        apply_topology_to_installer_node_toml(&installer_dir.join("config/node.toml"), vpn_ip)?;
-    }
+    let mut warnings = Vec::new();
 
-    // Rebuild installer bundles so existing workspaces receive updated installer script logic
-    // (for example, sudo privilege caching behavior on Ubuntu). This is best-effort:
-    // setup must still proceed when cross-platform build artifacts are unavailable.
-    let build_installers_script = workspace.join("scripts/devnet15/build-node-installers.sh");
-    let mut rebuild_warning: Option<String> = None;
-    if build_installers_script.is_file() {
-        match ProcessCommand::new("bash")
-            .arg(build_installers_script.to_string_lossy().to_string())
-            .current_dir(&workspace)
-            .output()
-        {
-            Ok(output) => {
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    if stderr.is_empty() {
-                        rebuild_warning = Some(
-                            "installer rebuild step failed; using bundled installer templates"
-                                .to_string(),
-                        );
-                    } else {
-                        rebuild_warning = Some(format!(
-                            "installer rebuild skipped ({stderr}); using bundled installer templates"
-                        ));
-                    }
-                }
-            }
-            Err(error) => {
-                rebuild_warning = Some(format!(
-                    "installer rebuild skipped ({error}); using bundled installer templates"
-                ));
-            }
-        }
-    }
-
-    let script_path = workspace.join("scripts/devnet15/generate-monitor-hosts-env.sh");
+    let hosts_env_script = workspace.join("scripts/devnet15/generate-monitor-hosts-env.sh");
     let hosts_env_path = workspace.join("devnet/lean15/hosts.env");
-    if script_path.is_file() {
+    if hosts_env_script.is_file() {
         let output = ProcessCommand::new("bash")
-            .arg(script_path.to_string_lossy().to_string())
+            .arg(hosts_env_script.to_string_lossy().to_string())
             .arg(hosts_env_path.to_string_lossy().to_string())
             .current_dir(&workspace)
             .output()
@@ -1175,13 +1133,85 @@ pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, St
         }
     }
 
+    // Re-render base configs from the refreshed inventory so installer rebuilds do not
+    // keep shipping stale node roles, machine mappings, or bootnode lists.
+    let render_configs_script = workspace.join("scripts/devnet15/render-configs.sh");
+    if render_configs_script.is_file() {
+        match ProcessCommand::new("bash")
+            .arg(render_configs_script.to_string_lossy().to_string())
+            .arg(hosts_env_path.to_string_lossy().to_string())
+            .current_dir(&workspace)
+            .output()
+        {
+            Ok(output) => {
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    if stderr.is_empty() {
+                        warnings.push(
+                            "config render step failed; using previously extracted config templates"
+                                .to_string(),
+                        );
+                    } else {
+                        warnings.push(format!(
+                            "config render step skipped ({stderr}); using previously extracted config templates"
+                        ));
+                    }
+                }
+            }
+            Err(error) => warnings.push(format!(
+                "config render step skipped ({error}); using previously extracted config templates"
+            )),
+        }
+    }
+
+    // Rebuild installer bundles so existing workspaces receive updated installer script logic
+    // and refreshed machine-specific metadata. This is best-effort: setup must still
+    // proceed when cross-platform build artifacts are unavailable.
+    let build_installers_script = workspace.join("scripts/devnet15/build-node-installers.sh");
+    if build_installers_script.is_file() {
+        match ProcessCommand::new("bash")
+            .arg(build_installers_script.to_string_lossy().to_string())
+            .current_dir(&workspace)
+            .output()
+        {
+            Ok(output) => {
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    if stderr.is_empty() {
+                        warnings.push(
+                            "installer rebuild step failed; using bundled installer templates"
+                                .to_string(),
+                        );
+                    } else {
+                        warnings.push(format!(
+                            "installer rebuild skipped ({stderr}); using bundled installer templates"
+                        ));
+                    }
+                }
+            }
+            Err(error) => warnings.push(format!(
+                "installer rebuild skipped ({error}); using bundled installer templates"
+            )),
+        }
+    }
+
+    let installers_dir = workspace.join("devnet/lean15/installers");
+    for (machine_id, vpn_ip) in &mapping {
+        let installer_dir = installers_dir.join(machine_id);
+        if !installer_dir.is_dir() {
+            continue;
+        }
+        apply_topology_to_installer_node_env(&installer_dir.join("node.env"), vpn_ip)?;
+        apply_topology_to_installer_node_toml(&installer_dir.join("config/node.toml"), vpn_ip)?;
+    }
+
     let mut message = format!(
         "Applied 13-machine devnet topology to {} and installer configs; hosts.env refreshed.",
         inventory_path.display()
     );
-    if let Some(warning) = rebuild_warning {
+    if !warnings.is_empty() {
         message.push(' ');
-        message.push_str(&warning);
+        message.push_str(&warnings.join(" "));
     }
     Ok(message)
 }
@@ -3560,7 +3590,7 @@ fn shell_quote(value: &str) -> String {
 const MONITOR_WORKSPACE_ENV: &str = "SYNERGY_MONITOR_WORKSPACE";
 const MONITOR_SECURITY_CONFIG_RELATIVE: &str = "config/security.json";
 const MONITOR_AUDIT_LOG_RELATIVE: &str = "audit/control-actions.jsonl";
-const MONITOR_USER_MANUAL_RELATIVE: &str = "guides/NETWORK_NODE_MONITOR_USER_MANUAL.md";
+const MONITOR_USER_MANUAL_RELATIVE: &str = "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md";
 const MONITOR_SETUP_WIZARD_VERSION: u32 = 2;
 
 pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, String> {
@@ -3597,36 +3627,42 @@ fn preferred_workspace_root() -> PathBuf {
     dirs::home_dir()
         .or_else(dirs::data_dir)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".synergy-node-monitor")
+        .join(".synergy-devnet-control-panel")
         .join("monitor-workspace")
 }
 
-fn legacy_workspace_root(app_handle: &AppHandle) -> Option<PathBuf> {
-    app_handle
-        .path()
-        .app_data_dir()
-        .ok()
-        .map(|path| path.join("monitor-workspace"))
+fn legacy_workspace_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
+        roots.push(home_dir.join(".synergy-node-monitor").join("monitor-workspace"));
+    }
+
+    if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+        roots.push(app_data_dir.join("monitor-workspace"));
+    }
+
+    roots
 }
 
 fn migrate_legacy_workspace_if_needed(
     app_handle: &AppHandle,
     workspace_root: &Path,
 ) -> Result<(), String> {
-    let Some(legacy_root) = legacy_workspace_root(app_handle) else {
-        return Ok(());
-    };
-
-    if legacy_root == workspace_root || !legacy_root.is_dir() {
-        return Ok(());
-    }
-
     let target_inventory = workspace_root.join("devnet/lean15/node-inventory.csv");
     if target_inventory.is_file() {
         return Ok(());
     }
 
-    copy_directory_recursive(&legacy_root, workspace_root)?;
+    for legacy_root in legacy_workspace_roots(app_handle) {
+        if legacy_root == workspace_root || !legacy_root.is_dir() {
+            continue;
+        }
+
+        copy_directory_recursive(&legacy_root, workspace_root)?;
+        break;
+    }
+
     Ok(())
 }
 
@@ -3637,13 +3673,14 @@ fn extract_bundled_resources_to_workspace(
     let relative_paths = [
         "devnet/lean15/node-inventory.csv",
         "devnet/lean15/hosts.env.example",
-        "devnet/lean15/keys/node-addresses.csv",
+        "devnet/lean15/keys",
         "devnet/lean15/configs",
         "devnet/lean15/installers",
         "devnet/lean15/wireguard",
+        "binaries",
         "scripts/devnet15",
         "scripts/reset-devnet.sh",
-        "guides/NETWORK_NODE_MONITOR_USER_MANUAL.md",
+        "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md",
     ];
 
     let roots = discover_workspace_source_roots(app_handle);
@@ -3689,15 +3726,27 @@ fn extract_bundled_resources_to_workspace(
         }
     }
 
-    // Always refresh installer control scripts so existing workspaces receive
-    // fixes in install/start behavior even when full installer regeneration is skipped.
+    let always_refresh_dirs = ["devnet/lean15/configs", "devnet/lean15/keys", "binaries"];
+    for relative in always_refresh_dirs {
+        if let Some(source) = roots
+            .iter()
+            .map(|root| root.join(relative))
+            .find(|candidate| candidate.is_dir())
+        {
+            let destination = workspace_root.join(relative);
+            copy_directory_force(&source, &destination)?;
+        }
+    }
+
+    // Always refresh installer bundle assets so existing workspaces receive corrected
+    // machine metadata even when a full installer regeneration is skipped.
     if let Some(source_installers) = roots
         .iter()
         .map(|root| root.join("devnet/lean15/installers"))
         .find(|candidate| candidate.is_dir())
     {
         let destination_installers = workspace_root.join("devnet/lean15/installers");
-        refresh_installer_control_scripts(&source_installers, &destination_installers)?;
+        refresh_installer_bundle_assets(&source_installers, &destination_installers)?;
     }
 
     let hosts_env = workspace_root.join("devnet/lean15/hosts.env");
@@ -3867,7 +3916,48 @@ fn copy_directory_recursive(source: &Path, destination: &Path) -> Result<(), Str
     Ok(())
 }
 
-fn refresh_installer_control_scripts(
+fn copy_directory_force(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination).map_err(|error| {
+        format!(
+            "Failed to create directory {}: {error}",
+            destination.display()
+        )
+    })?;
+
+    let entries = fs::read_dir(source)
+        .map_err(|error| format!("Failed to read directory {}: {error}", source.display()))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to read directory entry in {}: {error}",
+                source.display()
+            )
+        })?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_directory_force(&source_path, &destination_path)?;
+        } else {
+            if let Some(parent) = destination_path.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    format!("Failed to create directory {}: {error}", parent.display())
+                })?;
+            }
+            fs::copy(&source_path, &destination_path).map_err(|error| {
+                format!(
+                    "Failed to copy {} to {}: {error}",
+                    source_path.display(),
+                    destination_path.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn refresh_installer_bundle_assets(
     source_installers: &Path,
     destination_installers: &Path,
 ) -> Result<(), String> {
@@ -3885,12 +3975,17 @@ fn refresh_installer_control_scripts(
         )
     })?;
 
-    let script_names = [
+    let file_names = [
         "install_and_start.sh",
         "nodectl.sh",
         "install_and_start.ps1",
         "nodectl.ps1",
+        "node.env",
+        "README.txt",
+        "COMMANDS.txt",
+        "BINARY_STATUS.txt",
     ];
+    let directory_names = ["config", "keys", "bin"];
 
     for entry in entries {
         let entry = entry.map_err(|error| {
@@ -3912,34 +4007,43 @@ fn refresh_installer_control_scripts(
             )
         })?;
 
-        for script_name in script_names {
-            let source_script = source_machine_dir.join(script_name);
-            if !source_script.is_file() {
+        for file_name in file_names {
+            let source_file = source_machine_dir.join(file_name);
+            if !source_file.is_file() {
                 continue;
             }
 
-            let destination_script = destination_machine_dir.join(script_name);
-            copy_file_force(&source_script, &destination_script)?;
+            let destination_file = destination_machine_dir.join(file_name);
+            copy_file_force(&source_file, &destination_file)?;
 
             #[cfg(unix)]
-            if script_name.ends_with(".sh") {
+            if file_name.ends_with(".sh") {
                 use std::os::unix::fs::PermissionsExt;
-                let mut permissions = fs::metadata(&destination_script)
+                let mut permissions = fs::metadata(&destination_file)
                     .map_err(|error| {
                         format!(
                             "Failed to read script metadata {}: {error}",
-                            destination_script.display()
+                            destination_file.display()
                         )
                     })?
                     .permissions();
                 permissions.set_mode(0o755);
-                fs::set_permissions(&destination_script, permissions).map_err(|error| {
+                fs::set_permissions(&destination_file, permissions).map_err(|error| {
                     format!(
                         "Failed to set script permissions {}: {error}",
-                        destination_script.display()
+                        destination_file.display()
                     )
                 })?;
             }
+        }
+
+        for dir_name in directory_names {
+            let source_dir = source_machine_dir.join(dir_name);
+            if !source_dir.is_dir() {
+                continue;
+            }
+            let destination_dir = destination_machine_dir.join(dir_name);
+            copy_directory_force(&source_dir, &destination_dir)?;
         }
     }
 
@@ -4364,19 +4468,19 @@ fn logical_nodes_for_physical_machine(
     physical_machine_id: &str,
 ) -> Result<Vec<&'static str>, String> {
     match physical_machine_id {
-        "machine-01" => Ok(vec!["machine-01"]),
-        "machine-02" => Ok(vec!["machine-02", "machine-03"]),
-        "machine-03" => Ok(vec!["machine-04", "machine-05"]),
-        "machine-04" => Ok(vec!["machine-06", "machine-07"]),
-        "machine-05" => Ok(vec!["machine-08", "machine-09"]),
-        "machine-06" => Ok(vec!["machine-10", "machine-11"]),
-        "machine-07" => Ok(vec!["machine-12", "machine-13"]),
-        "machine-08" => Ok(vec!["machine-14", "machine-15"]),
-        "machine-09" => Ok(vec!["machine-16", "machine-17"]),
-        "machine-10" => Ok(vec!["machine-18"]),
-        "machine-11" => Ok(vec!["machine-20"]),
-        "machine-12" => Ok(vec!["machine-22", "machine-23"]),
-        "machine-13" => Ok(vec!["machine-24", "machine-25"]),
+        "machine-01" => Ok(vec!["node-01"]),
+        "machine-02" => Ok(vec!["node-02", "node-03"]),
+        "machine-03" => Ok(vec!["node-04", "node-05"]),
+        "machine-04" => Ok(vec!["node-06", "node-07"]),
+        "machine-05" => Ok(vec!["node-08", "node-09"]),
+        "machine-06" => Ok(vec!["node-10", "node-11"]),
+        "machine-07" => Ok(vec!["node-12", "node-13"]),
+        "machine-08" => Ok(vec!["node-14", "node-15"]),
+        "machine-09" => Ok(vec!["node-16", "node-17"]),
+        "machine-10" => Ok(vec!["node-18"]),
+        "machine-11" => Ok(vec!["node-20"]),
+        "machine-12" => Ok(vec!["node-22", "node-23"]),
+        "machine-13" => Ok(vec!["node-24", "node-25"]),
         _ => Err(format!(
             "Unknown physical_machine_id '{}'. Expected machine-01..machine-13.",
             physical_machine_id

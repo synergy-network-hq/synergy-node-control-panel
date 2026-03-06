@@ -5,11 +5,11 @@
 # validates it against the pubkey in tauri.conf.json.
 #
 # Usage:
+#   TAURI_SIGNING_PRIVATE_KEY="$HOME/.synergy-devnet-control-panel/updater.key" ./scripts/verify-signing-key.sh
+#
+# Or pass the secret value directly:
 #   export TAURI_SIGNING_PRIVATE_KEY="<value from GitHub secret>"
 #   ./scripts/verify-signing-key.sh
-#
-# Or pass inline:
-#   TAURI_SIGNING_PRIVATE_KEY="..." ./scripts/verify-signing-key.sh
 
 set -euo pipefail
 
@@ -26,16 +26,26 @@ echo ""
 echo "=== Tauri Signing Key Verifier ==="
 echo ""
 
-# 1. Check the env var is set
-if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-  fail "TAURI_SIGNING_PRIVATE_KEY is not set. Export it first:
-  export TAURI_SIGNING_PRIVATE_KEY=\"<value from GitHub secret>\""
+# 1. Resolve the env var to either a file path or the raw secret value
+KEY_INPUT="${TAURI_SIGNING_PRIVATE_KEY:-${TAURI_SIGNING_PRIVATE_KEY_PATH:-$HOME/.synergy-devnet-control-panel/updater.key}}"
+if [[ -z "${KEY_INPUT:-}" ]]; then
+  fail "TAURI_SIGNING_PRIVATE_KEY is not set and no default key exists."
 fi
 
-info "Checking TAURI_SIGNING_PRIVATE_KEY..."
+if [[ -f "$KEY_INPUT" ]]; then
+  info "Reading updater private key from file: $KEY_INPUT"
+  KEY_VALUE="$(tr -d '\r\n' < "$KEY_INPUT")"
+else
+  info "Reading updater private key from TAURI_SIGNING_PRIVATE_KEY"
+  KEY_VALUE="$(printf '%s' "$KEY_INPUT" | tr -d '\r\n')"
+fi
+
+if [[ -z "$KEY_VALUE" ]]; then
+  fail "Resolved updater key is empty."
+fi
 
 # 2. Verify it base64-decodes cleanly
-DECODED=$(echo "$TAURI_SIGNING_PRIVATE_KEY" | base64 -d 2>/dev/null) || \
+DECODED=$(printf '%s' "$KEY_VALUE" | base64 -d 2>/dev/null) || \
   fail "Secret value is not valid base64. Check that it was copied correctly with no extra whitespace."
 
 pass "Secret base64-decodes successfully"
@@ -47,12 +57,12 @@ if [[ "$LINE_COUNT" -lt 2 ]]; then
 fi
 pass "Decoded value has correct two-line minisign format"
 
-# 4. Check the first line is "untrusted comment: minisign secret key ..."
+# 4. Check the decoded header is a supported Tauri/minisign secret-key format
 FIRST_LINE=$(echo "$DECODED" | head -1)
-if [[ "$FIRST_LINE" != "untrusted comment: minisign secret key"* ]]; then
-  fail "First line is not a valid minisign header. Got: '$FIRST_LINE'"
+if [[ "$FIRST_LINE" != "untrusted comment: "* ]] || [[ "$FIRST_LINE" != *"secret key"* ]]; then
+  fail "First line is not a valid updater secret key header. Got: '$FIRST_LINE'"
 fi
-pass "First line is valid minisign header: $FIRST_LINE"
+pass "First line is a supported updater secret key header: $FIRST_LINE"
 
 # 5. Extract and check raw key bytes (use Python to handle null bytes correctly —
 #    bash command substitution silently strips \x00, which corrupts kdf_alg check)
@@ -125,20 +135,59 @@ print(c['plugins']['updater']['pubkey'])
 
 pass "Found pubkey in tauri.conf.json: $CONF_PUBKEY"
 
-# 8. Verify key_id matches between privkey and pubkey
-KEY_ID_FROM_HEADER=$(echo "$FIRST_LINE" | awk '{print $NF}')
+# 8. Verify the private key can sign and that the resulting signature key_id matches the pubkey
 KEY_ID_FROM_PUBKEY=$(python3 -c "
 import base64, binascii
-b = base64.b64decode('$CONF_PUBKEY')
-print(binascii.hexlify(b[2:10]).decode().upper())
+decoded = base64.b64decode('$CONF_PUBKEY').decode().splitlines()
+raw = base64.b64decode(decoded[1].strip())
+print(binascii.hexlify(raw[2:10]).decode().upper())
 " 2>/dev/null) || fail "Could not decode pubkey from tauri.conf.json"
 
-if [[ "$(echo "$KEY_ID_FROM_HEADER" | tr '[:upper:]' '[:lower:]')" == "$(echo "$KEY_ID_FROM_PUBKEY" | tr '[:upper:]' '[:lower:]')" ]]; then
-  pass "Key IDs match: $KEY_ID_FROM_HEADER"
+TMP_FILE="$(mktemp "${TMPDIR:-/tmp}/tauri-key-verify.XXXXXX")"
+TMP_SIG="${TMP_FILE}.sig"
+printf 'tauri-key-verification\n' > "$TMP_FILE"
+
+SIGN_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-${TAURI_PRIVATE_KEY_PASSWORD:-}}"
+SIGN_ARGS=()
+if [[ -f "$KEY_INPUT" ]]; then
+  SIGN_ARGS=(-f "$KEY_INPUT")
+else
+  SIGN_ARGS=(-k "$KEY_INPUT")
+fi
+
+SIGN_OUTPUT="$(env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PATH npx tauri signer sign "${SIGN_ARGS[@]}" -p "$SIGN_PASSWORD" "$TMP_FILE" 2>&1)" || {
+  rm -f "$TMP_FILE" "$TMP_SIG"
+  fail "Could not sign a test payload with the updater private key. Signer output: $SIGN_OUTPUT"
+}
+
+if [[ ! -f "$TMP_SIG" ]]; then
+  rm -f "$TMP_FILE"
+  fail "Signer completed but did not produce a signature file at $TMP_SIG"
+fi
+
+KEY_ID_FROM_SIGNATURE=$(python3 - <<PYEOF
+import base64
+import binascii
+from pathlib import Path
+
+sig_b64 = Path("$TMP_SIG").read_text(encoding="utf-8").strip()
+decoded = base64.b64decode(sig_b64).decode().splitlines()
+raw = base64.b64decode(decoded[1].strip())
+print(binascii.hexlify(raw[2:10]).decode().upper(), end="")
+PYEOF
+) || {
+  rm -f "$TMP_FILE" "$TMP_SIG"
+  fail "Could not decode key id from generated signature."
+}
+
+rm -f "$TMP_FILE" "$TMP_SIG"
+
+if [[ "$(echo "$KEY_ID_FROM_SIGNATURE" | tr '[:upper:]' '[:lower:]')" == "$(echo "$KEY_ID_FROM_PUBKEY" | tr '[:upper:]' '[:lower:]')" ]]; then
+  pass "Key IDs match: $KEY_ID_FROM_SIGNATURE"
 else
   fail "KEY ID MISMATCH!
-  Private key ID: $KEY_ID_FROM_HEADER
-  Public key ID:  $KEY_ID_FROM_PUBKEY
+  Signature key ID: $KEY_ID_FROM_SIGNATURE
+  Public key ID:    $KEY_ID_FROM_PUBKEY
   The pubkey in tauri.conf.json does not match this private key."
 fi
 

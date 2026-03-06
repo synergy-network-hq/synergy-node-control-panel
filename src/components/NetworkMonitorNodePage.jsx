@@ -44,7 +44,7 @@ function dedupeByKey(actions = []) {
 }
 
 function NetworkMonitorNodePage() {
-  const { machineId } = useParams();
+  const { nodeSlotId } = useParams();
   const [nodeDetails, setNodeDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(true);
   const [detailsError, setDetailsError] = useState('');
@@ -69,11 +69,11 @@ function NetworkMonitorNodePage() {
   };
 
   const fetchNodeDetails = async (silent = false) => {
-    if (!machineId) return;
+    if (!nodeSlotId) return;
     if (!silent) setDetailsLoading(true);
 
     try {
-      const details = await invoke('get_monitor_node_details', { machineId });
+      const details = await invoke('get_monitor_node_details', { machineId: nodeSlotId });
       setNodeDetails(details);
       setDetailsError('');
     } catch (err) {
@@ -87,7 +87,7 @@ function NetworkMonitorNodePage() {
   useEffect(() => {
     fetchNodeDetails();
     fetchSnapshot();
-  }, [machineId]);
+  }, [nodeSlotId]);
 
   useEffect(() => {
     if (!autoRefresh) return undefined;
@@ -96,7 +96,7 @@ function NetworkMonitorNodePage() {
       fetchSnapshot();
     }, refreshSeconds * 1000);
     return () => clearInterval(handle);
-  }, [autoRefresh, refreshSeconds, machineId]);
+  }, [autoRefresh, refreshSeconds, nodeSlotId]);
 
   const roleDiagnosticsEntries = useMemo(() => {
     const diag = nodeDetails?.role_diagnostics;
@@ -112,12 +112,12 @@ function NetworkMonitorNodePage() {
   }, [snapshot]);
 
   const currentIndex = useMemo(() => {
-    const target = normalize(machineId);
+    const target = normalize(nodeSlotId);
     return sortedNodes.findIndex(
       (entry) =>
         normalize(entry?.node?.machine_id) === target || normalize(entry?.node?.node_id) === target,
     );
-  }, [sortedNodes, machineId]);
+  }, [sortedNodes, nodeSlotId]);
 
   const previousNode = currentIndex > 0 ? sortedNodes[currentIndex - 1] : null;
   const nextNode = currentIndex >= 0 && currentIndex < sortedNodes.length - 1
@@ -130,15 +130,31 @@ function NetworkMonitorNodePage() {
     networkMaxHeight !== null && localHeight !== null && networkMaxHeight >= localHeight
       ? networkMaxHeight - localHeight
       : null;
+  const nodeStatus = nodeDetails?.status?.status || 'unknown';
+  const syncing = nodeDetails?.status?.syncing;
+  const heroTone =
+    nodeStatus === 'online'
+      ? 'healthy'
+      : nodeStatus === 'syncing'
+        ? 'degraded'
+        : nodeStatus === 'offline'
+          ? 'critical'
+          : 'unknown';
+  const statusSummary =
+    syncing === true
+      ? 'Syncing toward chain head.'
+      : syncing === false
+        ? 'Tracking chain head normally.'
+        : 'Sync state not reported yet.';
 
   const handleControlAction = async (action) => {
-    if (!machineId) return;
+    if (!nodeSlotId) return;
     setControlBusyAction(action);
     setControlResult(null);
 
     try {
       const result = await invoke('monitor_node_control', {
-        machineId,
+        machineId: nodeSlotId,
         action,
       });
       setControlResult(result);
@@ -160,11 +176,11 @@ function NetworkMonitorNodePage() {
   };
 
   const handleExportNodeData = async () => {
-    if (!machineId) return;
+    if (!nodeSlotId) return;
     setExportBusy(true);
     setExportResult(null);
     try {
-      const result = await invoke('monitor_export_node_data', { machineId });
+      const result = await invoke('monitor_export_node_data', { machineId: nodeSlotId });
       setExportResult({ ok: true, ...result });
     } catch (err) {
       setExportResult({
@@ -199,24 +215,48 @@ function NetworkMonitorNodePage() {
   const customActionsVisible = customActions.filter((action) => action?.key !== 'reset_chain');
 
   return (
-    <section className="monitor-shell">
-      <div className="monitor-toolbar">
-        <div className="monitor-toolbar-left">
-          <h2>Node Infrastructure Page</h2>
-          <p className="monitor-path">
-            Machine: <strong>{nodeDetails?.status?.node?.machine_id || machineId}</strong>
+    <section className="monitor-shell monitor-shell-node">
+      <div className="monitor-page-hero monitor-page-hero-node">
+        <div className="monitor-hero-copy">
+          <p className="monitor-hero-eyebrow">Node Slot Diagnostics</p>
+          <h2 className="monitor-hero-title">
+            {nodeDetails?.status?.node?.machine_id || nodeSlotId}
+            {' '}
+            /
+            {' '}
+            {nodeDetails?.status?.node?.role || 'unknown-role'}
+          </h2>
+          <p className="monitor-hero-summary">
+            {statusSummary}
+            {' '}
+            Role execution summary:
+            {' '}
+            {roleExecution?.summary || 'No execution assessment available yet.'}
           </p>
-          <p className="monitor-path">
-            Captured: <strong>{formatLocalTimestamp(nodeDetails?.captured_at_utc)}</strong>
-          </p>
-          <p className="monitor-path">
-            Network max block: <strong>{scalar(networkMaxHeight)}</strong> | Local block:{' '}
-            <strong>{scalar(localHeight)}</strong> | Lag: <strong>{scalar(blockLag)}</strong>
-          </p>
+          <div className="monitor-inline-pills">
+            <span className={`monitor-inline-pill monitor-inline-pill-${heroTone}`}>
+              {nodeStatus}
+            </span>
+            <span className="monitor-inline-pill">
+              Physical
+              {' '}
+              {nodeDetails?.status?.node?.physical_machine || 'N/A'}
+            </span>
+            <span className="monitor-inline-pill">
+              Node ID
+              {' '}
+              {nodeDetails?.status?.node?.node_id || 'N/A'}
+            </span>
+            <span className="monitor-inline-pill">
+              Captured
+              {' '}
+              {formatLocalTimestamp(nodeDetails?.captured_at_utc)}
+            </span>
+          </div>
         </div>
-        <div className="monitor-toolbar-right">
+        <div className="monitor-hero-actions">
           <Link className="monitor-link-btn" to="/">
-            Back to Infrastructure Matrix
+            Back to Fleet Matrix
           </Link>
           <div className="monitor-node-nav">
             <Link
@@ -266,6 +306,29 @@ function NetworkMonitorNodePage() {
         </div>
       </div>
 
+      <div className="monitor-stat-grid">
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Network Head</span>
+          <strong className="monitor-stat-value">{scalar(networkMaxHeight)}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Local Height</span>
+          <strong className="monitor-stat-value">{scalar(localHeight)}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Block Lag</span>
+          <strong className="monitor-stat-value">{scalar(blockLag)}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Peers</span>
+          <strong className="monitor-stat-value">{scalar(nodeDetails?.status?.peer_count)}</strong>
+        </article>
+        <article className="monitor-stat-card">
+          <span className="monitor-stat-label">Latency</span>
+          <strong className="monitor-stat-value">{scalar(nodeDetails?.status?.response_ms)} ms</strong>
+        </article>
+      </div>
+
       {detailsError && (
         <div className="monitor-error-box">
           <strong>Node detail error:</strong> {detailsError}
@@ -277,7 +340,8 @@ function NetworkMonitorNodePage() {
           <div className="monitor-detail-grid">
             <article className="monitor-detail-card">
               <h4>Identity</h4>
-              <p><strong>Machine:</strong> {nodeDetails.status.node.machine_id}</p>
+              <p><strong>Node Slot:</strong> {nodeDetails.status.node.machine_id}</p>
+              <p><strong>Physical Machine:</strong> {nodeDetails.status.node.physical_machine}</p>
               <p><strong>Node ID:</strong> {nodeDetails.status.node.node_id}</p>
               <p><strong>Address:</strong> {nodeDetails.status.node.node_address || 'N/A'}</p>
               <p><strong>Type:</strong> {nodeDetails.status.node.node_type}</p>

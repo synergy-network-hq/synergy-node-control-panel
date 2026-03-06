@@ -6,7 +6,7 @@ INVENTORY_FILE="$ROOT_DIR/devnet/lean15/node-inventory.csv"
 BOOTSTRAP_SCRIPT="$ROOT_DIR/scripts/devnet15/bootstrap-sxcp-devnet.sh"
 SMOKE_SCRIPT="$ROOT_DIR/scripts/devnet15/sxcp-smoke-test.sh"
 
-default_rpc_port="$(awk -F, '$1=="machine-06" {print $8}' "$INVENTORY_FILE" 2>/dev/null || true)"
+default_rpc_port="$(awk -F, '$1=="node-06" {print $8}' "$INVENTORY_FILE" 2>/dev/null || true)"
 default_rpc_port="${default_rpc_port:-48643}"
 RPC_URL="${RPC_URL:-http://127.0.0.1:${default_rpc_port}}"
 

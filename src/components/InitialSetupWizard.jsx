@@ -124,19 +124,19 @@ const ACTIVE_MACHINE_PLAN = [
 ];
 
 const PHYSICAL_TO_LOGICAL_NODE_MAP = {
-  'machine-01': ['machine-01'],
-  'machine-02': ['machine-02', 'machine-03'],
-  'machine-03': ['machine-04', 'machine-05'],
-  'machine-04': ['machine-06', 'machine-07'],
-  'machine-05': ['machine-08', 'machine-09'],
-  'machine-06': ['machine-10', 'machine-11'],
-  'machine-07': ['machine-12', 'machine-13'],
-  'machine-08': ['machine-14', 'machine-15'],
-  'machine-09': ['machine-16', 'machine-17'],
-  'machine-10': ['machine-18'],
-  'machine-11': ['machine-20'],
-  'machine-12': ['machine-22', 'machine-23'],
-  'machine-13': ['machine-24', 'machine-25'],
+  'machine-01': ['node-01'],
+  'machine-02': ['node-02', 'node-03'],
+  'machine-03': ['node-04', 'node-05'],
+  'machine-04': ['node-06', 'node-07'],
+  'machine-05': ['node-08', 'node-09'],
+  'machine-06': ['node-10', 'node-11'],
+  'machine-07': ['node-12', 'node-13'],
+  'machine-08': ['node-14', 'node-15'],
+  'machine-09': ['node-16', 'node-17'],
+  'machine-10': ['node-18'],
+  'machine-11': ['node-20'],
+  'machine-12': ['node-22', 'node-23'],
+  'machine-13': ['node-24', 'node-25'],
 };
 
 const PHYSICAL_MACHINE_VPN_IP = {
@@ -156,29 +156,29 @@ const PHYSICAL_MACHINE_VPN_IP = {
 };
 
 const LOGICAL_NODE_METADATA = {
-  'machine-01': 'validator',
-  'machine-02': 'validator',
-  'machine-03': 'observer',
-  'machine-04': 'validator',
-  'machine-05': 'cross-chain-verifier',
-  'machine-06': 'validator',
-  'machine-07': 'relayer',
-  'machine-08': 'validator',
-  'machine-09': 'committee',
-  'machine-10': 'security-council',
-  'machine-11': 'oracle',
-  'machine-12': 'witness',
-  'machine-13': 'rpc-gateway',
-  'machine-14': 'indexer',
-  'machine-15': 'pqc-crypto',
-  'machine-16': 'archive-validator',
-  'machine-17': 'audit-validator',
-  'machine-18': 'data-availability',
-  'machine-20': 'ai-inference',
-  'machine-22': 'uma-coordinator',
-  'machine-23': 'compute',
-  'machine-24': 'treasury-controller',
-  'machine-25': 'governance-auditor',
+  'node-01': 'validator',
+  'node-02': 'validator',
+  'node-03': 'observer',
+  'node-04': 'validator',
+  'node-05': 'cross-chain-verifier',
+  'node-06': 'validator',
+  'node-07': 'relayer',
+  'node-08': 'validator',
+  'node-09': 'committee',
+  'node-10': 'security-council',
+  'node-11': 'oracle',
+  'node-12': 'witness',
+  'node-13': 'rpc-gateway',
+  'node-14': 'indexer',
+  'node-15': 'pqc-crypto',
+  'node-16': 'archive-validator',
+  'node-17': 'audit-validator',
+  'node-18': 'data-availability',
+  'node-20': 'ai-inference',
+  'node-22': 'uma-coordinator',
+  'node-23': 'compute',
+  'node-24': 'treasury-controller',
+  'node-25': 'governance-auditor',
 };
 
 const ALL_LOGICAL_MACHINE_IDS = Object.values(PHYSICAL_TO_LOGICAL_NODE_MAP)
@@ -1076,7 +1076,7 @@ function InitialSetupWizard({ onComplete }) {
       <div className="wizard-top">
         <article className="wizard-main-panel">
           <header className="wizard-title-block">
-            <h2>Synergy Devnet Control Center Setup Wizard</h2>
+            <h2>Synergy Devnet Control Panel Setup Wizard</h2>
             <p>
               Autonomous setup is now the recommended path. It runs each setup task visibly,
               validates outcomes, and blocks dashboard access until setup is verified.
@@ -1193,7 +1193,7 @@ function InitialSetupWizard({ onComplete }) {
                   {' '}
                   <code>{`cd "${workspacePath}"`}</code>
                   {' '}
-                  to enter the control center workspace.
+                  to enter the control panel workspace.
                 </li>
                 <li>Run <code>mkdir -p keys/ssh</code>.</li>
                 <li>
@@ -1356,7 +1356,7 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={bindingForm.remote_dir_override}
                     onChange={(event) => setBindingForm((prev) => ({ ...prev, remote_dir_override: event.target.value }))}
-                    placeholder="/opt/synergy/machine-01"
+                    placeholder="/opt/synergy/node-01"
                   />
                 </label>
               </div>
@@ -1441,7 +1441,7 @@ function InitialSetupWizard({ onComplete }) {
               </p>
               <div className="wizard-action-row">
                 <button className="monitor-btn monitor-btn-primary" onClick={finalizeSetupAndEnter}>
-                  Enter Control Center
+                  Enter Control Panel
                 </button>
               </div>
             </div>
@@ -1458,7 +1458,7 @@ function InitialSetupWizard({ onComplete }) {
 
         <aside className="wizard-side-panel">
           <h3>Active 13-Machine Devnet Topology</h3>
-          <p>25 nodes across 13 physical machines. Validators on machine-01 through machine-05.</p>
+          <p>25 node slots across 13 physical machines. Primary validators are node-01, node-02, node-04, node-06, and node-08.</p>
           <div className="wizard-plan-table-wrap">
             <table className="wizard-plan-table">
               <thead>

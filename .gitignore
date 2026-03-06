@@ -47,6 +47,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.tmp-release-assets-*
 
 # IDE
 .vscode/

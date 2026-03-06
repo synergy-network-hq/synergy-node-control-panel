@@ -69,7 +69,7 @@ function SetupWizard({ onComplete }) {
     <div className="setup-wizard">
       <div className="wizard-container">
         <div className="wizard-header">
-          <h2>Welcome to Synergy Control Panel</h2>
+          <h2>Welcome to Synergy Devnet Control Panel</h2>
           <p>Let's set up your node environment in a few simple steps</p>
         </div>
 

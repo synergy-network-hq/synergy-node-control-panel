@@ -1,11 +1,11 @@
 #!/bin/bash
-# Uninstall script for Synergy Devnet Control Center
+# Uninstall script for Synergy Devnet Control Panel
 # This script removes the application and ALL associated data for a clean reinstall
 
 set -e
 
-APP_NAME="Synergy Devnet Control Center"
-APP_ID="synergy-devnet-control-center"
+APP_NAME="Synergy Devnet Control Panel"
+APP_ID="synergy-devnet-control-panel"
 APP_IDENTIFIER="com.synergy.node-monitor"
 
 echo "=========================================="
@@ -40,7 +40,7 @@ fi
 # Check if installed via .deb package
 if command -v dpkg >/dev/null 2>&1; then
     # Check for actual installed package name
-    INSTALLED_PKG=$(dpkg -l 2>/dev/null | grep -E "^ii\s+(synergy-devnet-control-center|com\.synergy\.node-monitor)" | awk '{print $2}' | head -1)
+    INSTALLED_PKG=$(dpkg -l 2>/dev/null | grep -E "^ii\s+(synergy-devnet-control-panel|synergy-devnet-control-center|com\.synergy\.node-monitor)" | awk '{print $2}' | head -1)
     
     if [[ -n "$INSTALLED_PKG" ]]; then
         echo "Found installed package: $INSTALLED_PKG"
@@ -91,10 +91,16 @@ if [[ -d "$HOME/.cache/com.synergy.node-monitor" ]]; then
     echo "✓ Removed ~/.cache/com.synergy.node-monitor"
 fi
 
-# Monitor workspace (current location)
+# Control panel workspace (current location)
+if [[ -d "$HOME/.synergy-devnet-control-panel" ]]; then
+    rm -rf "$HOME/.synergy-devnet-control-panel"
+    echo "✓ Removed ~/.synergy-devnet-control-panel"
+fi
+
+# Legacy workspace location
 if [[ -d "$HOME/.synergy-node-monitor" ]]; then
     rm -rf "$HOME/.synergy-node-monitor"
-    echo "✓ Removed ~/.synergy-node-monitor"
+    echo "✓ Removed legacy ~/.synergy-node-monitor"
 fi
 
 # Legacy macOS workspace location
@@ -113,6 +119,7 @@ fi
 echo ""
 echo "Removing desktop entries..."
 rm -f "$HOME/.local/share/applications/com.synergy.node-monitor.desktop"
+rm -f "$HOME/.local/share/applications/synergy-devnet-control-panel.desktop"
 rm -f "$HOME/.local/share/applications/synergy-devnet-control-center.desktop"
 echo "✓ Removed user desktop entries"
 
@@ -136,4 +143,3 @@ echo "All application data has been removed. You can now:"
 echo "  1. Reinstall the application from the .deb/.rpm/.AppImage package"
 echo "  2. Run the setup wizard again for a fresh start"
 echo ""
-

@@ -20,7 +20,7 @@ export async function openHelpWindow() {
     }
 
     const helpWindow = new WebviewWindow(HELP_WINDOW_LABEL, {
-      title: 'Synergy Devnet Control Center Help',
+      title: 'Synergy Devnet Control Panel Help',
       url: HELP_WINDOW_URL,
       center: true,
       width: 1080,

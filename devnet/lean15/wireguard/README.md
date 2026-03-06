@@ -1,6 +1,6 @@
 # WireGuard Mesh Artifacts
 
-This directory is intentionally bundled with the Node Monitor app.
+This directory is intentionally bundled with the Synergy Devnet Control Panel app.
 
 Populate it with generated mesh artifacts before rollout:
 

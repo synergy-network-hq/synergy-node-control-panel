@@ -1,8 +1,8 @@
-# Synergy Control Panel - Implementation Summary
+# Synergy Devnet Control Panel - Implementation Summary
 
 ## Overview
 
-The Synergy Control Panel has been completely overhauled with a new Jarvis-powered setup wizard featuring an integrated terminal interface. This implementation follows the specifications from the validator, RPC, and relayer node setup guides to provide users with a seamless, guided experience for setting up Synergy network nodes.
+The Synergy Devnet Control Panel has been completely overhauled with a new Jarvis-powered setup wizard featuring an integrated terminal interface. This implementation follows the specifications from the validator, RPC, and relayer node setup guides to provide users with a seamless, guided experience for setting up Synergy network nodes.
 
 ---
 
@@ -615,7 +615,7 @@ return (
 
 ## Conclusion
 
-The Synergy Control Panel now features a world-class onboarding experience with the Jarvis setup wizard. Users are guided through the complex process of setting up a Synergy node with clear explanations, real-time feedback, and a beautiful interface.
+The Synergy Devnet Control Panel now features a world-class onboarding experience with the Jarvis setup wizard. Users are guided through the complex process of setting up a Synergy node with clear explanations, real-time feedback, and a beautiful interface.
 
 The enhanced dashboard provides all the critical metrics at a glance, making it easy for node operators to monitor their node's health, performance, and network status.
 

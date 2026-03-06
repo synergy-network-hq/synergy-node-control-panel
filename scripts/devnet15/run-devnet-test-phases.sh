@@ -103,13 +103,13 @@ fi
 
 if [[ "$AUTO_FAILURES" == "true" ]]; then
   phase_banner "Phase 2 - Consensus Failure Simulation"
-  echo "Stopping validator machine-05 for 20 seconds"
-  "$RUN_NODE_SCRIPT" stop machine-05 || true
+  echo "Stopping validator node-05 for 20 seconds"
+  "$RUN_NODE_SCRIPT" stop node-05 || true
   before_failure="$(block_number)"
   sleep 20
   after_failure="$(block_number)"
   echo "Height during validator outage: $before_failure -> $after_failure"
-  "$RUN_NODE_SCRIPT" start machine-05 || true
+  "$RUN_NODE_SCRIPT" start node-05 || true
   sleep 5
 else
   phase_banner "Phase 2 - Consensus Failure Simulation (manual)"

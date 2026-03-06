@@ -4,19 +4,19 @@ import { invoke } from '@tauri-apps/api/core';
 const WG_BOOTSTRAP_SEQUENCE = ['wireguard_install', 'wireguard_connect', 'wireguard_status'];
 const PROVISION_SEQUENCE = ['setup', 'start', 'status'];
 const DEVNET_NODE_LAYOUT = [
-  ['machine-01'],
-  ['machine-02', 'machine-03'],
-  ['machine-04', 'machine-05'],
-  ['machine-06', 'machine-07'],
-  ['machine-08', 'machine-09'],
-  ['machine-10', 'machine-11'],
-  ['machine-12', 'machine-13'],
-  ['machine-14', 'machine-15'],
-  ['machine-16', 'machine-17'],
-  ['machine-18'],
-  ['machine-20'],
-  ['machine-22', 'machine-23'],
-  ['machine-24', 'machine-25'],
+  ['node-01'],
+  ['node-02', 'node-03'],
+  ['node-04', 'node-05'],
+  ['node-06', 'node-07'],
+  ['node-08', 'node-09'],
+  ['node-10', 'node-11'],
+  ['node-12', 'node-13'],
+  ['node-14', 'node-15'],
+  ['node-16', 'node-17'],
+  ['node-18'],
+  ['node-20'],
+  ['node-22', 'node-23'],
+  ['node-24', 'node-25'],
 ];
 
 function machineOrdinal(machineId) {
@@ -160,7 +160,7 @@ function JarvisAgentSetup() {
     setHaltedAction(null);
     setSnapshotSummary(null);
     setPhase('await_machine01_host');
-    addMessage('jarvis', 'Restarting setup. Enter the reachable SSH host/IP for machine-01.');
+    addMessage('jarvis', 'Restarting setup. Enter the reachable SSH host/IP for node-01.');
   }, [addMessage]);
 
   const bootstrap = useCallback(async () => {
@@ -176,15 +176,15 @@ function JarvisAgentSetup() {
       addMessage('jarvis', "Hello. I'm Jarvis, your Devnet Setup Agent.");
       addMessage(
         'jarvis',
-        `I will orchestrate closed-devnet setup for this fleet. Inventory loaded with ${orderedMachines.length} machine slots.`,
+        `I will orchestrate closed-devnet setup for this fleet. Inventory loaded with ${orderedMachines.length} node slots.`,
       );
       addMessage(
         'jarvis',
-        `First target sequence on machine-01 is ${formatSequence(WG_BOOTSTRAP_SEQUENCE)}.`,
+        `First target sequence on node-01 is ${formatSequence(WG_BOOTSTRAP_SEQUENCE)}.`,
       );
       addMessage(
         'jarvis',
-        'Step 1: enter the reachable SSH host/IP for machine-01 (public/LAN address, not 10.50.0.x).',
+        'Step 1: enter the reachable SSH host/IP for node-01 (public/LAN address, not 10.50.0.x).',
       );
       setPhase('await_machine01_host');
     } catch (error) {
@@ -326,13 +326,13 @@ function JarvisAgentSetup() {
       const configuredIds = sortMachineIds(machineMappings.map((entry) => entry.machine_id));
       setConfiguredMachineIds(configuredIds);
 
-      if (configuredIds.includes('machine-01')) {
-        const ok = await runSequenceForMachine('machine-01', WG_BOOTSTRAP_SEQUENCE, 'WireGuard bootstrap');
+      if (configuredIds.includes('node-01')) {
+        const ok = await runSequenceForMachine('node-01', WG_BOOTSTRAP_SEQUENCE, 'WireGuard bootstrap');
         if (!ok) {
           setPhase('ready_actions');
           return;
         }
-        addMessage('jarvis', 'machine-01 WireGuard bootstrap completed.');
+        addMessage('jarvis', 'node-01 WireGuard bootstrap completed.');
       }
 
       addMessage(
@@ -462,7 +462,7 @@ function JarvisAgentSetup() {
           if (parsed === 13) {
             addMessage(
               'jarvis',
-              '13-device topology detected. I will use fixed placement: machine-01 only on device-01, then node pairings across devices 02-13.',
+              '13-device topology detected. I will use fixed placement: node-01 only on device-01, then node pairings across devices 02-13.',
             );
           }
           addMessage('jarvis', `Enter reachable SSH host/IP for device-02.`);
@@ -563,7 +563,7 @@ function JarvisAgentSetup() {
       <div className="jarvis-grid">
         <article className="monitor-panel jarvis-config-panel">
           <h3>Operator Defaults</h3>
-          <p className="monitor-path">Set once, then Jarvis applies these to all assigned machine slots.</p>
+          <p className="monitor-path">Set once, then Jarvis applies these to all assigned node slots.</p>
           <div className="monitor-form-grid">
             <input
               value={defaults.sshUser}
@@ -609,7 +609,7 @@ function JarvisAgentSetup() {
 
           <div className="jarvis-action-row">
             <button className="monitor-btn monitor-btn-primary" onClick={applyPlan} disabled={running || phase === 'booting'}>
-              Apply Plan + Bootstrap machine-01
+              Apply Plan + Bootstrap node-01
             </button>
             <button className="monitor-btn" onClick={runWireguardAll} disabled={running || !assignmentPlan.length}>
               WireGuard All Assigned

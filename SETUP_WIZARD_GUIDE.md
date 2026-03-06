@@ -1,8 +1,8 @@
-# Synergy Control Panel - Setup Wizard Guide
+# Synergy Devnet Control Panel - Setup Wizard Guide
 
 ## Overview
 
-The Synergy Control Panel features an enhanced Jarvis-powered setup wizard that guides users through the process of setting up and managing Synergy network nodes. This document provides a comprehensive guide to the setup wizard's features, functionality, and architecture.
+The Synergy Devnet Control Panel features an enhanced Jarvis-powered setup wizard that guides users through the process of setting up and managing Synergy network nodes. This document provides a comprehensive guide to the setup wizard's features, functionality, and architecture.
 
 ---
 

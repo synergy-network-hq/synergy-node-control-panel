@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "Usage: $0 <assets-dir> <version-tag> [releases-repo]" >&2
+  echo "Example: $0 release-assets v2.4.3 synergy-network-hq/devnet-control-panel-releases" >&2
+  exit 1
+fi
+
+ASSETS_DIR="$1"
+VERSION_TAG="$2"
+RELEASES_REPO="${3:-synergy-network-hq/devnet-control-panel-releases}"
+
+if [[ ! -d "$ASSETS_DIR" ]]; then
+  echo "Assets directory not found: $ASSETS_DIR" >&2
+  exit 1
+fi
+
+VERSION_NUM="${VERSION_TAG#v}"
+RELEASE_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+BASE_URL="https://github.com/${RELEASES_REPO}/releases/download/${VERSION_TAG}"
+
+find_first_match() {
+  local pattern
+  for pattern in "$@"; do
+    local match
+    match="$(find "$ASSETS_DIR" -maxdepth 1 -type f -name "$pattern" | sort | head -n 1)"
+    if [[ -n "$match" ]]; then
+      printf '%s\n' "$match"
+      return 0
+    fi
+  done
+  return 1
+}
+
+require_match() {
+  local label="$1"
+  shift
+  local match
+  match="$(find_first_match "$@")" || {
+    echo "Missing ${label} in ${ASSETS_DIR}. Expected one of: $*" >&2
+    exit 1
+  }
+  printf '%s\n' "$match"
+}
+
+read_signature() {
+  tr -d '\r\n' < "$1"
+}
+
+MAC_BUNDLE_PATH="$(require_match "macOS updater bundle" "*.app.tar.gz")"
+MAC_SIG_PATH="$(require_match "macOS updater signature" "*.app.tar.gz.sig")"
+LINUX_BUNDLE_PATH="$(require_match "Linux updater bundle" "*.AppImage.tar.gz")"
+LINUX_SIG_PATH="$(require_match "Linux updater signature" "*.AppImage.tar.gz.sig")"
+WIN_BUNDLE_PATH="$(require_match "Windows updater bundle" "*.exe.zip" "*.msi.zip")"
+WIN_SIG_PATH="$(require_match "Windows updater signature" "*.exe.zip.sig" "*.msi.zip.sig")"
+
+MAC_BUNDLE="$(basename "$MAC_BUNDLE_PATH")"
+LINUX_BUNDLE="$(basename "$LINUX_BUNDLE_PATH")"
+WIN_BUNDLE="$(basename "$WIN_BUNDLE_PATH")"
+
+MAC_SIG="$(read_signature "$MAC_SIG_PATH")"
+LINUX_SIG="$(read_signature "$LINUX_SIG_PATH")"
+WIN_SIG="$(read_signature "$WIN_SIG_PATH")"
+
+jq -n \
+  --arg version "$VERSION_NUM" \
+  --arg notes "Synergy Devnet Control Panel ${VERSION_TAG}" \
+  --arg pub_date "$RELEASE_DATE" \
+  --arg mac_url "${BASE_URL}/${MAC_BUNDLE}" \
+  --arg mac_sig "$MAC_SIG" \
+  --arg linux_url "${BASE_URL}/${LINUX_BUNDLE}" \
+  --arg linux_sig "$LINUX_SIG" \
+  --arg win_url "${BASE_URL}/${WIN_BUNDLE}" \
+  --arg win_sig "$WIN_SIG" \
+  '{
+    version: $version,
+    notes: $notes,
+    pub_date: $pub_date,
+    platforms: {
+      "darwin-aarch64": {
+        url: $mac_url,
+        signature: $mac_sig
+      },
+      "linux-x86_64": {
+        url: $linux_url,
+        signature: $linux_sig
+      },
+      "windows-x86_64": {
+        url: $win_url,
+        signature: $win_sig
+      }
+    }
+  }' > "${ASSETS_DIR}/latest.json"
+
+echo "Generated ${ASSETS_DIR}/latest.json"

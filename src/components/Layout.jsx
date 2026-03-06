@@ -1,14 +1,175 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import { Link, useLocation } from 'react-router-dom';
 import { openHelpWindow } from '../lib/helpWindow';
+import { checkForUpdate, downloadAndInstallUpdate } from '../lib/appUpdater';
 
-const APP_VERSION = '2.4.2';
+const UPDATE_POLL_MS = 30 * 60 * 1000;
+
+function updateButtonLabel(updateState) {
+  switch (updateState.status) {
+    case 'checking':
+      return 'Checking...';
+    case 'available':
+      return `Install ${updateState.version}`;
+    case 'installing':
+      return 'Installing...';
+    case 'installed':
+      return 'Restart Required';
+    default:
+      return 'Check Updates';
+  }
+}
 
 function Layout({ children }) {
   const location = useLocation();
   const onHelpRoute = location.pathname === '/help';
   const onSettingsRoute = location.pathname === '/settings';
   const onSXCPRoute = location.pathname === '/sxcp';
+
+  const [appVersion, setAppVersion] = useState('');
+  const [updateState, setUpdateState] = useState({
+    status: 'idle',
+    message: 'No update check has been run yet.',
+    version: '',
+  });
+
+  useEffect(() => {
+    let disposed = false;
+
+    const loadVersion = async () => {
+      try {
+        const version = await getVersion();
+        if (!disposed) {
+          setAppVersion(version);
+        }
+      } catch (error) {
+        if (!disposed) {
+          setAppVersion('unknown');
+        }
+      }
+    };
+
+    const runCheck = async (silent = false) => {
+      if (!disposed) {
+        setUpdateState((previous) => ({
+          ...previous,
+          status: 'checking',
+          message: silent && previous.message ? previous.message : 'Checking for updates...',
+        }));
+      }
+
+      const result = await checkForUpdate();
+      if (disposed) return;
+
+      if (result?.error) {
+        setUpdateState({
+          status: 'error',
+          message: result.error,
+          version: '',
+        });
+        return;
+      }
+
+      if (result?.available) {
+        setUpdateState({
+          status: 'available',
+          message: `Update ${result.version} is ready to download and install.`,
+          version: result.version || '',
+        });
+        return;
+      }
+
+      setUpdateState({
+        status: 'up_to_date',
+        message: 'You are running the latest published version.',
+        version: '',
+      });
+    };
+
+    loadVersion();
+    runCheck(true);
+
+    const interval = window.setInterval(() => {
+      runCheck(true);
+    }, UPDATE_POLL_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const handleUpdateAction = async () => {
+    if (updateState.status === 'checking' || updateState.status === 'installing') {
+      return;
+    }
+
+    let targetVersion = updateState.version;
+
+    if (updateState.status !== 'available') {
+      const result = await checkForUpdate();
+      if (result?.error) {
+        setUpdateState({
+          status: 'error',
+          message: result.error,
+          version: '',
+        });
+        return;
+      }
+
+      if (!result?.available) {
+        setUpdateState({
+          status: 'up_to_date',
+          message: 'You are running the latest published version.',
+          version: '',
+        });
+        return;
+      }
+
+      targetVersion = result.version || '';
+      setUpdateState({
+        status: 'available',
+        message: `Update ${targetVersion} is ready to download and install.`,
+        version: targetVersion,
+      });
+    }
+
+    if (!window.confirm(`Install Synergy Devnet Control Panel ${targetVersion}?`)) {
+      return;
+    }
+
+    setUpdateState((previous) => ({
+      ...previous,
+      status: 'installing',
+      message: `Downloading and installing ${previous.version}...`,
+    }));
+
+    const result = await downloadAndInstallUpdate();
+    if (result.status === 'installed') {
+      setUpdateState((previous) => ({
+        ...previous,
+        status: 'installed',
+        message: result.message,
+      }));
+      return;
+    }
+
+    if (result.status === 'up_to_date') {
+      setUpdateState({
+        status: 'up_to_date',
+        message: result.message,
+        version: '',
+      });
+      return;
+    }
+
+    setUpdateState({
+      status: 'error',
+      message: result.message,
+      version: '',
+    });
+  };
 
   return (
     <div className="app-container">
@@ -21,11 +182,22 @@ function Layout({ children }) {
                 alt="Synergy Logo"
                 className="logo-icon-bg"
               />
-              <span className="brand-title">Synergy Network</span>
+              <div className="brand-stack">
+                <span className="brand-title">Synergy Devnet</span>
+                <span className="brand-subtitle">Control Panel</span>
+              </div>
             </div>
           </div>
 
           <div className="header-right-controls">
+            <button
+              className={`btn-header btn-update btn-update-${updateState.status}`}
+              onClick={handleUpdateAction}
+              disabled={updateState.status === 'checking' || updateState.status === 'installing'}
+              title={updateState.message}
+            >
+              {updateButtonLabel(updateState)}
+            </button>
             <Link className="btn-header" to={onSXCPRoute ? '/' : '/sxcp'}>
               {onSXCPRoute ? 'Monitor' : 'SXCP'}
             </Link>
@@ -37,11 +209,16 @@ function Layout({ children }) {
             </button>
           </div>
         </div>
+        <div className="header-status-bar">
+          <span className={`header-status-pill header-status-${updateState.status}`}>
+            {updateState.status === 'available' ? `Update ${updateState.version} available` : updateState.message}
+          </span>
+        </div>
       </header>
       <main className="app-main">{children}</main>
       <footer className="app-footer">
         <span className="footer-copyright">&copy; 2026 Synergy Blockchain Labs Inc. All rights reserved.</span>
-        <span className="footer-version">Control Center v{APP_VERSION}</span>
+        <span className="footer-version">Synergy Devnet Control Panel v{appVersion || '...'}</span>
       </footer>
     </div>
   );

@@ -58,11 +58,11 @@ function HelpArticlesPage() {
       <div className="help-hero">
         <div>
           <p className="help-eyebrow">Synergy Devnet Operator Manual</p>
-          <h2>Synergy Devnet Control Center Help Center</h2>
+          <h2>Synergy Devnet Control Panel Help Center</h2>
           <p className="help-hero-copy">
             This view is rendered directly from the bundled
             {' '}
-            <code>NETWORK_NODE_MONITOR_USER_MANUAL.md</code>
+            <code>SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md</code>
             {' '}
             so the Help window stays aligned with the current manual.
           </p>
@@ -112,7 +112,7 @@ function HelpArticlesPage() {
           <div className="help-source-note">
             Source:
             {' '}
-            <code>{workspacePath}/guides/NETWORK_NODE_MONITOR_USER_MANUAL.md</code>
+            <code>{workspacePath}/guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md</code>
           </div>
           <div className="help-markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>

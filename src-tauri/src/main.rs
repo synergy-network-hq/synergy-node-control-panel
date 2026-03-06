@@ -8,7 +8,7 @@ mod node_manager;
 mod recipe;
 
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Manager, PhysicalPosition, PhysicalSize, Position, Size};
 use tokio::sync::Mutex;
 
 // Custom panic hook to log panics to a file for debugging
@@ -78,6 +78,36 @@ async fn start_monitoring_services(
     monitoring_service.start_monitoring().await;
 }
 
+fn configure_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+
+    if let Some(monitor) = window
+        .current_monitor()
+        .map_err(|error| format!("Failed to read current monitor: {error}"))?
+    {
+        let work_area = monitor.work_area().to_owned();
+        window
+            .set_size(Size::Physical(PhysicalSize::new(
+                work_area.size.width,
+                work_area.size.height,
+            )))
+            .map_err(|error| format!("Failed to resize main window: {error}"))?;
+        window
+            .set_position(Position::Physical(PhysicalPosition::new(
+                work_area.position.x,
+                work_area.position.y,
+            )))
+            .map_err(|error| format!("Failed to reposition main window: {error}"))?;
+    }
+
+    window
+        .show()
+        .map_err(|error| format!("Failed to show main window: {error}"))?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     // Set up panic hook for debugging
@@ -96,11 +126,13 @@ async fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        // Updater disabled — re-enable when signing key is set up
-        // .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             if let Err(error) = crate::monitor::ensure_monitor_workspace(&app.handle().clone()) {
                 eprintln!("monitor workspace initialization warning: {error}");
+            }
+            if let Err(error) = configure_main_window(&app.handle().clone()) {
+                eprintln!("main window initialization warning: {error}");
             }
             let app_handle = app.handle().clone();
             let multi_node_manager_data: Arc<

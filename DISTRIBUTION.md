@@ -1,4 +1,4 @@
-# Synergy Control Panel Distribution Notes
+# Synergy Devnet Control Panel Distribution Notes
 
 ## Data locations
 - **macOS**: `~/Library/Application Support/synergy/control-panel` (state) and `~/.synergy/control-panel` (node sandboxes, binaries, configs).

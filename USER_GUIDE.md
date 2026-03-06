@@ -1,6 +1,6 @@
-# Synergy Control Panel User Guide
+# Synergy Devnet Control Panel User Guide
 
-The Synergy Control Panel is a desktop application for setting up and managing Synergy network nodes. This guide covers installation, node setup, monitoring, and troubleshooting.
+The Synergy Devnet Control Panel is a desktop application for setting up and managing Synergy network nodes. This guide covers installation, node setup, monitoring, and troubleshooting.
 
 ## Table of Contents
 

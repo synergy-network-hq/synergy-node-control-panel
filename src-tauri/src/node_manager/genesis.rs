@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_generate_address_lowercase() {
-        let addr = generate_node_address("machine-01", "validator", 1, Some(38638));
+        let addr = generate_node_address("node-01", "validator", 1, Some(38638));
         assert_eq!(addr, addr.to_lowercase(), "Address must be all lowercase");
         assert!(addr.starts_with("synv1"), "Class I should start with synv1");
         assert_eq!(addr.len(), 42, "Address should be 42 chars");
@@ -341,21 +341,21 @@ mod tests {
 
     #[test]
     fn test_generate_address_deterministic() {
-        let a1 = generate_node_address("machine-01", "validator", 1, Some(38638));
-        let a2 = generate_node_address("machine-01", "validator", 1, Some(38638));
+        let a1 = generate_node_address("node-01", "validator", 1, Some(38638));
+        let a2 = generate_node_address("node-01", "validator", 1, Some(38638));
         assert_eq!(a1, a2, "Same inputs should produce same address");
     }
 
     #[test]
     fn test_generate_address_unique() {
-        let a1 = generate_node_address("machine-01", "validator", 1, Some(38638));
-        let a2 = generate_node_address("machine-02", "validator", 1, Some(38639));
+        let a1 = generate_node_address("node-01", "validator", 1, Some(38638));
+        let a2 = generate_node_address("node-02", "validator", 1, Some(38639));
         assert_ne!(a1, a2, "Different machines should produce different addresses");
     }
 
     #[test]
     fn test_auto_stake_validator() {
-        let result = auto_stake_for_node(&NodeType::Validator, "machine-01", Some(38638));
+        let result = auto_stake_for_node(&NodeType::Validator, "node-01", Some(38638));
         assert!(result.success);
         assert_eq!(result.staked_amount, 100_000);
         assert_eq!(result.liquid_balance, 400_000);
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn test_auto_stake_observer_no_stake() {
-        let result = auto_stake_for_node(&NodeType::Observer, "machine-15", Some(38652));
+        let result = auto_stake_for_node(&NodeType::Observer, "node-15", Some(38652));
         assert!(result.success);
         assert_eq!(result.staked_amount, 0);
         assert_eq!(result.liquid_balance, 500_000);

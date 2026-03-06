@@ -778,7 +778,7 @@ function Logs-Node {
 }
 
 function Info-Node {
-  Write-Host "Machine ID: $(Get-NodeEnvValue 'MACHINE_ID')"
+  Write-Host "Node Slot ID: $(Get-NodeEnvValue 'MACHINE_ID')"
   Write-Host "Node ID: $(Get-NodeEnvValue 'NODE_ID')"
   Write-Host "Role: $(Get-NodeEnvValue 'ROLE')"
   Write-Host "Node Type: $(Get-NodeEnvValue 'NODE_TYPE')"
@@ -821,7 +821,7 @@ write_commands_file() {
 Synergy Devnet Node Command Reference
 ====================================
 
-Node: $machine_id
+Node Slot: $machine_id
 Type: $node_type
 
 Ports
@@ -913,7 +913,7 @@ write_readme() {
 Synergy Lean 15 Devnet Installer
 ================================
 
-Machine: $machine_id
+Node Slot: $machine_id
 Role Group: $role_group
 Role: $role
 Node Type: $node_type

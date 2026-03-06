@@ -65,7 +65,7 @@ export default function SettingsPage() {
             .join(" | ");
           setMonitorRoleSummary(roleSummary || "N/A");
           setMonitorTopologySummary(
-            "25 node slots are distributed across 13 physical machines (Machine-01 through Machine-13).",
+            "25 node slots are distributed across 13 physical machines (machine-01 through machine-13).",
           );
         } catch (monitorErr) {
           console.warn("Failed to load monitor metadata in settings:", monitorErr);

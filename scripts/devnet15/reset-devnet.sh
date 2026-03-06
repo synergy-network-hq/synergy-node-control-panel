@@ -13,21 +13,21 @@ REBUILD_INSTALLERS="false"
 SKIP_RESTART="false"
 
 START_ORDER=(
-  machine-01
-  machine-02
-  machine-03
-  machine-04
-  machine-05
-  machine-10
-  machine-11
-  machine-06
-  machine-07
-  machine-08
-  machine-09
-  machine-12
-  machine-13
-  machine-14
-  machine-15
+  node-01
+  node-02
+  node-03
+  node-04
+  node-05
+  node-10
+  node-11
+  node-06
+  node-07
+  node-08
+  node-09
+  node-12
+  node-13
+  node-14
+  node-15
 )
 
 usage() {
@@ -42,7 +42,7 @@ Performs a full closed-devnet reset workflow:
 5) restart cluster in deterministic order
 
 Optional remote control:
-- If hosts.env defines MACHINE_XX_STOP_CMD / START_CMD / RESET_CMD, those are used.
+- If hosts.env defines NODE_XX_STOP_CMD / START_CMD / RESET_CMD, those are used.
 - Otherwise the script falls back to local scripts/devnet15/run-node.sh commands.
 USAGE
 }

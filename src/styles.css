@@ -47,11 +47,13 @@ code {
 .app-header {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  padding: 0.5rem 1.5rem;
+  padding: 0.45rem 1.5rem 0.65rem;
   box-shadow: var(--shadow);
-  height: 65px;
+  min-height: 84px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.45rem;
 }
 
 .header-content {
@@ -60,6 +62,7 @@ code {
   align-items: center;
   width: 100%;
   position: relative;
+  min-height: 52px;
 }
 
 .header-right-controls {
@@ -85,11 +88,20 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
-  padding: 0.24rem 0.5rem;
+  gap: 0.9rem;
+  padding: 0.2rem 0.6rem;
   min-width: auto;
   border-radius: 1rem;
   background: transparent;
+}
+
+.brand-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  z-index: 1;
+  position: relative;
 }
 
 .logo-icon-bg {
@@ -103,13 +115,56 @@ code {
 
 .brand-title {
   font-family: 'Orbitron', var(--snrg-font-primary), sans-serif;
-  font-size: 1.18rem;
+  font-size: 1rem;
   font-weight: 700;
-  font-variant: small-caps;
   color: #ffffff;
-  letter-spacing: 0.08em;
-  z-index: 1;
-  position: relative;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.brand-subtitle {
+  font-size: 0.68rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: rgba(220, 247, 255, 0.78);
+}
+
+.header-status-bar {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.header-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(100%, 720px);
+  padding: 0.42rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 160, 255, 0.26);
+  background:
+    linear-gradient(135deg, rgba(4, 14, 36, 0.94), rgba(10, 28, 66, 0.82)),
+    radial-gradient(circle at 15% 50%, rgba(0, 211, 255, 0.16), transparent 50%);
+  color: rgba(230, 242, 255, 0.88);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.header-status-available {
+  border-color: rgba(0, 214, 143, 0.45);
+  color: rgba(209, 255, 237, 0.96);
+}
+
+.header-status-installed {
+  border-color: rgba(255, 196, 87, 0.45);
+  color: rgba(255, 241, 199, 0.96);
+}
+
+.header-status-error {
+  border-color: rgba(255, 96, 96, 0.45);
+  color: rgba(255, 219, 219, 0.96);
 }
 
 .logo-section {
@@ -258,6 +313,42 @@ code {
     rgba(0, 206, 209, 0.22),
     rgba(0, 96, 255, 0.28)
   );
+}
+
+.btn-update {
+  width: auto;
+  min-width: 132px;
+  padding: 0.42rem 1rem;
+  font-weight: 600;
+  border-color: rgba(0, 190, 255, 0.42);
+  background:
+    linear-gradient(135deg, rgba(0, 168, 255, 0.18), rgba(0, 88, 255, 0.24)),
+    radial-gradient(circle at top left, rgba(0, 220, 170, 0.15), transparent 50%);
+}
+
+.btn-update:hover:not(:disabled) {
+  border-color: rgba(0, 220, 255, 0.82);
+  background:
+    linear-gradient(135deg, rgba(0, 168, 255, 0.28), rgba(0, 88, 255, 0.34)),
+    radial-gradient(circle at top left, rgba(0, 220, 170, 0.22), transparent 50%);
+}
+
+.btn-update-available {
+  border-color: rgba(0, 214, 143, 0.48);
+  background:
+    linear-gradient(135deg, rgba(0, 214, 143, 0.18), rgba(0, 118, 255, 0.26)),
+    radial-gradient(circle at top left, rgba(151, 255, 216, 0.18), transparent 50%);
+}
+
+.btn-update-installed {
+  border-color: rgba(255, 196, 87, 0.54);
+  background:
+    linear-gradient(135deg, rgba(255, 168, 0, 0.2), rgba(255, 111, 0, 0.24)),
+    radial-gradient(circle at top left, rgba(255, 231, 173, 0.18), transparent 50%);
+}
+
+.btn-update-error {
+  border-color: rgba(255, 96, 96, 0.45);
 }
 
 /* Update Button */

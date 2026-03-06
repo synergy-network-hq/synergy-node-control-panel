@@ -1,8 +1,8 @@
-# Synergy Network Control Panel - Setup Guide
+# Synergy Devnet Control Panel - Setup Guide
 
 ## Overview
 
-The Synergy Network Control Panel is a sophisticated desktop application built with Tauri (Rust + React) that provides an intuitive chat-based interface for setting up and managing multiple Synergy Network nodes with complete isolation and security.
+The Synergy Devnet Control Panel is a sophisticated desktop application built with Tauri (Rust + React) that provides an intuitive chat-based interface for setting up and managing multiple Synergy Network nodes with complete isolation and security.
 
 ## Features
 

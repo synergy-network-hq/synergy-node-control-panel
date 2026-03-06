@@ -6,13 +6,13 @@ BINARY="$ROOT_DIR/target/release/synergy-devnet"
 
 usage() {
   cat <<USAGE
-Usage: $0 <start|stop|restart|status|logs> <machine-id> [--follow]
+Usage: $0 <start|stop|restart|status|logs> <node-slot-id> [--follow]
 
 Examples:
-  $0 start machine-01
-  $0 status machine-01
-  $0 logs machine-01 --follow
-  $0 stop machine-01
+  $0 start node-01
+  $0 status node-01
+  $0 logs node-01 --follow
+  $0 stop node-01
 USAGE
 }
 
