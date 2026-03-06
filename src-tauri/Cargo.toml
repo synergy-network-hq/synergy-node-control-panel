@@ -4,6 +4,21 @@ version = "2.6.8"
 description = "Synergy Devnet Control Panel"
 authors = ["Synergy Network"]
 edition = "2021"
+default-run = "synergy-devnet-control-panel"
+autobins = false
+
+[features]
+default = []
+devnet-agent-bin = []
+
+[[bin]]
+name = "synergy-devnet-control-panel"
+path = "src/main.rs"
+
+[[bin]]
+name = "synergy-devnet-agent"
+path = "src/bin/synergy-devnet-agent.rs"
+required-features = ["devnet-agent-bin"]
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

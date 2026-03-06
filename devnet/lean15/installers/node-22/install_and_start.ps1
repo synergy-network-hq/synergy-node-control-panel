@@ -69,9 +69,9 @@ function Open-Ports {
     return
   }
 
-  $machineId = Get-NodeEnvValue "NODE_SLOT_ID"
+  $nodeSlotId = Get-NodeEnvValue "NODE_SLOT_ID"
   foreach ($port in $ports) {
-    $ruleName = "Synergy-$machineId-$port"
+    $ruleName = "Synergy-$nodeSlotId-$port"
     $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
     if (-not $existing) {
       if ($networkTransport -eq "wireguard") {
@@ -125,6 +125,17 @@ function Start-Node {
   if (-not [string]::IsNullOrWhiteSpace($rpcBindAddress)) {
     $env:SYNERGY_RPC_BIND_ADDRESS = $rpcBindAddress
   }
+
+  $configuredChainId = Get-NodeEnvValue "SYNERGY_CHAIN_ID"
+  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = Get-NodeEnvValue "CHAIN_ID" }
+  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = "338638" }
+  $env:SYNERGY_CHAIN_ID = $configuredChainId
+
+  $configuredNetworkId = Get-NodeEnvValue "SYNERGY_NETWORK_ID"
+  if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = Get-NodeEnvValue "NETWORK_ID" }
+  if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = $configuredChainId }
+  $env:SYNERGY_NETWORK_ID = $configuredNetworkId
+  $env:SYNERGY_CONFIG_PATH = $ConfigPath
 
   $args = @("start", "--config", $ConfigPath)
   $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru

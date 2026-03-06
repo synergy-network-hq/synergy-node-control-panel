@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CARGO_MANIFEST="$ROOT_DIR/src-tauri/Cargo.toml"
+SIDECAR_TARGET_DIR="$ROOT_DIR/src-tauri/target-sidecars"
 TARGET_TRIPLE="${TAURI_ENV_TARGET_TRIPLE:-${CARGO_BUILD_TARGET:-$(rustc -vV | awk '/^host: / { print $2 }')}}"
 
 if [[ -z "${TARGET_TRIPLE:-}" ]]; then
@@ -49,13 +50,23 @@ case "$TARGET_TRIPLE" in
 esac
 
 echo "Building Synergy Devnet Agent sidecar for $TARGET_TRIPLE..."
-cargo build --manifest-path "$CARGO_MANIFEST" --bin synergy-devnet-agent --release "${target_arg[@]}"
+cargo build \
+  --manifest-path "$CARGO_MANIFEST" \
+  --bin synergy-devnet-agent \
+  --features devnet-agent-bin \
+  --release \
+  --target-dir "$SIDECAR_TARGET_DIR" \
+  "${target_arg[@]}"
 
-compiled_binary="$ROOT_DIR/src-tauri/target/${target_dir_segment}release/synergy-devnet-agent${binary_ext}"
+compiled_binary="$SIDECAR_TARGET_DIR/${target_dir_segment}release/synergy-devnet-agent${binary_ext}"
 if [[ ! -f "$compiled_binary" ]]; then
   echo "Compiled agent binary not found at $compiled_binary" >&2
   exit 1
 fi
+
+rm -f \
+  "$ROOT_DIR/src-tauri/target/${target_dir_segment}release/synergy-devnet-agent${binary_ext}" \
+  "$ROOT_DIR/src-tauri/target/${target_dir_segment}release/synergy-devnet-agent.d"
 
 mkdir -p "$ROOT_DIR/binaries"
 output_binary="$ROOT_DIR/binaries/synergy-devnet-agent-${platform_suffix}${binary_ext}"

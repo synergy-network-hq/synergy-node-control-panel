@@ -563,6 +563,8 @@
   text-decoration: none;
   font-size: 0.8rem;
   letter-spacing: 0.04em;
+  cursor: pointer;
+  appearance: none;
   transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 

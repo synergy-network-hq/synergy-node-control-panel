@@ -44,20 +44,41 @@ require_match() {
   printf '%s\n' "$match"
 }
 
+require_signature_for_bundle() {
+  local bundle_path="$1"
+  local signature_name
+  local signature_path
+
+  signature_name="$(basename "$bundle_path").sig"
+  signature_path="$(find "$ASSETS_DIR" -type f -name "$signature_name" | sort | head -n 1)"
+  if [[ -z "$signature_path" ]]; then
+    echo "Missing updater signature for bundle $(basename "$bundle_path") in ${ASSETS_DIR}" >&2
+    exit 1
+  fi
+  printf '%s\n' "$signature_path"
+}
+
 read_signature() {
   tr -d '\r\n' < "$1"
 }
 
+urlencode() {
+  jq -rn --arg value "$1" '$value | @uri'
+}
+
 MAC_BUNDLE_PATH="$(require_match "macOS updater bundle" "*.app.tar.gz")"
-MAC_SIG_PATH="$(require_match "macOS updater signature" "*.app.tar.gz.sig")"
 LINUX_BUNDLE_PATH="$(require_match "Linux updater bundle" "*.AppImage" "*.AppImage.tar.gz")"
-LINUX_SIG_PATH="$(require_match "Linux updater signature" "*.AppImage.sig" "*.AppImage.tar.gz.sig")"
 WIN_BUNDLE_PATH="$(require_match "Windows updater bundle" "*.exe" "*.msi" "*.exe.zip" "*.msi.zip" "*.nsis.zip")"
-WIN_SIG_PATH="$(require_match "Windows updater signature" "*.exe.sig" "*.msi.sig" "*.exe.zip.sig" "*.msi.zip.sig" "*.nsis.zip.sig")"
+MAC_SIG_PATH="$(require_signature_for_bundle "$MAC_BUNDLE_PATH")"
+LINUX_SIG_PATH="$(require_signature_for_bundle "$LINUX_BUNDLE_PATH")"
+WIN_SIG_PATH="$(require_signature_for_bundle "$WIN_BUNDLE_PATH")"
 
 MAC_BUNDLE="$(basename "$MAC_BUNDLE_PATH")"
 LINUX_BUNDLE="$(basename "$LINUX_BUNDLE_PATH")"
 WIN_BUNDLE="$(basename "$WIN_BUNDLE_PATH")"
+MAC_BUNDLE_URL="$(urlencode "$MAC_BUNDLE")"
+LINUX_BUNDLE_URL="$(urlencode "$LINUX_BUNDLE")"
+WIN_BUNDLE_URL="$(urlencode "$WIN_BUNDLE")"
 
 MAC_SIG="$(read_signature "$MAC_SIG_PATH")"
 LINUX_SIG="$(read_signature "$LINUX_SIG_PATH")"
@@ -67,11 +88,11 @@ jq -n \
   --arg version "$VERSION_NUM" \
   --arg notes "Synergy Devnet Control Panel ${VERSION_TAG}" \
   --arg pub_date "$RELEASE_DATE" \
-  --arg mac_url "${BASE_URL}/${MAC_BUNDLE}" \
+  --arg mac_url "${BASE_URL}/${MAC_BUNDLE_URL}" \
   --arg mac_sig "$MAC_SIG" \
-  --arg linux_url "${BASE_URL}/${LINUX_BUNDLE}" \
+  --arg linux_url "${BASE_URL}/${LINUX_BUNDLE_URL}" \
   --arg linux_sig "$LINUX_SIG" \
-  --arg win_url "${BASE_URL}/${WIN_BUNDLE}" \
+  --arg win_url "${BASE_URL}/${WIN_BUNDLE_URL}" \
   --arg win_sig "$WIN_SIG" \
   '{
     version: $version,

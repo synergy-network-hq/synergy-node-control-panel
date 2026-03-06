@@ -322,6 +322,12 @@ function NetworkMonitorNodePage() {
     }
   };
 
+  const scrollToSection = (sectionId) => {
+    const target = document.getElementById(sectionId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   if (detailsLoading) {
     return (
       <section className="monitor-shell">
@@ -374,16 +380,30 @@ function NetworkMonitorNodePage() {
   const economicsGaps = Array.isArray(economicsTelemetry.telemetry_gaps)
     ? economicsTelemetry.telemetry_gaps
     : [];
+  const configuredChainId =
+    toNumber(protocolProfile.chain_id) ?? toNumber(protocolProfile.network_id);
+  const observedChainId =
+    toNumber(findNestedValue(nodeDetails?.rpc?.node_status, ['chainId', 'chain_id']))
+    ?? toNumber(findNestedValue(nodeDetails?.rpc?.node_info, ['chainId', 'chain_id']));
+  const displayNodeAddress =
+    node?.node_address
+    || protocolProfile.validator_address
+    || findNestedValue(nodeDetails?.rpc?.node_status, ['validator_address', 'node_address', 'address'])
+    || findNestedValue(nodeDetails?.rpc?.node_info, ['validator_address', 'node_address', 'address'])
+    || findNestedValue(localValidator, ['validator_address', 'node_address', 'address'])
+    || 'N/A';
   const quickFacts = [
+    { label: 'Configured Chain ID', value: formatNumberValue(configuredChainId), code: true },
     { label: 'Node Slot', value: node?.node_slot_id || nodeSlotId },
     { label: 'Physical Machine', value: node?.physical_machine_id || 'N/A' },
     { label: 'Node Alias', value: node?.node_alias || 'N/A' },
     { label: 'Role Group', value: node?.role_group || 'N/A' },
     { label: 'Node Type', value: node?.node_type || 'N/A' },
-    { label: 'Address', value: node?.node_address || 'N/A', code: true },
+    { label: 'Address', value: displayNodeAddress, code: true },
   ];
   const runtimeFacts = [
     { label: 'RPC Endpoint', value: node?.rpc_url || 'N/A', code: true },
+    { label: 'Observed Chain ID', value: formatNumberValue(observedChainId), code: true },
     { label: 'Status', value: nodeDetails?.status?.status || 'unknown' },
     { label: 'Syncing', value: scalar(nodeDetails?.status?.syncing) },
     { label: 'Checked', value: formatLocalTimestamp(nodeDetails?.status?.last_checked_utc) },
@@ -577,6 +597,32 @@ function NetworkMonitorNodePage() {
     { label: 'Percentile', value: formatPercentValue(synergyBreakdown.percentile) },
     { label: 'Score Updated', value: formatUnixTimestamp(synergyComponents.last_updated) },
   ];
+  const economicsSummaryStats = [
+    { label: 'Wallet', value: formatSnrgValue(economicsLive.wallet_balance_snrg) },
+    { label: 'Bonded', value: formatSnrgValue(economicsLive.staked_balance_snrg) },
+    { label: 'Earned', value: formatSnrgValue(economicsLive.historical_earned_snrg) },
+    { label: 'Pending', value: formatSnrgValue(economicsLive.pending_rewards_snrg) },
+    { label: 'APY', value: formatPercentValue(economicsLive.estimated_apy) },
+    { label: 'Net vs Genesis', value: formatSignedSnrgValue(economicsLive.net_position_delta_snrg) },
+  ];
+  const consensusSummaryStats = [
+    {
+      label: 'Synergy Score',
+      value:
+        scoreValue !== undefined
+          ? formatNumberValue(scoreValue, { maximumFractionDigits: 2 })
+          : 'N/A',
+    },
+    { label: 'Current Epoch', value: formatNumberValue(currentEpochValue) },
+    { label: 'Committee / Cluster', value: scalar(committeeIdValue) },
+    {
+      label: 'Participation',
+      value:
+        participationValue !== undefined ? formatPercentValue(participationValue) : 'N/A',
+    },
+    { label: 'Blocks Produced', value: formatNumberValue(blocksProducedValue) },
+    { label: 'Latest Signatures', value: signatureAlgorithms.length ? signatureAlgorithms.join(', ') : 'N/A' },
+  ];
   if (scoreValue === undefined) {
     telemetryGaps.push('Synergy Score is not exposed in the current validator activity payload for this node yet.');
   }
@@ -589,7 +635,7 @@ function NetworkMonitorNodePage() {
   const sectionLinks = [
     ['overview', 'Overview'],
     ...(protocolProfile.loaded ? [['posy', 'PoSy']] : []),
-    ...(economicsProfile.loaded || node?.node_address ? [['economics', 'Economics']] : []),
+    ...(economicsProfile.loaded || displayNodeAddress !== 'N/A' ? [['economics', 'Economics']] : []),
     ['execution', 'Execution'],
     ['control', 'Control'],
     ['atlas', 'Atlas'],
@@ -699,9 +745,14 @@ function NetworkMonitorNodePage() {
 
       <nav className="monitor-section-nav">
         {sectionLinks.map(([id, label]) => (
-          <a key={id} className="monitor-section-nav-chip" href={`#${id}`}>
+          <button
+            key={id}
+            type="button"
+            className="monitor-section-nav-chip"
+            onClick={() => scrollToSection(id)}
+          >
             {label}
-          </a>
+          </button>
         ))}
       </nav>
 
@@ -709,6 +760,24 @@ function NetworkMonitorNodePage() {
         <div className="monitor-error-box">
           <strong>Node detail error:</strong> {detailsError}
         </div>
+      )}
+
+      {!detailsError
+        && configuredChainId !== null
+        && observedChainId !== null
+        && configuredChainId !== observedChainId && (
+          <div className="monitor-error-box">
+            <strong>Chain ID mismatch:</strong>
+            {' '}
+            Installed config expects
+            {' '}
+            <code>{configuredChainId}</code>
+            {' '}
+            but RPC is reporting
+            {' '}
+            <code>{observedChainId}</code>
+            .
+          </div>
       )}
 
       {!detailsError && nodeDetails && (
@@ -1388,20 +1457,29 @@ function NetworkMonitorNodePage() {
               <p className="monitor-card-kicker">SNRG Position</p>
               <h4>Wallet and Bond</h4>
               <div className="monitor-sidecar-stat-list">
-                <div className="monitor-sidecar-stat">
-                  <span>Wallet</span>
-                  <strong>{formatSnrgValue(economicsLive.wallet_balance_snrg)}</strong>
-                </div>
-                <div className="monitor-sidecar-stat">
-                  <span>Bonded</span>
-                  <strong>{formatSnrgValue(economicsLive.staked_balance_snrg)}</strong>
-                </div>
-                <div className="monitor-sidecar-stat">
-                  <span>Earned</span>
-                  <strong>{formatSnrgValue(economicsLive.historical_earned_snrg)}</strong>
-                </div>
+                {economicsSummaryStats.map((stat) => (
+                  <div key={stat.label} className="monitor-sidecar-stat">
+                    <span>{stat.label}</span>
+                    <strong>{stat.value}</strong>
+                  </div>
+                ))}
               </div>
             </section>
+
+            {isAuthorityRole && (
+              <section className="monitor-sidecar-card">
+                <p className="monitor-card-kicker">Consensus Surface</p>
+                <h4>Score, Epoch, and Committee</h4>
+                <div className="monitor-sidecar-stat-list">
+                  {consensusSummaryStats.map((stat) => (
+                    <div key={stat.label} className="monitor-sidecar-stat">
+                      <span>{stat.label}</span>
+                      <strong>{stat.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <section className="monitor-sidecar-card">
               <p className="monitor-card-kicker">Available Actions</p>

@@ -1354,22 +1354,8 @@ pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, St
 
     let mut warnings = Vec::new();
 
-    let hosts_env_script = workspace.join("scripts/devnet15/generate-monitor-hosts-env.sh");
     let hosts_env_path = workspace.join("devnet/lean15/hosts.env");
-    if hosts_env_script.is_file() {
-        let output = ProcessCommand::new("bash")
-            .arg(hosts_env_script.to_string_lossy().to_string())
-            .arg(hosts_env_path.to_string_lossy().to_string())
-            .current_dir(&workspace)
-            .output()
-            .map_err(|error| format!("Failed to regenerate hosts.env: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "generate-monitor-hosts-env.sh failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
-        }
-    }
+    generate_monitor_hosts_env(&workspace, &inventory_path, &hosts_env_path)?;
 
     // Re-render base configs from the refreshed inventory so installer rebuilds do not
     // keep shipping stale node roles, machine mappings, or bootnode lists.
@@ -1590,6 +1576,9 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
 
     let hosts_overrides = load_hosts_overrides(inventory_path);
     let node_addresses = load_node_address_map(inventory_path);
+    let lean15_dir = inventory_path
+        .parent()
+        .ok_or_else(|| "Inventory file is missing a parent directory".to_string())?;
 
     let Some(node_slot_idx) = resolve_column(&["node_slot_id", "machine_id"]) else {
         return Err("Inventory header missing required column 'node_slot_id'".to_string());
@@ -1676,7 +1665,10 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         let physical_machine_id = physical_machine_idx.map(&get).unwrap_or_default();
 
         nodes.push(MonitorNode {
-            node_address: node_addresses.get(&node_slot_id.to_lowercase()).cloned(),
+            node_address: node_addresses
+                .get(&node_slot_id.to_lowercase())
+                .cloned()
+                .or_else(|| fallback_node_address(lean15_dir, &node_slot_id)),
             physical_machine_id: if physical_machine_id.is_empty() {
                 node_slot_id.clone()
             } else {
@@ -1924,6 +1916,28 @@ fn load_node_address_map(inventory_path: &Path) -> HashMap<String, String> {
     output
 }
 
+fn fallback_node_address(lean15_dir: &Path, node_slot_id: &str) -> Option<String> {
+    let candidates = [
+        lean15_dir.join("keys").join(node_slot_id).join("address.txt"),
+        lean15_dir
+            .join("installers")
+            .join(node_slot_id)
+            .join("keys/address.txt"),
+    ];
+
+    for candidate in candidates {
+        let Ok(raw) = fs::read_to_string(&candidate) else {
+            continue;
+        };
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    None
+}
+
 fn resolve_host_override(
     overrides: &HashMap<String, String>,
     node_slot_id: &str,
@@ -2070,6 +2084,7 @@ fn load_protocol_profile(inventory_path: &Path, node_slot_id: &str) -> Value {
     let consensus = parsed.get("consensus");
     let network = parsed.get("network");
     let blockchain = parsed.get("blockchain");
+    let node_section = parsed.get("node");
     let snapshots = parsed.get("snapshots");
     let reward_weighting = consensus.and_then(|section| section.get("reward_weighting"));
     let bootnodes = toml_string_array(network.and_then(|section| section.get("bootnodes")));
@@ -2081,6 +2096,7 @@ fn load_protocol_profile(inventory_path: &Path, node_slot_id: &str) -> Value {
         "algorithm": toml_string(consensus.and_then(|section| section.get("algorithm"))),
         "chain_name": toml_string(network.and_then(|section| section.get("name"))),
         "network_id": toml_integer(network.and_then(|section| section.get("id"))),
+        "chain_id": toml_integer(blockchain.and_then(|section| section.get("chain_id"))),
         "block_time_secs": toml_integer(consensus.and_then(|section| section.get("block_time_secs")))
             .or_else(|| toml_integer(blockchain.and_then(|section| section.get("block_time")))),
         "epoch_length": toml_integer(consensus.and_then(|section| section.get("epoch_length"))),
@@ -2093,6 +2109,7 @@ fn load_protocol_profile(inventory_path: &Path, node_slot_id: &str) -> Value {
         "max_tasks_per_validator": toml_integer(consensus.and_then(|section| section.get("max_tasks_per_validator"))),
         "snapshot_interval_blocks": toml_integer(snapshots.and_then(|section| section.get("interval_blocks"))),
         "snapshotting_enabled": toml_bool(snapshots.and_then(|section| section.get("enabled"))),
+        "validator_address": toml_string(node_section.and_then(|section| section.get("validator_address"))),
         "bootnode_count": bootnodes.len(),
         "bootnodes": bootnodes,
         "reward_weighting": reward_weighting
@@ -4716,34 +4733,41 @@ fn extract_bundled_resources_to_workspace(
         refresh_installer_bundle_assets(&source_installers, &destination_installers)?;
     }
 
-    let hosts_env = workspace_root.join("devnet/lean15/hosts.env");
-    if !hosts_env.is_file() {
-        let example = workspace_root.join("devnet/lean15/hosts.env.example");
-        if example.is_file() {
-            if let Some(parent) = hosts_env.parent() {
-                fs::create_dir_all(parent).map_err(|error| {
-                    format!(
-                        "Failed to create hosts.env parent directory {}: {error}",
-                        parent.display()
-                    )
-                })?;
-            }
-            fs::copy(&example, &hosts_env).map_err(|error| {
-                format!(
-                    "Failed to copy {} to {}: {error}",
-                    example.display(),
-                    hosts_env.display()
-                )
-            })?;
-        }
-    }
-
     let inventory_path = workspace_root.join("devnet/lean15/node-inventory.csv");
     if !inventory_path.is_file() {
         return Err(format!(
             "Workspace initialization failed: {} not found after extraction",
             inventory_path.display()
         ));
+    }
+
+    let hosts_env = workspace_root.join("devnet/lean15/hosts.env");
+    if !hosts_env.is_file() {
+        if let Err(generate_error) =
+            generate_monitor_hosts_env(workspace_root, &inventory_path, &hosts_env)
+        {
+            let example = workspace_root.join("devnet/lean15/hosts.env.example");
+            if example.is_file() {
+                if let Some(parent) = hosts_env.parent() {
+                    fs::create_dir_all(parent).map_err(|error| {
+                        format!(
+                            "Failed to create hosts.env parent directory {}: {error}",
+                            parent.display()
+                        )
+                    })?;
+                }
+                fs::copy(&example, &hosts_env).map_err(|error| {
+                    format!(
+                        "Failed to copy {} to {} after hosts.env generation failed ({}): {error}",
+                        example.display(),
+                        hosts_env.display(),
+                        generate_error
+                    )
+                })?;
+            } else {
+                return Err(generate_error);
+            }
+        }
     }
 
     Ok(())
@@ -5150,6 +5174,217 @@ fn apply_topology_to_inventory(
     Ok(())
 }
 
+#[derive(Debug)]
+struct MonitorHostsEnvEntry {
+    node_slot_id: String,
+    node_alias: String,
+    role_group: String,
+    role: String,
+    node_type: String,
+    host: String,
+    vpn_ip: String,
+}
+
+fn generate_monitor_hosts_env(
+    workspace_root: &Path,
+    inventory_path: &Path,
+    output_path: &Path,
+) -> Result<(), String> {
+    let entries = load_monitor_hosts_env_entries(inventory_path)?;
+    let orchestrator_script = workspace_root
+        .join("scripts/devnet15/remote-node-orchestrator.sh")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let orchestrator_script = shell_quote(&orchestrator_script);
+
+    let mut lines = vec![
+        format!(
+            "# Auto-generated by Synergy Devnet Control Panel on {}",
+            Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
+        ),
+        "# This file powers the Synergy Devnet Control Panel app remote orchestration workflow."
+            .to_string(),
+        "#".to_string(),
+        "# Global SSH defaults used by remote-node-orchestrator.sh:".to_string(),
+        "SYNERGY_DEVNET_SSH_USER=ops".to_string(),
+        "SYNERGY_DEVNET_SSH_PORT=22".to_string(),
+        "# Optional global SSH private key path:".to_string(),
+        "# SYNERGY_DEVNET_SSH_KEY=/Users/you/.ssh/id_ed25519".to_string(),
+        "# Optional global WireGuard defaults:".to_string(),
+        "# SYNERGY_DEVNET_WG_INTERFACE=wg0".to_string(),
+        "# SYNERGY_DEVNET_WG_REMOTE_CONF=/etc/wireguard/wg0.conf".to_string(),
+        String::new(),
+        "# Explorer bridge used by control panel Atlas links:".to_string(),
+        "ATLAS_BASE_URL=https://devnet-explorer.synergy-network.io".to_string(),
+        String::new(),
+    ];
+
+    let operations = [
+        ("START_CMD", "start"),
+        ("STOP_CMD", "stop"),
+        ("RESTART_CMD", "restart"),
+        ("STATUS_CMD", "status"),
+        ("SETUP_CMD", "setup_node"),
+        ("EXPORT_LOGS_CMD", "export_logs"),
+        ("VIEW_CHAIN_DATA_CMD", "view_chain_data"),
+        ("EXPORT_CHAIN_DATA_CMD", "export_chain_data"),
+        ("ACTION_INSTALL_NODE_CMD", "install_node"),
+        ("ACTION_BOOTSTRAP_NODE_CMD", "bootstrap_node"),
+        ("ACTION_WIREGUARD_INSTALL_CMD", "wireguard_install"),
+        ("ACTION_WIREGUARD_CONNECT_CMD", "wireguard_connect"),
+        ("ACTION_WIREGUARD_DISCONNECT_CMD", "wireguard_disconnect"),
+        ("ACTION_WIREGUARD_STATUS_CMD", "wireguard_status"),
+        ("ACTION_NODE_LOGS_CMD", "logs"),
+        ("ACTION_RESET_CHAIN_CMD", "reset_chain"),
+    ];
+
+    for entry in entries {
+        let node_slot_key = entry.node_slot_id.to_ascii_uppercase().replace('-', "_");
+        let resolved_host = if entry.host.trim().is_empty() {
+            entry.vpn_ip.clone()
+        } else {
+            entry.host.clone()
+        };
+
+        lines.push("# -----------------------------------------------------------------------------".to_string());
+        lines.push(format!(
+            "# {} ({} | {} | {} | {})",
+            entry.node_slot_id, entry.node_alias, entry.role_group, entry.role, entry.node_type
+        ));
+        lines.push(format!("{node_slot_key}_HOST={resolved_host}"));
+        lines.push(format!("{node_slot_key}_VPN_IP={}", entry.vpn_ip));
+        lines.push(format!("{node_slot_key}_SSH_USER=ops"));
+        lines.push(format!("{node_slot_key}_SSH_PORT=22"));
+        lines.push(format!("# {node_slot_key}_SSH_KEY="));
+        lines.push(format!(
+            "# {node_slot_key}_REMOTE_DIR=/opt/synergy/{}",
+            entry.node_slot_id
+        ));
+        lines.push(format!("# {node_slot_key}_WG_INTERFACE=wg0"));
+        lines.push(format!("# {node_slot_key}_WG_REMOTE_CONF=/etc/wireguard/wg0.conf"));
+        lines.push(String::new());
+
+        for &(env_key, operation) in &operations {
+            let command = format!("{orchestrator_script} {} {}", entry.node_slot_id, operation);
+            lines.push(format!(r#"{node_slot_key}_{env_key}="{command}""#));
+        }
+        lines.push(String::new());
+    }
+
+    let mut encoded = lines.join("\n");
+    if !encoded.ends_with('\n') {
+        encoded.push('\n');
+    }
+
+    write_file_with_backup_if_changed(output_path, &encoded)
+}
+
+fn load_monitor_hosts_env_entries(
+    inventory_path: &Path,
+) -> Result<Vec<MonitorHostsEnvEntry>, String> {
+    let content = fs::read_to_string(inventory_path).map_err(|error| {
+        format!(
+            "Failed to read node inventory {}: {error}",
+            inventory_path.display()
+        )
+    })?;
+    let mut lines = content.lines();
+    let header_line = lines
+        .next()
+        .ok_or_else(|| format!("Inventory file is empty: {}", inventory_path.display()))?;
+    let headers = header_line
+        .split(',')
+        .map(|value| value.trim().to_string())
+        .collect::<Vec<_>>();
+
+    let resolve_index = |name: &str| -> Result<usize, String> {
+        headers
+            .iter()
+            .position(|value| value.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("Column '{name}' missing in {}", inventory_path.display()))
+    };
+
+    let slot_idx = resolve_index("node_slot_id")?;
+    let alias_idx = resolve_index("node_alias")?;
+    let role_group_idx = resolve_index("role_group")?;
+    let role_idx = resolve_index("role")?;
+    let node_type_idx = resolve_index("node_type")?;
+    let host_idx = resolve_index("host")?;
+    let vpn_idx = resolve_index("vpn_ip")?;
+
+    let mut entries = Vec::new();
+    for row in lines {
+        if row.trim().is_empty() {
+            continue;
+        }
+
+        let values = row
+            .split(',')
+            .map(|value| value.trim().trim_end_matches('\r').to_string())
+            .collect::<Vec<_>>();
+        let read = |index: usize| values.get(index).cloned().unwrap_or_default();
+        let node_slot_id = read(slot_idx);
+        if node_slot_id.is_empty() {
+            continue;
+        }
+
+        entries.push(MonitorHostsEnvEntry {
+            node_slot_id,
+            node_alias: read(alias_idx),
+            role_group: read(role_group_idx),
+            role: read(role_idx),
+            node_type: read(node_type_idx),
+            host: read(host_idx),
+            vpn_ip: read(vpn_idx),
+        });
+    }
+
+    Ok(entries)
+}
+
+fn write_file_with_backup_if_changed(path: &Path, content: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create parent directory {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let existing = if path.is_file() {
+        Some(
+            fs::read_to_string(path)
+                .map_err(|error| format!("Failed to read {}: {error}", path.display()))?,
+        )
+    } else {
+        None
+    };
+
+    if existing.as_deref() == Some(content) {
+        return Ok(());
+    }
+
+    if path.is_file() {
+        let backup = PathBuf::from(format!(
+            "{}.bak.{}",
+            path.to_string_lossy(),
+            Utc::now().format("%Y%m%dT%H%M%SZ")
+        ));
+        fs::copy(path, &backup).map_err(|error| {
+            format!(
+                "Failed to back up {} to {}: {error}",
+                path.display(),
+                backup.display()
+            )
+        })?;
+    }
+
+    fs::write(path, content)
+        .map_err(|error| format!("Failed to write {}: {error}", path.display()))?;
+    Ok(())
+}
+
 fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(), String> {
     if !path.is_file() {
         return Ok(());
@@ -5178,6 +5413,11 @@ fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(),
     upsert_key_value_line(&mut lines, "HOST", vpn_ip);
     upsert_key_value_line(&mut lines, "MONITOR_HOST", vpn_ip);
     upsert_key_value_line(&mut lines, "VPN_IP", vpn_ip);
+    upsert_key_value_line(&mut lines, "CHAIN_ID", "338638");
+    upsert_key_value_line(&mut lines, "NETWORK_ID", "338638");
+    upsert_key_value_line(&mut lines, "SYNERGY_CHAIN_ID", "338638");
+    upsert_key_value_line(&mut lines, "SYNERGY_NETWORK_ID", "338638");
+    upsert_key_value_line(&mut lines, "SYNERGY_CONFIG_PATH", "config/node.toml");
     upsert_key_value_line(&mut lines, "RPC_BIND_ADDRESS", &rpc_bind);
     upsert_key_value_line(&mut lines, "SYNERGY_RPC_BIND_ADDRESS", &rpc_bind);
 

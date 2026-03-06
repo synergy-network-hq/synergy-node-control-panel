@@ -202,6 +202,12 @@ start_node() {
   allowed_validators="${SYNERGY_ALLOWED_VALIDATOR_ADDRESSES:-${ALLOWED_VALIDATOR_ADDRESSES:-}}"
   local rpc_bind_address
   rpc_bind_address="${SYNERGY_RPC_BIND_ADDRESS:-${RPC_BIND_ADDRESS:-}}"
+  local configured_chain_id
+  configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338638}}"
+  local configured_network_id
+  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-$configured_chain_id}}"
+  local config_path
+  config_path="$BASE_DIR/config/node.toml"
   if [[ -z "$validator_address" ]]; then
     echo "Warning: NODE_ADDRESS is empty; validator identity will fallback to node_name."
   fi
@@ -216,7 +222,10 @@ start_node() {
     SYNERGY_STRICT_VALIDATOR_ALLOWLIST="$strict_allowlist" \
     SYNERGY_ALLOWED_VALIDATOR_ADDRESSES="$allowed_validators" \
     SYNERGY_RPC_BIND_ADDRESS="$rpc_bind_address" \
-    "$BIN_SELECTED" start --config "$BASE_DIR/config/node.toml" > "$OUT_FILE" 2>&1 &
+    SYNERGY_NETWORK_ID="$configured_network_id" \
+    SYNERGY_CHAIN_ID="$configured_chain_id" \
+    SYNERGY_CONFIG_PATH="$config_path" \
+    "$BIN_SELECTED" start --config "$config_path" > "$OUT_FILE" 2>&1 &
   echo $! > "$PID_FILE"
 
   echo "Started $NODE_SLOT_ID ($NODE_TYPE) PID $(cat "$PID_FILE")"

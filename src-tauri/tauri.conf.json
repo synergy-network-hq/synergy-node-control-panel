@@ -1,6 +1,7 @@
 {
   "$schema": "https://schemas.tauri.app/config.schema.json",
   "productName": "Synergy Devnet Control Panel",
+  "mainBinaryName": "synergy-devnet-control-panel",
   "version": "2.6.8",
   "identifier": "com.synergy.node-monitor",
   "build": {
@@ -54,6 +55,7 @@
       "../devnet/lean15/configs",
       "../devnet/lean15/installers",
       "../devnet/lean15/wireguard",
+      "../binaries",
       "../scripts/devnet15",
       "../scripts/reset-devnet.sh",
       "../guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md"

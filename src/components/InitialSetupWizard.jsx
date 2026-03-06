@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 const MACHINE_OPTIONS = Array.from({ length: 13 }, (_, index) => `machine-${String(index + 1).padStart(2, '0')}`);
+const IS_WINDOWS_HOST = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
 
 const ACTIVE_MACHINE_PLAN = [
   {
@@ -297,6 +298,74 @@ function sleep(ms) {
   });
 }
 
+function joinWorkspacePath(basePath, ...segments) {
+  const normalizedBase = String(basePath || '').trim();
+  if (!normalizedBase) return '';
+
+  const separator = IS_WINDOWS_HOST ? '\\' : '/';
+  const parts = [normalizedBase, ...segments]
+    .map((part, index) => {
+      const value = String(part || '');
+      if (!value) return '';
+      if (index === 0) {
+        return value.replace(/[\\/]+$/g, '');
+      }
+      return value.replace(/^[\\/]+|[\\/]+$/g, '');
+    })
+    .filter(Boolean);
+
+  return parts.join(separator);
+}
+
+function buildSshKeySetupCommand() {
+  if (IS_WINDOWS_HOST) {
+    return [
+      'powershell -NoProfile -ExecutionPolicy Bypass -Command',
+      `"`,
+      "$ErrorActionPreference='Stop';",
+      "New-Item -ItemType Directory -Force -Path 'keys/ssh' | Out-Null;",
+      "if (-not (Test-Path 'keys/ssh/ops_ed25519')) {",
+      "& ssh-keygen -t ed25519 -a 64 -f 'keys/ssh/ops_ed25519' -C 'devnet-ops' -N '';",
+      "} else {",
+      "Write-Output 'SSH key already exists; skipping generation.';",
+      "}",
+      "Get-ChildItem 'keys/ssh' -Force | Format-Table -AutoSize Name,Length,LastWriteTime",
+      `"`,
+    ].join(' ');
+  }
+
+  return [
+    'mkdir -p keys/ssh',
+    'if [ ! -f keys/ssh/ops_ed25519 ]; then ssh-keygen -t ed25519 -a 64 -f keys/ssh/ops_ed25519 -C "devnet-ops" -N ""; else echo "SSH key already exists; skipping generation."; fi',
+    'ls -lah keys/ssh',
+  ].join(' && ');
+}
+
+function buildListSshKeysCommand() {
+  if (IS_WINDOWS_HOST) {
+    return 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem \'keys/ssh\' -Force | Format-Table -AutoSize Name,Length,LastWriteTime"';
+  }
+  return 'ls -lah keys/ssh';
+}
+
+function buildInstallerCommand(installersRoot, logicalMachineId) {
+  const scriptName = IS_WINDOWS_HOST ? 'install_and_start.ps1' : 'install_and_start.sh';
+  const installScript = joinWorkspacePath(installersRoot, logicalMachineId, scriptName);
+  if (IS_WINDOWS_HOST) {
+    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${installScript}"`;
+  }
+  return `bash "${installScript}"`;
+}
+
+function buildNodeCtlCommand(installersRoot, logicalMachineId, action) {
+  if (IS_WINDOWS_HOST) {
+    const nodeCtlScript = joinWorkspacePath(installersRoot, logicalMachineId, 'nodectl.ps1');
+    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${nodeCtlScript}" ${action}`;
+  }
+  const nodeCtlScript = joinWorkspacePath(installersRoot, logicalMachineId, 'nodectl.sh');
+  return `bash "${nodeCtlScript}" ${action}`;
+}
+
 function InitialSetupWizard({ onComplete }) {
   const terminalScrollRef = useRef(null);
 
@@ -423,7 +492,7 @@ function InitialSetupWizard({ onComplete }) {
           addTerminalLine('info', message);
         }
 
-        const defaultKeyPath = `${resolvedWorkspace}/keys/ssh/ops_ed25519`;
+        const defaultKeyPath = joinWorkspacePath(resolvedWorkspace, 'keys', 'ssh', 'ops_ed25519');
         setSshProfileForm((prev) => ({
           ...prev,
           ssh_key_path: defaultKeyPath,
@@ -663,10 +732,13 @@ function InitialSetupWizard({ onComplete }) {
       const topologyMessage = await invoke('monitor_apply_devnet_topology');
       addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
-      const selectedMachine = toCanonicalMachineId(selectedPhysicalMachine);
+      const selectedMachine = toCanonicalMachineId(selectedPhysicalMachine, bindingForm.node_slot_id);
+      if (!selectedMachine) {
+        throw new Error('Select the physical machine before running local node setup.');
+      }
       const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [];
       if (logicalNodes.length === 0) {
-        throw new Error(`No logical node mapping found for ${selectedMachine || String(selectedPhysicalMachine || '')}`);
+        throw new Error(`No logical node mapping found for ${selectedMachine}.`);
       }
 
       const hostOverride = String(bindingForm.host_override || '').trim() || PHYSICAL_MACHINE_VPN_IP[selectedMachine] || '';
@@ -684,10 +756,9 @@ function InitialSetupWizard({ onComplete }) {
 
       addTerminalLine('info', `Starting local node setup for ${selectedMachine}: ${formatLogicalNodeList(logicalNodes)}`);
 
-      const basePath = `${workspacePath}/devnet/lean15/installers`;
+      const installersRoot = joinWorkspacePath(workspacePath, 'devnet', 'lean15', 'installers');
       for (const logicalMachineId of logicalNodes) {
-        const installScript = `${basePath}/${logicalMachineId}/install_and_start.sh`;
-        await runStrictCommand(`bash "${installScript}"`, workspacePath || null);
+        await runStrictCommand(buildInstallerCommand(installersRoot, logicalMachineId), workspacePath || null);
       }
 
       const summary = `Completed setup commands for ${selectedMachine} node slots: ${formatLogicalNodeList(logicalNodes)}`;
@@ -734,7 +805,13 @@ function InitialSetupWizard({ onComplete }) {
     try {
       await sleep(AUTOPILOT_RUN_START_PAUSE_MS);
 
-      const selectedMachine = toCanonicalMachineId(machineOverride, selectedPhysicalMachine);
+      const selectedMachine = toCanonicalMachineId(
+        machineOverride,
+        selectedPhysicalMachine || bindingForm.node_slot_id,
+      );
+      if (!selectedMachine) {
+        throw new Error('Select the physical machine (machine-01 through machine-13) before running autonomous setup.');
+      }
       const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [];
       runLogicalNodes = logicalNodes;
       const vpnHost = PHYSICAL_MACHINE_VPN_IP[selectedMachine] || String(bindingForm.host_override || '').trim();
@@ -756,7 +833,7 @@ function InitialSetupWizard({ onComplete }) {
       addTerminalLine('info', `Autopilot trigger: ${triggerSource}. Target machine: ${selectedMachine}.`);
 
       let resolvedWorkspace = workspacePath;
-      const desiredKeyPath = `${workspacePath}/keys/ssh/ops_ed25519`;
+      let desiredKeyPath = joinWorkspacePath(workspacePath, 'keys', 'ssh', 'ops_ed25519');
       let detectedUser = String(sshProfileForm.ssh_user || '').trim();
 
       await runStep('workspace', 'Initialize workspace', async () => {
@@ -765,6 +842,7 @@ function InitialSetupWizard({ onComplete }) {
         if (!resolvedWorkspace) {
           throw new Error('Unable to resolve monitor workspace path.');
         }
+        desiredKeyPath = joinWorkspacePath(resolvedWorkspace, 'keys', 'ssh', 'ops_ed25519');
         setWorkspacePath(resolvedWorkspace);
         setTerminalCwd(resolvedWorkspace);
       });
@@ -790,12 +868,7 @@ function InitialSetupWizard({ onComplete }) {
       });
 
       await runStep('sshkey', 'Generate SSH key if missing', async () => {
-        const command = [
-          'mkdir -p keys/ssh',
-          'if [ ! -f keys/ssh/ops_ed25519 ]; then ssh-keygen -t ed25519 -a 64 -f keys/ssh/ops_ed25519 -C "devnet-ops" -N ""; else echo "SSH key already exists; skipping generation."; fi',
-          'ls -lah keys/ssh',
-        ].join(' && ');
-        await runStrictCommand(command, resolvedWorkspace || null);
+        await runStrictCommand(buildSshKeySetupCommand(), resolvedWorkspace || null);
 
         setSshProfileForm((prev) => ({
           ...prev,
@@ -830,7 +903,7 @@ function InitialSetupWizard({ onComplete }) {
           label: String(sshProfileForm.label || '').trim() || 'Ops SSH Profile',
           ssh_user: detectedUser || String(sshProfileForm.ssh_user || '').trim(),
           ssh_port: Number(sshProfileForm.ssh_port || 22),
-          ssh_key_path: String(sshProfileForm.ssh_key_path || '').trim() || `${resolvedWorkspace}/keys/ssh/ops_ed25519`,
+          ssh_key_path: String(sshProfileForm.ssh_key_path || '').trim() || joinWorkspacePath(resolvedWorkspace, 'keys', 'ssh', 'ops_ed25519'),
           remote_root: String(sshProfileForm.remote_root || '').trim() || '/opt/synergy',
           strict_host_key_checking: null,
           extra_ssh_args: null,
@@ -882,17 +955,19 @@ function InitialSetupWizard({ onComplete }) {
       });
 
       await runStep('installers', 'Run local installer scripts', async () => {
-        const basePath = `${resolvedWorkspace}/devnet/lean15/installers`;
+        const installersRoot = joinWorkspacePath(resolvedWorkspace, 'devnet', 'lean15', 'installers');
         for (const [index, logicalMachineId] of logicalNodes.entries()) {
           updateAutopilotStep(
             'installers',
             'running',
             `Installing ${toLogicalNodeLabel(logicalMachineId)} (${index + 1}/${logicalNodes.length})`,
           );
-          const installScript = `${basePath}/${logicalMachineId}/install_and_start.sh`;
           setLogicalNodeState(logicalMachineId, 'running', 'running installer');
           try {
-            await runStrictCommand(`bash "${installScript}"`, resolvedWorkspace || null);
+            await runStrictCommand(
+              buildInstallerCommand(installersRoot, logicalMachineId),
+              resolvedWorkspace || null,
+            );
             setLogicalNodeState(logicalMachineId, 'success', 'installer complete');
             await sleep(AUTOPILOT_NODE_PAUSE_MS);
           } catch (installError) {
@@ -904,7 +979,7 @@ function InitialSetupWizard({ onComplete }) {
 
       await runStep('validation', 'Validate local node readiness and snapshot', async () => {
         const statusFailures = [];
-        const basePath = `${resolvedWorkspace}/devnet/lean15/installers`;
+        const installersRoot = joinWorkspacePath(resolvedWorkspace, 'devnet', 'lean15', 'installers');
 
         for (const [index, logicalMachineId] of logicalNodes.entries()) {
           updateAutopilotStep(
@@ -926,7 +1001,10 @@ function InitialSetupWizard({ onComplete }) {
             );
 
             try {
-              await runStrictCommand(`bash "${basePath}/${logicalMachineId}/nodectl.sh" status`, resolvedWorkspace || null);
+              await runStrictCommand(
+                buildNodeCtlCommand(installersRoot, logicalMachineId, 'status'),
+                resolvedWorkspace || null,
+              );
               validated = true;
               break;
             } catch (localStatusError) {
@@ -1048,6 +1126,15 @@ function InitialSetupWizard({ onComplete }) {
     void runAutonomousSetup(machineId, 'vpn-auto-detect');
   }, [autoStartMachineId, autopilotBusy, loading, nodeSetupBusy]);
 
+  const manualSshKeySetupCommand = buildSshKeySetupCommand();
+  const manualSshKeyListCommand = buildListSshKeysCommand();
+  const workspaceCommandHint = workspacePath
+    ? (IS_WINDOWS_HOST
+      ? `If you leave it, return with cd /d "${workspacePath}".`
+      : `If you leave it, return with cd "${workspacePath}".`)
+    : '';
+  const sshKeyPathPlaceholder = joinWorkspacePath(workspacePath, 'keys', 'ssh', 'ops_ed25519');
+
   const finalizeSetupAndEnter = async () => {
     setError('');
     try {
@@ -1124,7 +1211,7 @@ function InitialSetupWizard({ onComplete }) {
                 onClick={() => {
                   void runAutonomousSetup();
                 }}
-                disabled={autopilotBusy || nodeSetupBusy}
+                disabled={autopilotBusy || nodeSetupBusy || (!selectedPhysicalMachine && !autoStartMachineId)}
               >
                 {autopilotBusy ? 'Autonomous Setup Running...' : 'Run Autonomous Setup'}
               </button>
@@ -1188,22 +1275,9 @@ function InitialSetupWizard({ onComplete }) {
               </p>
               <ol className="wizard-instruction-list">
                 <li>Run <code>whoami</code> to detect local username (auto-fills SSH user).</li>
-                <li>
-                  Run
-                  {' '}
-                  <code>{`cd "${workspacePath}"`}</code>
-                  {' '}
-                  to enter the control panel workspace.
-                </li>
-                <li>Run <code>mkdir -p keys/ssh</code>.</li>
-                <li>
-                  Run
-                  {' '}
-                  <code>ssh-keygen -t ed25519 -a 64 -f keys/ssh/ops_ed25519 -C "devnet-ops" -N ""</code>
-                  {' '}
-                  to create keys without interactive prompts.
-                </li>
-                <li>Run <code>ls -lah keys/ssh</code> and verify private/public key files exist.</li>
+                <li>The setup terminal already opens in the control panel workspace. {workspaceCommandHint}</li>
+                <li>Run <code>{manualSshKeySetupCommand}</code> to create the SSH key directory and generate the key when missing.</li>
+                <li>Run <code>{manualSshKeyListCommand}</code> and verify private/public key files exist.</li>
               </ol>
               <div className="wizard-action-row">
                 <button className="monitor-btn monitor-btn-primary" onClick={() => setStep(3)} disabled={autopilotBusy}>
@@ -1255,7 +1329,7 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={sshProfileForm.ssh_key_path}
                     onChange={(event) => setSshProfileForm((prev) => ({ ...prev, ssh_key_path: event.target.value }))}
-                    placeholder={`${workspacePath}/keys/ssh/ops_ed25519`}
+                    placeholder={sshKeyPathPlaceholder}
                   />
                 </label>
                 <label>

@@ -66,6 +66,11 @@ function MultiNodeDashboard({ onResetSetup, onStateChange }) {
     return address.toLowerCase().trim();
   };
 
+  const normalizeDevnetChainId = (value) => {
+    if (value === null || value === undefined || value === '') return '338638';
+    return String(value) === '7963749' ? '338638' : value;
+  };
+
   const currentValidator = useMemo(() => {
     const normalizedNodeAddress = normalizeAddress(selectedNode?.address);
     if (!normalizedNodeAddress || !validatorActivity?.validators) {
@@ -958,7 +963,7 @@ function MultiNodeDashboard({ onResetSetup, onStateChange }) {
                           {nodeInfo?.network || 'Unknown'}
                         </div>
                         <div className="card-detail">
-                          Chain ID: {nodeInfo?.chain_id ?? 'N/A'}
+                          Chain ID: {normalizeDevnetChainId(nodeInfo?.chain_id)}
                         </div>
                         <div className="card-detail">
                           Consensus: {nodeInfo?.consensus || 'Proof of Synergy'}
@@ -1740,7 +1745,7 @@ function MultiNodeDashboard({ onResetSetup, onStateChange }) {
                         </div>
                         <div className="info-item">
                           <span className="info-label">Chain ID</span>
-                          <span className="info-value">{nodeInfo?.chain_id ?? 'N/A'}</span>
+                          <span className="info-value">{normalizeDevnetChainId(nodeInfo?.chain_id)}</span>
                         </div>
                         <div className="info-item">
                           <span className="info-label">Sync Status</span>
@@ -1981,7 +1986,7 @@ function MultiNodeDashboard({ onResetSetup, onStateChange }) {
                           {networkPeers.chain_id && (
                             <div className="metric-card">
                               <div className="metric-label">Chain ID</div>
-                              <div className="metric-value" style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{networkPeers.chain_id}</div>
+                              <div className="metric-value" style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{normalizeDevnetChainId(networkPeers.chain_id)}</div>
                             </div>
                           )}
                           {networkPeers.current_block && (

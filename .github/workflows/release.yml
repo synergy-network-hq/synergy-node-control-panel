@@ -231,6 +231,44 @@ jobs:
           path: release-assets/updater
           merge-multiple: true
 
+      - name: Normalize release asset filenames
+        shell: bash
+        run: |
+          sanitize_filename() {
+            printf '%s' "$1" | sed -E \
+              -e 's/[[:space:]]+/\./g' \
+              -e 's/[^A-Za-z0-9._-]+/\./g' \
+              -e 's/\.+/\./g'
+          }
+
+          normalize_dir() {
+            local dir="$1"
+            while IFS= read -r -d '' path; do
+              local name normalized
+              name="$(basename "$path")"
+              normalized="$(sanitize_filename "$name")"
+
+              if [[ -z "$normalized" ]]; then
+                echo "Failed to normalize release asset filename: $name" >&2
+                exit 1
+              fi
+
+              if [[ "$normalized" == "$name" ]]; then
+                continue
+              fi
+
+              if [[ -e "$dir/$normalized" ]]; then
+                echo "Normalized release asset filename collision: $name -> $normalized" >&2
+                exit 1
+              fi
+
+              mv "$path" "$dir/$normalized"
+            done < <(find "$dir" -maxdepth 1 -type f -print0)
+          }
+
+          normalize_dir release-assets/installers
+          normalize_dir release-assets/updater
+
       - name: Summarize release assets
         run: |
           echo "=== Installer assets ==="
@@ -256,6 +294,18 @@ jobs:
           scripts/release/generate-latest-json.sh release-assets "$VERSION" "${{ env.RELEASES_REPO }}"
           echo "=== latest.json ==="
           cat release-assets/latest.json
+
+      - name: Validate latest.json asset references
+        shell: bash
+        run: |
+          while IFS= read -r url; do
+            asset_name="$(basename "$url")"
+            if [[ -f "release-assets/installers/$asset_name" || -f "release-assets/updater/$asset_name" ]]; then
+              continue
+            fi
+            echo "latest.json references a missing release asset: $asset_name" >&2
+            exit 1
+          done < <(jq -r '.platforms[].url' release-assets/latest.json)
 
       - name: Create GitHub Release on releases repo
         uses: softprops/action-gh-release@v2
@@ -289,3 +339,27 @@ jobs:
           token: ${{ secrets.RELEASES_REPO_TOKEN }}
           draft: false
           prerelease: false
+
+      - name: Validate published updater URLs
+        shell: bash
+        run: |
+          check_url() {
+            local url="$1"
+            local attempt
+
+            for attempt in {1..10}; do
+              if curl --silent --show-error --fail --location --head "$url" >/dev/null; then
+                return 0
+              fi
+              echo "Waiting for published asset to become available (${attempt}/10): $url"
+              sleep 3
+            done
+
+            echo "Published asset is still unavailable: $url" >&2
+            return 1
+          }
+
+          check_url "https://github.com/${{ env.RELEASES_REPO }}/releases/download/${{ steps.tag.outputs.version }}/latest.json"
+          while IFS= read -r url; do
+            check_url "$url"
+          done < <(jq -r '.platforms[].url' release-assets/latest.json)

@@ -1,0 +1,24 @@
+node_slot_id,node_alias,role_group,role,node_type,address_class,p2p_port,rpc_port,ws_port,grpc_port,discovery_port,host,vpn_ip,physical_machine_id,auto_register_validator,enable_pruning,vrf_enabled,operator,device,operating_system,public_ip,local_ip
+node-01,consensus-01,consensus,validator,validator,1,38638,48638,58638,50051,39638,10.50.0.1,10.50.0.1,machine-01,true,false,true,Rob,Synergy Node,Mac OS beta 26.4,73.79.66.255,192.168.11.228
+node-02,consensus-02,consensus,validator,validator,1,38639,48639,58639,50052,39639,10.50.0.2,10.50.0.2,machine-02,true,false,true,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65
+node-03,service-01,services,observer,observer,5,38640,48640,58640,50053,39640,10.50.0.2,10.50.0.2,machine-02,false,false,false,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65
+node-04,consensus-03,consensus,validator,validator,1,38641,48641,58641,50054,39641,10.50.0.3,10.50.0.3,machine-03,true,false,true,Rob,Garage mini,Mac OS beta 26.4,73.79.66.255,192.168.11.178
+node-05,interop-01,interop,cross-chain-verifier,cross-chain-verifier,2,38642,48642,58642,50055,39642,10.50.0.3,10.50.0.3,machine-03,false,true,false,Rob,Garage mini,Mac OS beta 26.4,73.79.66.255,192.168.11.178
+node-06,consensus-04,consensus,validator,validator,1,38643,48643,58643,50056,39643,10.50.0.4,10.50.0.4,machine-04,true,false,true,Justin,HP Victus,Ubuntu 25.10 Desktop,24.181.87.76,192.168.1.98
+node-07,interop-02,interop,relayer,relayer,2,38644,48644,58644,50057,39644,10.50.0.4,10.50.0.4,machine-04,false,true,false,Justin,HP Victus,Ubuntu 25.10 Desktop,24.181.87.76,192.168.1.98
+node-08,consensus-05,consensus,validator,validator,1,38645,48645,58645,50058,39645,10.50.0.5,10.50.0.5,machine-05,true,false,true,Rob,Mac Pro (Linux),Ubuntu 24.04.4 LTS,73.79.66.255,192.168.11.229
+node-09,consensus-06,consensus,committee,committee,1,38646,48646,58646,50059,39646,10.50.0.5,10.50.0.5,machine-05,true,false,true,Rob,Mac Pro (Linux),Ubuntu 24.04.4 LTS,73.79.66.255,192.168.11.229
+node-10,governance-01,governance,security-council,security-council,4,38647,48647,58647,50060,39647,10.50.0.6,10.50.0.6,machine-06,true,false,true,Network,VPS,Ubuntu 24.04 Server,74.208.227.23,
+node-11,interop-03,interop,oracle,oracle,2,38648,48648,58648,50061,39648,10.50.0.6,10.50.0.6,machine-06,false,true,false,Network,VPS,Ubuntu 24.04 Server,74.208.227.23,
+node-12,interop-04,interop,witness,witness,2,38649,48649,58649,50062,39649,10.50.0.7,10.50.0.7,machine-07,false,true,false,Rob,Winnode,Windows 11 home,73.79.66.255,192.168.11.98
+node-13,service-02,services,rpc-gateway,rpc-gateway,5,38650,48650,58650,50063,39650,10.50.0.7,10.50.0.7,machine-07,false,true,false,Rob,Winnode,Windows 11 home,73.79.66.255,192.168.11.98
+node-14,service-03,services,indexer,indexer,5,38651,48651,58651,50064,39651,10.50.0.8,10.50.0.8,machine-08,false,false,false,Rob,Media,Windows 11 home,73.79.66.255,192.168.11.191
+node-15,compute-01,pqc,pqc-crypto,pqc-crypto,3,38652,48652,58652,50065,39652,10.50.0.8,10.50.0.8,machine-08,false,true,false,Rob,Media,Windows 11 home,73.79.66.255,192.168.11.191
+node-16,consensus-07,consensus,archive-validator,archive-validator,1,38653,48653,58653,50066,39653,10.50.0.9,10.50.0.9,machine-09,true,false,true,David,,,,
+node-17,consensus-08,consensus,audit-validator,audit-validator,1,38654,48654,58654,50067,39654,10.50.0.9,10.50.0.9,machine-09,true,false,true,David,,,,
+node-18,compute-02,compute,data-availability,data-availability,3,38655,48655,58655,50068,39655,10.50.0.10,10.50.0.10,machine-10,false,true,false,Mark,,,,
+node-20,compute-03,compute,ai-inference,ai-inference,3,38657,48657,58657,50070,39657,10.50.0.11,10.50.0.11,machine-11,false,true,false,Mark,,,,
+node-22,interop-05,interop,uma-coordinator,uma-coordinator,3,38659,48659,58659,50072,39659,10.50.0.12,10.50.0.12,machine-12,false,true,false,Gunther,Cracker MacPro 6.1,Ubuntu 25.10 Desktop,,
+node-23,compute-04,compute,compute,compute,3,38660,48660,58660,50073,39660,10.50.0.12,10.50.0.12,machine-12,false,true,false,Gunther,Cracker MacPro 6.1,Ubuntu 25.10 Desktop,,
+node-24,governance-02,governance,treasury-controller,treasury-controller,4,38661,48661,58661,50074,39661,10.50.0.13,10.50.0.13,machine-13,true,false,true,David?,,,,
+node-25,governance-03,governance,governance-auditor,governance-auditor,4,38662,48662,58662,50075,39662,10.50.0.13,10.50.0.13,machine-13,true,false,true,David?,,,,
