@@ -182,9 +182,8 @@ function Layout({ children }) {
                 alt="Synergy Logo"
                 className="logo-icon-bg"
               />
-              <div className="brand-stack">
-                <span className="brand-title">Synergy Devnet</span>
-                <span className="brand-subtitle">Control Panel</span>
+              <div className="brand-stack brand-stack-single">
+                <span className="brand-title brand-title-network">Synergy Network</span>
               </div>
             </div>
           </div>

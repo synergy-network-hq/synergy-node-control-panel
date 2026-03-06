@@ -29,7 +29,8 @@ inventory_file, addresses_file, output_file = sys.argv[1:4]
 
 chain_id = int(os.environ.get("DEVNET_CHAIN_ID", "338638"))
 genesis_time = os.environ.get("DEVNET_GENESIS_TIME", "2026-01-01T00:00:00Z")
-validator_stake = int(os.environ.get("DEVNET_VALIDATOR_STAKE", "5000000000000"))
+node_genesis_allocation = int(os.environ.get("DEVNET_NODE_GENESIS_ALLOCATION", "100000000000000"))
+node_stake = int(os.environ.get("DEVNET_NODE_STAKE", os.environ.get("DEVNET_VALIDATOR_STAKE", "5000000000000")))
 min_validators = int(os.environ.get("DEVNET_MIN_VALIDATORS", "2"))
 max_validators = int(os.environ.get("DEVNET_MAX_VALIDATORS", "15"))
 
@@ -53,10 +54,10 @@ addresses = {}
 with open(addresses_file, newline="", encoding="utf-8") as handle:
     reader = csv.DictReader(handle)
     for row in reader:
-        machine_id = row.get("machine_id", "").strip()
+        node_slot_id = row.get("node_slot_id", "").strip()
         address = row.get("address", "").strip()
-        if machine_id and address:
-            addresses[machine_id] = address
+        if node_slot_id and address:
+            addresses[node_slot_id] = address
 
 inventory_rows = []
 with open(inventory_file, newline="", encoding="utf-8") as handle:
@@ -64,7 +65,7 @@ with open(inventory_file, newline="", encoding="utf-8") as handle:
     for row in reader:
         inventory_rows.append(row)
 
-machine_by_id = {row["machine_id"]: row for row in inventory_rows}
+machine_by_id = {row["node_slot_id"]: row for row in inventory_rows}
 
 bootnodes = []
 for bootnode_id in ("node-01", "node-02"):
@@ -90,37 +91,54 @@ validator_rows = [
     if parse_bool(row.get("auto_register_validator", "")) and is_consensus_validator(row)
 ]
 validators = []
-validator_allocations = []
+node_allocations = []
 for index, row in enumerate(validator_rows, start=1):
-    machine_id = row["machine_id"]
-    address = addresses.get(machine_id)
+    node_slot_id = row["node_slot_id"]
+    address = addresses.get(node_slot_id)
     if not address:
         continue
-    node_id = row.get("node_id", machine_id)
+    node_alias = row.get("node_alias", node_slot_id)
     validators.append(
         {
             "address": address,
-            "public_key_file": f"devnet/lean15/keys/{machine_id}/identity.json",
-            "stake": str(validator_stake),
+            "public_key_file": f"devnet/lean15/keys/{node_slot_id}/identity.json",
+            "stake": str(node_stake),
             "commission_rate": 0.05,
             "min_self_delegation": "1",
             "max_delegations": 1000,
             "details": {
-                "name": f"{node_id} validator",
-                "identity": node_id,
+                "name": f"{node_alias} validator",
+                "identity": node_alias,
                 "website": "https://synergy.local",
                 "security_contact": "security@synergy.local",
                 "class": int(row.get("address_class") or 1),
             },
         }
     )
-    validator_allocations.append(
+for row in inventory_rows:
+    node_slot_id = row["node_slot_id"]
+    address = addresses.get(node_slot_id)
+    if not address:
+        continue
+    node_alias = row.get("node_alias", node_slot_id)
+    role_group = row.get("role_group", "")
+    role = row.get("role", "")
+    node_type = row.get("node_type", "")
+    physical_machine_id = row.get("physical_machine_id", "")
+    allocation_type = "validator_wallet" if is_consensus_validator(row) else "node_wallet"
+    node_allocations.append(
         {
-            "type": "validator_wallet",
+            "type": allocation_type,
             "address": address,
-            "balance": str(validator_stake),
-            "stake": str(validator_stake),
-            "description": f"Devnet validator allocation for {node_id}",
+            "balance": str(node_genesis_allocation),
+            "stake": str(node_stake),
+            "description": f"Devnet node allocation for {node_alias}",
+            "node_alias": node_alias,
+            "node_slot_id": node_slot_id,
+            "role_group": role_group,
+            "role": role,
+            "node_type": node_type,
+            "physical_machine_id": physical_machine_id,
         }
     )
 
@@ -156,7 +174,7 @@ genesis_allocations = [
         "description": "Load and integration testing wallet pool",
     },
 ]
-genesis_allocations.extend(validator_allocations)
+genesis_allocations.extend(node_allocations)
 
 total_allocated = 0
 for allocation in genesis_allocations:
@@ -183,7 +201,7 @@ genesis = {
             "min_validators": min_validators,
             "max_validators": max_validators,
             "quorum_threshold": 0.67,
-            "min_stake_amount": str(validator_stake),
+            "min_stake_amount": str(node_stake),
             "allow_zero_stake_validators": False,
             "dynamic_validator_registration": True,
             "slashing_conditions": {

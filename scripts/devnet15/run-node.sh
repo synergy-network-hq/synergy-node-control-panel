@@ -22,11 +22,11 @@ if [[ $# -lt 2 ]]; then
 fi
 
 ACTION="$1"
-MACHINE_ID="$2"
+NODE_SLOT_ID="$2"
 FOLLOW_FLAG="${3:-}"
 
-CONFIG_FILE="$ROOT_DIR/devnet/lean15/configs/${MACHINE_ID}.toml"
-DATA_DIR="$ROOT_DIR/data/devnet15/${MACHINE_ID}"
+CONFIG_FILE="$ROOT_DIR/devnet/lean15/configs/${NODE_SLOT_ID}.toml"
+DATA_DIR="$ROOT_DIR/data/devnet15/${NODE_SLOT_ID}"
 PID_FILE="$DATA_DIR/node.pid"
 LOG_DIR="$DATA_DIR/logs"
 OUT_FILE="$LOG_DIR/node.out"
@@ -56,19 +56,19 @@ is_running() {
 
 start_node() {
   if is_running; then
-    echo "$MACHINE_ID is already running (PID $(cat "$PID_FILE"))"
+    echo "$NODE_SLOT_ID is already running (PID $(cat "$PID_FILE"))"
     exit 0
   fi
 
   nohup "$BINARY" start --config "$CONFIG_FILE" > "$OUT_FILE" 2>&1 &
   echo $! > "$PID_FILE"
-  echo "Started $MACHINE_ID with PID $(cat "$PID_FILE")"
+  echo "Started $NODE_SLOT_ID with PID $(cat "$PID_FILE")"
   echo "Log output: $OUT_FILE"
 }
 
 stop_node() {
   if ! is_running; then
-    echo "$MACHINE_ID is not running"
+    echo "$NODE_SLOT_ID is not running"
     rm -f "$PID_FILE"
     exit 0
   fi
@@ -88,14 +88,14 @@ stop_node() {
   fi
 
   rm -f "$PID_FILE"
-  echo "Stopped $MACHINE_ID"
+  echo "Stopped $NODE_SLOT_ID"
 }
 
 status_node() {
   if is_running; then
-    echo "$MACHINE_ID is running (PID $(cat "$PID_FILE"))"
+    echo "$NODE_SLOT_ID is running (PID $(cat "$PID_FILE"))"
   else
-    echo "$MACHINE_ID is stopped"
+    echo "$NODE_SLOT_ID is stopped"
   fi
 }
 

@@ -69,7 +69,7 @@ function Open-Ports {
     return
   }
 
-  $machineId = Get-NodeEnvValue "MACHINE_ID"
+  $machineId = Get-NodeEnvValue "NODE_SLOT_ID"
   foreach ($port in $ports) {
     $ruleName = "Synergy-$machineId-$port"
     $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
@@ -86,7 +86,7 @@ function Open-Ports {
 function Start-Node {
   if (Test-NodeRunning) {
     $currentPid = Get-Content $PidFile | Select-Object -First 1
-    Write-Host "$($NodeEnv['MACHINE_ID']) already running (PID $currentPid)"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) already running (PID $currentPid)"
     return
   }
 
@@ -130,7 +130,7 @@ function Start-Node {
   $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
   Set-Content -Path $PidFile -Value $proc.Id
 
-  Write-Host "Started $($NodeEnv['MACHINE_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"
+  Write-Host "Started $($NodeEnv['NODE_SLOT_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"
   Write-Host "Logs: $OutFile"
 }
 

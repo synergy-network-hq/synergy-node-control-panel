@@ -78,7 +78,7 @@ function OperatorConfigurationPage() {
   });
 
   const [newBinding, setNewBinding] = useState({
-    machine_id: '',
+    node_slot_id: '',
     profile_id: 'ops',
     host_override: '',
     remote_dir_override: '',
@@ -121,7 +121,7 @@ function OperatorConfigurationPage() {
   const physicalMachines = useMemo(() => {
     const set = new Set();
     nodes.forEach((entry) => {
-      if (entry?.node?.physical_machine) set.add(String(entry.node.physical_machine));
+      if (entry?.node?.physical_machine_id) set.add(String(entry.node.physical_machine_id));
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [nodes]);
@@ -130,7 +130,7 @@ function OperatorConfigurationPage() {
   const isAdmin = activeRole === 'admin';
   const operatorCount = securityState?.operators?.length || 0;
   const profileCount = securityState?.ssh_profiles?.length || 0;
-  const bindingCount = securityState?.machine_bindings?.length || 0;
+  const bindingCount = securityState?.ssh_bindings?.length || 0;
   const onlineNodes = snapshot?.online_nodes ?? 0;
   const totalNodes = snapshot?.total_nodes ?? 0;
   const activeOperator = (securityState?.operators || []).find(
@@ -235,12 +235,12 @@ function OperatorConfigurationPage() {
   const handleAssignBinding = async () => {
     try {
       const payload = {
-        machine_id: newBinding.machine_id,
+        node_slot_id: newBinding.node_slot_id,
         profile_id: newBinding.profile_id,
         host_override: String(newBinding.host_override || '').trim() || null,
         remote_dir_override: String(newBinding.remote_dir_override || '').trim() || null,
       };
-      const updated = await invoke('monitor_assign_machine_ssh_profile', { input: payload });
+      const updated = await invoke('monitor_assign_ssh_binding', { input: payload });
       setSecurityState(updated);
       setError('');
     } catch (err) {
@@ -248,9 +248,9 @@ function OperatorConfigurationPage() {
     }
   };
 
-  const handleRemoveBinding = async (machineId) => {
+  const handleRemoveBinding = async (nodeSlotId) => {
     try {
-      const updated = await invoke('monitor_remove_machine_ssh_profile', { machineId });
+      const updated = await invoke('monitor_remove_ssh_binding', { nodeSlotId });
       setSecurityState(updated);
       setError('');
     } catch (err) {
@@ -557,8 +557,8 @@ function OperatorConfigurationPage() {
           </p>
           <div className="monitor-form-grid monitor-form-grid-wide">
             <select
-              value={newBinding.machine_id}
-              onChange={(event) => setNewBinding((prev) => ({ ...prev, machine_id: event.target.value }))}
+              value={newBinding.node_slot_id}
+              onChange={(event) => setNewBinding((prev) => ({ ...prev, node_slot_id: event.target.value }))}
             >
               <option value="">Select binding target</option>
               {physicalMachines.length > 0 && (
@@ -573,11 +573,11 @@ function OperatorConfigurationPage() {
               {nodes.length > 0 && (
                 <optgroup label="Node Slots">
                   {nodes.map((entry) => (
-                    <option key={entry.node.machine_id} value={entry.node.machine_id}>
-                      {entry.node.machine_id}
+                    <option key={entry.node.node_slot_id} value={entry.node.node_slot_id}>
+                      {entry.node.node_slot_id}
                       {' '}
                       (
-                      {entry.node.physical_machine || 'unassigned host'}
+                      {entry.node.physical_machine_id || 'unassigned host'}
                       )
                     </option>
                   ))}
@@ -611,10 +611,10 @@ function OperatorConfigurationPage() {
           </button>
 
           <div className="monitor-record-list">
-            {(securityState?.machine_bindings || []).map((binding) => (
-              <div key={binding.machine_id} className="monitor-record-row">
+            {(securityState?.ssh_bindings || []).map((binding) => (
+              <div key={binding.node_slot_id} className="monitor-record-row">
                 <div className="monitor-record-copy">
-                  <strong>{binding.machine_id}</strong>
+                  <strong>{binding.node_slot_id}</strong>
                   <span>
                     profile {binding.profile_id}
                     {binding.host_override ? ` · host ${binding.host_override}` : ''}
@@ -623,7 +623,7 @@ function OperatorConfigurationPage() {
                 </div>
                 <div className="monitor-record-actions">
                   {isAdmin ? (
-                    <button className="monitor-btn" onClick={() => handleRemoveBinding(binding.machine_id)}>
+                    <button className="monitor-btn" onClick={() => handleRemoveBinding(binding.node_slot_id)}>
                       Remove
                     </button>
                   ) : null}
@@ -734,9 +734,9 @@ function OperatorConfigurationPage() {
               </div>
               <div className="monitor-record-list">
                 {(bulkResult.results || []).slice(0, 20).map((result) => (
-                  <div key={`${result.machine_id}-${result.executed_at_utc}`} className="monitor-record-row">
+                  <div key={`${result.node_slot_id}-${result.executed_at_utc}`} className="monitor-record-row">
                     <div className="monitor-record-copy">
-                      <strong>{result.machine_id}</strong>
+                      <strong>{result.node_slot_id}</strong>
                       <span>
                         exit {result.exit_code}
                         {' · '}

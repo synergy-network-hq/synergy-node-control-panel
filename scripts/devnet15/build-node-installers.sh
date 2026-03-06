@@ -54,8 +54,8 @@ normalize_bool() {
 
 collect_allowlisted_validators_csv() {
   local addresses=()
-  while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
-    [[ "$machine_id" == "machine_id" ]] && continue
+  while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+    [[ "$node_slot_id" == "node_slot_id" ]] && continue
     local normalized_group normalized_role normalized_type
     normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
     normalized_role="$(echo "${role:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
@@ -69,7 +69,7 @@ collect_allowlisted_validators_csv() {
     if [[ "$normalized_type" != "validator" && "$normalized_role" != "validator" ]]; then
       continue
     fi
-    local address_file="$KEYS_DIR/${machine_id}/address.txt"
+    local address_file="$KEYS_DIR/${node_slot_id}/address.txt"
     if [[ -f "$address_file" ]]; then
       local address
       address="$(cat "$address_file")"
@@ -357,7 +357,7 @@ is_running() {
 
 start_node() {
   if is_running; then
-    echo "$MACHINE_ID already running (PID $(cat "$PID_FILE"))"
+    echo "$NODE_SLOT_ID already running (PID $(cat "$PID_FILE"))"
     return
   fi
 
@@ -390,7 +390,7 @@ start_node() {
     "$BIN_SELECTED" start --config "$BASE_DIR/config/node.toml" > "$OUT_FILE" 2>&1 &
   echo $! > "$PID_FILE"
 
-  echo "Started $MACHINE_ID ($NODE_TYPE) PID $(cat "$PID_FILE")"
+  echo "Started $NODE_SLOT_ID ($NODE_TYPE) PID $(cat "$PID_FILE")"
   echo "Logs: $OUT_FILE"
 }
 
@@ -447,7 +447,7 @@ start_node() {
 
 stop_node() {
   if ! is_running; then
-    echo "$MACHINE_ID is not running"
+    echo "$NODE_SLOT_ID is not running"
     rm -f "$PID_FILE"
     return
   fi
@@ -468,14 +468,14 @@ stop_node() {
   fi
 
   rm -f "$PID_FILE"
-  echo "Stopped $MACHINE_ID"
+  echo "Stopped $NODE_SLOT_ID"
 }
 
 status_node() {
   if is_running; then
-    echo "$MACHINE_ID is running (PID $(cat "$PID_FILE"))"
+    echo "$NODE_SLOT_ID is running (PID $(cat "$PID_FILE"))"
   else
-    echo "$MACHINE_ID is stopped"
+    echo "$NODE_SLOT_ID is stopped"
   fi
 }
 
@@ -494,8 +494,8 @@ show_logs() {
 show_info() {
   local bin
   bin="$(select_binary)"
-  echo "Machine ID: $MACHINE_ID"
-  echo "Node ID: $NODE_ID"
+  echo "Machine ID: $NODE_SLOT_ID"
+  echo "Node ID: $NODE_ALIAS"
   echo "Role: $ROLE"
   echo "Node Type: $NODE_TYPE"
   echo "Address Class: $ADDRESS_CLASS"
@@ -623,9 +623,9 @@ function Open-Ports {
     return
   }
 
-  $machineId = Get-NodeEnvValue "MACHINE_ID"
+  $nodeSlotId = Get-NodeEnvValue "NODE_SLOT_ID"
   foreach ($port in $ports) {
-    $ruleName = "Synergy-$machineId-$port"
+    $ruleName = "Synergy-$nodeSlotId-$port"
     $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
     if (-not $existing) {
       if ($networkTransport -eq "wireguard") {
@@ -640,7 +640,7 @@ function Open-Ports {
 function Start-Node {
   if (Test-NodeRunning) {
     $currentPid = Get-Content $PidFile | Select-Object -First 1
-    Write-Host "$($NodeEnv['MACHINE_ID']) already running (PID $currentPid)"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) already running (PID $currentPid)"
     return
   }
 
@@ -684,7 +684,7 @@ function Start-Node {
   $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
   Set-Content -Path $PidFile -Value $proc.Id
 
-  Write-Host "Started $($NodeEnv['MACHINE_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"
+  Write-Host "Started $($NodeEnv['NODE_SLOT_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"
   Write-Host "Logs: $OutFile"
 }
 
@@ -741,7 +741,7 @@ function Start-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
 
 function Stop-Node {
   if (-not (Test-NodeRunning)) {
-    Write-Host "$($NodeEnv['MACHINE_ID']) is not running"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) is not running"
     if (Test-Path $PidFile) { Remove-Item $PidFile -Force }
     return
   }
@@ -753,15 +753,15 @@ function Stop-Node {
     Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue
   }
   if (Test-Path $PidFile) { Remove-Item $PidFile -Force }
-  Write-Host "Stopped $($NodeEnv['MACHINE_ID'])"
+  Write-Host "Stopped $($NodeEnv['NODE_SLOT_ID'])"
 }
 
 function Status-Node {
   if (Test-NodeRunning) {
     $pidValue = Get-Content $PidFile | Select-Object -First 1
-    Write-Host "$($NodeEnv['MACHINE_ID']) is running (PID $pidValue)"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) is running (PID $pidValue)"
   } else {
-    Write-Host "$($NodeEnv['MACHINE_ID']) is stopped"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) is stopped"
   }
 }
 
@@ -778,8 +778,8 @@ function Logs-Node {
 }
 
 function Info-Node {
-  Write-Host "Node Slot ID: $(Get-NodeEnvValue 'MACHINE_ID')"
-  Write-Host "Node ID: $(Get-NodeEnvValue 'NODE_ID')"
+  Write-Host "Node Slot ID: $(Get-NodeEnvValue 'NODE_SLOT_ID')"
+  Write-Host "Node ID: $(Get-NodeEnvValue 'NODE_ALIAS')"
   Write-Host "Role: $(Get-NodeEnvValue 'ROLE')"
   Write-Host "Node Type: $(Get-NodeEnvValue 'NODE_TYPE')"
   Write-Host "Address Class: $(Get-NodeEnvValue 'ADDRESS_CLASS')"
@@ -809,7 +809,7 @@ SCRIPT
 
 write_commands_file() {
   local node_dir="$1"
-  local machine_id="$2"
+  local node_slot_id="$2"
   local node_type="$3"
   local p2p_port="$4"
   local rpc_port="$5"
@@ -821,7 +821,7 @@ write_commands_file() {
 Synergy Devnet Node Command Reference
 ====================================
 
-Node Slot: $machine_id
+Node Slot: $node_slot_id
 Type: $node_type
 
 Ports
@@ -901,7 +901,7 @@ TXT
 
 write_readme() {
   local node_dir="$1"
-  local machine_id="$2"
+  local node_slot_id="$2"
   local role_group="$3"
   local role="$4"
   local node_type="$5"
@@ -913,7 +913,7 @@ write_readme() {
 Synergy Lean 15 Devnet Installer
 ================================
 
-Node Slot: $machine_id
+Node Slot: $node_slot_id
 Role Group: $role_group
 Role: $role
 Node Type: $node_type
@@ -995,14 +995,14 @@ TXT
 
 ALLOWED_VALIDATOR_ADDRESSES_CSV="$(collect_allowlisted_validators_csv)"
 
-while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
+while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
 
   auto_register="$(normalize_bool "$auto_register")"
   enable_pruning="$(normalize_bool "$enable_pruning")"
   vrf_enabled="$(normalize_bool "$vrf_enabled")"
 
-  node_dir="$OUT_DIR/$machine_id"
+  node_dir="$OUT_DIR/$node_slot_id"
   rm -rf "$node_dir"
   mkdir -p "$node_dir/bin" "$node_dir/config" "$node_dir/keys"
 
@@ -1011,19 +1011,19 @@ while IFS=, read -r machine_id node_id role_group role node_type address_class p
   cp "$WINDOWS_BINARY" "$node_dir/bin/synergy-devnet-windows-amd64.exe"
   chmod +x "$node_dir/bin/synergy-devnet-linux-amd64" "$node_dir/bin/synergy-devnet-darwin-arm64"
 
-  cp "$CONFIG_DIR/${machine_id}.toml" "$node_dir/config/node.toml"
+  cp "$CONFIG_DIR/${node_slot_id}.toml" "$node_dir/config/node.toml"
   cp "$GENESIS_FILE" "$node_dir/config/genesis.json"
-  cp "$KEYS_DIR/${machine_id}"/* "$node_dir/keys/"
+  cp "$KEYS_DIR/${node_slot_id}"/* "$node_dir/keys/"
 
   cat > "$node_dir/node.env" <<ENV
-MACHINE_ID=$machine_id
-NODE_ID=$node_id
+NODE_SLOT_ID=$node_slot_id
+NODE_ALIAS=$node_alias
 ROLE_GROUP=$role_group
 ROLE=$role
 NODE_TYPE=$node_type
 ADDRESS_CLASS=$address_class
-NODE_ADDRESS=$(cat "$KEYS_DIR/${machine_id}/address.txt")
-SYNERGY_VALIDATOR_ADDRESS=$(cat "$KEYS_DIR/${machine_id}/address.txt")
+NODE_ADDRESS=$(cat "$KEYS_DIR/${node_slot_id}/address.txt")
+SYNERGY_VALIDATOR_ADDRESS=$(cat "$KEYS_DIR/${node_slot_id}/address.txt")
 P2P_PORT=$p2p_port
 RPC_PORT=$rpc_port
 WS_PORT=$ws_port
@@ -1051,8 +1051,8 @@ ENV
   write_nodectl_script "$node_dir"
   write_install_ps1 "$node_dir"
   write_nodectl_ps1 "$node_dir"
-  write_commands_file "$node_dir" "$machine_id" "$node_type" "$p2p_port" "$rpc_port" "$ws_port" "$grpc_port" "$discovery_port"
-  write_readme "$node_dir" "$machine_id" "$role_group" "$role" "$node_type" \
+  write_commands_file "$node_dir" "$node_slot_id" "$node_type" "$p2p_port" "$rpc_port" "$ws_port" "$grpc_port" "$discovery_port"
+  write_readme "$node_dir" "$node_slot_id" "$role_group" "$role" "$node_type" \
     "$LINUX_BINARY_SOURCE" "$DARWIN_BINARY_SOURCE" "$WINDOWS_BINARY_SOURCE"
   write_binary_status_file "$node_dir" "$LINUX_BINARY_SOURCE" "$DARWIN_BINARY_SOURCE" "$WINDOWS_BINARY_SOURCE" \
     "$(sha256_file "$node_dir/bin/synergy-devnet-linux-amd64")" \

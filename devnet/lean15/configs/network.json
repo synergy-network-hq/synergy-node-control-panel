@@ -16,35 +16,35 @@
     "Class I": {
       "description": "Consensus Nodes — Secure the chain through PoSy consensus (block production, validation, cluster synchronization)",
       "addressPrefix": "synv1",
-      "stakingRequirement": 100000,
+      "stakingRequirement": 5000,
       "rewardMultiplier": 1.0,
       "nodeCount": 4
     },
     "Class II": {
       "description": "Interoperability Nodes — Execute SXCP and UMA operations (cross-chain bridging, relaying, witnessing)",
       "addressPrefix": "synv2",
-      "stakingRequirement": 250000,
+      "stakingRequirement": 5000,
       "rewardMultiplier": 0.85,
       "nodeCount": 5
     },
     "Class III": {
       "description": "Intelligence & Computation Nodes — Provide decentralized compute and AI services (AIVM off-chain tasks, analytics, PQC computation)",
       "addressPrefix": "synv3",
-      "stakingRequirement": 50000,
+      "stakingRequirement": 5000,
       "rewardMultiplier": 0.75,
       "nodeCount": 4
     },
     "Class IV": {
       "description": "Governance & Treasury Nodes — Manage DAO proposals and treasury execution (voting, enforcement, emergency rollback)",
       "addressPrefix": "synv4",
-      "stakingRequirement": 10000,
+      "stakingRequirement": 5000,
       "rewardMultiplier": 1.1,
       "nodeCount": 3
     },
     "Class V": {
       "description": "Service & Support Nodes — Operate ancillary infrastructure (API, RPC, archival, indexer, observer functionality)",
       "addressPrefix": "synv5",
-      "stakingRequirement": 0,
+      "stakingRequirement": 5000,
       "rewardMultiplier": 0.6,
       "nodeCount": 3
     },

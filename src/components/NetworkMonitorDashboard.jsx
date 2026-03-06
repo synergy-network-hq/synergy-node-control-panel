@@ -90,7 +90,7 @@ function NetworkMonitorDashboard() {
     <section className="monitor-shell">
       <div className="monitor-toolbar">
         <div className="monitor-toolbar-left">
-          <h2>Synergy Devnet Control Panel</h2>
+          <h2>Devnet Control Panel</h2>
           <div className="monitor-cards monitor-cards-compact">
             <article className="monitor-card monitor-card-border-lime">
               <span>Total Nodes</span>
@@ -232,7 +232,7 @@ function NetworkMonitorDashboard() {
             <tr>
               <th>Physical Machine</th>
               <th>Node Slot</th>
-              <th>Node ID</th>
+              <th>Node Alias</th>
               <th>Role Group</th>
               <th>Role</th>
               <th>Type</th>
@@ -248,10 +248,10 @@ function NetworkMonitorDashboard() {
           </thead>
           <tbody>
             {nodes.map((entry) => (
-              <tr key={entry.node.machine_id}>
-                <td>{entry.node.physical_machine || entry.node.machine_id}</td>
-                <td>{entry.node.machine_id}</td>
-                <td>{entry.node.node_id}</td>
+              <tr key={entry.node.node_slot_id}>
+                <td>{entry.node.physical_machine_id || entry.node.node_slot_id}</td>
+                <td>{entry.node.node_slot_id}</td>
+                <td>{entry.node.node_alias}</td>
                 <td>{entry.node.role_group}</td>
                 <td>{entry.node.role}</td>
                 <td>{entry.node.node_type}</td>
@@ -273,7 +273,7 @@ function NetworkMonitorDashboard() {
                 <td>
                   <Link
                     className="monitor-link-btn"
-                    to={`/node/${encodeURIComponent(entry.node.machine_id)}`}
+                    to={`/node/${encodeURIComponent(entry.node.node_slot_id)}`}
                   >
                     Open
                   </Link>

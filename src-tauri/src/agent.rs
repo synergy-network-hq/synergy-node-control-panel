@@ -55,8 +55,8 @@ pub async fn agent_setup_node(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JarvisInventoryMachine {
-    pub machine_id: String,
-    pub node_id: String,
+    pub node_slot_id: String,
+    pub node_alias: String,
     pub role_group: String,
     pub role: String,
     pub node_type: String,
@@ -66,7 +66,8 @@ pub struct JarvisInventoryMachine {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JarvisMachineConnectionInput {
-    pub machine_id: String,
+    #[serde(alias = "machine_id")]
+    pub node_slot_id: String,
     pub host: String,
     pub ssh_user: Option<String>,
     pub ssh_port: Option<u16>,
@@ -129,16 +130,16 @@ pub fn agent_prepare_hosts_env(
     }
 
     for machine in input.machines {
-        let machine_id = machine.machine_id.trim().to_string();
-        if machine_id.is_empty() {
-            return Err("machine_id is required for each machine entry".to_string());
+        let node_slot_id = machine.node_slot_id.trim().to_string();
+        if node_slot_id.is_empty() {
+            return Err("node_slot_id is required for each machine entry".to_string());
         }
         let host = machine.host.trim().to_string();
         if host.is_empty() {
-            return Err(format!("host is required for machine '{machine_id}'"));
+            return Err(format!("host is required for machine '{node_slot_id}'"));
         }
 
-        let machine_key = machine_id.to_ascii_uppercase().replace('-', "_");
+        let machine_key = node_slot_id.to_ascii_uppercase().replace('-', "_");
         updates.insert(format!("{machine_key}_HOST"), host);
 
         if let Some(value) = normalize_opt(&machine.ssh_user) {
@@ -327,20 +328,24 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
         .map(|value| value.trim().to_string())
         .collect::<Vec<_>>();
 
-    let column = |name: &str| -> Result<usize, String> {
-        headers
+    let column = |aliases: &[&str], label: &str| -> Result<usize, String> {
+        aliases
             .iter()
-            .position(|header| header.eq_ignore_ascii_case(name))
-            .ok_or_else(|| format!("Inventory column '{name}' is missing"))
+            .find_map(|name| {
+                headers
+                    .iter()
+                    .position(|header| header.eq_ignore_ascii_case(name))
+            })
+            .ok_or_else(|| format!("Inventory column '{label}' is missing"))
     };
 
-    let machine_id_idx = column("machine_id")?;
-    let node_id_idx = column("node_id")?;
-    let role_group_idx = column("role_group")?;
-    let role_idx = column("role")?;
-    let node_type_idx = column("node_type")?;
-    let host_idx = column("host")?;
-    let vpn_ip_idx = column("vpn_ip")?;
+    let node_slot_idx = column(&["node_slot_id", "machine_id"], "node_slot_id")?;
+    let node_alias_idx = column(&["node_alias", "node_id"], "node_alias")?;
+    let role_group_idx = column(&["role_group"], "role_group")?;
+    let role_idx = column(&["role"], "role")?;
+    let node_type_idx = column(&["node_type"], "node_type")?;
+    let host_idx = column(&["host"], "host")?;
+    let vpn_ip_idx = column(&["vpn_ip"], "vpn_ip")?;
 
     let mut output = Vec::new();
     for raw_line in lines {
@@ -353,13 +358,13 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
             .map(|value| value.trim().trim_end_matches('\r').to_string())
             .collect::<Vec<_>>();
         let get = |index: usize| -> String { values.get(index).cloned().unwrap_or_default() };
-        let machine_id = get(machine_id_idx);
-        if machine_id.is_empty() {
+        let node_slot_id = get(node_slot_idx);
+        if node_slot_id.is_empty() {
             continue;
         }
         output.push(JarvisInventoryMachine {
-            machine_id,
-            node_id: get(node_id_idx),
+            node_slot_id,
+            node_alias: get(node_alias_idx),
             role_group: get(role_group_idx),
             role: get(role_idx),
             node_type: get(node_type_idx),

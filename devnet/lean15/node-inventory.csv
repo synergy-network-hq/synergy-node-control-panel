@@ -1,4 +1,4 @@
-machine_id,node_id,role_group,role,node_type,address_class,p2p_port,rpc_port,ws_port,grpc_port,discovery_port,host,vpn_ip,physical_machine,auto_register_validator,enable_pruning,vrf_enabled,operator,device,operating_system,public_ip,local_ip
+node_slot_id,node_alias,role_group,role,node_type,address_class,p2p_port,rpc_port,ws_port,grpc_port,discovery_port,host,vpn_ip,physical_machine_id,auto_register_validator,enable_pruning,vrf_enabled,operator,device,operating_system,public_ip,local_ip
 node-01,consensus-01,consensus,validator,validator,1,38638,48638,58638,50051,39638,10.50.0.1,10.50.0.1,machine-01,true,false,true,Rob,Synergy Node,Mac OS beta 26.4,73.79.66.255,192.168.11.228
 node-02,consensus-02,consensus,validator,validator,1,38639,48639,58639,50052,39639,10.50.0.2,10.50.0.2,machine-02,true,false,true,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65
 node-03,service-01,services,observer,observer,5,38640,48640,58640,50053,39640,10.50.0.2,10.50.0.2,machine-02,false,false,false,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65

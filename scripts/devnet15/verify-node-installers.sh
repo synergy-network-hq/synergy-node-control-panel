@@ -35,9 +35,9 @@ syntax_fail_count=0
 fallback_linux_count=0
 fallback_windows_count=0
 
-while IFS=, read -r machine_id _ || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
-  node_dir="$INSTALLERS_DIR/$machine_id"
+while IFS=, read -r node_slot_id _ || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
+  node_dir="$INSTALLERS_DIR/$node_slot_id"
 
   if [[ ! -d "$node_dir" ]]; then
     echo "MISSING installer folder: $node_dir" >&2

@@ -23,7 +23,7 @@ fi
 
 mkdir -p "$KEY_DIR"
 ADDRESS_REPORT="$KEY_DIR/node-addresses.csv"
-echo "machine_id,node_id,role,node_type,address_class,address" > "$ADDRESS_REPORT"
+echo "node_slot_id,node_alias,role,node_type,address_class,address" > "$ADDRESS_REPORT"
 
 derive_address_from_public_key() {
   local public_key_file="$1"
@@ -53,8 +53,8 @@ PY
 
 write_identity_files() {
   local node_key_dir="$1"
-  local machine_id="$2"
-  local node_id="$3"
+  local node_slot_id="$2"
+  local node_alias="$3"
   local role="$4"
   local node_type="$5"
   local address_class="$6"
@@ -64,8 +64,8 @@ write_identity_files() {
 
   cat > "$node_key_dir/identity.json" <<JSON
 {
-  "machine_id": "$machine_id",
-  "node_id": "$node_id",
+  "node_slot_id": "$node_slot_id",
+  "node_alias": "$node_alias",
   "role": "$role",
   "node_type": "$node_type",
   "address_class": $address_class,
@@ -76,8 +76,8 @@ write_identity_files() {
 JSON
 
   cat > "$node_key_dir/identity.toml" <<TOML
-machine_id = "$machine_id"
-node_id = "$node_id"
+node_slot_id = "$node_slot_id"
+node_alias = "$node_alias"
 role = "$role"
 node_type = "$node_type"
 address_class = $address_class
@@ -91,8 +91,8 @@ private_key = "$private_key"
 TOML
 
   cat > "$node_key_dir/node.env" <<ENV
-MACHINE_ID=$machine_id
-NODE_ID=$node_id
+NODE_SLOT_ID=$node_slot_id
+NODE_ALIAS=$node_alias
 ROLE=$role
 NODE_TYPE=$node_type
 ADDRESS_CLASS=$address_class
@@ -102,22 +102,22 @@ PRIVATE_KEY_FILE=$node_key_dir/private.key
 ENV
 }
 
-while IFS=, read -r machine_id node_id _ role node_type address_class _ _ _ _ _ _ _ _ _ _ || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
+while IFS=, read -r node_slot_id node_alias _ role node_type address_class _ _ _ _ _ _ _ _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
 
-  node_key_dir="$KEY_DIR/$machine_id"
+  node_key_dir="$KEY_DIR/$node_slot_id"
 
   if [[ -f "$node_key_dir/private.key" && "$FORCE" != "true" ]]; then
     if [[ ! -f "$node_key_dir/public.key" ]]; then
-      echo "Skipping $machine_id (existing key directory is missing public.key). Use --force to regenerate." >&2
+      echo "Skipping $node_slot_id (existing key directory is missing public.key). Use --force to regenerate." >&2
       continue
     fi
-    echo "Reusing existing keys for $machine_id"
+    echo "Reusing existing keys for $node_slot_id"
   else
     rm -rf "$node_key_dir"
     mkdir -p "$node_key_dir"
     "$BINARY" generate-keypair --class "$address_class" --output "$node_key_dir" >/dev/null
-    echo "Generated keys for $machine_id ($node_type)"
+    echo "Generated keys for $node_slot_id ($node_type)"
   fi
 
   public_key="$(cat "$node_key_dir/public.key")"
@@ -126,8 +126,8 @@ while IFS=, read -r machine_id node_id _ role node_type address_class _ _ _ _ _ 
   echo "$address" > "$node_key_dir/address.txt"
   write_identity_files \
     "$node_key_dir" \
-    "$machine_id" \
-    "$node_id" \
+    "$node_slot_id" \
+    "$node_alias" \
     "$role" \
     "$node_type" \
     "$address_class" \
@@ -135,7 +135,7 @@ while IFS=, read -r machine_id node_id _ role node_type address_class _ _ _ _ _ 
     "$public_key" \
     "$private_key"
 
-  echo "$machine_id,$node_id,$role,$node_type,$address_class,$address" >> "$ADDRESS_REPORT"
+  echo "$node_slot_id,$node_alias,$role,$node_type,$address_class,$address" >> "$ADDRESS_REPORT"
 done < "$INVENTORY_FILE"
 
 echo "Key generation complete."

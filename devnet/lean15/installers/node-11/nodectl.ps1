@@ -43,7 +43,7 @@ function Start-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
 
 function Stop-Node {
   if (-not (Test-NodeRunning)) {
-    Write-Host "$($NodeEnv['MACHINE_ID']) is not running"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) is not running"
     if (Test-Path $PidFile) { Remove-Item $PidFile -Force }
     return
   }
@@ -55,15 +55,15 @@ function Stop-Node {
     Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue
   }
   if (Test-Path $PidFile) { Remove-Item $PidFile -Force }
-  Write-Host "Stopped $($NodeEnv['MACHINE_ID'])"
+  Write-Host "Stopped $($NodeEnv['NODE_SLOT_ID'])"
 }
 
 function Status-Node {
   if (Test-NodeRunning) {
     $pidValue = Get-Content $PidFile | Select-Object -First 1
-    Write-Host "$($NodeEnv['MACHINE_ID']) is running (PID $pidValue)"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) is running (PID $pidValue)"
   } else {
-    Write-Host "$($NodeEnv['MACHINE_ID']) is stopped"
+    Write-Host "$($NodeEnv['NODE_SLOT_ID']) is stopped"
   }
 }
 
@@ -80,8 +80,8 @@ function Logs-Node {
 }
 
 function Info-Node {
-  Write-Host "Node Slot ID: $(Get-NodeEnvValue 'MACHINE_ID')"
-  Write-Host "Node ID: $(Get-NodeEnvValue 'NODE_ID')"
+  Write-Host "Node Slot ID: $(Get-NodeEnvValue 'NODE_SLOT_ID')"
+  Write-Host "Node ID: $(Get-NodeEnvValue 'NODE_ALIAS')"
   Write-Host "Role: $(Get-NodeEnvValue 'ROLE')"
   Write-Host "Node Type: $(Get-NodeEnvValue 'NODE_TYPE')"
   Write-Host "Address Class: $(Get-NodeEnvValue 'ADDRESS_CLASS')"

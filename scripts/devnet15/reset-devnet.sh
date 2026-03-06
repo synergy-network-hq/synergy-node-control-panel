@@ -93,46 +93,46 @@ if [[ -s "$HOSTS_FILE" ]]; then
 fi
 
 machine_var_prefix() {
-  local machine_id="$1"
-  echo "$machine_id" | tr '[:lower:]-' '[:upper:]_'
+  local node_slot_id="$1"
+  echo "$node_slot_id" | tr '[:lower:]-' '[:upper:]_'
 }
 
 machine_hook_cmd() {
-  local machine_id="$1"
+  local node_slot_id="$1"
   local hook="$2"
   local prefix
-  prefix="$(machine_var_prefix "$machine_id")"
+  prefix="$(machine_var_prefix "$node_slot_id")"
   local var_name="${prefix}_${hook}"
   echo "${!var_name:-}"
 }
 
 run_hook_or_local() {
-  local machine_id="$1"
+  local node_slot_id="$1"
   local hook="$2"
   local local_action="$3"
   local cmd
-  cmd="$(machine_hook_cmd "$machine_id" "$hook")"
+  cmd="$(machine_hook_cmd "$node_slot_id" "$hook")"
 
   if [[ -n "$cmd" ]]; then
-    echo "[$machine_id] running remote hook: ${hook}"
+    echo "[$node_slot_id] running remote hook: ${hook}"
     eval "$cmd"
     return
   fi
 
-  echo "[$machine_id] running local action: $local_action"
-  "$RUN_NODE_SCRIPT" "$local_action" "$machine_id" || true
+  echo "[$node_slot_id] running local action: $local_action"
+  "$RUN_NODE_SCRIPT" "$local_action" "$node_slot_id" || true
 }
 
-inventory_machine_ids() {
+inventory_node_slot_ids() {
   awk -F, 'NR > 1 {print $1}' "$INVENTORY_FILE"
 }
 
 stop_cluster() {
   echo "Stopping devnet nodes..."
-  while IFS= read -r machine_id; do
-    [[ -z "$machine_id" ]] && continue
-    run_hook_or_local "$machine_id" "STOP_CMD" "stop"
-  done < <(inventory_machine_ids)
+  while IFS= read -r node_slot_id; do
+    [[ -z "$node_slot_id" ]] && continue
+    run_hook_or_local "$node_slot_id" "STOP_CMD" "stop"
+  done < <(inventory_node_slot_ids)
 }
 
 reset_local_state() {
@@ -143,23 +143,23 @@ reset_local_state() {
   rm -f "$ROOT_DIR/data/synergy-devnet.pid"
   rm -f "$ROOT_DIR/data/.reset_flag"
 
-  while IFS= read -r machine_id; do
-    [[ -z "$machine_id" ]] && continue
-    local_data_dir="$ROOT_DIR/data/devnet15/$machine_id"
+  while IFS= read -r node_slot_id; do
+    [[ -z "$node_slot_id" ]] && continue
+    local_data_dir="$ROOT_DIR/data/devnet15/$node_slot_id"
     rm -rf "$local_data_dir/chain" "$local_data_dir/logs"
     mkdir -p "$local_data_dir/chain" "$local_data_dir/logs"
-  done < <(inventory_machine_ids)
+  done < <(inventory_node_slot_ids)
 }
 
 reset_remote_nodes() {
-  while IFS= read -r machine_id; do
-    [[ -z "$machine_id" ]] && continue
-    reset_cmd="$(machine_hook_cmd "$machine_id" "RESET_CMD")"
+  while IFS= read -r node_slot_id; do
+    [[ -z "$node_slot_id" ]] && continue
+    reset_cmd="$(machine_hook_cmd "$node_slot_id" "RESET_CMD")"
     if [[ -n "$reset_cmd" ]]; then
-      echo "[$machine_id] running remote hook: RESET_CMD"
+      echo "[$node_slot_id] running remote hook: RESET_CMD"
       eval "$reset_cmd"
     fi
-  done < <(inventory_machine_ids)
+  done < <(inventory_node_slot_ids)
 }
 
 render_and_regenerate() {
@@ -182,8 +182,8 @@ rebuild_installers_if_requested() {
 }
 
 start_machine() {
-  local machine_id="$1"
-  run_hook_or_local "$machine_id" "START_CMD" "start"
+  local node_slot_id="$1"
+  run_hook_or_local "$node_slot_id" "START_CMD" "start"
 }
 
 restart_cluster() {
@@ -193,8 +193,8 @@ restart_cluster() {
   fi
 
   echo "Starting devnet nodes in deterministic order..."
-  for machine_id in "${START_ORDER[@]}"; do
-    start_machine "$machine_id"
+  for node_slot_id in "${START_ORDER[@]}"; do
+    start_machine "$node_slot_id"
     sleep 1
   done
 }

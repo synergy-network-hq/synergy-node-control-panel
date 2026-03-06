@@ -61,9 +61,9 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || $# -lt 2 ]]; then
   exit $(( $# < 2 ? 1 : 0 ))
 fi
 
-MACHINE_ID="$1"
+NODE_SLOT_ID="$1"
 OPERATION="$2"
-MACHINE_KEY_UPPER="$(printf '%s' "$MACHINE_ID" | tr '[:lower:]-' '[:upper:]_')"
+MACHINE_KEY_UPPER="$(printf '%s' "$NODE_SLOT_ID" | tr '[:lower:]-' '[:upper:]_')"
 
 if [[ ! -f "$INVENTORY_FILE" ]]; then
   echo "Inventory file missing: $INVENTORY_FILE" >&2
@@ -78,11 +78,11 @@ else
 fi
 
 inventory_host() {
-  awk -F, -v machine="$MACHINE_ID" 'NR>1 && tolower($1)==tolower(machine){print $12; exit}' "$INVENTORY_FILE"
+  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $12; exit}' "$INVENTORY_FILE"
 }
 
 inventory_vpn_ip() {
-  awk -F, -v machine="$MACHINE_ID" 'NR>1 && tolower($1)==tolower(machine){print $13; exit}' "$INVENTORY_FILE"
+  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $13; exit}' "$INVENTORY_FILE"
 }
 
 resolve_var() {
@@ -124,7 +124,7 @@ if [[ -z "$SSH_KEY" ]]; then
 fi
 REMOTE_NODE_DIR="$(resolve_var "$REMOTE_DIR_VAR")"
 if [[ -z "$REMOTE_NODE_DIR" ]]; then
-  REMOTE_NODE_DIR="$REMOTE_ROOT_DEFAULT/$MACHINE_ID"
+  REMOTE_NODE_DIR="$REMOTE_ROOT_DEFAULT/$NODE_SLOT_ID"
 fi
 
 WG_INTERFACE="$(resolve_var "$WG_INTERFACE_VAR")"
@@ -138,7 +138,7 @@ if [[ -z "$WG_REMOTE_CONF" ]]; then
 fi
 
 if [[ -z "$HOST" ]]; then
-  echo "Unable to resolve host for $MACHINE_ID from hosts.env or inventory." >&2
+  echo "Unable to resolve host for $NODE_SLOT_ID from hosts.env or inventory." >&2
   exit 1
 fi
 
@@ -183,7 +183,7 @@ if is_local_host_token "$HOST" || { [[ -n "$VPN_IP" ]] && is_local_host_token "$
 fi
 
 if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
-  LOCAL_INSTALLER_DIR="$INSTALLERS_DIR/$MACHINE_ID"
+  LOCAL_INSTALLER_DIR="$INSTALLERS_DIR/$NODE_SLOT_ID"
   if [[ ! -d "$REMOTE_NODE_DIR" && -d "$LOCAL_INSTALLER_DIR" ]]; then
     REMOTE_NODE_DIR="$LOCAL_INSTALLER_DIR"
   fi
@@ -212,8 +212,8 @@ if [[ -n "$SSH_KEY" ]]; then
 fi
 
 REMOTE_TARGET="${SSH_USER}@${HOST}"
-INSTALLER_DIR="$INSTALLERS_DIR/$MACHINE_ID"
-WG_CONFIG_FILE="$WIREGUARD_CONFIGS_DIR/$MACHINE_ID.conf"
+INSTALLER_DIR="$INSTALLERS_DIR/$NODE_SLOT_ID"
+WG_CONFIG_FILE="$WIREGUARD_CONFIGS_DIR/$NODE_SLOT_ID.conf"
 
 remote_run_script() {
   local script="$1"
@@ -291,11 +291,11 @@ deploy_installer_bundle() {
   fi
 
   local archive
-  archive="$(mktemp "/tmp/${MACHINE_ID}-installer.XXXXXX.tgz")"
+  archive="$(mktemp "/tmp/${NODE_SLOT_ID}-installer.XXXXXX.tgz")"
   tar -C "$INSTALLER_DIR" -czf "$archive" .
 
   local remote_archive
-  remote_archive="/tmp/${MACHINE_ID}-installer.tgz"
+  remote_archive="/tmp/${NODE_SLOT_ID}-installer.tgz"
   copy_to_remote "$archive" "$remote_archive"
   rm -f "$archive"
 
@@ -336,7 +336,7 @@ if [[ -z \"\$pids\" ]]; then
   exit 0
 fi
 
-echo \"Killing stale $MACHINE_ID processes (\$(printf '%s' \"\$pids\" | tr '\n' ' ')) for $reason...\"
+echo \"Killing stale $NODE_SLOT_ID processes (\$(printf '%s' \"\$pids\" | tr '\n' ' ')) for $reason...\"
 for pid in \$pids; do
   kill \"\$pid\" 2>/dev/null || true
 done
@@ -360,15 +360,15 @@ cd '$REMOTE_NODE_DIR'
 
 # Remove all chain state, logs, and runtime artifacts so the node
 # reinitializes from genesis on next start.
-rm -rf data/chain data/devnet15/'$MACHINE_ID'/chain
-rm -rf data/devnet15/'$MACHINE_ID'/logs
+rm -rf data/chain data/devnet15/'$NODE_SLOT_ID'/chain
+rm -rf data/devnet15/'$NODE_SLOT_ID'/logs
 rm -f  data/chain.json data/token_state.json data/validator_registry.json
 rm -f  data/synergy-devnet.pid data/.reset_flag
 rm -f  data/node.pid
 
 # Recreate the directory skeleton the node binary expects.
-mkdir -p data/chain data/devnet15/'$MACHINE_ID'/chain data/devnet15/'$MACHINE_ID'/logs data/logs
-echo 'Cleared all chain state for $MACHINE_ID in $REMOTE_NODE_DIR — node will start from genesis.'
+mkdir -p data/chain data/devnet15/'$NODE_SLOT_ID'/chain data/devnet15/'$NODE_SLOT_ID'/logs data/logs
+echo 'Cleared all chain state for $NODE_SLOT_ID in $REMOTE_NODE_DIR — node will start from genesis.'
 "
 
   # Re-deploy the installer bundle so the node picks up the latest
@@ -543,7 +543,7 @@ fi
   fi
 
   local remote_tmp_conf
-  remote_tmp_conf="/tmp/${MACHINE_ID}-${wg_interface_effective}.conf"
+  remote_tmp_conf="/tmp/${NODE_SLOT_ID}-${wg_interface_effective}.conf"
   copy_to_remote "$WG_CONFIG_FILE" "$remote_tmp_conf"
 
   remote_run_script "
@@ -595,7 +595,7 @@ wireguard_status() {
 
   remote_run_script "
 set -euo pipefail
-echo '=== WireGuard Mesh VPN Status for $MACHINE_ID ==='
+echo '=== WireGuard Mesh VPN Status for $NODE_SLOT_ID ==='
 echo ''
 
 # Interface and endpoint info
@@ -648,7 +648,7 @@ export_logs() {
   local ts
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   local remote_archive
-  remote_archive="/tmp/${MACHINE_ID}-logs-${ts}.tgz"
+  remote_archive="/tmp/${NODE_SLOT_ID}-logs-${ts}.tgz"
 
   remote_run_script "
 set -euo pipefail
@@ -661,10 +661,10 @@ echo '$remote_archive'
 "
 
   local local_dir
-  local_dir="$REMOTE_EXPORTS_DIR/$MACHINE_ID"
+  local_dir="$REMOTE_EXPORTS_DIR/$NODE_SLOT_ID"
   mkdir -p "$local_dir"
   local local_archive
-  local_archive="$local_dir/${MACHINE_ID}-logs-${ts}.tgz"
+  local_archive="$local_dir/${NODE_SLOT_ID}-logs-${ts}.tgz"
 
   copy_from_remote "$remote_archive" "$local_archive"
   remote_run_script "rm -f '$remote_archive'"
@@ -688,7 +688,7 @@ export_chain_data() {
   local ts
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   local remote_archive
-  remote_archive="/tmp/${MACHINE_ID}-chain-${ts}.tgz"
+  remote_archive="/tmp/${NODE_SLOT_ID}-chain-${ts}.tgz"
 
   remote_run_script "
 set -euo pipefail
@@ -701,10 +701,10 @@ echo '$remote_archive'
 "
 
   local local_dir
-  local_dir="$REMOTE_EXPORTS_DIR/$MACHINE_ID"
+  local_dir="$REMOTE_EXPORTS_DIR/$NODE_SLOT_ID"
   mkdir -p "$local_dir"
   local local_archive
-  local_archive="$local_dir/${MACHINE_ID}-chain-${ts}.tgz"
+  local_archive="$local_dir/${NODE_SLOT_ID}-chain-${ts}.tgz"
 
   copy_from_remote "$remote_archive" "$local_archive"
   remote_run_script "rm -f '$remote_archive'"
@@ -720,7 +720,7 @@ rotate_vrf_key() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Rotating VRF key for $MACHINE_ID...'
+echo 'Rotating VRF key for $NODE_SLOT_ID...'
 if [[ -f keys/vrf_private.key ]]; then
   cp keys/vrf_private.key keys/vrf_private.key.bak.\$(date +%s)
 fi
@@ -740,8 +740,8 @@ verify_archive_integrity() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Verifying archive integrity for $MACHINE_ID...'
-CHAIN_DIR=data/devnet15/$MACHINE_ID/chain
+echo 'Verifying archive integrity for $NODE_SLOT_ID...'
+CHAIN_DIR=data/devnet15/$NODE_SLOT_ID/chain
 if [[ ! -d \"\$CHAIN_DIR\" ]]; then
   echo 'Chain directory not found: \$CHAIN_DIR' >&2
   exit 1
@@ -768,7 +768,7 @@ flush_relay_queue() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Flushing relay queue for $MACHINE_ID...'
+echo 'Flushing relay queue for $NODE_SLOT_ID...'
 curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_flushRelayQueue\",\"params\":[],\"id\":1}'
@@ -783,7 +783,7 @@ force_feed_update() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Forcing oracle feed update for $MACHINE_ID...'
+echo 'Forcing oracle feed update for $NODE_SLOT_ID...'
 curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_forceOracleFeedUpdate\",\"params\":[],\"id\":1}'
@@ -798,7 +798,7 @@ drain_compute_queue() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Draining compute queue for $MACHINE_ID...'
+echo 'Draining compute queue for $NODE_SLOT_ID...'
 curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_drainComputeQueue\",\"params\":[],\"id\":1}'
@@ -813,7 +813,7 @@ reload_models() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Reloading AI models for $MACHINE_ID...'
+echo 'Reloading AI models for $NODE_SLOT_ID...'
 curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_reloadModels\",\"params\":[],\"id\":1}'
@@ -828,7 +828,7 @@ rotate_pqc_keys() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Rotating PQC keys for $MACHINE_ID (Aegis Suite: ML-KEM-512, Dilithium-3, SLH-DSA, FN-DSA)...'
+echo 'Rotating PQC keys for $NODE_SLOT_ID (Aegis Suite: ML-KEM-512, Dilithium-3, SLH-DSA, FN-DSA)...'
 if [[ -d keys/pqc ]]; then
   cp -r keys/pqc keys/pqc.bak.\$(date +%s)
 fi
@@ -846,7 +846,7 @@ run_pqc_benchmark() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Running PQC benchmark on $MACHINE_ID...'
+echo 'Running PQC benchmark on $NODE_SLOT_ID...'
 curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_runPqcBenchmark\",\"params\":[],\"id\":1}'
@@ -861,7 +861,7 @@ trigger_da_sample() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Triggering DA sampling round on $MACHINE_ID...'
+echo 'Triggering DA sampling round on $NODE_SLOT_ID...'
 curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_triggerDaSample\",\"params\":[],\"id\":1}'
@@ -876,7 +876,7 @@ reindex_from_height() {
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
-echo 'Triggering reindex from genesis for $MACHINE_ID...'
+echo 'Triggering reindex from genesis for $NODE_SLOT_ID...'
 curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_reindexFromHeight\",\"params\":[0],\"id\":1}'
@@ -887,7 +887,7 @@ echo 'Reindex initiated from block 0.'
 
 show_info() {
   cat <<INFO
-Machine:            $MACHINE_ID
+Machine:            $NODE_SLOT_ID
 Host:               $HOST
 VPN IP:             ${VPN_IP:-unknown}
 Execution mode:     $([[ "$IS_LOCAL_TARGET" -eq 1 ]] && echo "local" || echo "ssh")

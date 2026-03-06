@@ -47,11 +47,11 @@ else
     echo "Missing inventory file: $INVENTORY_FILE" >&2
     exit 1
   fi
-  while IFS=, read -r machine_id _ _ _ _ _ _ rpc_port _ _ _ host vpn_ip _ _ _ || [[ -n "${machine_id:-}" ]]; do
-    [[ "$machine_id" == "machine_id" ]] && continue
+  while IFS=, read -r node_slot_id _ _ _ _ _ _ rpc_port _ _ _ host vpn_ip _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
+    [[ "$node_slot_id" == "node_slot_id" ]] && continue
     endpoint_host="${vpn_ip:-$host}"
     [[ -z "$endpoint_host" || -z "$rpc_port" ]] && continue
-    targets+=("${machine_id}=http://${endpoint_host}:${rpc_port}")
+    targets+=("${node_slot_id}=http://${endpoint_host}:${rpc_port}")
   done < "$INVENTORY_FILE"
 fi
 

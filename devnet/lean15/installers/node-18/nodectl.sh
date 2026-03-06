@@ -41,7 +41,7 @@ start_node() {
 
 stop_node() {
   if ! is_running; then
-    echo "$MACHINE_ID is not running"
+    echo "$NODE_SLOT_ID is not running"
     rm -f "$PID_FILE"
     return
   fi
@@ -62,14 +62,14 @@ stop_node() {
   fi
 
   rm -f "$PID_FILE"
-  echo "Stopped $MACHINE_ID"
+  echo "Stopped $NODE_SLOT_ID"
 }
 
 status_node() {
   if is_running; then
-    echo "$MACHINE_ID is running (PID $(cat "$PID_FILE"))"
+    echo "$NODE_SLOT_ID is running (PID $(cat "$PID_FILE"))"
   else
-    echo "$MACHINE_ID is stopped"
+    echo "$NODE_SLOT_ID is stopped"
   fi
 }
 
@@ -88,8 +88,8 @@ show_logs() {
 show_info() {
   local bin
   bin="$(select_binary)"
-  echo "Machine ID: $MACHINE_ID"
-  echo "Node ID: $NODE_ID"
+  echo "Machine ID: $NODE_SLOT_ID"
+  echo "Node ID: $NODE_ALIAS"
   echo "Role: $ROLE"
   echo "Node Type: $NODE_TYPE"
   echo "Address Class: $ADDRESS_CLASS"

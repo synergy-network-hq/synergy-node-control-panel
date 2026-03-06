@@ -50,16 +50,16 @@ fi
 mkdir -p "$OUT_DIR"
 
 resolve_public_host() {
-  local machine_id="$1"
+  local node_slot_id="$1"
   local default_host="$2"
-  local machine_key
+  local node_slot_key
   if [[ "$USE_HOST_OVERRIDES" != "true" ]]; then
     echo "$default_host"
     return
   fi
 
-  machine_key="$(echo "$machine_id" | tr '[:lower:]-' '[:upper:]_')"
-  local var_name="${machine_key}_HOST"
+  node_slot_key="$(echo "$node_slot_id" | tr '[:lower:]-' '[:upper:]_')"
+  local var_name="${node_slot_key}_HOST"
   local value="${!var_name:-}"
   if [[ -n "$value" ]]; then
     echo "$value"
@@ -69,10 +69,10 @@ resolve_public_host() {
 }
 
 resolve_p2p_host() {
-  local machine_id="$1"
+  local node_slot_id="$1"
   local default_vpn_ip="$2"
   local fallback_public_host="$3"
-  local machine_key
+  local node_slot_key
   if [[ "$USE_HOST_OVERRIDES" != "true" ]]; then
     if [[ -n "${default_vpn_ip}" ]]; then
       echo "${default_vpn_ip}"
@@ -82,11 +82,11 @@ resolve_p2p_host() {
     return
   fi
 
-  machine_key="$(echo "$machine_id" | tr '[:lower:]-' '[:upper:]_')"
+  node_slot_key="$(echo "$node_slot_id" | tr '[:lower:]-' '[:upper:]_')"
 
-  local vpn_var="${machine_key}_VPN_IP"
-  local p2p_var="${machine_key}_P2P_HOST"
-  local internal_var="${machine_key}_INTERNAL_HOST"
+  local vpn_var="${node_slot_key}_VPN_IP"
+  local p2p_var="${node_slot_key}_P2P_HOST"
+  local internal_var="${node_slot_key}_INTERNAL_HOST"
 
   if [[ -n "${!vpn_var:-}" ]]; then
     echo "${!vpn_var}"
@@ -158,14 +158,14 @@ compute_public_address() {
 }
 
 lookup_node_address() {
-  local machine_id="$1"
-  awk -F, -v id="$machine_id" 'NR > 1 && $1 == id { print $6; exit }' "$NODE_ADDRESSES_FILE"
+  local node_slot_id="$1"
+  awk -F, -v id="$node_slot_id" 'NR > 1 && $1 == id { print $6; exit }' "$NODE_ADDRESSES_FILE"
 }
 
 collect_allowed_validator_addresses() {
   local addresses=()
-  while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
-    [[ "$machine_id" == "machine_id" ]] && continue
+  while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+    [[ "$node_slot_id" == "node_slot_id" ]] && continue
     local normalized_group normalized_role normalized_type
     normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
     normalized_role="$(echo "${role:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
@@ -180,7 +180,7 @@ collect_allowed_validator_addresses() {
       continue
     fi
     local validator_address
-    validator_address="$(lookup_node_address "$machine_id")"
+    validator_address="$(lookup_node_address "$node_slot_id")"
     if [[ -n "$validator_address" ]]; then
       addresses+=("\"$validator_address\"")
     fi
@@ -201,14 +201,14 @@ BOOTNODE1_PORT=""
 BOOTNODE2_HOST=""
 BOOTNODE2_PORT=""
 
-while IFS=, read -r machine_id _ _ _ _ _ p2p_port _ _ _ _ host vpn_ip _ _ _ || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
-  resolved_host="$(resolve_public_host "$machine_id" "$host")"
-  resolved_p2p_host="$(resolve_p2p_host "$machine_id" "$vpn_ip" "$resolved_host")"
-  if [[ "$machine_id" == "node-01" ]]; then
+while IFS=, read -r node_slot_id _ _ _ _ _ p2p_port _ _ _ _ host vpn_ip _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
+  resolved_host="$(resolve_public_host "$node_slot_id" "$host")"
+  resolved_p2p_host="$(resolve_p2p_host "$node_slot_id" "$vpn_ip" "$resolved_host")"
+  if [[ "$node_slot_id" == "node-01" ]]; then
     BOOTNODE1_HOST="$resolved_p2p_host"
     BOOTNODE1_PORT="$p2p_port"
-  elif [[ "$machine_id" == "node-02" ]]; then
+  elif [[ "$node_slot_id" == "node-02" ]]; then
     BOOTNODE2_HOST="$resolved_p2p_host"
     BOOTNODE2_PORT="$p2p_port"
   fi
@@ -242,16 +242,16 @@ ALLOWED_VALIDATOR_ADDRESSES="$(collect_allowed_validator_addresses)"
 
 generated_count=0
 
-while IFS=, read -r machine_id node_id role_group role node_type _ p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
+while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
 
-  resolved_public_host="$(resolve_public_host "$machine_id" "$host")"
-  resolved_p2p_host="$(resolve_p2p_host "$machine_id" "$vpn_ip" "$resolved_public_host")"
+  resolved_public_host="$(resolve_public_host "$node_slot_id" "$host")"
+  resolved_p2p_host="$(resolve_p2p_host "$node_slot_id" "$vpn_ip" "$resolved_public_host")"
   listen_address="$(compute_listen_address "$resolved_p2p_host" "$p2p_port")"
   public_address="$(compute_public_address "$resolved_p2p_host" "$p2p_port")"
-  validator_address="$(lookup_node_address "$machine_id")"
+  validator_address="$(lookup_node_address "$node_slot_id")"
   if [[ -z "$validator_address" ]]; then
-    echo "Missing validator address mapping for ${machine_id} in ${NODE_ADDRESSES_FILE}" >&2
+    echo "Missing validator address mapping for ${node_slot_id} in ${NODE_ADDRESSES_FILE}" >&2
     exit 1
   fi
 
@@ -261,9 +261,9 @@ while IFS=, read -r machine_id node_id role_group role node_type _ p2p_port rpc_
   enable_pruning="$(normalize_bool "$enable_pruning")"
   vrf_enabled="$(normalize_bool "$vrf_enabled")"
 
-  cat > "$OUT_DIR/${machine_id}.toml" <<CONFIG
+  cat > "$OUT_DIR/${node_slot_id}.toml" <<CONFIG
 # Auto-generated by scripts/devnet15/render-configs.sh
-# Node Slot: ${machine_id}
+# Node Slot: ${node_slot_id}
 # Role Group: ${role_group}
 # Role: ${role}
 # Node Type: ${node_type}
@@ -301,7 +301,7 @@ collaboration = 0.2
 
 [logging]
 log_level = "debug"
-log_file = "data/devnet15/${machine_id}/logs/${node_id}.log"
+log_file = "data/devnet15/${node_slot_id}/logs/${node_alias}.log"
 enable_console = true
 max_file_size = 10485760
 max_files = 5
@@ -320,14 +320,14 @@ cors_origins = []
 [p2p]
 listen_address = "${listen_address}"
 public_address = "${public_address}"
-node_name = "${node_id}"
+node_name = "${node_alias}"
 enable_discovery = false
 discovery_port = ${discovery_port}
 heartbeat_interval = 30
 
 [storage]
 database = "rocksdb"
-path = "data/devnet15/${machine_id}/chain"
+path = "data/devnet15/${node_slot_id}/chain"
 enable_pruning = ${enable_pruning}
 pruning_interval = 86400
 
@@ -342,7 +342,7 @@ strict_validator_allowlist = true
 allowed_validator_addresses = ${ALLOWED_VALIDATOR_ADDRESSES}
 CONFIG
 
-  echo "Generated ${OUT_DIR}/${machine_id}.toml"
+  echo "Generated ${OUT_DIR}/${node_slot_id}.toml"
   generated_count=$((generated_count + 1))
 done < "$INVENTORY_FILE"
 

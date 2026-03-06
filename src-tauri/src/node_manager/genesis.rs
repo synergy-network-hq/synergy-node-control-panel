@@ -1,9 +1,9 @@
 //! Genesis Manager
 //!
 //! Handles genesis block configuration for the Synergy Devnet:
-//! - Generates deterministic node addresses based on machine ID, node type, and class
-//! - Allocates 500,000 SNRG to each devnet node in the genesis block
-//! - Automatically stakes the required amount for each node's class on setup
+//! - Generates deterministic node addresses based on node slot ID, node type, and class
+//! - Allocates 100,000 SNRG to each devnet node in the genesis block
+//! - Automatically stakes 5,000 SNRG for each node on setup
 //! - Tracks balances (genesis allocation, staked, liquid) for each node
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,10 @@ use super::node_classes::NodeClass;
 use super::types::NodeType;
 
 /// SNRG allocated to each devnet node in the genesis block
-pub const GENESIS_ALLOCATION_PER_NODE: u64 = 500_000;
+pub const GENESIS_ALLOCATION_PER_NODE: u64 = 100_000;
+
+/// Default SNRG stake bonded by each node at genesis
+pub const DEFAULT_STAKE_PER_NODE: u64 = 5_000;
 
 /// Token symbol
 pub const TOKEN_SYMBOL: &str = "SNRG";
@@ -31,7 +34,7 @@ pub struct GenesisNodeAccount {
     pub staked_amount: u64,
     pub liquid_balance: u64,
     pub p2p_port: Option<u16>,
-    pub machine_id: String,
+    pub node_slot_id: String,
 }
 
 /// Auto-stake result for a node
@@ -79,8 +82,8 @@ pub struct GenesisConfig {
 }
 
 /// Generate a deterministic devnet address for a node.
-/// Format: {class_prefix}devnet{machine_num}{type_slug}{hash} (42 chars, all lowercase)
-pub fn generate_node_address(machine_id: &str, node_type: &str, node_class: u8, p2p_port: Option<u16>) -> String {
+/// Format: {class_prefix}devnet{slot_num}{type_slug}{hash} (42 chars, all lowercase)
+pub fn generate_node_address(node_slot_id: &str, node_type: &str, node_class: u8, p2p_port: Option<u16>) -> String {
     let class_prefix = match node_class {
         1 => "synv1",
         2 => "synv2",
@@ -90,11 +93,11 @@ pub fn generate_node_address(machine_id: &str, node_type: &str, node_class: u8, 
         _ => "synv0",
     };
 
-    // Extract machine number
-    let machine_num = machine_id
-        .replace("machine-", "")
-        .replace("Machine-", "");
-    let machine_num = format!("{:0>2}", machine_num);
+    // Extract node slot number
+    let slot_num = node_slot_id
+        .replace("node-", "")
+        .replace("Node-", "");
+    let slot_num = format!("{:0>2}", slot_num);
 
     // Create type slug (lowercase, no spaces/hyphens, max 12 chars)
     let type_slug: String = node_type
@@ -105,14 +108,14 @@ pub fn generate_node_address(machine_id: &str, node_type: &str, node_class: u8, 
     let type_slug = &type_slug[..type_slug.len().min(12)];
 
     // Deterministic hash for uniqueness
-    let seed = format!("{}-{}-{:?}", machine_id, node_type, p2p_port);
+    let seed = format!("{}-{}-{:?}", node_slot_id, node_type, p2p_port);
     let mut hasher = Sha256::new();
     hasher.update(seed.as_bytes());
     let hash = format!("{:x}", hasher.finalize());
     let hash_short = &hash[..8];
 
     // Build address, pad to 42 chars
-    let base = format!("{}devnet{}{}{}", class_prefix, machine_num, type_slug, hash_short);
+    let base = format!("{}devnet{}{}{}", class_prefix, slot_num, type_slug, hash_short);
     let mut address = base;
     while address.len() < 42 {
         address.push('0');
@@ -134,20 +137,14 @@ pub fn generate_genesis_from_inventory(inventory_path: &Path) -> Result<GenesisC
         let fields: Vec<&str> = line.split(',').collect();
         if fields.len() < 7 { continue; }
 
-        let machine_id = fields[0].trim();
+        let node_slot_id = fields[0].trim();
         let node_type_str = fields[4].trim();
         let address_class: u8 = fields[5].trim().parse().unwrap_or(0);
         let p2p_port: Option<u16> = fields[6].trim().parse().ok();
 
-        let staking_req = match address_class {
-            1 => 100_000u64,
-            2 => 250_000,
-            3 => 50_000,
-            4 => 10_000,
-            _ => 0,
-        };
+        let staking_req = DEFAULT_STAKE_PER_NODE;
 
-        let address = generate_node_address(machine_id, node_type_str, address_class, p2p_port);
+        let address = generate_node_address(node_slot_id, node_type_str, address_class, p2p_port);
         let liquid = GENESIS_ALLOCATION_PER_NODE - staking_req;
 
         accounts.push(GenesisNodeAccount {
@@ -158,7 +155,7 @@ pub fn generate_genesis_from_inventory(inventory_path: &Path) -> Result<GenesisC
             staked_amount: staking_req,
             liquid_balance: liquid,
             p2p_port,
-            machine_id: machine_id.to_string(),
+            node_slot_id: node_slot_id.to_string(),
         });
 
         let class_key = format!("Class {}", match address_class {
@@ -194,12 +191,12 @@ pub fn generate_genesis_from_inventory(inventory_path: &Path) -> Result<GenesisC
 }
 
 /// Perform auto-staking for a specific node
-pub fn auto_stake_for_node(node_type: &NodeType, machine_id: &str, p2p_port: Option<u16>) -> AutoStakeResult {
+pub fn auto_stake_for_node(node_type: &NodeType, node_slot_id: &str, p2p_port: Option<u16>) -> AutoStakeResult {
     let class = NodeClass::from_node_type(node_type);
     let class_num = class.class_number();
-    let stake_amount = class.staking_requirement();
+    let stake_amount = DEFAULT_STAKE_PER_NODE;
     let address = generate_node_address(
-        machine_id,
+        node_slot_id,
         node_type.display_name(),
         class_num,
         p2p_port,
@@ -225,7 +222,7 @@ pub fn auto_stake_for_node(node_type: &NodeType, machine_id: &str, p2p_port: Opt
     }
 
     // Generate deterministic tx hash
-    let seed = format!("stake-{}-{}-{}", address, stake_amount, machine_id);
+    let seed = format!("stake-{}-{}-{}", address, stake_amount, node_slot_id);
     let mut hasher = Sha256::new();
     hasher.update(seed.as_bytes());
     let tx_hash = format!("0x{:x}", hasher.finalize());
@@ -308,23 +305,23 @@ pub fn get_genesis_summary() -> Result<GenesisSummary, String> {
 #[tauri::command]
 pub fn auto_stake_node(
     node_type: String,
-    machine_id: String,
+    node_slot_id: String,
     p2p_port: Option<u16>,
 ) -> Result<AutoStakeResult, String> {
     let nt = NodeType::from_str(&node_type)
         .ok_or_else(|| format!("Unknown node type: {}", node_type))?;
-    Ok(auto_stake_for_node(&nt, &machine_id, p2p_port))
+    Ok(auto_stake_for_node(&nt, &node_slot_id, p2p_port))
 }
 
 /// Generate a deterministic devnet address (exposed to frontend)
 #[tauri::command]
 pub fn generate_devnet_address(
-    machine_id: String,
+    node_slot_id: String,
     node_type: String,
     node_class: u8,
     p2p_port: Option<u16>,
 ) -> String {
-    generate_node_address(&machine_id, &node_type, node_class, p2p_port)
+    generate_node_address(&node_slot_id, &node_type, node_class, p2p_port)
 }
 
 #[cfg(test)]
@@ -357,17 +354,17 @@ mod tests {
     fn test_auto_stake_validator() {
         let result = auto_stake_for_node(&NodeType::Validator, "node-01", Some(38638));
         assert!(result.success);
-        assert_eq!(result.staked_amount, 100_000);
-        assert_eq!(result.liquid_balance, 400_000);
+        assert_eq!(result.staked_amount, 5_000);
+        assert_eq!(result.liquid_balance, 95_000);
         assert!(result.staking_tx_hash.is_some());
     }
 
     #[test]
-    fn test_auto_stake_observer_no_stake() {
+    fn test_auto_stake_observer_uses_default_stake_policy() {
         let result = auto_stake_for_node(&NodeType::Observer, "node-15", Some(38652));
         assert!(result.success);
-        assert_eq!(result.staked_amount, 0);
-        assert_eq!(result.liquid_balance, 500_000);
-        assert!(result.staking_tx_hash.is_none());
+        assert_eq!(result.staked_amount, 5_000);
+        assert_eq!(result.liquid_balance, 95_000);
+        assert!(result.staking_tx_hash.is_some());
     }
 }

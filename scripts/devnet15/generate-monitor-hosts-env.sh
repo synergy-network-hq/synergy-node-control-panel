@@ -41,11 +41,11 @@ ATLAS_BASE_URL=https://devnet-explorer.synergy-network.io
 
 HEADER
 
-while IFS=, read -r machine_id node_id role_group role node_type _ _ _ _ _ _ host vpn_ip _ _ _ || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
-  [[ -z "${machine_id:-}" ]] && continue
+while IFS=, read -r node_slot_id node_alias role_group role node_type _ _ _ _ _ _ host vpn_ip _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
+  [[ -z "${node_slot_id:-}" ]] && continue
 
-  machine_key="$(printf '%s' "$machine_id" | tr '[:lower:]-' '[:upper:]_')"
+  node_slot_key="$(printf '%s' "$node_slot_id" | tr '[:lower:]-' '[:upper:]_')"
 
   if [[ -z "${host:-}" ]]; then
     host="$vpn_ip"
@@ -53,33 +53,33 @@ while IFS=, read -r machine_id node_id role_group role node_type _ _ _ _ _ _ hos
 
   cat >> "$OUTPUT_FILE" <<ENTRY
 # -----------------------------------------------------------------------------
-# $machine_id ($node_id | $role_group | $role | $node_type)
-${machine_key}_HOST=$host
-${machine_key}_VPN_IP=$vpn_ip
-${machine_key}_SSH_USER=ops
-${machine_key}_SSH_PORT=22
-# ${machine_key}_SSH_KEY=
-# ${machine_key}_REMOTE_DIR=/opt/synergy/$machine_id
-# ${machine_key}_WG_INTERFACE=wg0
-# ${machine_key}_WG_REMOTE_CONF=/etc/wireguard/wg0.conf
+# $node_slot_id ($node_alias | $role_group | $role | $node_type)
+${node_slot_key}_HOST=$host
+${node_slot_key}_VPN_IP=$vpn_ip
+${node_slot_key}_SSH_USER=ops
+${node_slot_key}_SSH_PORT=22
+# ${node_slot_key}_SSH_KEY=
+# ${node_slot_key}_REMOTE_DIR=/opt/synergy/$node_slot_id
+# ${node_slot_key}_WG_INTERFACE=wg0
+# ${node_slot_key}_WG_REMOTE_CONF=/etc/wireguard/wg0.conf
 
-${machine_key}_START_CMD="$ORCHESTRATOR_SCRIPT $machine_id start"
-${machine_key}_STOP_CMD="$ORCHESTRATOR_SCRIPT $machine_id stop"
-${machine_key}_RESTART_CMD="$ORCHESTRATOR_SCRIPT $machine_id restart"
-${machine_key}_STATUS_CMD="$ORCHESTRATOR_SCRIPT $machine_id status"
-${machine_key}_SETUP_CMD="$ORCHESTRATOR_SCRIPT $machine_id setup_node"
-${machine_key}_EXPORT_LOGS_CMD="$ORCHESTRATOR_SCRIPT $machine_id export_logs"
-${machine_key}_VIEW_CHAIN_DATA_CMD="$ORCHESTRATOR_SCRIPT $machine_id view_chain_data"
-${machine_key}_EXPORT_CHAIN_DATA_CMD="$ORCHESTRATOR_SCRIPT $machine_id export_chain_data"
+${node_slot_key}_START_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id start"
+${node_slot_key}_STOP_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id stop"
+${node_slot_key}_RESTART_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id restart"
+${node_slot_key}_STATUS_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id status"
+${node_slot_key}_SETUP_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id setup_node"
+${node_slot_key}_EXPORT_LOGS_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id export_logs"
+${node_slot_key}_VIEW_CHAIN_DATA_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id view_chain_data"
+${node_slot_key}_EXPORT_CHAIN_DATA_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id export_chain_data"
 
-${machine_key}_ACTION_INSTALL_NODE_CMD="$ORCHESTRATOR_SCRIPT $machine_id install_node"
-${machine_key}_ACTION_BOOTSTRAP_NODE_CMD="$ORCHESTRATOR_SCRIPT $machine_id bootstrap_node"
-${machine_key}_ACTION_WIREGUARD_INSTALL_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_install"
-${machine_key}_ACTION_WIREGUARD_CONNECT_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_connect"
-${machine_key}_ACTION_WIREGUARD_DISCONNECT_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_disconnect"
-${machine_key}_ACTION_WIREGUARD_STATUS_CMD="$ORCHESTRATOR_SCRIPT $machine_id wireguard_status"
-${machine_key}_ACTION_NODE_LOGS_CMD="$ORCHESTRATOR_SCRIPT $machine_id logs"
-${machine_key}_ACTION_RESET_CHAIN_CMD="$ORCHESTRATOR_SCRIPT $machine_id reset_chain"
+${node_slot_key}_ACTION_INSTALL_NODE_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id install_node"
+${node_slot_key}_ACTION_BOOTSTRAP_NODE_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id bootstrap_node"
+${node_slot_key}_ACTION_WIREGUARD_INSTALL_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_install"
+${node_slot_key}_ACTION_WIREGUARD_CONNECT_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_connect"
+${node_slot_key}_ACTION_WIREGUARD_DISCONNECT_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_disconnect"
+${node_slot_key}_ACTION_WIREGUARD_STATUS_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_status"
+${node_slot_key}_ACTION_NODE_LOGS_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id logs"
+${node_slot_key}_ACTION_RESET_CHAIN_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id reset_chain"
 
 ENTRY
 

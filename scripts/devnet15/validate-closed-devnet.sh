@@ -57,7 +57,7 @@ extract_bootnode_hosts() {
 failures=0
 checked=0
 
-for config in "$CONFIG_DIR"/machine-*.toml; do
+for config in "$CONFIG_DIR"/node-*.toml; do
   [[ -f "$config" ]] || continue
   checked=$((checked + 1))
   name="$(basename "$config")"
@@ -105,14 +105,34 @@ for config in "$CONFIG_DIR"/machine-*.toml; do
   done < <(extract_bootnode_hosts "$config")
 done
 
-validator_count="$(awk -F, 'NR > 1 {v=tolower($14); if (v=="true" || v=="1" || v=="yes") c++} END {print c+0}' "$INVENTORY_FILE")"
+validator_count="$(
+  awk -F, '
+    NR == 1 {
+      for (i = 1; i <= NF; i++) {
+        header[$i] = i
+      }
+      next
+    }
+    {
+      idx = header["auto_register_validator"]
+      if (!idx) {
+        next
+      }
+      v = tolower($(idx))
+      if (v == "true" || v == "1" || v == "yes") {
+        c++
+      }
+    }
+    END { print c + 0 }
+  ' "$INVENTORY_FILE"
+)"
 if (( validator_count < 5 )); then
   echo "[inventory] requires at least 5 validators, found ${validator_count}" >&2
   failures=$((failures + 1))
 fi
 
 if (( checked == 0 )); then
-  echo "No machine config files found in $CONFIG_DIR" >&2
+  echo "No node config files found in $CONFIG_DIR" >&2
   exit 1
 fi
 

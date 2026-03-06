@@ -48,10 +48,10 @@ resolve_var() {
   printf '%s' "${!name:-}"
 }
 
-logical_machines=()
+logical_node_slots=()
 logical_physical_indexes=()
 physical_keys=()
-physical_primary_machines=()
+physical_primary_node_slots=()
 physical_vpn_ips=()
 physical_hosts=()
 physical_listen_ports=()
@@ -68,19 +68,19 @@ physical_index_for_key() {
   echo "-1"
 }
 
-while IFS=, read -r machine_id _ _ _ _ _ _ _ _ _ _ host vpn_ip physical_machine _ _ _ _ _ _ _ _ || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
-  if [[ -z "$machine_id" || -z "$vpn_ip" ]]; then
+while IFS=, read -r node_slot_id _ _ _ _ _ _ _ _ _ _ host vpn_ip physical_machine_id _ _ _ _ _ _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
+  if [[ -z "$node_slot_id" || -z "$vpn_ip" ]]; then
     continue
   fi
 
-  machine_id="${machine_id//$'\r'/}"
+  node_slot_id="${node_slot_id//$'\r'/}"
   host="${host//$'\r'/}"
   vpn_ip="${vpn_ip//$'\r'/}"
-  physical_machine="${physical_machine//$'\r'/}"
+  physical_machine_id="${physical_machine_id//$'\r'/}"
 
-  machine_key="$(printf '%s' "$machine_id" | tr '[:lower:]-' '[:upper:]_')"
-  host_override_var="${machine_key}_HOST"
+  node_slot_key="$(printf '%s' "$node_slot_id" | tr '[:lower:]-' '[:upper:]_')"
+  host_override_var="${node_slot_key}_HOST"
   host_override="$(resolve_var "$host_override_var")"
   if [[ -n "$host_override" ]]; then
     host="$host_override"
@@ -91,7 +91,7 @@ while IFS=, read -r machine_id _ _ _ _ _ _ _ _ _ _ host vpn_ip physical_machine 
 
   # WireGuard is machine-level. Multiple logical nodes can share one physical machine.
   # Reuse the same keypair/listen port/address for logical nodes with the same physical identity.
-  physical_key="$physical_machine"
+  physical_key="$physical_machine_id"
   if [[ -z "$physical_key" ]]; then
     physical_key="$vpn_ip"
   fi
@@ -101,18 +101,18 @@ while IFS=, read -r machine_id _ _ _ _ _ _ _ _ _ _ host vpn_ip physical_machine 
   if [[ "$idx" == "-1" ]]; then
     idx="${#physical_keys[@]}"
     physical_keys+=("$physical_key")
-    physical_primary_machines+=("$machine_id")
+    physical_primary_node_slots+=("$node_slot_id")
     physical_vpn_ips+=("$vpn_ip")
     physical_hosts+=("$host")
     physical_listen_ports+=("$((PORT_BASE + idx))")
   fi
 
-  logical_machines+=("$machine_id")
+  logical_node_slots+=("$node_slot_id")
   logical_physical_indexes+=("$idx")
 done < "$INVENTORY_FILE"
 
-for machine_id in "${physical_primary_machines[@]}"; do
-  key_dir="$KEYS_DIR/$machine_id"
+for node_slot_id in "${physical_primary_node_slots[@]}"; do
+  key_dir="$KEYS_DIR/$node_slot_id"
   mkdir -p "$key_dir"
   private_key_file="$key_dir/privatekey"
   public_key_file="$key_dir/publickey"
@@ -126,15 +126,15 @@ for machine_id in "${physical_primary_machines[@]}"; do
   fi
 done
 
-for i in "${!logical_machines[@]}"; do
-  machine_id="${logical_machines[$i]}"
+for i in "${!logical_node_slots[@]}"; do
+  node_slot_id="${logical_node_slots[$i]}"
   machine_physical_index="${logical_physical_indexes[$i]}"
-  machine_primary_id="${physical_primary_machines[$machine_physical_index]}"
+  machine_primary_id="${physical_primary_node_slots[$machine_physical_index]}"
   machine_vpn_ip="${physical_vpn_ips[$machine_physical_index]}"
   machine_listen_port="${physical_listen_ports[$machine_physical_index]}"
   machine_private_key="$(cat "$KEYS_DIR/$machine_primary_id/privatekey")"
 
-  conf_file="$CONFIGS_DIR/$machine_id.conf"
+  conf_file="$CONFIGS_DIR/$node_slot_id.conf"
   {
     echo "[Interface]"
     echo "PrivateKey = $machine_private_key"
@@ -147,7 +147,7 @@ for i in "${!logical_machines[@]}"; do
     if [[ "$machine_physical_index" == "$j" ]]; then
       continue
     fi
-    peer_machine="${physical_primary_machines[$j]}"
+    peer_machine="${physical_primary_node_slots[$j]}"
     peer_vpn_ip="${physical_vpn_ips[$j]}"
     peer_host="${physical_hosts[$j]}"
     peer_port="${physical_listen_ports[$j]}"

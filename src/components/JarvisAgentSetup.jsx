@@ -19,15 +19,15 @@ const DEVNET_NODE_LAYOUT = [
   ['node-24', 'node-25'],
 ];
 
-function machineOrdinal(machineId) {
-  const match = String(machineId || '').match(/(\d+)/);
+function nodeSlotOrdinal(nodeSlotId) {
+  const match = String(nodeSlotId || '').match(/(\d+)/);
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }
 
-function sortMachineIds(machineIds) {
-  return [...machineIds].sort((a, b) => {
-    const aNum = machineOrdinal(a);
-    const bNum = machineOrdinal(b);
+function sortNodeSlotIds(nodeSlotIds) {
+  return [...nodeSlotIds].sort((a, b) => {
+    const aNum = nodeSlotOrdinal(a);
+    const bNum = nodeSlotOrdinal(b);
     if (aNum !== bNum) return aNum - bNum;
     return String(a).localeCompare(String(b));
   });
@@ -38,36 +38,36 @@ function computeAssignments(inventory, deviceCount, deviceHosts) {
     return [];
   }
 
-  const inventorySet = new Set(inventory.map((entry) => entry.machine_id));
+  const inventorySet = new Set(inventory.map((entry) => entry.node_slot_id));
   if (
     deviceCount === 13
-    && DEVNET_NODE_LAYOUT.every((group) => group.every((machineId) => inventorySet.has(machineId)))
+    && DEVNET_NODE_LAYOUT.every((group) => group.every((nodeSlotId) => inventorySet.has(nodeSlotId)))
   ) {
-    return DEVNET_NODE_LAYOUT.map((machineIds, index) => ({
+    return DEVNET_NODE_LAYOUT.map((nodeSlotIds, index) => ({
       deviceIndex: index,
       deviceLabel: `device-${String(index + 1).padStart(2, '0')}`,
       host: String(deviceHosts[index] || '').trim(),
-      machineIds: [...machineIds],
+      nodeSlotIds: [...nodeSlotIds],
     }));
   }
 
-  const machineIds = sortMachineIds(inventory.map((entry) => entry.machine_id));
-  if (!machineIds.length) {
+  const nodeSlotIds = sortNodeSlotIds(inventory.map((entry) => entry.node_slot_id));
+  if (!nodeSlotIds.length) {
     return [];
   }
 
-  const targetNodeCount = Math.min(machineIds.length, deviceCount * 2);
-  const selectedIds = machineIds.slice(0, targetNodeCount);
+  const targetNodeCount = Math.min(nodeSlotIds.length, deviceCount * 2);
+  const selectedIds = nodeSlotIds.slice(0, targetNodeCount);
 
   const assignments = [];
   for (let index = 0; index < deviceCount; index += 1) {
     const start = index * 2;
-    const machineSlice = selectedIds.slice(start, start + 2);
+    const nodeSlotSlice = selectedIds.slice(start, start + 2);
     assignments.push({
       deviceIndex: index,
       deviceLabel: `device-${String(index + 1).padStart(2, '0')}`,
       host: String(deviceHosts[index] || '').trim(),
-      machineIds: machineSlice,
+      nodeSlotIds: nodeSlotSlice,
     });
   }
 
@@ -104,7 +104,7 @@ function JarvisAgentSetup() {
 
   const [workspacePath, setWorkspacePath] = useState('');
   const [inventory, setInventory] = useState([]);
-  const [configuredMachineIds, setConfiguredMachineIds] = useState([]);
+  const [configuredNodeSlotIds, setConfiguredMachineIds] = useState([]);
 
   const [machine01Host, setMachine01Host] = useState('');
   const [deviceCount, setDeviceCount] = useState(0);
@@ -127,10 +127,10 @@ function JarvisAgentSetup() {
     () => computeAssignments(inventory, deviceCount, deviceHosts),
     [inventory, deviceCount, deviceHosts],
   );
-  const inventoryByMachineId = useMemo(() => {
+  const inventoryByNodeSlotId = useMemo(() => {
     const map = new Map();
     inventory.forEach((entry) => {
-      map.set(entry.machine_id, entry);
+      map.set(entry.node_slot_id, entry);
     });
     return map;
   }, [inventory]);
@@ -169,14 +169,14 @@ function JarvisAgentSetup() {
       const workspace = await invoke('agent_monitor_initialize_workspace');
       const machines = await invoke('agent_get_inventory_machines');
 
-      const orderedMachines = sortMachineIds(machines.map((entry) => entry.machine_id));
+      const orderedNodeSlots = sortNodeSlotIds(machines.map((entry) => entry.node_slot_id));
       setWorkspacePath(String(workspace || ''));
       setInventory(Array.isArray(machines) ? machines : []);
 
       addMessage('jarvis', "Hello. I'm Jarvis, your Devnet Setup Agent.");
       addMessage(
         'jarvis',
-        `I will orchestrate closed-devnet setup for this fleet. Inventory loaded with ${orderedMachines.length} node slots.`,
+        `I will orchestrate closed-devnet setup for this fleet. Inventory loaded with ${orderedNodeSlots.length} node slots.`,
       );
       addMessage(
         'jarvis',
@@ -202,12 +202,12 @@ function JarvisAgentSetup() {
   }, [bootstrap]);
 
   const runNodeAction = useCallback(
-    async (machineId, action) => {
+    async (nodeSlotId, action) => {
       try {
-        const result = await invoke('monitor_node_control', { machineId, action });
+        const result = await invoke('monitor_node_control', { nodeSlotId: nodeSlotId, action });
         const success = Boolean(result?.success);
         const statusLabel = success ? 'OK' : 'FAILED';
-        addMessage('jarvis', `${machineId}: ${action} -> ${statusLabel}`);
+        addMessage('jarvis', `${nodeSlotId}: ${action} -> ${statusLabel}`);
 
         const stdoutPreview = truncateText(result?.stdout);
         if (stdoutPreview) {
@@ -217,14 +217,14 @@ function JarvisAgentSetup() {
         if (!success) {
           const stderrPreview = truncateText(result?.stderr || 'No stderr captured.');
           setHaltedAction({
-            machineId,
+            nodeSlotId,
             action,
             command: String(result?.command || ''),
             reason: stderrPreview,
           });
           addMessage(
             'jarvis',
-            `Action halted on ${machineId}:${action}. Run the command manually, then click "I Ran It Manually" to continue.`,
+            `Action halted on ${nodeSlotId}:${action}. Run the command manually, then click "I Ran It Manually" to continue.`,
           );
         }
 
@@ -232,23 +232,23 @@ function JarvisAgentSetup() {
       } catch (error) {
         const reason = String(error);
         setHaltedAction({
-          machineId,
+          nodeSlotId,
           action,
           command: '',
           reason,
         });
-        addMessage('jarvis', `${machineId}: ${action} could not execute in-app: ${reason}`);
+        addMessage('jarvis', `${nodeSlotId}: ${action} could not execute in-app: ${reason}`);
         return false;
       }
     },
     [addMessage],
   );
 
-  const runSequenceForMachine = useCallback(
-    async (machineId, sequence, label) => {
-      addMessage('jarvis', `Running ${label} on ${machineId}: ${formatSequence(sequence)}`);
+  const runSequenceForNodeSlot = useCallback(
+    async (nodeSlotId, sequence, label) => {
+      addMessage('jarvis', `Running ${label} on ${nodeSlotId}: ${formatSequence(sequence)}`);
       for (const action of sequence) {
-        const ok = await runNodeAction(machineId, action);
+        const ok = await runNodeAction(nodeSlotId, action);
         if (!ok) {
           return false;
         }
@@ -264,25 +264,25 @@ function JarvisAgentSetup() {
       return;
     }
 
-    const invalidHost = assignmentPlan.find((entry) => entry.machineIds.length > 0 && !entry.host);
+    const invalidHost = assignmentPlan.find((entry) => entry.nodeSlotIds.length > 0 && !entry.host);
     if (invalidHost) {
       addMessage('jarvis', `Missing host for ${invalidHost.deviceLabel}. Provide all device hosts first.`);
       return;
     }
 
-    const machineMappings = assignmentPlan.flatMap((entry) =>
-      entry.machineIds.map((machineId) => ({
-        machine_id: machineId,
+    const nodeSlotMappings = assignmentPlan.flatMap((entry) =>
+      entry.nodeSlotIds.map((nodeSlotId) => ({
+        node_slot_id: nodeSlotId,
         host: entry.host,
         ssh_user: defaults.sshUser,
         ssh_port: Number(defaults.sshPort || 22),
         ssh_key_path: defaults.sshKeyPath,
-        remote_dir: `${defaults.remoteRoot}/${machineId}`,
+        remote_dir: `${defaults.remoteRoot}/${nodeSlotId}`,
         wg_interface: defaults.wgInterface,
       })),
     );
 
-    if (!machineMappings.length) {
+    if (!nodeSlotMappings.length) {
       addMessage('jarvis', 'No machine mappings were generated from the current plan.');
       return;
     }
@@ -298,7 +298,7 @@ function JarvisAgentSetup() {
           global_ssh_port: Number(defaults.sshPort || 22),
           global_ssh_key_path: defaults.sshKeyPath,
           atlas_base_url: defaults.atlasBaseUrl,
-          machines: machineMappings,
+          machines: nodeSlotMappings,
         },
       });
       addMessage('jarvis', `Updated hosts config: ${String(hostsPath)}`);
@@ -307,7 +307,7 @@ function JarvisAgentSetup() {
       const meshResult = await invoke('agent_generate_wireguard_mesh');
       if (!meshResult?.success) {
         setHaltedAction({
-          machineId: 'local-control',
+          nodeSlotId: 'local-control',
           action: 'generate_wireguard_mesh',
           command: String(meshResult?.command || ''),
           reason: truncateText(meshResult?.stderr || meshResult?.stdout || 'Mesh generation failed.'),
@@ -316,18 +316,18 @@ function JarvisAgentSetup() {
           'jarvis',
           'WireGuard mesh generation failed locally. Install local WireGuard tools if missing, run the command shown, then continue.',
         );
-        setConfiguredMachineIds(machineMappings.map((entry) => entry.machine_id));
+        setConfiguredMachineIds(nodeSlotMappings.map((entry) => entry.node_slot_id));
         setPhase('ready_actions');
         return;
       }
 
       addMessage('jarvis', 'WireGuard mesh artifacts generated successfully.');
 
-      const configuredIds = sortMachineIds(machineMappings.map((entry) => entry.machine_id));
+      const configuredIds = sortNodeSlotIds(nodeSlotMappings.map((entry) => entry.node_slot_id));
       setConfiguredMachineIds(configuredIds);
 
       if (configuredIds.includes('node-01')) {
-        const ok = await runSequenceForMachine('node-01', WG_BOOTSTRAP_SEQUENCE, 'WireGuard bootstrap');
+        const ok = await runSequenceForNodeSlot('node-01', WG_BOOTSTRAP_SEQUENCE, 'WireGuard bootstrap');
         if (!ok) {
           setPhase('ready_actions');
           return;
@@ -346,12 +346,12 @@ function JarvisAgentSetup() {
     } finally {
       setRunning(false);
     }
-  }, [addMessage, assignmentPlan, defaults, runSequenceForMachine]);
+  }, [addMessage, assignmentPlan, defaults, runSequenceForNodeSlot]);
 
   const runWireguardAll = useCallback(async () => {
-    const targets = configuredMachineIds.length
-      ? configuredMachineIds
-      : sortMachineIds(assignmentPlan.flatMap((entry) => entry.machineIds));
+    const targets = configuredNodeSlotIds.length
+      ? configuredNodeSlotIds
+      : sortNodeSlotIds(assignmentPlan.flatMap((entry) => entry.nodeSlotIds));
 
     if (!targets.length) {
       addMessage('jarvis', 'No configured machine targets available. Apply setup plan first.');
@@ -361,8 +361,8 @@ function JarvisAgentSetup() {
     setRunning(true);
     setHaltedAction(null);
     try {
-      for (const machineId of targets) {
-        const ok = await runSequenceForMachine(machineId, WG_BOOTSTRAP_SEQUENCE, 'WireGuard setup');
+      for (const nodeSlotId of targets) {
+        const ok = await runSequenceForNodeSlot(nodeSlotId, WG_BOOTSTRAP_SEQUENCE, 'WireGuard setup');
         if (!ok) {
           addMessage('jarvis', 'WireGuard fleet run paused on failure. Resolve and retry.');
           return;
@@ -372,12 +372,12 @@ function JarvisAgentSetup() {
     } finally {
       setRunning(false);
     }
-  }, [addMessage, assignmentPlan, configuredMachineIds, runSequenceForMachine]);
+  }, [addMessage, assignmentPlan, configuredNodeSlotIds, runSequenceForNodeSlot]);
 
   const runProvisionAll = useCallback(async () => {
-    const targets = configuredMachineIds.length
-      ? configuredMachineIds
-      : sortMachineIds(assignmentPlan.flatMap((entry) => entry.machineIds));
+    const targets = configuredNodeSlotIds.length
+      ? configuredNodeSlotIds
+      : sortNodeSlotIds(assignmentPlan.flatMap((entry) => entry.nodeSlotIds));
 
     if (!targets.length) {
       addMessage('jarvis', 'No configured machine targets available. Apply setup plan first.');
@@ -387,8 +387,8 @@ function JarvisAgentSetup() {
     setRunning(true);
     setHaltedAction(null);
     try {
-      for (const machineId of targets) {
-        const ok = await runSequenceForMachine(machineId, PROVISION_SEQUENCE, 'Node provision/start');
+      for (const nodeSlotId of targets) {
+        const ok = await runSequenceForNodeSlot(nodeSlotId, PROVISION_SEQUENCE, 'Node provision/start');
         if (!ok) {
           addMessage('jarvis', 'Provisioning paused on failure. Resolve and retry.');
           return;
@@ -398,7 +398,7 @@ function JarvisAgentSetup() {
     } finally {
       setRunning(false);
     }
-  }, [addMessage, assignmentPlan, configuredMachineIds, runSequenceForMachine]);
+  }, [addMessage, assignmentPlan, configuredNodeSlotIds, runSequenceForNodeSlot]);
 
   const refreshFleetStatus = useCallback(async () => {
     setRunning(true);
@@ -522,13 +522,13 @@ function JarvisAgentSetup() {
   );
 
   const machinePlanLines = assignmentPlan
-    .filter((entry) => entry.machineIds.length > 0)
+    .filter((entry) => entry.nodeSlotIds.length > 0)
     .map((entry) => {
-      const roleSummary = entry.machineIds
-        .map((machineId) => {
-          const machine = inventoryByMachineId.get(machineId);
-          if (!machine) return machineId;
-          return `${machineId} (${machine.role}/${machine.node_type})`;
+      const roleSummary = entry.nodeSlotIds
+        .map((nodeSlotId) => {
+          const machine = inventoryByNodeSlotId.get(nodeSlotId);
+          if (!machine) return nodeSlotId;
+          return `${nodeSlotId} (${machine.role}/${machine.node_type})`;
         })
         .join(', ');
       return `${entry.deviceLabel} [${entry.host || 'missing-host'}] => ${roleSummary}`;
@@ -632,7 +632,7 @@ function JarvisAgentSetup() {
               <strong>
                 Manual step required:
                 {' '}
-                {haltedAction.machineId}
+                {haltedAction.nodeSlotId}
                 {' / '}
                 {haltedAction.action}
               </strong>
@@ -645,7 +645,7 @@ function JarvisAgentSetup() {
                     setRunning(true);
                     let ok = false;
                     if (
-                      haltedAction.machineId === 'local-control'
+                      haltedAction.nodeSlotId === 'local-control'
                       && haltedAction.action === 'generate_wireguard_mesh'
                     ) {
                       try {
@@ -661,7 +661,7 @@ function JarvisAgentSetup() {
                         addMessage('jarvis', `Local mesh retry failed: ${String(error)}`);
                       }
                     } else {
-                      ok = await runNodeAction(haltedAction.machineId, haltedAction.action);
+                      ok = await runNodeAction(haltedAction.nodeSlotId, haltedAction.action);
                     }
                     if (ok) {
                       setHaltedAction(null);

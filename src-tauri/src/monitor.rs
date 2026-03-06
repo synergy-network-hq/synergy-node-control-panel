@@ -14,8 +14,8 @@ use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorNode {
-    pub machine_id: String,
-    pub node_id: String,
+    pub node_slot_id: String,
+    pub node_alias: String,
     pub role_group: String,
     pub role: String,
     pub node_type: String,
@@ -27,7 +27,7 @@ pub struct MonitorNode {
     pub discovery_port: u16,
     pub rpc_url: String,
     pub node_address: Option<String>,
-    pub physical_machine: String,
+    pub physical_machine_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +63,10 @@ pub struct MonitorRpcDiagnostics {
     pub latest_block: Option<Value>,
     pub peer_info: Option<Value>,
     pub validator_activity: Option<Value>,
+    pub token_balance: Option<Value>,
+    pub staking_info: Option<Value>,
+    pub staked_balance: Option<Value>,
+    pub synergy_score_breakdown: Option<Value>,
     pub relayer_set: Option<Value>,
     pub attestations: Option<Value>,
     pub errors: Vec<String>,
@@ -112,6 +116,8 @@ pub struct MonitorNodeDetails {
     pub inventory_path: String,
     pub captured_at_utc: String,
     pub status: MonitorNodeStatus,
+    pub protocol_profile: Value,
+    pub economics_profile: Value,
     pub role_diagnostics: Value,
     pub role_notes: Vec<String>,
     pub role_execution: MonitorRoleExecution,
@@ -138,7 +144,7 @@ pub struct MonitorExecutionCheck {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorControlResult {
-    pub machine_id: String,
+    pub node_slot_id: String,
     pub action: String,
     pub success: bool,
     pub exit_code: i32,
@@ -163,7 +169,7 @@ struct NodeControlCommands {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorExportResult {
-    pub machine_id: String,
+    pub node_slot_id: String,
     pub file_path: String,
     pub bytes: usize,
     pub exported_at_utc: String,
@@ -214,8 +220,9 @@ pub struct MonitorSshProfileInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MonitorMachineSshBinding {
-    pub machine_id: String,
+pub struct MonitorSshBinding {
+    #[serde(alias = "machine_id")]
+    pub node_slot_id: String,
     pub profile_id: String,
     pub host_override: Option<String>,
     pub remote_dir_override: Option<String>,
@@ -223,8 +230,8 @@ pub struct MonitorMachineSshBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MonitorMachineSshBindingInput {
-    pub machine_id: String,
+pub struct MonitorSshBindingInput {
+    pub node_slot_id: String,
     pub profile_id: String,
     pub host_override: Option<String>,
     pub remote_dir_override: Option<String>,
@@ -246,7 +253,8 @@ pub struct MonitorSecurityState {
     pub active_role: String,
     pub operators: Vec<MonitorOperatorProfile>,
     pub ssh_profiles: Vec<MonitorSshProfile>,
-    pub machine_bindings: Vec<MonitorMachineSshBinding>,
+    #[serde(default, alias = "machine_bindings")]
+    pub ssh_bindings: Vec<MonitorSshBinding>,
     pub role_permissions: Vec<MonitorRolePermissions>,
 }
 
@@ -264,7 +272,8 @@ pub struct MonitorLocalVpnIdentity {
     pub detected: bool,
     pub vpn_ip: Option<String>,
     pub physical_machine_id: Option<String>,
-    pub logical_machine_ids: Vec<String>,
+    #[serde(default, alias = "logical_machine_ids")]
+    pub node_slot_ids: Vec<String>,
     pub message: String,
 }
 
@@ -334,7 +343,8 @@ struct MonitorSecurityConfig {
     active_operator_id: String,
     operators: Vec<MonitorOperatorProfile>,
     ssh_profiles: Vec<MonitorSshProfile>,
-    machine_bindings: Vec<MonitorMachineSshBinding>,
+    #[serde(default, alias = "machine_bindings")]
+    ssh_bindings: Vec<MonitorSshBinding>,
     #[serde(default)]
     setup: MonitorSetupState,
 }
@@ -395,7 +405,7 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
             detected: false,
             vpn_ip: None,
             physical_machine_id: None,
-            logical_machine_ids: Vec::new(),
+            node_slot_ids: Vec::new(),
             message: "No local 10.50.0.x WireGuard/VPN address was detected.".to_string(),
         });
     };
@@ -406,14 +416,14 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
             detected: false,
             vpn_ip: Some(vpn_ip.clone()),
             physical_machine_id: None,
-            logical_machine_ids: Vec::new(),
+            node_slot_ids: Vec::new(),
             message: format!(
                 "Detected local VPN IP {vpn_ip}, but it does not map to machine-01..machine-13."
             ),
         });
     };
 
-    let logical_machine_ids = logical_nodes_for_physical_machine(physical_machine_id)?
+    let node_slot_ids = logical_nodes_for_physical_machine(physical_machine_id)?
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
@@ -422,7 +432,7 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
         detected: true,
         vpn_ip: Some(vpn_ip.clone()),
         physical_machine_id: Some(physical_machine_id.to_string()),
-        logical_machine_ids,
+        node_slot_ids,
         message: format!("Detected VPN IP {vpn_ip}; mapped to {physical_machine_id}."),
     })
 }
@@ -450,11 +460,11 @@ pub fn monitor_mark_setup_complete(
 
     let missing_bindings = logical_nodes
         .iter()
-        .filter(|machine_id| {
+        .filter(|node_slot_id| {
             !config
-                .machine_bindings
+                .ssh_bindings
                 .iter()
-                .any(|binding| binding.machine_id.eq_ignore_ascii_case(machine_id))
+                .any(|binding| binding.node_slot_id.eq_ignore_ascii_case(node_slot_id))
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -696,7 +706,7 @@ pub fn monitor_delete_ssh_profile(profile_id: String) -> Result<MonitorSecurityS
         return Err(format!("SSH profile not found: {target}"));
     }
     config
-        .machine_bindings
+        .ssh_bindings
         .retain(|binding| !binding.profile_id.eq_ignore_ascii_case(&target));
 
     save_security_config(&config)?;
@@ -710,16 +720,16 @@ pub fn monitor_delete_ssh_profile(profile_id: String) -> Result<MonitorSecurityS
 }
 
 #[tauri::command]
-pub fn monitor_assign_machine_ssh_profile(
-    input: MonitorMachineSshBindingInput,
+pub fn monitor_assign_ssh_binding(
+    input: MonitorSshBindingInput,
 ) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
     enforce_security_admin(&actor)?;
 
-    let machine_id = input.machine_id.trim().to_string();
-    if machine_id.is_empty() {
-        return Err("machine_id is required".to_string());
+    let node_slot_id = input.node_slot_id.trim().to_string();
+    if node_slot_id.is_empty() {
+        return Err("node_slot_id is required".to_string());
     }
     let profile_id = sanitize_identifier(&input.profile_id);
     if profile_id.is_empty() {
@@ -736,25 +746,25 @@ pub fn monitor_assign_machine_ssh_profile(
 
     let now = Utc::now().to_rfc3339();
     let validated_host_override =
-        validate_host_override_for_binding(&machine_id, &input.host_override)?;
+        validate_host_override_for_binding(&node_slot_id, &input.host_override)?;
 
     if let Some(existing) = config
-        .machine_bindings
+        .ssh_bindings
         .iter_mut()
-        .find(|binding| binding.machine_id.eq_ignore_ascii_case(&machine_id))
+        .find(|binding| binding.node_slot_id.eq_ignore_ascii_case(&node_slot_id))
     {
         existing.profile_id = profile_id.clone();
         existing.host_override = validated_host_override.clone();
         existing.remote_dir_override =
-            normalize_remote_dir_override(&machine_id, &input.remote_dir_override);
+            normalize_remote_dir_override(&node_slot_id, &input.remote_dir_override);
         existing.updated_at_utc = now.clone();
     } else {
-        config.machine_bindings.push(MonitorMachineSshBinding {
-            machine_id: machine_id.clone(),
+        config.ssh_bindings.push(MonitorSshBinding {
+            node_slot_id: node_slot_id.clone(),
             profile_id: profile_id.clone(),
             host_override: validated_host_override,
             remote_dir_override: normalize_remote_dir_override(
-                &machine_id,
+                &node_slot_id,
                 &input.remote_dir_override,
             ),
             updated_at_utc: now.clone(),
@@ -763,9 +773,9 @@ pub fn monitor_assign_machine_ssh_profile(
 
     save_security_config(&config)?;
     append_audit_event(json!({
-        "event_type": "security.machine_ssh_binding_upserted",
+        "event_type": "security.ssh_binding_upserted",
         "actor_operator_id": actor.operator_id,
-        "machine_id": machine_id,
+        "node_slot_id": node_slot_id,
         "profile_id": profile_id,
         "timestamp_utc": now,
     }))?;
@@ -773,31 +783,31 @@ pub fn monitor_assign_machine_ssh_profile(
 }
 
 #[tauri::command]
-pub fn monitor_remove_machine_ssh_profile(
-    machine_id: String,
+pub fn monitor_remove_ssh_binding(
+    node_slot_id: String,
 ) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
     enforce_security_admin(&actor)?;
 
-    let target = machine_id.trim();
+    let target = node_slot_id.trim();
     if target.is_empty() {
-        return Err("machine_id is required".to_string());
+        return Err("node_slot_id is required".to_string());
     }
 
-    let before = config.machine_bindings.len();
+    let before = config.ssh_bindings.len();
     config
-        .machine_bindings
-        .retain(|binding| !binding.machine_id.eq_ignore_ascii_case(target));
-    if config.machine_bindings.len() == before {
-        return Err(format!("No SSH binding found for machine: {target}"));
+        .ssh_bindings
+        .retain(|binding| !binding.node_slot_id.eq_ignore_ascii_case(target));
+    if config.ssh_bindings.len() == before {
+        return Err(format!("No SSH binding found for target: {target}"));
     }
 
     save_security_config(&config)?;
     append_audit_event(json!({
-        "event_type": "security.machine_ssh_binding_removed",
+        "event_type": "security.ssh_binding_removed",
         "actor_operator_id": actor.operator_id,
-        "machine_id": target,
+        "node_slot_id": target,
         "timestamp_utc": Utc::now().to_rfc3339(),
     }))?;
     load_monitor_security_state()
@@ -810,7 +820,7 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
 
     let probes = nodes.into_iter().map(probe_node).collect::<Vec<_>>();
     let mut statuses = join_all(probes).await;
-    statuses.sort_by(|a, b| a.node.machine_id.cmp(&b.node.machine_id));
+    statuses.sort_by(|a, b| a.node.node_slot_id.cmp(&b.node.node_slot_id));
 
     let total_nodes = statuses.len();
     let online_nodes = statuses.iter().filter(|n| n.online).count();
@@ -866,9 +876,9 @@ pub async fn monitor_bulk_node_control(
     }
 
     let mut results = Vec::new();
-    for machine_id in selected {
+    for node_slot_id in selected {
         let result =
-            execute_monitor_node_control(&machine_id, &normalized_action, &operator, "bulk")
+            execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "bulk")
                 .await?;
         results.push(result);
     }
@@ -899,18 +909,18 @@ pub async fn monitor_bulk_node_control(
 }
 
 #[tauri::command]
-pub async fn get_monitor_node_details(machine_id: String) -> Result<MonitorNodeDetails, String> {
+pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNodeDetails, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
 
     let node = nodes
         .iter()
         .find(|candidate| {
-            candidate.machine_id.eq_ignore_ascii_case(&machine_id)
-                || candidate.node_id.eq_ignore_ascii_case(&machine_id)
+            candidate.node_slot_id.eq_ignore_ascii_case(&node_slot_id)
+                || candidate.node_alias.eq_ignore_ascii_case(&node_slot_id)
         })
         .cloned()
-        .ok_or_else(|| format!("Node not found in inventory: {machine_id}"))?;
+        .ok_or_else(|| format!("Node not found in inventory: {node_slot_id}"))?;
 
     let node_status = probe_node(node.clone()).await;
 
@@ -956,6 +966,49 @@ pub async fn get_monitor_node_details(machine_id: String) -> Result<MonitorNodeD
     rpc.relayer_set = relayer_set_result.clone().ok();
     rpc.attestations = attestations_result.clone().ok();
 
+    if let Some(address) = node
+        .node_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let (
+            token_balance_result,
+            staking_info_result,
+            staked_balance_result,
+            synergy_score_breakdown_result,
+        ) = tokio::join!(
+            rpc_call(&client, &rpc_url, "synergy_getTokenBalance", json!([address, "SNRG"])),
+            rpc_call(&client, &rpc_url, "synergy_getStakingInfo", json!([address])),
+            rpc_call(&client, &rpc_url, "synergy_getStakedBalance", json!([address, "SNRG"])),
+            rpc_call(
+                &client,
+                &rpc_url,
+                "synergy_getSynergyScoreBreakdown",
+                json!([address])
+            ),
+        );
+
+        rpc.token_balance = token_balance_result.clone().ok();
+        rpc.staking_info = staking_info_result.clone().ok();
+        rpc.staked_balance = staked_balance_result.clone().ok();
+        rpc.synergy_score_breakdown = synergy_score_breakdown_result.clone().ok();
+
+        if let Err(err) = token_balance_result.as_ref() {
+            rpc.errors.push(format!("synergy_getTokenBalance: {err}"));
+        }
+        if let Err(err) = staking_info_result.as_ref() {
+            rpc.errors.push(format!("synergy_getStakingInfo: {err}"));
+        }
+        if let Err(err) = staked_balance_result.as_ref() {
+            rpc.errors.push(format!("synergy_getStakedBalance: {err}"));
+        }
+        if let Err(err) = synergy_score_breakdown_result.as_ref() {
+            rpc.errors
+                .push(format!("synergy_getSynergyScoreBreakdown: {err}"));
+        }
+    }
+
     if let Err(err) = node_info_result.as_ref() {
         rpc.errors.push(format!("synergy_nodeInfo: {err}"));
     }
@@ -984,13 +1037,15 @@ pub async fn get_monitor_node_details(machine_id: String) -> Result<MonitorNodeD
 
     let (role_diagnostics, role_notes) = build_role_diagnostics(&node_status, &rpc);
     let role_execution = build_role_execution(&node_status, &rpc);
+    let protocol_profile = load_protocol_profile(&inventory_path, &node.node_slot_id);
+    let economics_profile = load_economics_profile(&inventory_path, &node, &rpc);
 
     let host_overrides = load_hosts_overrides(&inventory_path);
     let control_commands = resolve_control_commands(
         &host_overrides,
-        &node.machine_id,
-        &node.node_id,
-        &node.physical_machine,
+        &node.node_slot_id,
+        &node.node_alias,
+        &node.physical_machine_id,
         &inventory_path,
     );
     let role_operations = build_role_operations(&node_status, &control_commands);
@@ -1001,6 +1056,8 @@ pub async fn get_monitor_node_details(machine_id: String) -> Result<MonitorNodeD
         inventory_path: inventory_path.to_string_lossy().to_string(),
         captured_at_utc: Utc::now().to_rfc3339(),
         status: node_status,
+        protocol_profile,
+        economics_profile,
         role_diagnostics,
         role_notes,
         role_execution,
@@ -1013,7 +1070,7 @@ pub async fn get_monitor_node_details(machine_id: String) -> Result<MonitorNodeD
 
 #[tauri::command]
 pub async fn monitor_node_control(
-    machine_id: String,
+    node_slot_id: String,
     action: String,
 ) -> Result<MonitorControlResult, String> {
     let normalized_action = normalize_action_key(&action);
@@ -1028,7 +1085,7 @@ pub async fn monitor_node_control(
             "event_type": "control.single.denied",
             "operator_id": operator.operator_id,
             "operator_role": operator.role,
-            "machine_id": machine_id,
+            "node_slot_id": node_slot_id,
             "action": normalized_action,
             "timestamp_utc": Utc::now().to_rfc3339(),
         }))?;
@@ -1038,7 +1095,7 @@ pub async fn monitor_node_control(
         ));
     }
 
-    execute_monitor_node_control(&machine_id, &normalized_action, &operator, "single").await
+    execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "single").await
 }
 
 #[tauri::command]
@@ -1192,8 +1249,8 @@ pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, St
     }
 
     let installers_dir = workspace.join("devnet/lean15/installers");
-    for (machine_id, vpn_ip) in &mapping {
-        let installer_dir = installers_dir.join(machine_id);
+    for (node_slot_id, vpn_ip) in &mapping {
+        let installer_dir = installers_dir.join(node_slot_id);
         if !installer_dir.is_dir() {
             continue;
         }
@@ -1213,8 +1270,8 @@ pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, St
 }
 
 #[tauri::command]
-pub async fn monitor_export_node_data(machine_id: String) -> Result<MonitorExportResult, String> {
-    let details = get_monitor_node_details(machine_id.clone()).await?;
+pub async fn monitor_export_node_data(node_slot_id: String) -> Result<MonitorExportResult, String> {
+    let details = get_monitor_node_details(node_slot_id.clone()).await?;
     let exported_at_utc = Utc::now().to_rfc3339();
 
     let inventory_path = PathBuf::from(&details.inventory_path);
@@ -1232,15 +1289,15 @@ pub async fn monitor_export_node_data(machine_id: String) -> Result<MonitorExpor
 
     let file_stem = format!(
         "{}-node-snapshot-{}",
-        sanitize_filename_fragment(&details.status.node.machine_id),
+        sanitize_filename_fragment(&details.status.node.node_slot_id),
         Utc::now().format("%Y%m%dT%H%M%SZ")
     );
     let output_path = export_root.join(format!("{file_stem}.json"));
 
     let payload = json!({
         "exported_at_utc": exported_at_utc,
-        "machine_id": details.status.node.machine_id,
-        "node_id": details.status.node.node_id,
+        "node_slot_id": details.status.node.node_slot_id,
+        "node_alias": details.status.node.node_alias,
         "inventory_path": details.inventory_path,
         "details": details,
     });
@@ -1248,7 +1305,7 @@ pub async fn monitor_export_node_data(machine_id: String) -> Result<MonitorExpor
     let encoded = serde_json::to_vec_pretty(&payload).map_err(|e| {
         format!(
             "Failed to serialize node export payload for {}: {}",
-            machine_id, e
+            node_slot_id, e
         )
     })?;
     fs::write(&output_path, &encoded).map_err(|e| {
@@ -1260,7 +1317,7 @@ pub async fn monitor_export_node_data(machine_id: String) -> Result<MonitorExpor
     })?;
 
     Ok(MonitorExportResult {
-        machine_id: details.status.node.machine_id,
+        node_slot_id: details.status.node.node_slot_id,
         file_path: output_path.to_string_lossy().to_string(),
         bytes: encoded.len(),
         exported_at_utc,
@@ -1340,28 +1397,49 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         .map(|(idx, name)| (name.clone(), idx))
         .collect::<HashMap<_, _>>();
 
+    let resolve_column = |aliases: &[&str]| -> Option<usize> {
+        aliases
+            .iter()
+            .find_map(|name| index_map.get(*name).copied())
+    };
+
     let hosts_overrides = load_hosts_overrides(inventory_path);
     let node_addresses = load_node_address_map(inventory_path);
 
-    let required = [
-        "machine_id",
-        "node_id",
-        "role_group",
-        "role",
-        "node_type",
-        "p2p_port",
-        "rpc_port",
-        "ws_port",
-        "grpc_port",
-        "discovery_port",
-        "host",
-    ];
-
-    for name in required {
-        if !index_map.contains_key(name) {
-            return Err(format!("Inventory header missing required column '{name}'"));
-        }
-    }
+    let Some(node_slot_idx) = resolve_column(&["node_slot_id", "machine_id"]) else {
+        return Err("Inventory header missing required column 'node_slot_id'".to_string());
+    };
+    let Some(node_alias_idx) = resolve_column(&["node_alias", "node_id"]) else {
+        return Err("Inventory header missing required column 'node_alias'".to_string());
+    };
+    let Some(role_group_idx) = resolve_column(&["role_group"]) else {
+        return Err("Inventory header missing required column 'role_group'".to_string());
+    };
+    let Some(role_idx) = resolve_column(&["role"]) else {
+        return Err("Inventory header missing required column 'role'".to_string());
+    };
+    let Some(node_type_idx) = resolve_column(&["node_type"]) else {
+        return Err("Inventory header missing required column 'node_type'".to_string());
+    };
+    let Some(p2p_port_idx) = resolve_column(&["p2p_port"]) else {
+        return Err("Inventory header missing required column 'p2p_port'".to_string());
+    };
+    let Some(rpc_port_idx) = resolve_column(&["rpc_port"]) else {
+        return Err("Inventory header missing required column 'rpc_port'".to_string());
+    };
+    let Some(ws_port_idx) = resolve_column(&["ws_port"]) else {
+        return Err("Inventory header missing required column 'ws_port'".to_string());
+    };
+    let Some(grpc_port_idx) = resolve_column(&["grpc_port"]) else {
+        return Err("Inventory header missing required column 'grpc_port'".to_string());
+    };
+    let Some(discovery_port_idx) = resolve_column(&["discovery_port"]) else {
+        return Err("Inventory header missing required column 'discovery_port'".to_string());
+    };
+    let Some(host_idx) = resolve_column(&["host"]) else {
+        return Err("Inventory header missing required column 'host'".to_string());
+    };
+    let physical_machine_idx = resolve_column(&["physical_machine_id", "physical_machine"]);
 
     let mut nodes = Vec::new();
 
@@ -1379,20 +1457,17 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             continue;
         }
 
-        let get = |name: &str| -> Result<String, String> {
-            let idx = *index_map
-                .get(name)
-                .ok_or_else(|| format!("Missing column '{name}'"))?;
-            Ok(cells.get(idx).cloned().unwrap_or_default())
+        let get = |index: usize| -> String {
+            cells.get(index).cloned().unwrap_or_default()
         };
 
-        let machine_id = get("machine_id")?;
-        let node_id = get("node_id")?;
-        let host_from_inventory = get("host")?;
+        let node_slot_id = get(node_slot_idx);
+        let node_alias = get(node_alias_idx);
+        let host_from_inventory = get(host_idx);
         let host = resolve_host_override(
             &hosts_overrides,
-            &machine_id,
-            &node_id,
+            &node_slot_id,
+            &node_alias,
             host_from_inventory.clone(),
         );
 
@@ -1405,32 +1480,28 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             })
         };
 
-        let rpc_port = parse_port(get("rpc_port")?, "rpc_port")?;
-        let p2p_port = parse_port(get("p2p_port")?, "p2p_port")?;
-        let ws_port = parse_port(get("ws_port")?, "ws_port")?;
-        let grpc_port = parse_port(get("grpc_port")?, "grpc_port")?;
-        let discovery_port = parse_port(get("discovery_port")?, "discovery_port")?;
+        let rpc_port = parse_port(get(rpc_port_idx), "rpc_port")?;
+        let p2p_port = parse_port(get(p2p_port_idx), "p2p_port")?;
+        let ws_port = parse_port(get(ws_port_idx), "ws_port")?;
+        let grpc_port = parse_port(get(grpc_port_idx), "grpc_port")?;
+        let discovery_port = parse_port(get(discovery_port_idx), "discovery_port")?;
 
         let rpc_url = build_rpc_url(&host, rpc_port);
 
-        let physical_machine = if index_map.contains_key("physical_machine") {
-            get("physical_machine").unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let physical_machine_id = physical_machine_idx.map(&get).unwrap_or_default();
 
         nodes.push(MonitorNode {
-            node_address: node_addresses.get(&machine_id.to_lowercase()).cloned(),
-            physical_machine: if physical_machine.is_empty() {
-                machine_id.clone()
+            node_address: node_addresses.get(&node_slot_id.to_lowercase()).cloned(),
+            physical_machine_id: if physical_machine_id.is_empty() {
+                node_slot_id.clone()
             } else {
-                physical_machine
+                physical_machine_id
             },
-            machine_id,
-            node_id,
-            role_group: get("role_group")?,
-            role: get("role")?,
-            node_type: get("node_type")?,
+            node_slot_id,
+            node_alias,
+            role_group: get(role_group_idx),
+            role: get(role_idx),
+            node_type: get(node_type_idx),
             host,
             rpc_port,
             p2p_port,
@@ -1450,9 +1521,9 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
 
 #[derive(Debug, Clone)]
 struct InventoryBindingTarget {
-    machine_id: String,
-    node_id: String,
-    physical_machine: String,
+    node_slot_id: String,
+    node_alias: String,
+    physical_machine_id: String,
 }
 
 fn load_inventory_binding_targets(inventory_path: &Path) -> Vec<InventoryBindingTarget> {
@@ -1475,13 +1546,19 @@ fn load_inventory_binding_targets(inventory_path: &Path) -> Vec<InventoryBinding
         .map(|(idx, name)| (name.clone(), idx))
         .collect::<HashMap<_, _>>();
 
-    let Some(&machine_id_idx) = index_map.get("machine_id") else {
+    let resolve_column = |aliases: &[&str]| -> Option<usize> {
+        aliases
+            .iter()
+            .find_map(|name| index_map.get(*name).copied())
+    };
+
+    let Some(node_slot_idx) = resolve_column(&["node_slot_id", "machine_id"]) else {
         return Vec::new();
     };
-    let Some(&node_id_idx) = index_map.get("node_id") else {
+    let Some(node_alias_idx) = resolve_column(&["node_alias", "node_id"]) else {
         return Vec::new();
     };
-    let physical_machine_idx = index_map.get("physical_machine").copied();
+    let physical_machine_idx = resolve_column(&["physical_machine_id", "physical_machine"]);
 
     let mut targets = Vec::new();
 
@@ -1499,22 +1576,22 @@ fn load_inventory_binding_targets(inventory_path: &Path) -> Vec<InventoryBinding
             continue;
         }
 
-        let machine_id = cells.get(machine_id_idx).cloned().unwrap_or_default();
-        let node_id = cells.get(node_id_idx).cloned().unwrap_or_default();
-        if machine_id.is_empty() || node_id.is_empty() {
+        let node_slot_id = cells.get(node_slot_idx).cloned().unwrap_or_default();
+        let node_alias = cells.get(node_alias_idx).cloned().unwrap_or_default();
+        if node_slot_id.is_empty() || node_alias.is_empty() {
             continue;
         }
 
-        let physical_machine = physical_machine_idx
+        let physical_machine_id = physical_machine_idx
             .and_then(|idx| cells.get(idx))
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| machine_id.clone());
+            .unwrap_or_else(|| node_slot_id.clone());
 
         targets.push(InventoryBindingTarget {
-            machine_id,
-            node_id,
-            physical_machine,
+            node_slot_id,
+            node_alias,
+            physical_machine_id,
         });
     }
 
@@ -1555,9 +1632,9 @@ fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
         }
     }
 
-    // Security machine bindings (if configured) override hosts.env for control and diagnostics.
+    // Security ssh bindings (if configured) override hosts.env for control and diagnostics.
     if let Ok(config) = load_security_config() {
-        for binding in config.machine_bindings {
+        for binding in config.ssh_bindings {
             let Some(host_override) = binding
                 .host_override
                 .as_ref()
@@ -1566,7 +1643,7 @@ fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
             else {
                 continue;
             };
-            let targets = expand_binding_targets(binding.machine_id.as_str(), &inventory_targets);
+            let targets = expand_binding_targets(binding.node_slot_id.as_str(), &inventory_targets);
             if targets.is_empty() {
                 continue;
             }
@@ -1584,13 +1661,13 @@ fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
 
 fn binding_matches_target(
     binding_id: &str,
-    machine_id: &str,
-    node_id: &str,
-    physical_machine: &str,
+    node_slot_id: &str,
+    node_alias: &str,
+    physical_machine_id: &str,
 ) -> bool {
-    binding_id.eq_ignore_ascii_case(machine_id)
-        || binding_id.eq_ignore_ascii_case(node_id)
-        || binding_id.eq_ignore_ascii_case(physical_machine)
+    binding_id.eq_ignore_ascii_case(node_slot_id)
+        || binding_id.eq_ignore_ascii_case(node_alias)
+        || binding_id.eq_ignore_ascii_case(physical_machine_id)
 }
 
 fn expand_binding_targets(
@@ -1608,13 +1685,13 @@ fn expand_binding_targets(
     for target in inventory_targets {
         if binding_matches_target(
             normalized,
-            &target.machine_id,
-            &target.node_id,
-            &target.physical_machine,
+            &target.node_slot_id,
+            &target.node_alias,
+            &target.physical_machine_id,
         ) {
-            targets.insert(target.machine_id.to_ascii_lowercase());
-            targets.insert(target.node_id.to_ascii_lowercase());
-            targets.insert(target.physical_machine.to_ascii_lowercase());
+            targets.insert(target.node_slot_id.to_ascii_lowercase());
+            targets.insert(target.node_alias.to_ascii_lowercase());
+            targets.insert(target.physical_machine_id.to_ascii_lowercase());
         }
     }
 
@@ -1652,10 +1729,10 @@ fn load_node_address_map(inventory_path: &Path) -> HashMap<String, String> {
             continue;
         }
 
-        let machine_id = cells[0].to_lowercase();
+        let node_slot_id = cells[0].to_lowercase();
         let address = cells[5].to_string();
-        if !machine_id.is_empty() && !address.is_empty() {
-            output.insert(machine_id, address);
+        if !node_slot_id.is_empty() && !address.is_empty() {
+            output.insert(node_slot_id, address);
         }
     }
 
@@ -1664,12 +1741,12 @@ fn load_node_address_map(inventory_path: &Path) -> HashMap<String, String> {
 
 fn resolve_host_override(
     overrides: &HashMap<String, String>,
-    machine_id: &str,
-    node_id: &str,
+    node_slot_id: &str,
+    node_alias: &str,
     fallback: String,
 ) -> String {
-    let machine = machine_id.to_lowercase();
-    let node = node_id.to_lowercase();
+    let machine = node_slot_id.to_lowercase();
+    let node = node_alias.to_lowercase();
     let machine_snake = machine.replace('-', "_");
     let node_snake = node.replace('-', "_");
     let fallback_key = fallback.to_lowercase();
@@ -1704,6 +1781,487 @@ fn build_rpc_url(host: &str, rpc_port: u16) -> String {
     } else {
         format!("http://{trimmed}:{rpc_port}")
     }
+}
+
+fn toml_integer(value: Option<&toml::Value>) -> Option<i64> {
+    value.and_then(|entry| match entry {
+        toml::Value::Integer(number) => Some(*number),
+        toml::Value::String(raw) => raw.trim().parse::<i64>().ok(),
+        _ => None,
+    })
+}
+
+fn toml_float(value: Option<&toml::Value>) -> Option<f64> {
+    value.and_then(|entry| match entry {
+        toml::Value::Float(number) => Some(*number),
+        toml::Value::Integer(number) => Some(*number as f64),
+        toml::Value::String(raw) => raw.trim().parse::<f64>().ok(),
+        _ => None,
+    })
+}
+
+fn toml_bool(value: Option<&toml::Value>) -> Option<bool> {
+    value.and_then(|entry| match entry {
+        toml::Value::Boolean(flag) => Some(*flag),
+        toml::Value::String(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "true" | "yes" | "on" | "1" => Some(true),
+                "false" | "no" | "off" | "0" => Some(false),
+                _ => None,
+            }
+        }
+        _ => None,
+    })
+}
+
+fn toml_string(value: Option<&toml::Value>) -> Option<String> {
+    value.and_then(|entry| match entry {
+        toml::Value::String(raw) => Some(raw.clone()),
+        toml::Value::Integer(number) => Some(number.to_string()),
+        toml::Value::Float(number) => Some(number.to_string()),
+        toml::Value::Boolean(flag) => Some(flag.to_string()),
+        _ => None,
+    })
+}
+
+fn toml_string_array(value: Option<&toml::Value>) -> Vec<String> {
+    value
+        .and_then(|entry| entry.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| toml_string(Some(item)))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn protocol_profile_path(inventory_path: &Path, node_slot_id: &str) -> Option<PathBuf> {
+    let base_dir = inventory_path.parent()?;
+    let installer_path = base_dir
+        .join("installers")
+        .join(node_slot_id)
+        .join("config/node.toml");
+    if installer_path.is_file() {
+        return Some(installer_path);
+    }
+
+    let config_path = base_dir.join("configs").join(format!("{node_slot_id}.toml"));
+    if config_path.is_file() {
+        return Some(config_path);
+    }
+
+    None
+}
+
+fn load_protocol_profile(inventory_path: &Path, node_slot_id: &str) -> Value {
+    let Some(config_path) = protocol_profile_path(inventory_path, node_slot_id) else {
+        return json!({
+            "loaded": false,
+            "node_slot_id": node_slot_id,
+            "reason": "node.toml not found",
+        });
+    };
+
+    let Ok(content) = fs::read_to_string(&config_path) else {
+        return json!({
+            "loaded": false,
+            "node_slot_id": node_slot_id,
+            "source_path": config_path.to_string_lossy(),
+            "reason": "node.toml could not be read",
+        });
+    };
+
+    let Ok(parsed) = toml::from_str::<toml::Value>(&content) else {
+        return json!({
+            "loaded": false,
+            "node_slot_id": node_slot_id,
+            "source_path": config_path.to_string_lossy(),
+            "reason": "node.toml could not be parsed",
+        });
+    };
+
+    let consensus = parsed.get("consensus");
+    let network = parsed.get("network");
+    let blockchain = parsed.get("blockchain");
+    let snapshots = parsed.get("snapshots");
+    let reward_weighting = consensus.and_then(|section| section.get("reward_weighting"));
+    let bootnodes = toml_string_array(network.and_then(|section| section.get("bootnodes")));
+
+    json!({
+        "loaded": true,
+        "node_slot_id": node_slot_id,
+        "source_path": config_path.to_string_lossy(),
+        "algorithm": toml_string(consensus.and_then(|section| section.get("algorithm"))),
+        "chain_name": toml_string(network.and_then(|section| section.get("name"))),
+        "network_id": toml_integer(network.and_then(|section| section.get("id"))),
+        "block_time_secs": toml_integer(consensus.and_then(|section| section.get("block_time_secs")))
+            .or_else(|| toml_integer(blockchain.and_then(|section| section.get("block_time")))),
+        "epoch_length": toml_integer(consensus.and_then(|section| section.get("epoch_length"))),
+        "validator_cluster_size": toml_integer(consensus.and_then(|section| section.get("validator_cluster_size"))),
+        "max_validators": toml_integer(consensus.and_then(|section| section.get("max_validators"))),
+        "synergy_score_decay_rate": toml_float(consensus.and_then(|section| section.get("synergy_score_decay_rate"))),
+        "vrf_enabled": toml_bool(consensus.and_then(|section| section.get("vrf_enabled"))),
+        "vrf_seed_epoch_interval": toml_integer(consensus.and_then(|section| section.get("vrf_seed_epoch_interval"))),
+        "max_synergy_points_per_epoch": toml_integer(consensus.and_then(|section| section.get("max_synergy_points_per_epoch"))),
+        "max_tasks_per_validator": toml_integer(consensus.and_then(|section| section.get("max_tasks_per_validator"))),
+        "snapshot_interval_blocks": toml_integer(snapshots.and_then(|section| section.get("interval_blocks"))),
+        "snapshotting_enabled": toml_bool(snapshots.and_then(|section| section.get("enabled"))),
+        "bootnode_count": bootnodes.len(),
+        "bootnodes": bootnodes,
+        "reward_weighting": reward_weighting
+            .and_then(|section| serde_json::to_value(section).ok())
+            .unwrap_or(Value::Null),
+    })
+}
+
+fn parse_value_as_f64(value: Option<&Value>) -> Option<f64> {
+    match value {
+        Some(Value::Number(number)) => number.as_f64(),
+        Some(Value::String(raw)) => raw.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+fn parse_value_as_u128(value: Option<&Value>) -> Option<u128> {
+    match value {
+        Some(Value::Number(number)) => number.as_u64().map(u128::from),
+        Some(Value::String(raw)) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else if let Some(hex) = trimmed
+                .strip_prefix("0x")
+                .or_else(|| trimmed.strip_prefix("0X"))
+            {
+                u128::from_str_radix(hex, 16).ok()
+            } else {
+                trimmed.parse::<u128>().ok()
+            }
+        }
+        _ => None,
+    }
+}
+
+fn nwei_to_snrg(value: u128) -> f64 {
+    value as f64 / 1_000_000_000.0
+}
+
+fn format_u128(value: u128) -> String {
+    value.to_string()
+}
+
+fn token_balance_nwei(value: Option<&Value>) -> Option<u128> {
+    let payload = value?;
+    parse_value_as_u128(Some(payload))
+        .or_else(|| parse_value_as_u128(payload.get("balance")))
+        .or_else(|| parse_value_as_u128(payload.get("amount")))
+        .or_else(|| parse_value_as_u128(payload.get("token_balance")))
+}
+
+fn staking_entries(value: Option<&Value>) -> Vec<Value> {
+    value
+        .and_then(|entry| entry.as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn is_unknown_method_value(value: Option<&Value>) -> bool {
+    value
+        .and_then(|entry| entry.as_str())
+        .map(|entry| entry.eq_ignore_ascii_case("Unknown method"))
+        .unwrap_or(false)
+}
+
+fn genesis_profile_path(inventory_path: &Path, node_slot_id: &str) -> Option<PathBuf> {
+    let base_dir = inventory_path.parent()?;
+    let shared_path = base_dir.join("configs").join("genesis").join("genesis.json");
+    if shared_path.is_file() {
+        return Some(shared_path);
+    }
+
+    let installer_path = base_dir
+        .join("installers")
+        .join(node_slot_id)
+        .join("config/genesis.json");
+    if installer_path.is_file() {
+        return Some(installer_path);
+    }
+
+    None
+}
+
+fn load_economics_profile(
+    inventory_path: &Path,
+    node: &MonitorNode,
+    rpc: &MonitorRpcDiagnostics,
+) -> Value {
+    let address = node
+        .node_address
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    if address.is_empty() {
+        return json!({
+            "loaded": false,
+            "node_slot_id": node.node_slot_id,
+            "node_alias": node.node_alias,
+            "reason": "node address not set",
+        });
+    }
+
+    let genesis_path = genesis_profile_path(inventory_path, &node.node_slot_id);
+    let (genesis, genesis_gap) = match genesis_path.as_ref() {
+        Some(path) => match fs::read_to_string(path) {
+            Ok(content) => match serde_json::from_str::<Value>(&content) {
+                Ok(parsed) => {
+                    let token_symbol = parsed
+                        .get("token_symbol")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("SNRG");
+                    let allocation = parsed
+                        .get("genesis_allocations")
+                        .and_then(|value| value.as_array())
+                        .and_then(|entries| {
+                            entries.iter().find(|entry| {
+                                entry
+                                    .get("address")
+                                    .and_then(|value| value.as_str())
+                                    .map(|candidate| candidate.eq_ignore_ascii_case(&address))
+                                    .unwrap_or(false)
+                            })
+                        });
+
+                    let value = if let Some(allocation) = allocation {
+                        let balance_raw = parse_value_as_u128(allocation.get("balance")).unwrap_or(0);
+                        let stake_raw = parse_value_as_u128(allocation.get("stake")).unwrap_or(0);
+                        let liquid_raw = balance_raw.saturating_sub(stake_raw);
+                        json!({
+                            "loaded": true,
+                            "matched": true,
+                            "source_path": path.to_string_lossy(),
+                            "token_symbol": token_symbol,
+                            "allocation_type": allocation.get("type").and_then(|value| value.as_str()),
+                            "description": allocation.get("description").and_then(|value| value.as_str()),
+                            "balance_raw": format_u128(balance_raw),
+                            "stake_raw": format_u128(stake_raw),
+                            "liquid_raw": format_u128(liquid_raw),
+                            "balance_snrg": nwei_to_snrg(balance_raw),
+                            "stake_snrg": nwei_to_snrg(stake_raw),
+                            "liquid_snrg": nwei_to_snrg(liquid_raw),
+                        })
+                    } else {
+                        json!({
+                            "loaded": true,
+                            "matched": false,
+                            "source_path": path.to_string_lossy(),
+                            "token_symbol": token_symbol,
+                        })
+                    };
+
+                    let gap = if allocation.is_none() {
+                        Some(
+                            "Genesis allocation for this node address was not found in the current genesis file."
+                                .to_string(),
+                        )
+                    } else {
+                        None
+                    };
+                    (value, gap)
+                }
+                Err(_) => (
+                    json!({
+                        "loaded": false,
+                        "source_path": path.to_string_lossy(),
+                        "reason": "genesis.json could not be parsed",
+                    }),
+                    Some("Genesis allocation file could not be parsed.".to_string()),
+                ),
+            },
+            Err(_) => (
+                json!({
+                    "loaded": false,
+                    "source_path": path.to_string_lossy(),
+                    "reason": "genesis.json could not be read",
+                }),
+                Some("Genesis allocation file could not be read from the current workspace.".to_string()),
+            ),
+        },
+        None => (
+            json!({
+                "loaded": false,
+                "reason": "genesis.json not found",
+            }),
+            Some("Genesis allocation file is not present in the current workspace.".to_string()),
+        ),
+    };
+
+    let staking_entries = staking_entries(rpc.staking_info.as_ref());
+    let total_earned_raw: u128 = staking_entries
+        .iter()
+        .filter_map(|entry| parse_value_as_u128(entry.get("rewards_earned")))
+        .sum();
+    let pending_rewards_raw: u128 = staking_entries
+        .iter()
+        .filter_map(|entry| parse_value_as_u128(entry.get("pending_rewards")))
+        .sum();
+    let staking_amount_from_entries: u128 = staking_entries
+        .iter()
+        .filter_map(|entry| parse_value_as_u128(entry.get("amount")))
+        .sum();
+    let staked_balance_raw = token_balance_nwei(rpc.staked_balance.as_ref())
+        .unwrap_or(staking_amount_from_entries);
+    let wallet_balance_raw = token_balance_nwei(rpc.token_balance.as_ref()).unwrap_or(0);
+
+    let now = current_unix_seconds();
+    let seconds_per_year = 365.0 * 24.0 * 3600.0;
+    let mut weighted_apy_sum = 0.0;
+    let mut total_weight = 0.0;
+    for entry in &staking_entries {
+        let amount = parse_value_as_u128(entry.get("amount")).unwrap_or(0);
+        let rewards = parse_value_as_u128(entry.get("rewards_earned")).unwrap_or(0);
+        let stake_start = parse_value_as_u64(entry.get("stake_start")).unwrap_or(0);
+        if amount == 0 || rewards == 0 || stake_start == 0 || now <= stake_start {
+            continue;
+        }
+
+        let elapsed = (now - stake_start) as f64;
+        if elapsed <= 0.0 {
+            continue;
+        }
+
+        let rate = rewards as f64 / amount as f64;
+        let annualized = (rate / (elapsed / seconds_per_year)) * 100.0;
+        weighted_apy_sum += annualized * amount as f64;
+        total_weight += amount as f64;
+    }
+
+    let estimated_apy = if total_weight > 0.0 {
+        let candidate = weighted_apy_sum / total_weight;
+        if candidate.is_finite() {
+            Some(candidate.min(1500.0))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let commission_rate = staking_entries
+        .iter()
+        .find_map(|entry| parse_value_as_f64(entry.get("commission_rate")));
+    let reward_history = staking_entries
+        .iter()
+        .filter_map(|entry| {
+            let timestamp = parse_value_as_u64(entry.get("stake_start"))
+                .or_else(|| parse_value_as_u64(entry.get("last_updated")))
+                .unwrap_or(now);
+            let amount_raw = parse_value_as_u128(entry.get("rewards_earned")).unwrap_or(0);
+            let block_number = parse_value_as_u64(entry.get("last_block")).unwrap_or(0);
+            let reward_type = entry
+                .get("reward_type")
+                .and_then(|value| value.as_str())
+                .unwrap_or("validator");
+            if amount_raw == 0 && block_number == 0 {
+                return None;
+            }
+            Some(json!({
+                "timestamp": timestamp,
+                "amount_raw": format_u128(amount_raw),
+                "amount_snrg": nwei_to_snrg(amount_raw),
+                "block_number": block_number,
+                "reward_type": reward_type,
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    let synergy_breakdown = rpc
+        .synergy_score_breakdown
+        .as_ref()
+        .cloned()
+        .unwrap_or(Value::Null);
+    let synergy_multiplier =
+        parse_value_as_f64(rpc.synergy_score_breakdown.as_ref().and_then(|value| value.get("multiplier")));
+    let synergy_components = rpc
+        .synergy_score_breakdown
+        .as_ref()
+        .and_then(|value| value.get("components"))
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    let genesis_total_snrg = parse_value_as_f64(genesis.get("balance_snrg"));
+    let live_total_position_snrg = Some(nwei_to_snrg(wallet_balance_raw + staked_balance_raw));
+    let net_position_delta_snrg = match (live_total_position_snrg, genesis_total_snrg) {
+        (Some(live_total), Some(genesis_total)) => Some(live_total - genesis_total),
+        _ => None,
+    };
+
+    let token_balance_available =
+        rpc.token_balance.is_some() && !is_unknown_method_value(rpc.token_balance.as_ref());
+    let staking_info_available =
+        rpc.staking_info.is_some() && !is_unknown_method_value(rpc.staking_info.as_ref());
+    let staked_balance_available =
+        rpc.staked_balance.is_some() && !is_unknown_method_value(rpc.staked_balance.as_ref());
+    let synergy_breakdown_available = rpc.synergy_score_breakdown.is_some()
+        && !is_unknown_method_value(rpc.synergy_score_breakdown.as_ref());
+
+    let mut telemetry_gaps = Vec::new();
+    if !token_balance_available {
+        telemetry_gaps.push("Live wallet balance is not exposed by the current RPC surface.".to_string());
+    }
+    if !staking_info_available {
+        telemetry_gaps.push("Historical rewards and staking-entry detail are not exposed by the current RPC surface.".to_string());
+    }
+    if !staked_balance_available {
+        telemetry_gaps.push("Live staked balance is falling back to staking-entry totals because the dedicated RPC is not exposed.".to_string());
+    }
+    if !synergy_breakdown_available {
+        telemetry_gaps.push("Synergy multiplier and score components are not exposed by the current RPC surface.".to_string());
+    }
+    if let Some(gap) = genesis_gap {
+        telemetry_gaps.push(gap);
+    }
+
+    json!({
+        "loaded": true,
+        "node_slot_id": node.node_slot_id,
+        "node_alias": node.node_alias,
+        "node_address": address,
+        "token_symbol": genesis
+            .get("token_symbol")
+            .and_then(|value| value.as_str())
+            .unwrap_or("SNRG"),
+        "decimals": 9,
+        "genesis": genesis,
+        "live": {
+            "wallet_balance_raw": format_u128(wallet_balance_raw),
+            "wallet_balance_snrg": nwei_to_snrg(wallet_balance_raw),
+            "staked_balance_raw": format_u128(staked_balance_raw),
+            "staked_balance_snrg": nwei_to_snrg(staked_balance_raw),
+            "current_total_position_snrg": live_total_position_snrg,
+            "historical_earned_raw": format_u128(total_earned_raw),
+            "historical_earned_snrg": nwei_to_snrg(total_earned_raw),
+            "pending_rewards_raw": format_u128(pending_rewards_raw),
+            "pending_rewards_snrg": nwei_to_snrg(pending_rewards_raw),
+            "estimated_apy": estimated_apy,
+            "commission_rate": commission_rate,
+            "staking_entry_count": staking_entries.len(),
+            "reward_history": reward_history,
+            "net_position_delta_snrg": net_position_delta_snrg,
+            "synergy_multiplier": synergy_multiplier,
+            "synergy_breakdown": synergy_breakdown,
+            "synergy_components": synergy_components,
+        },
+        "telemetry": {
+            "token_balance_available": token_balance_available,
+            "staking_info_available": staking_info_available,
+            "staked_balance_available": staked_balance_available,
+            "synergy_breakdown_available": synergy_breakdown_available,
+            "telemetry_gaps": telemetry_gaps,
+        },
+    })
 }
 
 fn has_explicit_port(host: &str) -> bool {
@@ -2115,8 +2673,8 @@ fn collect_validator_aliases(
             .and_then(|value| value.get("name"))
             .and_then(|value| value.as_str()),
     );
-    push_alias(&mut aliases, Some(status.node.node_id.as_str()));
-    push_alias(&mut aliases, Some(status.node.machine_id.as_str()));
+    push_alias(&mut aliases, Some(status.node.node_alias.as_str()));
+    push_alias(&mut aliases, Some(status.node.node_slot_id.as_str()));
     aliases
 }
 
@@ -2742,13 +3300,13 @@ fn extract_attestation_count(value: Option<&Value>) -> usize {
 
 fn resolve_control_commands(
     overrides: &HashMap<String, String>,
-    machine_id: &str,
-    node_id: &str,
-    physical_machine: &str,
+    node_slot_id: &str,
+    node_alias: &str,
+    physical_machine_id: &str,
     inventory_path: &Path,
 ) -> NodeControlCommands {
-    let machine = machine_id.to_ascii_lowercase().replace('-', "_");
-    let node = node_id.to_ascii_lowercase().replace('-', "_");
+    let machine = node_slot_id.to_ascii_lowercase().replace('-', "_");
+    let node = node_alias.to_ascii_lowercase().replace('-', "_");
 
     let resolve = |action: &str| -> Option<String> {
         let keys = [
@@ -2821,7 +3379,7 @@ fn resolve_control_commands(
             build_orchestrator_command(
                 orchestrator_script.as_str(),
                 hosts_env_path.as_deref(),
-                machine_id,
+                node_slot_id,
                 operation,
             )
         };
@@ -2871,7 +3429,7 @@ fn resolve_control_commands(
         }
     }
 
-    apply_security_ssh_profile(machine_id, node_id, physical_machine, &mut commands);
+    apply_security_ssh_profile(node_slot_id, node_alias, physical_machine_id, &mut commands);
 
     commands
 }
@@ -3294,15 +3852,15 @@ fn build_atlas_links(
     status: &MonitorNodeStatus,
     rpc: &MonitorRpcDiagnostics,
 ) -> MonitorAtlasLinks {
-    let machine_id = status.node.machine_id.as_str();
-    let node_id = status.node.node_id.as_str();
+    let node_slot_id = status.node.node_slot_id.as_str();
+    let node_alias = status.node.node_alias.as_str();
 
-    let base_url = resolve_override_value(overrides, machine_id, node_id, "atlas_base_url")
-        .or_else(|| resolve_override_value(overrides, machine_id, node_id, "atlas_url"))
-        .or_else(|| resolve_override_value(overrides, machine_id, node_id, "atlas_home_url"))
-        .or_else(|| resolve_override_value(overrides, machine_id, node_id, "explorer_url"))
+    let base_url = resolve_override_value(overrides, node_slot_id, node_alias, "atlas_base_url")
+        .or_else(|| resolve_override_value(overrides, node_slot_id, node_alias, "atlas_url"))
+        .or_else(|| resolve_override_value(overrides, node_slot_id, node_alias, "atlas_home_url"))
+        .or_else(|| resolve_override_value(overrides, node_slot_id, node_alias, "explorer_url"))
         .or_else(|| {
-            resolve_override_value(overrides, machine_id, node_id, "synergy_explorer_endpoint")
+            resolve_override_value(overrides, node_slot_id, node_alias, "synergy_explorer_endpoint")
         })
         .or_else(|| std::env::var("SYNERGY_ATLAS_BASE_URL").ok())
         .or_else(|| std::env::var("SYNERGY_EXPLORER_ENDPOINT").ok())
@@ -3357,12 +3915,12 @@ fn build_atlas_links(
 
 fn resolve_override_value(
     overrides: &HashMap<String, String>,
-    machine_id: &str,
-    node_id: &str,
+    node_slot_id: &str,
+    node_alias: &str,
     key_name: &str,
 ) -> Option<String> {
-    let machine = machine_id.to_ascii_lowercase().replace('-', "_");
-    let node = node_id.to_ascii_lowercase().replace('-', "_");
+    let machine = node_slot_id.to_ascii_lowercase().replace('-', "_");
+    let node = node_alias.to_ascii_lowercase().replace('-', "_");
     let target = key_name.to_ascii_lowercase().replace('-', "_");
 
     let keys = [
@@ -3683,7 +4241,7 @@ fn resolve_orchestrator_script_path(inventory_path: &Path) -> Option<String> {
 fn build_orchestrator_command(
     script_path: &str,
     hosts_env_path: Option<&str>,
-    machine_id: &str,
+    node_slot_id: &str,
     operation: &str,
 ) -> String {
     let mut parts = Vec::new();
@@ -3696,7 +4254,7 @@ fn build_orchestrator_command(
 
     parts.push("bash".to_string());
     parts.push(shell_quote(script_path));
-    parts.push(shell_quote(machine_id));
+    parts.push(shell_quote(node_slot_id));
     parts.push(shell_quote(operation));
     parts.join(" ")
 }
@@ -4260,7 +4818,7 @@ fn apply_topology_to_inventory(
             .ok_or_else(|| format!("Column '{name}' missing in {}", inventory_path.display()))
     };
 
-    let machine_idx = resolve_index("machine_id")?;
+    let machine_idx = resolve_index("node_slot_id")?;
     let host_idx = resolve_index("host")?;
     let vpn_idx = resolve_index("vpn_ip")?;
 
@@ -4275,8 +4833,8 @@ fn apply_topology_to_inventory(
             .split(',')
             .map(|value| value.trim().trim_end_matches('\r').to_string())
             .collect::<Vec<_>>();
-        if let Some(machine_id) = values.get(machine_idx).cloned() {
-            if let Some(vpn_ip) = mapping.get(&machine_id) {
+        if let Some(node_slot_id) = values.get(machine_idx).cloned() {
+            if let Some(vpn_ip) = mapping.get(&node_slot_id) {
                 if host_idx < values.len() {
                     values[host_idx] = vpn_ip.clone();
                 }
@@ -4457,7 +5015,7 @@ fn ensure_security_config_exists(workspace: &Path) -> Result<(), String> {
             updated_at_utc: now,
         }],
         ssh_profiles: Vec::new(),
-        machine_bindings: Vec::new(),
+        ssh_bindings: Vec::new(),
         setup: MonitorSetupState::default(),
     };
 
@@ -4493,7 +5051,7 @@ fn normalize_remote_root_opt(value: &Option<String>) -> Option<String> {
     }
 }
 
-fn normalize_remote_dir_override(machine_id: &str, value: &Option<String>) -> Option<String> {
+fn normalize_remote_dir_override(node_slot_id: &str, value: &Option<String>) -> Option<String> {
     let trimmed = value
         .as_ref()
         .map(|entry| entry.trim())
@@ -4503,7 +5061,7 @@ fn normalize_remote_dir_override(machine_id: &str, value: &Option<String>) -> Op
         return None;
     };
     if is_legacy_local_installers_path(&raw) {
-        Some(format!("/opt/synergy/{}", machine_id.trim()))
+        Some(format!("/opt/synergy/{}", node_slot_id.trim()))
     } else {
         Some(raw)
     }
@@ -4536,8 +5094,27 @@ fn canonical_vpn_ip_for_physical_machine(machine_id: &str) -> Option<&'static st
     }
 }
 
+fn physical_machine_for_binding_target(binding_target: &str) -> Option<&'static str> {
+    match binding_target.trim().to_ascii_lowercase().as_str() {
+        "machine-01" | "node-01" => Some("machine-01"),
+        "machine-02" | "node-02" | "node-03" => Some("machine-02"),
+        "machine-03" | "node-04" | "node-05" => Some("machine-03"),
+        "machine-04" | "node-06" | "node-07" => Some("machine-04"),
+        "machine-05" | "node-08" | "node-09" => Some("machine-05"),
+        "machine-06" | "node-10" | "node-11" => Some("machine-06"),
+        "machine-07" | "node-12" | "node-13" => Some("machine-07"),
+        "machine-08" | "node-14" | "node-15" => Some("machine-08"),
+        "machine-09" | "node-16" | "node-17" => Some("machine-09"),
+        "machine-10" | "node-18" => Some("machine-10"),
+        "machine-11" | "node-20" => Some("machine-11"),
+        "machine-12" | "node-22" | "node-23" => Some("machine-12"),
+        "machine-13" | "node-24" | "node-25" => Some("machine-13"),
+        _ => None,
+    }
+}
+
 fn validate_host_override_for_binding(
-    machine_id: &str,
+    binding_target: &str,
     host_override: &Option<String>,
 ) -> Result<Option<String>, String> {
     let normalized = normalize_host_override_opt(host_override);
@@ -4545,13 +5122,16 @@ fn validate_host_override_for_binding(
         return Ok(None);
     };
 
-    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(machine_id) else {
+    let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
+        return Ok(normalized);
+    };
+    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(physical_machine_id) else {
         return Ok(normalized);
     };
 
     if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip) {
         return Err(format!(
-            "Invalid host override for {machine_id}: got {value}, expected {expected_vpn_ip}."
+            "Invalid host override for {binding_target}: got {value}, expected {expected_vpn_ip}."
         ));
     }
 
@@ -4559,7 +5139,7 @@ fn validate_host_override_for_binding(
 }
 
 fn migrate_host_override_for_binding(
-    machine_id: &str,
+    binding_target: &str,
     host_override: &Option<String>,
 ) -> Option<String> {
     let normalized = normalize_host_override_opt(host_override);
@@ -4567,7 +5147,10 @@ fn migrate_host_override_for_binding(
         return None;
     };
 
-    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(machine_id) else {
+    let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
+        return normalized;
+    };
+    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(physical_machine_id) else {
         return normalized;
     };
 
@@ -4604,16 +5187,16 @@ fn load_security_config() -> Result<MonitorSecurityConfig, String> {
         }
     }
 
-    for binding in config.machine_bindings.iter_mut() {
+    for binding in config.ssh_bindings.iter_mut() {
         let normalized_host_override =
-            migrate_host_override_for_binding(&binding.machine_id, &binding.host_override);
+            migrate_host_override_for_binding(&binding.node_slot_id, &binding.host_override);
         if normalized_host_override != binding.host_override {
             binding.host_override = normalized_host_override;
             binding.updated_at_utc = Utc::now().to_rfc3339();
             migrated = true;
         }
         let normalized =
-            normalize_remote_dir_override(&binding.machine_id, &binding.remote_dir_override);
+            normalize_remote_dir_override(&binding.node_slot_id, &binding.remote_dir_override);
         if normalized != binding.remote_dir_override {
             binding.remote_dir_override = normalized;
             binding.updated_at_utc = Utc::now().to_rfc3339();
@@ -4680,7 +5263,7 @@ fn load_monitor_security_state() -> Result<MonitorSecurityState, String> {
         active_role: active.role.clone(),
         operators: config.operators.clone(),
         ssh_profiles: config.ssh_profiles.clone(),
-        machine_bindings: config.machine_bindings.clone(),
+        ssh_bindings: config.ssh_bindings.clone(),
         role_permissions,
     })
 }
@@ -4941,21 +5524,21 @@ fn role_allows_control(role: &str, action: &str) -> bool {
 }
 
 fn apply_security_ssh_profile(
-    machine_id: &str,
-    node_id: &str,
-    physical_machine: &str,
+    node_slot_id: &str,
+    node_alias: &str,
+    physical_machine_id: &str,
     commands: &mut NodeControlCommands,
 ) {
     let Ok(config) = load_security_config() else {
         return;
     };
 
-    let binding = config.machine_bindings.iter().find(|binding| {
+    let binding = config.ssh_bindings.iter().find(|binding| {
         binding_matches_target(
-            binding.machine_id.as_str(),
-            machine_id,
-            node_id,
-            physical_machine,
+            binding.node_slot_id.as_str(),
+            node_slot_id,
+            node_alias,
+            physical_machine_id,
         )
     });
 
@@ -4976,7 +5559,7 @@ fn apply_security_ssh_profile(
         return;
     };
 
-    let machine_key = machine_id.to_ascii_uppercase().replace('-', "_");
+    let machine_key = node_slot_id.to_ascii_uppercase().replace('-', "_");
     let mut env_pairs = Vec::<(String, String)>::new();
     env_pairs.push((
         "SYNERGY_DEVNET_SSH_USER".to_string(),
@@ -5079,7 +5662,7 @@ fn select_nodes_for_scope(nodes: &[MonitorNode], scope: &str) -> Vec<String> {
     if normalized.is_empty() || normalized == "all" {
         return nodes
             .iter()
-            .map(|node| node.machine_id.clone())
+            .map(|node| node.node_slot_id.clone())
             .collect::<Vec<_>>();
     }
 
@@ -5088,7 +5671,7 @@ fn select_nodes_for_scope(nodes: &[MonitorNode], scope: &str) -> Vec<String> {
         return nodes
             .iter()
             .filter(|node| node.role_group.to_ascii_lowercase() == target)
-            .map(|node| node.machine_id.clone())
+            .map(|node| node.node_slot_id.clone())
             .collect::<Vec<_>>();
     }
 
@@ -5097,35 +5680,35 @@ fn select_nodes_for_scope(nodes: &[MonitorNode], scope: &str) -> Vec<String> {
         return nodes
             .iter()
             .filter(|node| node.role.to_ascii_lowercase().contains(target))
-            .map(|node| node.machine_id.clone())
+            .map(|node| node.node_slot_id.clone())
             .collect::<Vec<_>>();
     }
 
     if let Some(physical) = normalized
         .strip_prefix("physical:")
-        .or_else(|| normalized.strip_prefix("physical_machine:"))
+        .or_else(|| normalized.strip_prefix("physical_machine_id:"))
     {
         let target = physical.trim();
         return nodes
             .iter()
-            .filter(|node| node.physical_machine.eq_ignore_ascii_case(target))
-            .map(|node| node.machine_id.clone())
+            .filter(|node| node.physical_machine_id.eq_ignore_ascii_case(target))
+            .map(|node| node.node_slot_id.clone())
             .collect::<Vec<_>>();
     }
 
     nodes
         .iter()
         .filter(|node| {
-            node.machine_id.eq_ignore_ascii_case(scope)
-                || node.node_id.eq_ignore_ascii_case(scope)
-                || node.physical_machine.eq_ignore_ascii_case(scope)
+            node.node_slot_id.eq_ignore_ascii_case(scope)
+                || node.node_alias.eq_ignore_ascii_case(scope)
+                || node.physical_machine_id.eq_ignore_ascii_case(scope)
         })
-        .map(|node| node.machine_id.clone())
+        .map(|node| node.node_slot_id.clone())
         .collect::<Vec<_>>()
 }
 
 async fn execute_monitor_node_control(
-    machine_id: &str,
+    node_slot_id: &str,
     normalized_action: &str,
     operator: &MonitorOperatorProfile,
     control_mode: &str,
@@ -5136,18 +5719,18 @@ async fn execute_monitor_node_control(
     let node = nodes
         .iter()
         .find(|candidate| {
-            candidate.machine_id.eq_ignore_ascii_case(machine_id)
-                || candidate.node_id.eq_ignore_ascii_case(machine_id)
+            candidate.node_slot_id.eq_ignore_ascii_case(node_slot_id)
+                || candidate.node_alias.eq_ignore_ascii_case(node_slot_id)
         })
         .cloned()
-        .ok_or_else(|| format!("Node not found in inventory: {machine_id}"))?;
+        .ok_or_else(|| format!("Node not found in inventory: {node_slot_id}"))?;
 
     let host_overrides = load_hosts_overrides(&inventory_path);
     let commands = resolve_control_commands(
         &host_overrides,
-        &node.machine_id,
-        &node.node_id,
-        &node.physical_machine,
+        &node.node_slot_id,
+        &node.node_alias,
+        &node.physical_machine_id,
         &inventory_path,
     );
 
@@ -5169,7 +5752,7 @@ async fn execute_monitor_node_control(
                 let stdout =
                     serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
                 MonitorControlResult {
-                    machine_id: node.machine_id.clone(),
+                    node_slot_id: node.node_slot_id.clone(),
                     action: normalized_action.to_string(),
                     success: true,
                     exit_code: 0,
@@ -5180,7 +5763,7 @@ async fn execute_monitor_node_control(
                 }
             }
             Err(error) => MonitorControlResult {
-                machine_id: node.machine_id.clone(),
+                node_slot_id: node.node_slot_id.clone(),
                 action: normalized_action.to_string(),
                 success: false,
                 exit_code: 1,
@@ -5195,7 +5778,7 @@ async fn execute_monitor_node_control(
             || {
                 format!(
                     "No '{normalized_action}' control command configured for {}. Configure MACHINE_XX_{ACTION}_CMD or MACHINE_XX_ACTION_<name>_CMD in hosts.env.",
-                    node.machine_id,
+                    node.node_slot_id,
                     ACTION = normalized_action.to_ascii_uppercase(),
                 )
             },
@@ -5205,7 +5788,7 @@ async fn execute_monitor_node_control(
         let success = exit_code == 0;
 
         MonitorControlResult {
-            machine_id: node.machine_id.clone(),
+            node_slot_id: node.node_slot_id.clone(),
             action: normalized_action.to_string(),
             success,
             exit_code,
@@ -5221,7 +5804,7 @@ async fn execute_monitor_node_control(
         "mode": control_mode,
         "operator_id": operator.operator_id,
         "operator_role": operator.role,
-        "machine_id": outcome.machine_id,
+        "node_slot_id": outcome.node_slot_id,
         "action": outcome.action,
         "success": outcome.success,
         "exit_code": outcome.exit_code,

@@ -54,7 +54,7 @@ Important:
 In app (Settings -> Operator Configuration):
 
 1. Set active operator to `admin`.
-2. Configure SSH profile + machine bindings.
+2. Configure SSH profile + SSH bindings.
 3. Single-machine bootstrap (machine-01 scope):
    - `wireguard_install`
    - `wireguard_connect`

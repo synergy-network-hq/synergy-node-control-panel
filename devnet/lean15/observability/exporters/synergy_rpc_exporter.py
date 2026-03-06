@@ -43,14 +43,14 @@ def load_targets():
     with open(INVENTORY_FILE, newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
-            machine_id = row.get("machine_id", "").strip()
+            node_slot_id = row.get("node_slot_id", "").strip()
             vpn_ip = row.get("vpn_ip", "").strip()
             host = row.get("host", "").strip()
             rpc_port = row.get("rpc_port", "").strip()
             endpoint_host = vpn_ip or host
-            if not machine_id or not endpoint_host or not rpc_port:
+            if not node_slot_id or not endpoint_host or not rpc_port:
                 continue
-            targets.append((machine_id, f"http://{endpoint_host}:{rpc_port}"))
+            targets.append((node_slot_id, f"http://{endpoint_host}:{rpc_port}"))
     return targets
 
 

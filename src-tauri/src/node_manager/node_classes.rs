@@ -29,18 +29,12 @@ impl NodeClass {
 
     /// Get the staking requirement (in SNRG) for this node class
     pub fn staking_requirement(&self) -> u64 {
-        match self {
-            NodeClass::ClassI => 100_000,
-            NodeClass::ClassII => 250_000,
-            NodeClass::ClassIII => 50_000,
-            NodeClass::ClassIV => 10_000,
-            NodeClass::ClassV => 0,
-        }
+        5_000
     }
 
     /// Get the genesis allocation per node (in SNRG)
     pub fn genesis_allocation() -> u64 {
-        500_000
+        100_000
     }
 
     /// Get node class from node type (per Synergy Network Node Whitepaper v1.0)
@@ -132,15 +126,15 @@ mod tests {
 
     #[test]
     fn test_staking_requirements() {
-        assert_eq!(NodeClass::ClassI.staking_requirement(), 100_000);
-        assert_eq!(NodeClass::ClassII.staking_requirement(), 250_000);
-        assert_eq!(NodeClass::ClassIII.staking_requirement(), 50_000);
-        assert_eq!(NodeClass::ClassIV.staking_requirement(), 10_000);
-        assert_eq!(NodeClass::ClassV.staking_requirement(), 0);
+        assert_eq!(NodeClass::ClassI.staking_requirement(), 5_000);
+        assert_eq!(NodeClass::ClassII.staking_requirement(), 5_000);
+        assert_eq!(NodeClass::ClassIII.staking_requirement(), 5_000);
+        assert_eq!(NodeClass::ClassIV.staking_requirement(), 5_000);
+        assert_eq!(NodeClass::ClassV.staking_requirement(), 5_000);
     }
 
     #[test]
     fn test_genesis_allocation() {
-        assert_eq!(NodeClass::genesis_allocation(), 500_000);
+        assert_eq!(NodeClass::genesis_allocation(), 100_000);
     }
 }

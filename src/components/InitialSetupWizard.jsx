@@ -190,7 +190,7 @@ const STEPS = [
   { id: 1, title: 'Operator Profile' },
   { id: 2, title: 'SSH Key Commands' },
   { id: 3, title: 'SSH Profile' },
-  { id: 4, title: 'Machine Binding' },
+  { id: 4, title: 'SSH Binding' },
   { id: 5, title: 'Node Setup' },
   { id: 6, title: 'Finish' },
 ];
@@ -259,7 +259,7 @@ function toCanonicalMachineId(value, fallback = '') {
 
   if (value && typeof value === 'object') {
     const objectCandidates = [
-      value.machine_id,
+      value.node_slot_id,
       value.machineId,
       value.physical_machine_id,
       value.physicalMachineId,
@@ -322,7 +322,7 @@ function InitialSetupWizard({ onComplete }) {
     remote_root: '/opt/synergy',
   });
   const [bindingForm, setBindingForm] = useState({
-    machine_id: '',
+    node_slot_id: '',
     profile_id: 'ops',
     host_override: '',
     remote_dir_override: '',
@@ -401,12 +401,12 @@ function InitialSetupWizard({ onComplete }) {
         if (identity?.detected && detectedMachine) {
           const detectedVpnIp =
             String(identity?.vpn_ip || '').trim() || PHYSICAL_MACHINE_VPN_IP[detectedMachine] || '';
-          const logicalNodes = Array.isArray(identity?.logical_machine_ids) ? identity.logical_machine_ids : [];
+          const logicalNodes = Array.isArray(identity?.node_slot_ids) ? identity.node_slot_ids : [];
 
           setSelectedPhysicalMachine(detectedMachine);
           setBindingForm((prev) => ({
             ...prev,
-            machine_id: detectedMachine,
+            node_slot_id: detectedMachine,
             host_override: detectedVpnIp || prev.host_override,
           }));
           setVpnDetectionMessage(
@@ -454,7 +454,7 @@ function InitialSetupWizard({ onComplete }) {
 
   const activeMachineSet = useMemo(() => new Set(ACTIVE_MACHINE_PLAN.map((entry) => entry.machineId)), []);
   const sshProfiles = securityState?.ssh_profiles || [];
-  const machineBindings = securityState?.machine_bindings || [];
+  const machineBindings = securityState?.ssh_bindings || [];
   const recentSetupLines = useMemo(() => terminalLines.slice(-8), [terminalLines]);
   const selectedLogicalNodes = useMemo(
     () => PHYSICAL_TO_LOGICAL_NODE_MAP[selectedPhysicalMachine] || [],
@@ -629,7 +629,7 @@ function InitialSetupWizard({ onComplete }) {
   const bindMachineProfile = async () => {
     setError('');
     try {
-      const selectedMachine = toCanonicalMachineId(bindingForm.machine_id);
+      const selectedMachine = toCanonicalMachineId(bindingForm.node_slot_id);
       const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [selectedMachine];
       const basePayload = {
         profile_id: String(bindingForm.profile_id || '').trim().toLowerCase(),
@@ -637,14 +637,14 @@ function InitialSetupWizard({ onComplete }) {
         remote_dir_override: String(bindingForm.remote_dir_override || '').trim() || null,
       };
       if (!selectedMachine || !basePayload.profile_id) {
-        throw new Error('machine_id and profile_id are required.');
+        throw new Error('node_slot_id and profile_id are required.');
       }
 
       for (const logicalMachineId of logicalNodes) {
-        await invoke('monitor_assign_machine_ssh_profile', {
+        await invoke('monitor_assign_ssh_binding', {
           input: {
             ...basePayload,
-            machine_id: logicalMachineId,
+            node_slot_id: logicalMachineId,
           },
         });
       }
@@ -671,9 +671,9 @@ function InitialSetupWizard({ onComplete }) {
 
       const hostOverride = String(bindingForm.host_override || '').trim() || PHYSICAL_MACHINE_VPN_IP[selectedMachine] || '';
       for (const logicalMachineId of logicalNodes) {
-        await invoke('monitor_assign_machine_ssh_profile', {
+        await invoke('monitor_assign_ssh_binding', {
           input: {
-            machine_id: logicalMachineId,
+            node_slot_id: logicalMachineId,
             profile_id: String(bindingForm.profile_id || '').trim().toLowerCase() || 'ops',
             host_override: hostOverride || null,
             remote_dir_override: String(bindingForm.remote_dir_override || '').trim() || null,
@@ -749,7 +749,7 @@ function InitialSetupWizard({ onComplete }) {
       setSelectedPhysicalMachine(selectedMachine);
       setBindingForm((prev) => ({
         ...prev,
-        machine_id: selectedMachine,
+        node_slot_id: selectedMachine,
         host_override: vpnHost,
       }));
       resetLogicalNodeStateForMachine(selectedMachine, logicalNodes);
@@ -856,14 +856,14 @@ function InitialSetupWizard({ onComplete }) {
       await runStep('binding', 'Bind mapped logical nodes', async () => {
         const profileId = String(bindingForm.profile_id || sshProfileForm.profile_id || 'ops').trim().toLowerCase();
         if (!profileId) {
-          throw new Error('No SSH profile is selected for machine binding.');
+          throw new Error('No SSH profile is selected for ssh binding.');
         }
 
         for (const logicalMachineId of logicalNodes) {
           setLogicalNodeState(logicalMachineId, 'running', 'binding ssh profile');
-          await invoke('monitor_assign_machine_ssh_profile', {
+          await invoke('monitor_assign_ssh_binding', {
             input: {
-              machine_id: logicalMachineId,
+              node_slot_id: logicalMachineId,
               profile_id: profileId,
               host_override: vpnHost,
               remote_dir_override: String(bindingForm.remote_dir_override || '').trim() || null,
@@ -875,7 +875,7 @@ function InitialSetupWizard({ onComplete }) {
 
         setBindingForm((prev) => ({
           ...prev,
-          machine_id: selectedMachine,
+          node_slot_id: selectedMachine,
           profile_id: profileId,
           host_override: vpnHost,
         }));
@@ -935,7 +935,7 @@ function InitialSetupWizard({ onComplete }) {
 
             try {
               const result = await invoke('monitor_node_control', {
-                machineId: logicalMachineId,
+                nodeSlotId: logicalMachineId,
                 action: 'status',
               });
               if (result?.success) {
@@ -963,7 +963,7 @@ function InitialSetupWizard({ onComplete }) {
 
           try {
             const rpcResult = await invoke('monitor_node_control', {
-              machineId: logicalMachineId,
+              nodeSlotId: logicalMachineId,
               action: 'rpc:get_node_status',
             });
             if (!rpcResult?.success) {
@@ -984,7 +984,7 @@ function InitialSetupWizard({ onComplete }) {
         const snapshotNodes = Array.isArray(snapshot?.nodes) ? snapshot.nodes : [];
         const snapshotErrors = logicalNodes
           .filter((machineId) =>
-            !snapshotNodes.some((entry) => String(entry?.node?.machine_id || '').toLowerCase() === machineId.toLowerCase()),
+            !snapshotNodes.some((entry) => String(entry?.node?.node_slot_id || '').toLowerCase() === machineId.toLowerCase()),
           )
           .map((machineId) => `${machineId}: missing from snapshot`);
 
@@ -1306,12 +1306,12 @@ function InitialSetupWizard({ onComplete }) {
                 <label>
                   Machine ID
                   <select
-                    value={bindingForm.machine_id}
+                    value={bindingForm.node_slot_id}
                     onChange={(event) => {
                       const nextMachineId = event.target.value;
                       setBindingForm((prev) => ({
                         ...prev,
-                        machine_id: nextMachineId,
+                        node_slot_id: nextMachineId,
                         host_override: PHYSICAL_MACHINE_VPN_IP[nextMachineId] || prev.host_override,
                       }));
                       if (PHYSICAL_MACHINE_VPN_IP[nextMachineId]) {
@@ -1361,7 +1361,7 @@ function InitialSetupWizard({ onComplete }) {
                 </label>
               </div>
               <div className="wizard-action-row">
-                <button className="monitor-btn monitor-btn-primary" onClick={bindMachineProfile} disabled={autopilotBusy || !bindingForm.machine_id}>
+                <button className="monitor-btn monitor-btn-primary" onClick={bindMachineProfile} disabled={autopilotBusy || !bindingForm.node_slot_id}>
                   Bind Physical Machine Nodes And Continue
                 </button>
                 <button className="monitor-btn" onClick={() => setStep(5)} disabled={autopilotBusy}>
@@ -1388,7 +1388,7 @@ function InitialSetupWizard({ onComplete }) {
                       setSelectedPhysicalMachine(nextMachineId);
                       setBindingForm((prev) => ({
                         ...prev,
-                        machine_id: nextMachineId,
+                        node_slot_id: nextMachineId,
                         host_override: PHYSICAL_MACHINE_VPN_IP[nextMachineId] || prev.host_override,
                       }));
                     }}

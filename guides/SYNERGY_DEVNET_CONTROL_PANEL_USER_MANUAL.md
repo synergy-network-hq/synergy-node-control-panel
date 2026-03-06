@@ -16,7 +16,7 @@ Applies to: `tools/devnet-control-panel` (desktop app + `devnet/lean15` closed-d
 9. Subsequent Operator Runbook (Join and Operate Existing Devnet)
 10. Node Types: Setup, Monitoring, and Troubleshooting
 11. Node Control Action Reference (Single + Bulk)
-12. Operator Configuration Page (RBAC, SSH, Machine Binding, Bulk)
+12. Operator Configuration Page (RBAC, SSH, SSH Binding, Bulk)
 13. WireGuard Operations and OS-Specific Procedures
 14. Atlas Explorer Integration
 15. Observability Stack
@@ -659,7 +659,7 @@ On node detail page:
 
 1. Complete monitoring-only steps.
 2. Set operator role to `admin` or `operator` in local security config.
-3. Configure SSH profile + machine binding in Operator Configuration page.
+3. Configure SSH profile + ssh binding in Operator Configuration page.
 4. Validate with bulk `status`.
 
 ### 9.3 Cross-device consistency rules
@@ -767,7 +767,7 @@ This profile includes multiple role-specific node classes. The detail page diagn
 
 ---
 
-## 12. Operator Configuration Page (RBAC, SSH, Machine Binding, Bulk)
+## 12. Operator Configuration Page (RBAC, SSH, SSH Binding, Bulk)
 
 `Operator Access (RBAC)`, `SSH Profiles`, and `Fleet Bulk Actions` are now located in:
 
@@ -882,7 +882,7 @@ Then set SSH profile fields:
 
 | Field | Required | Recommended input | Notes |
 | --- | --- | --- | --- |
-| `machine_id` | Yes | e.g. `node-06` | This field currently stores the inventory node-slot id |
+| `node_slot_id` | Yes | e.g. `node-06` | This field currently stores the inventory node-slot id |
 | `profile_id` | Yes | `ops` | Existing SSH profile |
 | `host_override` | Optional | blank unless needed | Overrides hosts.env for this machine |
 | `remote_dir_override` | Optional | blank unless needed | Overrides `<remote_root>/<machine-id>` |
@@ -894,7 +894,7 @@ Recommended policy:
 
 Step-by-step:
 
-1. Select `machine_id` from inventory list (for example `node-01`).
+1. Select `node_slot_id` from inventory list (for example `node-01`).
 2. Select `profile_id` (`ops` recommended).
 3. Leave `host_override` blank unless host differs from `hosts.env`.
 4. Leave `remote_dir_override` blank unless host uses a custom directory.

@@ -186,7 +186,7 @@ is_running() {
 
 start_node() {
   if is_running; then
-    echo "$MACHINE_ID already running (PID $(cat "$PID_FILE"))"
+    echo "$NODE_SLOT_ID already running (PID $(cat "$PID_FILE"))"
     return
   fi
 
@@ -219,7 +219,7 @@ start_node() {
     "$BIN_SELECTED" start --config "$BASE_DIR/config/node.toml" > "$OUT_FILE" 2>&1 &
   echo $! > "$PID_FILE"
 
-  echo "Started $MACHINE_ID ($NODE_TYPE) PID $(cat "$PID_FILE")"
+  echo "Started $NODE_SLOT_ID ($NODE_TYPE) PID $(cat "$PID_FILE")"
   echo "Logs: $OUT_FILE"
 }
 

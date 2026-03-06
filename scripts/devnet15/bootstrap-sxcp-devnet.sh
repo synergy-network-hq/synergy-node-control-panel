@@ -33,8 +33,8 @@ if [[ -n "$ROLE_FILTER" ]]; then
 fi
 
 id_counter=1
-while IFS=, read -r machine_id node_id role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${machine_id:-}" ]]; do
-  [[ "$machine_id" == "machine_id" ]] && continue
+while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+  [[ "$node_slot_id" == "node_slot_id" ]] && continue
 
   if [[ ",$ROLE_GROUP_FILTER," != *",$role_group,"* ]]; then
     continue
@@ -44,18 +44,18 @@ while IFS=, read -r machine_id node_id role_group role node_type address_class p
     continue
   fi
 
-  address_file="$KEYS_DIR/$machine_id/address.txt"
-  pubkey_file="$KEYS_DIR/$machine_id/public.key"
+  address_file="$KEYS_DIR/$node_slot_id/address.txt"
+  pubkey_file="$KEYS_DIR/$node_slot_id/public.key"
 
   if [[ ! -f "$address_file" || ! -f "$pubkey_file" ]]; then
-    echo "Missing key material for $machine_id" >&2
+    echo "Missing key material for $node_slot_id" >&2
     exit 1
   fi
 
   address="$(cat "$address_file")"
   public_key="$(cat "$pubkey_file")"
 
-  echo "Registering relayer: $machine_id ($node_type) $address"
+  echo "Registering relayer: $node_slot_id ($node_type) $address"
   register_response="$(rpc_call "synergy_registerRelayer" "[\"$address\",\"$public_key\"]" "$id_counter")"
   echo "$register_response"
   id_counter=$((id_counter + 1))

@@ -45,11 +45,11 @@ use crate::agent::{
 use crate::monitor::{
     get_monitor_inventory_path, get_monitor_node_details, get_monitor_security_state,
     get_monitor_snapshot, get_monitor_user_manual_markdown, get_monitor_workspace_path,
-    monitor_apply_devnet_topology, monitor_assign_machine_ssh_profile,
+    monitor_apply_devnet_topology, monitor_assign_ssh_binding,
     monitor_bulk_node_control, monitor_delete_operator, monitor_delete_ssh_profile,
     monitor_detect_local_vpn_identity, monitor_export_node_data, monitor_get_setup_status,
     monitor_initialize_workspace, monitor_mark_setup_complete, monitor_node_control,
-    monitor_remove_machine_ssh_profile, monitor_run_terminal_command, monitor_set_active_operator,
+    monitor_remove_ssh_binding, monitor_run_terminal_command, monitor_set_active_operator,
     monitor_upsert_operator, monitor_upsert_ssh_profile,
 };
 use crate::node_manager::monitoring::MonitoringService;
@@ -233,8 +233,8 @@ async fn main() {
             monitor_delete_operator,
             monitor_upsert_ssh_profile,
             monitor_delete_ssh_profile,
-            monitor_assign_machine_ssh_profile,
-            monitor_remove_machine_ssh_profile,
+            monitor_assign_ssh_binding,
+            monitor_remove_ssh_binding,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
