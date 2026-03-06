@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Write};
+use std::mem;
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -1310,15 +1311,7 @@ pub fn monitor_run_terminal_command(
             .map_err(|error| format!("Failed to resolve current dir: {error}"))?
     };
 
-    let mut process = if cfg!(target_os = "windows") {
-        let mut cmd = ProcessCommand::new("cmd");
-        cmd.arg("/C").arg(trimmed);
-        cmd
-    } else {
-        let mut cmd = ProcessCommand::new("bash");
-        cmd.arg("-lc").arg(trimmed);
-        cmd
-    };
+    let mut process = build_terminal_process(trimmed)?;
 
     let output = process
         .current_dir(&effective_cwd)
@@ -1339,6 +1332,123 @@ pub fn monitor_run_terminal_command(
         stderr: truncate_text(stderr.trim_end(), 50000),
         executed_at_utc: Utc::now().to_rfc3339(),
     })
+}
+
+fn build_terminal_process(command: &str) -> Result<ProcessCommand, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return build_windows_terminal_process(command);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = ProcessCommand::new("bash");
+        cmd.arg("-lc").arg(command);
+        Ok(cmd)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn build_windows_terminal_process(command: &str) -> Result<ProcessCommand, String> {
+    let tokens = split_command_arguments(command)?;
+    if let Some(executable) = tokens.first() {
+        let normalized = executable.to_ascii_lowercase();
+        if matches!(
+            normalized.as_str(),
+            "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
+        ) {
+            let mut cmd = ProcessCommand::new(executable);
+            if tokens.len() > 1 {
+                cmd.args(tokens.iter().skip(1));
+            }
+            return Ok(cmd);
+        }
+    }
+
+    let mut cmd = ProcessCommand::new("cmd");
+    cmd.arg("/C").arg(command);
+    Ok(cmd)
+}
+
+fn split_command_arguments(command: &str) -> Result<Vec<String>, String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut active_quote = None;
+
+    for ch in command.chars() {
+        match active_quote {
+            Some(quote) if ch == quote => active_quote = None,
+            Some(_) => current.push(ch),
+            None if ch == '"' || ch == '\'' => active_quote = Some(ch),
+            None if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    tokens.push(mem::take(&mut current));
+                }
+            }
+            None => current.push(ch),
+        }
+    }
+
+    if let Some(quote) = active_quote {
+        return Err(format!(
+            "Unterminated quoted argument in command: missing closing {quote}"
+        ));
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    if tokens.is_empty() {
+        return Err("command is required".to_string());
+    }
+
+    Ok(tokens)
+}
+
+#[cfg(test)]
+mod terminal_command_tests {
+    use super::split_command_arguments;
+
+    #[test]
+    fn splits_powershell_file_command_with_windows_path() {
+        let tokens = split_command_arguments(
+            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\blueiris\.synergy-devnet-control-panel\monitor-workspace\devnet\lean15\installers\node-12\install_and_start.ps1""#,
+        )
+        .expect("command should parse");
+
+        assert_eq!(
+            tokens,
+            vec![
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                r"C:\Users\blueiris\.synergy-devnet-control-panel\monitor-workspace\devnet\lean15\installers\node-12\install_and_start.ps1",
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_powershell_command_payload_as_single_argument() {
+        let tokens = split_command_arguments(
+            r#"powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem 'keys/ssh' -Force | Format-Table -AutoSize Name,Length,LastWriteTime""#,
+        )
+        .expect("command should parse");
+
+        assert_eq!(
+            tokens,
+            vec![
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Get-ChildItem 'keys/ssh' -Force | Format-Table -AutoSize Name,Length,LastWriteTime",
+            ]
+        );
+    }
 }
 
 #[tauri::command]
