@@ -1,7 +1,7 @@
 {
   "$schema": "https://schemas.tauri.app/config.schema.json",
   "productName": "Synergy Devnet Control Panel",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "identifier": "com.synergy.node-monitor",
   "build": {
     "frontendDist": "../dist",
