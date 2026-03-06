@@ -734,14 +734,9 @@ pub fn monitor_assign_machine_ssh_profile(
         return Err(format!("SSH profile not found: {profile_id}"));
     }
 
-    let normalized_opt = |value: &Option<String>| -> Option<String> {
-        value
-            .as_ref()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .map(|value| value.to_string())
-    };
     let now = Utc::now().to_rfc3339();
+    let validated_host_override =
+        validate_host_override_for_binding(&machine_id, &input.host_override)?;
 
     if let Some(existing) = config
         .machine_bindings
@@ -749,7 +744,7 @@ pub fn monitor_assign_machine_ssh_profile(
         .find(|binding| binding.machine_id.eq_ignore_ascii_case(&machine_id))
     {
         existing.profile_id = profile_id.clone();
-        existing.host_override = normalized_opt(&input.host_override);
+        existing.host_override = validated_host_override.clone();
         existing.remote_dir_override =
             normalize_remote_dir_override(&machine_id, &input.remote_dir_override);
         existing.updated_at_utc = now.clone();
@@ -757,7 +752,7 @@ pub fn monitor_assign_machine_ssh_profile(
         config.machine_bindings.push(MonitorMachineSshBinding {
             machine_id: machine_id.clone(),
             profile_id: profile_id.clone(),
-            host_override: normalized_opt(&input.host_override),
+            host_override: validated_host_override,
             remote_dir_override: normalize_remote_dir_override(
                 &machine_id,
                 &input.remote_dir_override,
@@ -4514,6 +4509,75 @@ fn normalize_remote_dir_override(machine_id: &str, value: &Option<String>) -> Op
     }
 }
 
+fn normalize_host_override_opt(value: &Option<String>) -> Option<String> {
+    value
+        .as_ref()
+        .map(|entry| entry.trim())
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| entry.to_string())
+}
+
+fn canonical_vpn_ip_for_physical_machine(machine_id: &str) -> Option<&'static str> {
+    match machine_id.trim().to_ascii_lowercase().as_str() {
+        "machine-01" => Some("10.50.0.1"),
+        "machine-02" => Some("10.50.0.2"),
+        "machine-03" => Some("10.50.0.3"),
+        "machine-04" => Some("10.50.0.4"),
+        "machine-05" => Some("10.50.0.5"),
+        "machine-06" => Some("10.50.0.6"),
+        "machine-07" => Some("10.50.0.7"),
+        "machine-08" => Some("10.50.0.8"),
+        "machine-09" => Some("10.50.0.9"),
+        "machine-10" => Some("10.50.0.10"),
+        "machine-11" => Some("10.50.0.11"),
+        "machine-12" => Some("10.50.0.12"),
+        "machine-13" => Some("10.50.0.13"),
+        _ => None,
+    }
+}
+
+fn validate_host_override_for_binding(
+    machine_id: &str,
+    host_override: &Option<String>,
+) -> Result<Option<String>, String> {
+    let normalized = normalize_host_override_opt(host_override);
+    let Some(value) = normalized.as_ref() else {
+        return Ok(None);
+    };
+
+    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(machine_id) else {
+        return Ok(normalized);
+    };
+
+    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip) {
+        return Err(format!(
+            "Invalid host override for {machine_id}: got {value}, expected {expected_vpn_ip}."
+        ));
+    }
+
+    Ok(normalized)
+}
+
+fn migrate_host_override_for_binding(
+    machine_id: &str,
+    host_override: &Option<String>,
+) -> Option<String> {
+    let normalized = normalize_host_override_opt(host_override);
+    let Some(value) = normalized.as_ref() else {
+        return None;
+    };
+
+    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(machine_id) else {
+        return normalized;
+    };
+
+    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip) {
+        return Some(expected_vpn_ip.to_string());
+    }
+
+    normalized
+}
+
 fn load_security_config() -> Result<MonitorSecurityConfig, String> {
     let path = security_config_path()?;
     if !path.is_file() {
@@ -4541,6 +4605,13 @@ fn load_security_config() -> Result<MonitorSecurityConfig, String> {
     }
 
     for binding in config.machine_bindings.iter_mut() {
+        let normalized_host_override =
+            migrate_host_override_for_binding(&binding.machine_id, &binding.host_override);
+        if normalized_host_override != binding.host_override {
+            binding.host_override = normalized_host_override;
+            binding.updated_at_utc = Utc::now().to_rfc3339();
+            migrated = true;
+        }
         let normalized =
             normalize_remote_dir_override(&binding.machine_id, &binding.remote_dir_override);
         if normalized != binding.remote_dir_override {
