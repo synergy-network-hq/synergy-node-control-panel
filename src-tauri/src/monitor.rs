@@ -1453,9 +1453,82 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
     Ok(nodes)
 }
 
+#[derive(Debug, Clone)]
+struct InventoryBindingTarget {
+    machine_id: String,
+    node_id: String,
+    physical_machine: String,
+}
+
+fn load_inventory_binding_targets(inventory_path: &Path) -> Vec<InventoryBindingTarget> {
+    let Ok(content) = fs::read_to_string(inventory_path) else {
+        return Vec::new();
+    };
+
+    let mut lines = content.lines().filter(|line| !line.trim().is_empty());
+    let Some(header) = lines.next() else {
+        return Vec::new();
+    };
+
+    let header_cols = header
+        .split(',')
+        .map(|cell| cell.trim().trim_start_matches('\u{feff}').to_string())
+        .collect::<Vec<_>>();
+    let index_map = header_cols
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| (name.clone(), idx))
+        .collect::<HashMap<_, _>>();
+
+    let Some(&machine_id_idx) = index_map.get("machine_id") else {
+        return Vec::new();
+    };
+    let Some(&node_id_idx) = index_map.get("node_id") else {
+        return Vec::new();
+    };
+    let physical_machine_idx = index_map.get("physical_machine").copied();
+
+    let mut targets = Vec::new();
+
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        let cells = trimmed
+            .split(',')
+            .map(|cell| cell.trim().to_string())
+            .collect::<Vec<_>>();
+        if cells.len() < header_cols.len() {
+            continue;
+        }
+
+        let machine_id = cells.get(machine_id_idx).cloned().unwrap_or_default();
+        let node_id = cells.get(node_id_idx).cloned().unwrap_or_default();
+        if machine_id.is_empty() || node_id.is_empty() {
+            continue;
+        }
+
+        let physical_machine = physical_machine_idx
+            .and_then(|idx| cells.get(idx))
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| machine_id.clone());
+
+        targets.push(InventoryBindingTarget {
+            machine_id,
+            node_id,
+            physical_machine,
+        });
+    }
+
+    targets
+}
+
 fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
     let mut output = HashMap::new();
-    let inventory_nodes = load_inventory_nodes(inventory_path).unwrap_or_default();
+    let inventory_targets = load_inventory_binding_targets(inventory_path);
     if let Some(parent) = inventory_path.parent() {
         let hosts_file = parent.join("hosts.env");
         if hosts_file.is_file() {
@@ -1498,7 +1571,7 @@ fn load_hosts_overrides(inventory_path: &Path) -> HashMap<String, String> {
             else {
                 continue;
             };
-            let targets = expand_binding_targets(binding.machine_id.as_str(), &inventory_nodes);
+            let targets = expand_binding_targets(binding.machine_id.as_str(), &inventory_targets);
             if targets.is_empty() {
                 continue;
             }
@@ -1525,7 +1598,10 @@ fn binding_matches_target(
         || binding_id.eq_ignore_ascii_case(physical_machine)
 }
 
-fn expand_binding_targets(binding_id: &str, inventory_nodes: &[MonitorNode]) -> Vec<String> {
+fn expand_binding_targets(
+    binding_id: &str,
+    inventory_targets: &[InventoryBindingTarget],
+) -> Vec<String> {
     let normalized = binding_id.trim();
     if normalized.is_empty() {
         return Vec::new();
@@ -1534,16 +1610,16 @@ fn expand_binding_targets(binding_id: &str, inventory_nodes: &[MonitorNode]) -> 
     let mut targets = HashSet::new();
     targets.insert(normalized.to_ascii_lowercase());
 
-    for node in inventory_nodes {
+    for target in inventory_targets {
         if binding_matches_target(
             normalized,
-            &node.machine_id,
-            &node.node_id,
-            &node.physical_machine,
+            &target.machine_id,
+            &target.node_id,
+            &target.physical_machine,
         ) {
-            targets.insert(node.machine_id.to_ascii_lowercase());
-            targets.insert(node.node_id.to_ascii_lowercase());
-            targets.insert(node.physical_machine.to_ascii_lowercase());
+            targets.insert(target.machine_id.to_ascii_lowercase());
+            targets.insert(target.node_id.to_ascii_lowercase());
+            targets.insert(target.physical_machine.to_ascii_lowercase());
         }
     }
 
