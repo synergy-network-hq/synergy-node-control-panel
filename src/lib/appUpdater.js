@@ -1,4 +1,5 @@
 import { check } from '@tauri-apps/plugin-updater';
+import { invoke } from '@tauri-apps/api/core';
 
 function normalizeUpdateError(error) {
   const text = String(error ?? '').trim();
@@ -24,7 +25,22 @@ function normalizeUpdateError(error) {
     return 'Updater release metadata points to a missing asset (404). Regenerate and publish latest.json with valid updater bundle URLs and signatures, then retry.';
   }
 
+  if (
+    lower.includes('invalid updater binary format')
+    || lower.includes('appimage')
+    || lower.includes('unsupported binary format')
+  ) {
+    return 'Update failed: this installation does not support in-app updates (the app was installed via .deb, not AppImage). Download and install the latest .deb package manually from the releases page.';
+  }
+
   return `Update check failed: ${text || 'unknown error'}`;
+}
+
+/**
+ * Relaunch (restart) the application immediately.
+ */
+export async function relaunchApp() {
+  await invoke('app_relaunch');
 }
 
 /**

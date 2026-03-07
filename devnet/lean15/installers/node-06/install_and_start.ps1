@@ -138,7 +138,7 @@ function Start-Node {
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
 
   $args = @("start", "--config", $ConfigPath)
-  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
+  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -NoNewWindow -PassThru
   Set-Content -Path $PidFile -Value $proc.Id
 
   Write-Host "Started $($NodeEnv['NODE_SLOT_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"

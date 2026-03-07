@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { Link, useLocation } from 'react-router-dom';
 import { openHelpWindow } from '../lib/helpWindow';
-import { checkForUpdate, downloadAndInstallUpdate } from '../lib/appUpdater';
+import { checkForUpdate, downloadAndInstallUpdate, relaunchApp } from '../lib/appUpdater';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
 
@@ -105,6 +105,12 @@ function Layout({ children }) {
       return;
     }
 
+    // When update is already installed, just restart.
+    if (updateState.status === 'installed') {
+      await relaunchApp();
+      return;
+    }
+
     let targetVersion = updateState.version;
 
     if (updateState.status !== 'available') {
@@ -147,6 +153,10 @@ function Layout({ children }) {
 
     const result = await downloadAndInstallUpdate();
     if (result.status === 'installed') {
+      // Auto-restart to apply the update immediately.
+      await relaunchApp();
+      // If relaunch is delayed, update the status so the button shows "Restart Required"
+      // as a fallback in case the OS takes a moment to terminate the process.
       setUpdateState((previous) => ({
         ...previous,
         status: 'installed',

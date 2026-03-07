@@ -280,6 +280,7 @@
       "publicIp": null,
       "localIp": null,
       "vpnIp": "10.50.0.10",
+      "notes": "Requires GPU — node-18 is a Data Availability / AI node",
       "nodes": [
         {
           "nodeClass": "Class III",
@@ -287,14 +288,6 @@
           "p2pPort": 38655,
           "rpcPort": 48655,
           "wsPort": 58655
-        },
-        {
-          "nodeClass": null,
-          "nodeType": "GPU Node",
-          "p2pPort": 38656,
-          "rpcPort": 48656,
-          "wsPort": 58656,
-          "special": true
         }
       ]
     },
@@ -305,6 +298,7 @@
       "publicIp": null,
       "localIp": null,
       "vpnIp": "10.50.0.11",
+      "notes": "Requires GPU — node-20 is an AI Inference node",
       "nodes": [
         {
           "nodeClass": "Class III",
@@ -312,14 +306,6 @@
           "p2pPort": 38657,
           "rpcPort": 48657,
           "wsPort": 58657
-        },
-        {
-          "nodeClass": null,
-          "nodeType": "GPU Node",
-          "p2pPort": 38658,
-          "rpcPort": 48658,
-          "wsPort": 58658,
-          "special": true
         }
       ]
     },

@@ -72,6 +72,11 @@ use node_manager::{
     stop_node, stop_node_by_id, stream_logs, NodeManager, ProcessManager,
 };
 
+#[tauri::command]
+fn app_relaunch(app: tauri::AppHandle) {
+    app.restart();
+}
+
 async fn start_monitoring_services(
     app_handle: tauri::AppHandle,
     multi_node_manager: Arc<Mutex<crate::node_manager::multi_node::MultiNodeManager>>,
@@ -170,6 +175,7 @@ async fn main() {
         .manage(process_manager)
         .manage(blockchain_service)
         .invoke_handler(tauri::generate_handler![
+            app_relaunch,
             init_node_environment,
             check_initialization,
             install_node_binaries,

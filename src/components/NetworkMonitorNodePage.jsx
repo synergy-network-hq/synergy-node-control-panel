@@ -393,7 +393,7 @@ function NetworkMonitorNodePage() {
     || findNestedValue(localValidator, ['validator_address', 'node_address', 'address'])
     || 'N/A';
   const quickFacts = [
-    { label: 'Configured Chain ID', value: formatNumberValue(configuredChainId), code: true },
+    { label: 'Configured Chain ID', value: configuredChainId != null ? String(configuredChainId) : 'N/A', code: true },
     { label: 'Node Slot', value: node?.node_slot_id || nodeSlotId },
     { label: 'Physical Machine', value: node?.physical_machine_id || 'N/A' },
     { label: 'Node Alias', value: node?.node_alias || 'N/A' },
@@ -403,7 +403,7 @@ function NetworkMonitorNodePage() {
   ];
   const runtimeFacts = [
     { label: 'RPC Endpoint', value: node?.rpc_url || 'N/A', code: true },
-    { label: 'Observed Chain ID', value: formatNumberValue(observedChainId), code: true },
+    { label: 'Observed Chain ID', value: observedChainId != null ? String(observedChainId) : 'N/A', code: true },
     { label: 'Status', value: nodeDetails?.status?.status || 'unknown' },
     { label: 'Syncing', value: scalar(nodeDetails?.status?.syncing) },
     { label: 'Checked', value: formatLocalTimestamp(nodeDetails?.status?.last_checked_utc) },

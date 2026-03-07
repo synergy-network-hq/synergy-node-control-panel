@@ -207,7 +207,23 @@ fn execute_control(
 
     let install = resolve_node_install(workspace_root, &node_slot_id)?;
     let result = match normalized_action.as_str() {
-        "start" | "stop" | "restart" | "status" => run_nodectl(&install, &normalized_action),
+        "stop" => {
+            // Ask nodectl to stop first (clean shutdown via PID file if available).
+            let nodectl_result = run_nodectl(&install, "stop");
+            // Always follow with force-kill to handle the case where the node was
+            // started outside nodectl (no PID file), leaving nodectl returning "not
+            // running" while the process is still alive. This is the root cause of
+            // validator nodes (node-02, node-04, node-06) ignoring stop commands.
+            force_kill_node_processes(&install);
+            nodectl_result
+        }
+        "restart" => {
+            // Same safe-stop sequence, then start fresh.
+            let _ = run_nodectl(&install, "stop");
+            force_kill_node_processes(&install);
+            run_nodectl(&install, "start")
+        }
+        "start" | "status" => run_nodectl(&install, &normalized_action),
         "logs" | "node_logs" => run_nodectl(&install, "logs"),
         "setup" | "setup_node" | "install_node" | "bootstrap_node" => {
             sync_workspace_installer(workspace_root, &install)?;
@@ -415,8 +431,30 @@ fn sync_workspace_installer(workspace_root: &Path, install: &NodeInstall) -> Res
     copy_directory_force(&source, &install.install_dir)
 }
 
+/// Kill any lingering node processes associated with this install directory.
+/// This handles the case where the node is running but has no PID file (e.g.
+/// it was started manually, the PID file was deleted, or the file got out of sync).
+/// nodectl stop_node silently exits when the PID file is missing, so this is the
+/// safety net that ensures the old process is truly gone before we wipe chain data.
+fn force_kill_node_processes(install: &NodeInstall) {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let path = install.install_dir.to_string_lossy().to_string();
+        // Kill any process whose command line contains the install dir path.
+        // This precisely targets THIS node's binary without disturbing other nodes.
+        let _ = ProcessCommand::new("pkill")
+            .args(["-f", &path])
+            .output();
+        // Give the OS a moment to reap the process before we delete chain data.
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
+}
+
 fn reset_chain(workspace_root: &Path, install: &NodeInstall) -> Result<CommandOutcome, String> {
     let _ = run_nodectl(install, "stop");
+    // Belt-and-suspenders: kill any orphaned process that nodectl may have missed
+    // (e.g. node started outside nodectl so it has no PID file).
+    force_kill_node_processes(install);
     sync_workspace_installer(workspace_root, install)?;
 
     let data_dir = install.install_dir.join("data");
