@@ -1284,12 +1284,20 @@ pub async fn monitor_node_control(
     execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "single").await
 }
 
+/// Timeout applied to every terminal command. Long-running installer scripts
+/// (e.g. Windows `install_and_start.ps1`) can block indefinitely when the
+/// spawned node process inherits Rust's stdout/stderr pipe handles. Five
+/// minutes is generous for any legitimate setup step; if it is exceeded the
+/// command is killed and an error is returned so the autopilot can surface the
+/// failure rather than leaving the UI frozen.
+const TERMINAL_COMMAND_TIMEOUT_SECS: u64 = 300;
+
 #[tauri::command]
-pub fn monitor_run_terminal_command(
+pub async fn monitor_run_terminal_command(
     command: String,
     cwd: Option<String>,
 ) -> Result<MonitorTerminalCommandResult, String> {
-    let trimmed = command.trim();
+    let trimmed = command.trim().to_string();
     if trimmed.is_empty() {
         return Err("command is required".to_string());
     }
@@ -1311,12 +1319,33 @@ pub fn monitor_run_terminal_command(
             .map_err(|error| format!("Failed to resolve current dir: {error}"))?
     };
 
-    let mut process = build_terminal_process(trimmed)?;
+    let trimmed_clone = trimmed.clone();
+    let cwd_clone = effective_cwd.clone();
 
-    let output = process
-        .current_dir(&effective_cwd)
-        .output()
-        .map_err(|error| format!("Failed to execute command '{trimmed}': {error}"))?;
+    // Spawn the blocking `.output()` call onto a dedicated thread so that the
+    // async runtime is not stalled, then race it against a timeout. This also
+    // means a hung process will be killed (via the JoinHandle being dropped)
+    // rather than keeping a Tauri thread-pool thread permanently occupied.
+    let output_result = tokio::time::timeout(
+        tokio::time::Duration::from_secs(TERMINAL_COMMAND_TIMEOUT_SECS),
+        tokio::task::spawn_blocking(move || {
+            build_terminal_process(&trimmed_clone).and_then(|mut process| {
+                process
+                    .current_dir(&cwd_clone)
+                    .output()
+                    .map_err(|error| format!("Failed to execute command '{trimmed_clone}': {error}"))
+            })
+        }),
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "Command timed out after {TERMINAL_COMMAND_TIMEOUT_SECS}s (possible hung process): {trimmed}"
+        )
+    })?
+    .map_err(|join_error| format!("Command task panicked: {join_error}"))?;
+
+    let output = output_result?;
 
     let success = output.status.success();
     let exit_code = output.status.code().unwrap_or(if success { 0 } else { 1 });

@@ -487,9 +487,37 @@ function InitialSetupWizard({ onComplete }) {
             `Auto-detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Queueing autonomous setup...`,
           );
         } else {
-          const message = String(identity?.message || 'VPN machine auto-detection unavailable. Select machine manually.');
-          setVpnDetectionMessage(message);
-          addTerminalLine('info', message);
+          // VPN not detected — try to infer the machine from any existing SSH bindings
+          // (e.g. re-open after a crash that completed the binding step but not WireGuard)
+          const existingBindings = Array.isArray(state?.ssh_bindings) ? state.ssh_bindings : [];
+          const nodeToMachineMap = Object.entries(PHYSICAL_TO_LOGICAL_NODE_MAP).reduce(
+            (acc, [machineId, nodeIds]) => {
+              nodeIds.forEach((nodeId) => { acc[nodeId] = machineId; });
+              return acc;
+            },
+            {},
+          );
+          const inferredMachine = existingBindings.reduce((found, binding) => {
+            if (found) return found;
+            return nodeToMachineMap[String(binding?.node_slot_id || '').toLowerCase()] || null;
+          }, null);
+
+          if (inferredMachine) {
+            const vpnIp = PHYSICAL_MACHINE_VPN_IP[inferredMachine] || '';
+            setSelectedPhysicalMachine(inferredMachine);
+            setBindingForm((prev) => ({
+              ...prev,
+              node_slot_id: inferredMachine,
+              host_override: vpnIp || prev.host_override,
+            }));
+            const message = `VPN not detected. Inferred ${inferredMachine} from existing SSH bindings — ready to resume setup.`;
+            setVpnDetectionMessage(message);
+            addTerminalLine('info', message);
+          } else {
+            const message = String(identity?.message || 'VPN machine auto-detection unavailable. Select machine manually.');
+            setVpnDetectionMessage(message);
+            addTerminalLine('info', message);
+          }
         }
 
         const defaultKeyPath = joinWorkspacePath(resolvedWorkspace, 'keys', 'ssh', 'ops_ed25519');
