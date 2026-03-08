@@ -78,7 +78,8 @@ function Open-Ports {
     [int](Get-NodeEnvValue "RPC_PORT"),
     [int](Get-NodeEnvValue "WS_PORT"),
     [int](Get-NodeEnvValue "GRPC_PORT"),
-    [int](Get-NodeEnvValue "DISCOVERY_PORT")
+    [int](Get-NodeEnvValue "DISCOVERY_PORT"),
+    47990  # Devnet agent service port
   )
   $networkTransport = (Get-NodeEnvValue "NETWORK_TRANSPORT").ToLower()
   if ([string]::IsNullOrWhiteSpace($networkTransport)) { $networkTransport = "wireguard" }
@@ -94,13 +95,17 @@ function Open-Ports {
   $nodeSlotId = Get-NodeEnvValue "NODE_SLOT_ID"
   foreach ($port in $ports) {
     $ruleName = "Synergy-$nodeSlotId-$port"
-    $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-    if (-not $existing) {
-      if ($networkTransport -eq "wireguard") {
-        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -RemoteAddress $vpnCidr | Out-Null
-      } else {
-        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port | Out-Null
+    try {
+      $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
+      if (-not $existing) {
+        if ($networkTransport -eq "wireguard") {
+          New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -RemoteAddress $vpnCidr | Out-Null
+        } else {
+          New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port | Out-Null
+        }
       }
+    } catch {
+      Write-Warning "Failed to create firewall rule for port ${port}: $_"
     }
   }
 }
@@ -108,8 +113,8 @@ function Open-Ports {
 function Invoke-PreStartSync {
   if (Test-BootnodeSlot) { return $true }
 
-  for ($attempt = 1; $attempt -le 12; $attempt++) {
-    Write-Host "Pre-start sync attempt $attempt/12 for $($NodeEnv['NODE_SLOT_ID'])..."
+  for ($attempt = 1; $attempt -le 24; $attempt++) {
+    Write-Host "Pre-start sync attempt $attempt/24 for $($NodeEnv['NODE_SLOT_ID'])..."
     & $BinPath sync --config $ConfigPath 1>> $OutFile 2>> $ErrFile
     if ($LASTEXITCODE -eq 0) {
       return $true

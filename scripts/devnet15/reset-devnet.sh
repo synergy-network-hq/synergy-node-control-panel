@@ -228,26 +228,101 @@ start_machine() {
   run_hook_or_local "$node_slot_id" "START_CMD" "start"
 }
 
+wait_for_bootnode_rpc() {
+  # Polls a bootnode's RPC endpoint until it returns a valid response.
+  local node_slot_id="$1"
+  local max_attempts="${2:-60}"
+  local prefix
+  prefix="$(machine_var_prefix "$node_slot_id")"
+  local vpn_var="${prefix}_VPN_IP"
+  local vpn_ip="${!vpn_var:-}"
+  if [[ -z "$vpn_ip" ]]; then
+    vpn_ip="$(inventory_vpn_ip "$node_slot_id")"
+  fi
+  if [[ -z "$vpn_ip" ]]; then
+    echo "WARNING: No VPN IP for $node_slot_id, skipping readiness check." >&2
+    return 0
+  fi
+  # Use the node's RPC port from inventory (column 8, 0-indexed col 7)
+  local rpc_port
+  rpc_port=$(awk -F, -v id="$node_slot_id" 'NR > 1 && tolower($1) == tolower(id) { print $8; exit }' "$INVENTORY_FILE")
+  rpc_port="${rpc_port:-48638}"
+  local rpc_url="http://${vpn_ip}:${rpc_port}"
+
+  echo "Waiting for bootnode $node_slot_id RPC at $rpc_url to become ready..."
+  local attempt=0
+  while [[ $attempt -lt $max_attempts ]]; do
+    attempt=$((attempt + 1))
+    local response
+    response=$(curl -sS --max-time 3 -X POST "$rpc_url" \
+      -H "Content-Type: application/json" \
+      -d '{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}' 2>/dev/null) || true
+    if [[ -n "$response" ]] && echo "$response" | grep -q '"result"'; then
+      echo "Bootnode $node_slot_id is ready (attempt $attempt/$max_attempts)."
+      return 0
+    fi
+    sleep 3
+  done
+  echo "WARNING: Bootnode $node_slot_id did not become ready after $max_attempts attempts." >&2
+  return 1
+}
+
 restart_cluster() {
   if [[ "$SKIP_RESTART" == "true" ]]; then
     echo "Skipping restart (--skip-restart)."
     return
   fi
 
-  echo "Starting devnet nodes in deterministic order..."
-  for node_slot_id in "${START_ORDER[@]}"; do
+  # Bootnodes are the first two entries in START_ORDER (node-01, node-02).
+  local bootnodes=("${START_ORDER[@]:0:2}")
+  local remaining=("${START_ORDER[@]:2}")
+
+  echo "Starting bootnode(s) first: ${bootnodes[*]}"
+  for node_slot_id in "${bootnodes[@]}"; do
+    start_machine "$node_slot_id"
+    sleep 1
+  done
+
+  # Wait for bootnodes to be ready before starting remaining nodes.
+  echo "Waiting for bootnode(s) to become ready before starting remaining nodes..."
+  for node_slot_id in "${bootnodes[@]}"; do
+    wait_for_bootnode_rpc "$node_slot_id" 60 || echo "WARNING: Proceeding despite bootnode $node_slot_id not ready."
+  done
+
+  echo "Starting remaining devnet nodes in deterministic order..."
+  for node_slot_id in "${remaining[@]}"; do
     start_machine "$node_slot_id"
     sleep 1
   done
 }
 
 post_check() {
-  local rpc_url="${DEVNET_RPC_URL:-http://127.0.0.1:48650}"
-  echo "Post-reset check via $rpc_url ..."
-  curl -sS -X POST "$rpc_url" \
-    -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}' || true
-  echo
+  echo ""
+  echo "=== Post-Reset Status ==="
+  echo "All nodes have been stopped and chain data has been erased."
+  echo "Nodes are ready for manual start via the control panel dashboard."
+  echo ""
+  echo "To start the devnet, use 'Start All' from the Network Monitor dashboard,"
+  echo "or run the start commands manually in the deterministic boot order."
+  echo ""
+
+  # Verify no node processes are still running.
+  local still_running=0
+  while IFS=',' read -r node_slot_id _ _ _ _ _ _ _ _ _ _ host vpn_ip _ _ _ _ _ _ _ _ _; do
+    [[ "$node_slot_id" == "node_slot_id" || -z "$node_slot_id" ]] && continue
+    local target_ip="${vpn_ip:-$host}"
+    [[ -z "$target_ip" ]] && continue
+    if run_agent_action "$node_slot_id" "status" 2>/dev/null | grep -qi "running"; then
+      echo "WARNING: $node_slot_id still appears to be running on $target_ip"
+      still_running=$((still_running + 1))
+    fi
+  done < "$INVENTORY_FILE"
+
+  if [[ "$still_running" -gt 0 ]]; then
+    echo "WARNING: $still_running node(s) may still be running. Check manually."
+  else
+    echo "All nodes confirmed stopped."
+  fi
 }
 
 echo "=== Synergy Closed Devnet Reset ==="
@@ -259,7 +334,8 @@ reset_local_state
 reset_remote_nodes
 render_and_regenerate
 rebuild_installers_if_requested
-restart_cluster
+# Nodes are intentionally NOT restarted after reset.
+# Use "Start All" from the control panel dashboard when ready.
 post_check
 
 echo "Reset workflow complete."

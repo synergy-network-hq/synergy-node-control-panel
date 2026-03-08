@@ -1149,6 +1149,15 @@ pub async fn monitor_bulk_node_control(
 
     let succeeded = results.iter().filter(|result| result.success).count();
     let failed = results.len().saturating_sub(succeeded);
+
+    // After a bulk reset_chain, attempt to notify the explorer/indexer to reindex
+    // from genesis so it doesn't show stale chain data.
+    if normalized_action == "reset_chain" && succeeded > 0 {
+        if let Err(warning) = reset_explorer_index().await {
+            eprintln!("Explorer reset warning (non-blocking): {warning}");
+        }
+    }
+
     append_audit_event(json!({
         "event_type": "control.bulk.completed",
         "operator_id": operator.operator_id,
@@ -1170,6 +1179,71 @@ pub async fn monitor_bulk_node_control(
         executed_at_utc: Utc::now().to_rfc3339(),
         results,
     })
+}
+
+/// Notify the explorer/indexer service to reindex from genesis after a chain reset.
+/// Reads the endpoint from SYNERGY_EXPLORER_RESET_ENDPOINT env var or hosts.env.
+/// This is a best-effort, non-blocking call — if the explorer is unreachable or
+/// the endpoint is not configured, the chain reset still succeeds.
+async fn reset_explorer_index() -> Result<(), String> {
+    let endpoint = std::env::var("SYNERGY_EXPLORER_RESET_ENDPOINT").ok();
+
+    // If no endpoint is configured, try to read from hosts.env.
+    let endpoint = match endpoint {
+        Some(url) if !url.is_empty() => url,
+        _ => {
+            let hosts_env = resolve_hosts_env_path().ok();
+            if let Some(path) = hosts_env {
+                if let Ok(contents) = std::fs::read_to_string(&path) {
+                    contents
+                        .lines()
+                        .find(|line| line.starts_with("SYNERGY_EXPLORER_RESET_ENDPOINT="))
+                        .and_then(|line| line.split_once('='))
+                        .map(|(_, value)| value.trim().trim_matches('"').to_string())
+                        .unwrap_or_default()
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        }
+    };
+
+    if endpoint.is_empty() {
+        return Err(
+            "SYNERGY_EXPLORER_RESET_ENDPOINT not configured. Explorer must be reindexed manually. \
+             See Explorer-Reset-Integration-Guide.md for setup instructions."
+                .to_string(),
+        );
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|error| format!("Failed to build HTTP client: {error}"))?;
+
+    let response = client
+        .post(&endpoint)
+        .json(&serde_json::json!({
+            "action": "reindex_from_genesis",
+            "reason": "chain_reset",
+            "timestamp_utc": chrono::Utc::now().to_rfc3339(),
+        }))
+        .send()
+        .await
+        .map_err(|error| format!("Explorer reset request failed: {error}"))?;
+
+    if response.status().is_success() {
+        eprintln!("Explorer reindex-from-genesis request sent successfully to {endpoint}");
+        Ok(())
+    } else {
+        Err(format!(
+            "Explorer reset returned HTTP {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        ))
+    }
 }
 
 #[tauri::command]

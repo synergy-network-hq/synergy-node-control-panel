@@ -264,7 +264,46 @@ fn execute_control(
             force_kill_node_processes(&install);
             run_nodectl(&install, "start")
         }
-        "start" | "status" => run_nodectl(&install, &normalized_action),
+        "start" => run_nodectl(&install, &normalized_action),
+        "status" => {
+            // Run nodectl status first (PID-file based), then cross-check with
+            // OS-level process detection to catch nodes running without PID files.
+            let nodectl_result = run_nodectl(&install, "status");
+            let process_alive = is_node_process_running(&install);
+            match nodectl_result {
+                Ok(mut outcome) => {
+                    // Append process-alive status to stdout so the caller gets both signals.
+                    let process_status = if process_alive { "true" } else { "false" };
+                    outcome.stdout = format!(
+                        "{}\nPROCESS_ALIVE: {}",
+                        outcome.stdout.trim(),
+                        process_status
+                    );
+                    // If nodectl says "not running" but process is actually alive,
+                    // override success to true so the dashboard shows the node as running.
+                    if !outcome.success && process_alive {
+                        outcome.success = true;
+                        outcome.stdout = format!(
+                            "{}\nNOTE: nodectl reports not running (no PID file) but process is alive. Node is running without PID tracking.",
+                            outcome.stdout
+                        );
+                    }
+                    Ok(outcome)
+                }
+                Err(error) => {
+                    if process_alive {
+                        Ok(CommandOutcome {
+                            success: true,
+                            exit_code: 0,
+                            stdout: format!("PROCESS_ALIVE: true\nNOTE: nodectl failed but process is alive. Node is running without PID tracking."),
+                            stderr: error,
+                        })
+                    } else {
+                        Err(error)
+                    }
+                }
+            }
+        }
         "logs" | "node_logs" => run_nodectl(&install, "logs"),
         "setup" | "setup_node" | "install_node" | "bootstrap_node" => {
             let _ = run_nodectl(&install, "stop");
@@ -554,6 +593,36 @@ fn sync_workspace_installer(workspace_root: &Path, install: &NodeInstall) -> Res
     copy_directory_force(&source, &install.install_dir)
 }
 
+/// Checks if a node process is actually running, independent of PID files.
+/// Uses OS-level process enumeration to detect processes whose command line
+/// contains this node's install directory path.
+fn is_node_process_running(install: &NodeInstall) -> bool {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let path = install.install_dir.to_string_lossy().to_string();
+        // pgrep -f returns 0 if any matching process found, 1 if none.
+        match ProcessCommand::new("pgrep").args(["-f", &path]).output() {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let install_path = install.install_dir.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$target = '{install_path}'; $p = Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains($target) }}; if ($p) {{ exit 0 }} else {{ exit 1 }}"
+        );
+        match ProcessCommand::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .output()
+        {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
+    }
+}
+
 /// Kill any lingering node processes associated with this install directory.
 /// This handles the case where the node is running but has no PID file (e.g.
 /// it was started manually, the PID file was deleted, or the file got out of sync).
@@ -637,17 +706,39 @@ fn reset_chain(workspace_root: &Path, install: &NodeInstall) -> Result<CommandOu
     fs::create_dir_all(data_dir.join("logs"))
         .map_err(|error| format!("Failed to recreate shared log dir: {error}"))?;
 
-    let start_result = run_nodectl(install, "start")?;
+    // Verify chain data was actually deleted — fail hard if not.
+    let chain_dir = data_dir.join("chain");
+    if chain_dir.is_dir() {
+        let has_files = fs::read_dir(&chain_dir)
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false);
+        if has_files {
+            return Err(format!(
+                "Chain directory still contains files after reset for {}",
+                install.node_slot_id
+            ));
+        }
+    }
+    for check_file in &["chain.json", "token_state.json", "validator_registry.json"] {
+        if data_dir.join(check_file).exists() {
+            return Err(format!(
+                "{} still exists after reset for {}",
+                check_file, install.node_slot_id
+            ));
+        }
+    }
+
+    // Node is intentionally NOT restarted after reset. User should use
+    // "Start All" from the control panel dashboard when all nodes are
+    // confirmed reset.
     Ok(CommandOutcome {
-        success: start_result.success,
-        exit_code: start_result.exit_code,
+        success: true,
+        exit_code: 0,
         stdout: format!(
-            "Cleared chain state for {} and restarted from genesis.\n{}",
-            install.node_slot_id, start_result.stdout
-        )
-        .trim()
-        .to_string(),
-        stderr: start_result.stderr,
+            "Cleared chain state for {}. Node is stopped and ready for manual start.",
+            install.node_slot_id
+        ),
+        stderr: String::new(),
     })
 }
 

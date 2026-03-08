@@ -230,8 +230,8 @@ run_prestart_sync() {
   local config_path
   config_path="$BASE_DIR/config/node.toml"
 
-  for attempt in {1..12}; do
-    echo "Pre-start sync attempt ${attempt}/12 for $NODE_SLOT_ID..."
+  for attempt in {1..24}; do
+    echo "Pre-start sync attempt ${attempt}/24 for $NODE_SLOT_ID..."
     if env \
       SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
       NODE_ADDRESS="$validator_address" \

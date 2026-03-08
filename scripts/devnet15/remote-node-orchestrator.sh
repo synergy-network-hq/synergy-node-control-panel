@@ -17,7 +17,7 @@ Core Operations:
   install_node          Copy installer bundle to remote machine
   setup_node            Deploy installer bundle and run install_and_start.sh
   bootstrap_node        install_node + wireguard_install + wireguard_connect + start
-  reset_chain           Stop node, delete ALL chain state, redeploy config, restart from genesis
+  reset_chain           Stop node, delete ALL chain state, redeploy config (does NOT restart)
   start                 nodectl start
   stop                  nodectl stop
   restart               nodectl restart
@@ -349,6 +349,68 @@ done
 "
 }
 
+# ── Readiness & Connectivity Helpers ──────────────────────────────────────────
+
+wait_for_bootnode_ready() {
+  # Polls a bootnode's RPC endpoint until it returns a valid block height.
+  # Usage: wait_for_bootnode_ready <rpc_url> [max_attempts]
+  local rpc_url="$1"
+  local max_attempts="${2:-60}"
+  local attempt=0
+  echo "Waiting for bootnode RPC at $rpc_url to become ready..."
+  while [[ $attempt -lt $max_attempts ]]; do
+    attempt=$((attempt + 1))
+    local response
+    response=$(curl -sS --max-time 3 -X POST "$rpc_url" \
+      -H "Content-Type: application/json" \
+      -d '{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}' 2>/dev/null) || true
+    if [[ -n "$response" ]] && echo "$response" | grep -q '"result"'; then
+      echo "Bootnode RPC at $rpc_url is ready (attempt $attempt/$max_attempts)."
+      return 0
+    fi
+    sleep 3
+  done
+  echo "WARNING: Bootnode RPC at $rpc_url did not become ready after $max_attempts attempts." >&2
+  return 1
+}
+
+wait_for_vpn_connectivity() {
+  # Pings a VPN IP until it responds or times out.
+  # Usage: wait_for_vpn_connectivity <vpn_ip> [max_attempts]
+  local target_ip="$1"
+  local max_attempts="${2:-10}"
+  local attempt=0
+  echo "Checking VPN connectivity to $target_ip..."
+  while [[ $attempt -lt $max_attempts ]]; do
+    attempt=$((attempt + 1))
+    if ping -c 1 -W 2 "$target_ip" >/dev/null 2>&1; then
+      echo "VPN peer $target_ip is reachable (attempt $attempt/$max_attempts)."
+      return 0
+    fi
+    sleep 2
+  done
+  echo "WARNING: VPN peer $target_ip did not respond after $max_attempts attempts." >&2
+  return 1
+}
+
+check_node_alive() {
+  # Uses pgrep to check if a node process is running, independent of PID files.
+  # Returns 0 if running, 1 if not.
+  remote_run_script "
+set -euo pipefail
+config_path='$REMOTE_NODE_DIR/config/node.toml'
+if pgrep -f \"\$config_path\" >/dev/null 2>&1; then
+  echo 'PROCESS_ALIVE: true'
+  exit 0
+else
+  echo 'PROCESS_ALIVE: false'
+  exit 1
+fi
+" || return 1
+}
+
+# ── Chain Reset ──────────────────────────────────────────────────────────────
+
 reset_chain() {
   # Stop first, but do not fail if the process is already down.
   run_nodectl "stop" || true
@@ -366,19 +428,41 @@ rm -f  data/chain.json data/token_state.json data/validator_registry.json
 rm -f  data/synergy-devnet.pid data/.reset_flag
 rm -f  data/node.pid
 
+# Flush filesystem to ensure deletions are persisted before verification.
+sync
+
+# Verify chain data was actually deleted — fail hard if not.
+if [ -d data/chain ] && [ \"\$(ls -A data/chain 2>/dev/null)\" ]; then
+  echo 'ERROR: data/chain directory still contains files after deletion for $NODE_SLOT_ID' >&2
+  exit 1
+fi
+if [ -f data/chain.json ]; then
+  echo 'ERROR: data/chain.json still exists after deletion for $NODE_SLOT_ID' >&2
+  exit 1
+fi
+if [ -f data/token_state.json ]; then
+  echo 'ERROR: data/token_state.json still exists after deletion for $NODE_SLOT_ID' >&2
+  exit 1
+fi
+if [ -f data/validator_registry.json ]; then
+  echo 'ERROR: data/validator_registry.json still exists after deletion for $NODE_SLOT_ID' >&2
+  exit 1
+fi
+
 # Recreate the directory skeleton the node binary expects.
 mkdir -p data/chain data/devnet15/'$NODE_SLOT_ID'/chain data/devnet15/'$NODE_SLOT_ID'/logs data/logs
-echo 'Cleared all chain state for $NODE_SLOT_ID in $REMOTE_NODE_DIR — node will start from genesis.'
+echo 'Cleared all chain state for $NODE_SLOT_ID in $REMOTE_NODE_DIR — node is stopped and ready for manual start.'
 "
 
   # Re-deploy the installer bundle so the node picks up the latest
-  # configs and genesis parameters before restarting.
+  # configs and genesis parameters when it is started next.
   if [[ -d "$INSTALLER_DIR" ]]; then
     deploy_installer_bundle
   fi
 
-  run_nodectl "start"
-  run_nodectl "status" || true
+  # Node is intentionally NOT restarted after reset. Use "Start All" from
+  # the control panel dashboard when all nodes are confirmed reset.
+  echo "[$NODE_SLOT_ID] Chain reset complete. Node stopped and ready."
 }
 
 wireguard_install() {
@@ -907,7 +991,14 @@ case "$OPERATION" in
   install_node)       deploy_installer_bundle ;;
   setup_node)         deploy_installer_bundle
                       remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh" ;;
-  bootstrap_node)     deploy_installer_bundle; wireguard_install; wireguard_connect || echo "WireGuard connect skipped (may already be active)."; run_nodectl "start" ;;
+  bootstrap_node)     deploy_installer_bundle; wireguard_install; wireguard_connect || echo "WireGuard connect skipped (may already be active)."
+                      # Verify VPN connectivity to bootnodes before starting.
+                      if [[ -n "${BOOTNODE_VPN_IPS:-}" ]]; then
+                        for bootnode_ip in $BOOTNODE_VPN_IPS; do
+                          wait_for_vpn_connectivity "$bootnode_ip" 10 || echo "WARNING: Could not reach bootnode at $bootnode_ip, proceeding anyway."
+                        done
+                      fi
+                      run_nodectl "start" ;;
   reset_chain)        reset_chain ;;
   start)              run_nodectl "start" ;;
   stop)               run_nodectl "stop" || true; kill_machine_processes "stop" ;;
