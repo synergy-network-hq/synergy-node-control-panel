@@ -12,6 +12,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use tokio::task::JoinSet;
 
 pub const DEVNET_AGENT_PORT: u16 = 47_990;
 const DEFAULT_REMOTE_ROOT_UNIX: &str = "/opt/synergy";
@@ -72,19 +73,57 @@ pub async fn serve(workspace_root: PathBuf, port: u16) -> Result<(), String> {
         .route("/v1/control", post(control_handler))
         .with_state(state);
 
-    let bind_addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = tokio::net::TcpListener::bind(bind_addr)
-        .await
-        .map_err(|error| format!("Failed to bind devnet agent on {bind_addr}: {error}"))?;
+    let mut listeners = Vec::new();
+    for bind_addr in bind_addresses(port) {
+        match tokio::net::TcpListener::bind(bind_addr).await {
+            Ok(listener) => listeners.push((bind_addr, listener)),
+            Err(error) if bind_addr.ip().is_loopback() => {
+                return Err(format!(
+                    "Failed to bind devnet agent on {bind_addr}: {error}"
+                ));
+            }
+            Err(error) => {
+                eprintln!("devnet agent optional bind skipped on {bind_addr}: {error}");
+            }
+        }
+    }
 
-    axum::serve(
-        listener,
-        router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .map_err(|error| format!("Devnet agent server error: {error}"))?;
+    if listeners.is_empty() {
+        return Err("Failed to bind devnet agent on loopback or VPN interface".to_string());
+    }
+
+    let mut servers = JoinSet::new();
+    for (bind_addr, listener) in listeners {
+        let service = router
+            .clone()
+            .into_make_service_with_connect_info::<SocketAddr>();
+        servers.spawn(async move {
+            axum::serve(listener, service)
+                .await
+                .map_err(|error| format!("Devnet agent server error on {bind_addr}: {error}"))
+        });
+    }
+
+    while let Some(result) = servers.join_next().await {
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return Err(error),
+            Err(error) => return Err(format!("Devnet agent server task panicked: {error}")),
+        }
+    }
 
     Ok(())
+}
+
+fn bind_addresses(port: u16) -> Vec<SocketAddr> {
+    let mut bind_addrs = vec![SocketAddr::from(([127, 0, 0, 1], port))];
+    if let Some(vpn_ip) = detect_local_vpn_ip().and_then(|value| value.parse::<Ipv4Addr>().ok()) {
+        let vpn_addr = SocketAddr::from((vpn_ip, port));
+        if !bind_addrs.contains(&vpn_addr) {
+            bind_addrs.push(vpn_addr);
+        }
+    }
+    bind_addrs
 }
 
 fn supported_agent_actions() -> Vec<String> {
@@ -119,7 +158,10 @@ async fn health_handler(
     }
 
     match build_health(&state.workspace_root) {
-        Ok(payload) => (StatusCode::OK, Json(serde_json::to_value(payload).unwrap_or_default()))
+        Ok(payload) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(payload).unwrap_or_default()),
+        )
             .into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -145,8 +187,7 @@ async fn control_handler(
     // `execute_control` can block for several minutes (reset_chain runs stop + rm + start).
     // Offload to a blocking thread pool so the async executor stays responsive.
     let workspace_root = state.workspace_root.clone();
-    let result = tokio::task::spawn_blocking(move || execute_control(&workspace_root, input))
-        .await;
+    let result = tokio::task::spawn_blocking(move || execute_control(&workspace_root, input)).await;
 
     match result {
         Ok(Ok(outcome)) => (
@@ -262,7 +303,8 @@ fn normalize_action(value: &str) -> String {
 fn is_allowed_remote(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
-            ip.is_loopback() || (ip.octets()[0] == 10 && ip.octets()[1] == 50 && ip.octets()[2] == 0)
+            ip.is_loopback()
+                || (ip.octets()[0] == 10 && ip.octets()[1] == 50 && ip.octets()[2] == 0)
         }
         IpAddr::V6(ip) => {
             ip.is_loopback()
@@ -298,7 +340,11 @@ fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, Str
     let column = |aliases: &[&str], label: &str| -> Result<usize, String> {
         aliases
             .iter()
-            .find_map(|alias| headers.iter().position(|header| header.eq_ignore_ascii_case(alias)))
+            .find_map(|alias| {
+                headers
+                    .iter()
+                    .position(|header| header.eq_ignore_ascii_case(alias))
+            })
             .ok_or_else(|| format!("Inventory column '{label}' is missing"))
     };
 
@@ -349,7 +395,11 @@ fn installed_node_slots(workspace_root: &Path, inventory: &[InventoryNode]) -> V
 fn legacy_workspace_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
-        roots.push(home_dir.join(".synergy-node-monitor").join("monitor-workspace"));
+        roots.push(
+            home_dir
+                .join(".synergy-node-monitor")
+                .join("monitor-workspace"),
+        );
     }
     roots
 }
@@ -362,9 +412,12 @@ fn install_candidates(workspace_root: &Path, node_slot_id: &str) -> Result<Vec<P
         .get(&remote_dir_key)
         .cloned()
         .or_else(|| {
-            hosts_env
-                .get("SYNERGY_REMOTE_ROOT")
-                .map(|root| PathBuf::from(root).join(node_slot_id).to_string_lossy().to_string())
+            hosts_env.get("SYNERGY_REMOTE_ROOT").map(|root| {
+                PathBuf::from(root)
+                    .join(node_slot_id)
+                    .to_string_lossy()
+                    .to_string()
+            })
         })
         .unwrap_or_else(|| {
             if cfg!(target_os = "windows") {
@@ -382,12 +435,19 @@ fn install_candidates(workspace_root: &Path, node_slot_id: &str) -> Result<Vec<P
             .join(node_slot_id),
     );
     for legacy_root in legacy_workspace_roots() {
-        candidates.push(legacy_root.join("devnet/lean15/installers").join(node_slot_id));
+        candidates.push(
+            legacy_root
+                .join("devnet/lean15/installers")
+                .join(node_slot_id),
+        );
     }
 
     let mut deduped = Vec::new();
     for candidate in candidates {
-        if !deduped.iter().any(|existing: &PathBuf| existing == &candidate) {
+        if !deduped
+            .iter()
+            .any(|existing: &PathBuf| existing == &candidate)
+        {
             deduped.push(candidate);
         }
     }
@@ -403,7 +463,13 @@ fn is_process_running_for_install_dir(install_dir: &Path) -> bool {
             "$target = '{install_path}'; $match = Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains($target) }} | Select-Object -First 1; if ($match) {{ exit 0 }} else {{ exit 1 }}"
         );
         return ProcessCommand::new("powershell")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
             .status()
             .map(|status| status.success())
             .unwrap_or(false);
@@ -499,24 +565,25 @@ fn force_kill_node_processes(install: &NodeInstall) {
         let path = install.install_dir.to_string_lossy().to_string();
         // Kill any process whose command line contains the install dir path.
         // This precisely targets THIS node's binary without disturbing other nodes.
-        let _ = ProcessCommand::new("pkill")
-            .args(["-f", &path])
-            .output();
+        let _ = ProcessCommand::new("pkill").args(["-f", &path]).output();
         // Give the OS a moment to reap the process before we delete chain data.
         std::thread::sleep(std::time::Duration::from_millis(1500));
     }
 
     #[cfg(target_os = "windows")]
     {
-        let install_path = install
-            .install_dir
-            .to_string_lossy()
-            .replace('\'', "''");
+        let install_path = install.install_dir.to_string_lossy().replace('\'', "''");
         let script = format!(
             "$target = '{install_path}'; Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains($target) }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
         );
         let _ = ProcessCommand::new("powershell")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
             .output();
         std::thread::sleep(std::time::Duration::from_millis(1500));
     }
@@ -546,11 +613,17 @@ fn reset_chain(workspace_root: &Path, install: &NodeInstall) -> Result<CommandOu
     for target in targets {
         if target.is_dir() {
             fs::remove_dir_all(&target).map_err(|error| {
-                format!("Failed to remove {} during reset: {error}", target.display())
+                format!(
+                    "Failed to remove {} during reset: {error}",
+                    target.display()
+                )
             })?;
         } else if target.is_file() {
             fs::remove_file(&target).map_err(|error| {
-                format!("Failed to remove {} during reset: {error}", target.display())
+                format!(
+                    "Failed to remove {} during reset: {error}",
+                    target.display()
+                )
             })?;
         }
     }
@@ -669,7 +742,11 @@ fn gather_local_ips() -> Vec<String> {
 
     raw.lines()
         .flat_map(|line| line.split_whitespace())
-        .map(|entry| entry.trim().trim_matches(|ch: char| ch == ':' || ch == '(' || ch == ')'))
+        .map(|entry| {
+            entry
+                .trim()
+                .trim_matches(|ch: char| ch == ':' || ch == '(' || ch == ')')
+        })
         .filter(|entry| entry.parse::<Ipv4Addr>().is_ok())
         .map(|entry| entry.to_string())
         .collect()
@@ -719,14 +796,14 @@ fn copy_directory_force(source: &Path, destination: &Path) -> Result<(), String>
                     .and_then(|entry| entry.to_str())
                     .is_none()
                     || matches!(
-                        destination_path.extension().and_then(|entry| entry.to_str()),
+                        destination_path
+                            .extension()
+                            .and_then(|entry| entry.to_str()),
                         Some("sh")
                     )
                 {
-                    let _ = fs::set_permissions(
-                        &destination_path,
-                        fs::Permissions::from_mode(0o755),
-                    );
+                    let _ =
+                        fs::set_permissions(&destination_path, fs::Permissions::from_mode(0o755));
                 }
             }
         }

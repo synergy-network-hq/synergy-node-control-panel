@@ -8,6 +8,8 @@ import OperatorConfigurationPage from './components/OperatorConfigurationPage';
 import SXCPDashboard from './components/SXCPDashboard';
 import InitialSetupWizard from './components/InitialSetupWizard';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
+import TestTransactionsPage from './components/TestTransactionsPage';
+import BreakStuffPage from './components/BreakStuffPage';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 const SPLASH_DURATION_MS = 6000;
@@ -111,6 +113,8 @@ function App() {
         <Routes>
           <Route path="/" element={<NetworkMonitorDashboard />} />
           <Route path="/sxcp" element={<SXCPDashboard />} />
+          <Route path="/test-transactions" element={<TestTransactionsPage />} />
+          <Route path="/break-stuff" element={<BreakStuffPage />} />
           <Route path="/settings" element={<OperatorConfigurationPage />} />
           <Route path="/node/:nodeSlotId" element={<NetworkMonitorNodePage />} />
           <Route path="/help" element={<HelpArticlesPage />} />

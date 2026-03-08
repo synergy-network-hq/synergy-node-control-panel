@@ -17,7 +17,7 @@ function updateButtonLabel(updateState) {
     case 'installed':
       return 'Restart Required';
     default:
-      return 'Check Updates';
+      return 'Check for Updates';
   }
 }
 
@@ -26,6 +26,8 @@ function Layout({ children }) {
   const onHelpRoute = location.pathname === '/help';
   const onSettingsRoute = location.pathname === '/settings';
   const onSXCPRoute = location.pathname === '/sxcp';
+  const onTransactionsRoute = location.pathname === '/test-transactions';
+  const onBreakStuffRoute = location.pathname === '/break-stuff';
 
   const [appVersion, setAppVersion] = useState('');
   const [updateState, setUpdateState] = useState({
@@ -207,6 +209,12 @@ function Layout({ children }) {
             >
               {updateButtonLabel(updateState)}
             </button>
+            <Link className={`btn-header btn-header-wide ${onTransactionsRoute ? 'btn-header-active' : ''}`} to="/test-transactions">
+              Test Transactions
+            </Link>
+            <Link className={`btn-header btn-header-wide ${onBreakStuffRoute ? 'btn-header-active' : ''}`} to="/break-stuff">
+              Let&apos;s Break Stuff
+            </Link>
             <Link className="btn-header" to={onSXCPRoute ? '/' : '/sxcp'}>
               {onSXCPRoute ? 'Monitor' : 'SXCP'}
             </Link>

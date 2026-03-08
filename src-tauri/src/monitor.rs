@@ -319,29 +319,29 @@ pub struct MonitorAgentSnapshot {
 }
 
 const DEVNET_NODE_VPN_MAP: [(&str, &str); 23] = [
-    ("node-01", "10.50.0.1"),   // Machine-01: validator
-    ("node-14", "10.50.0.1"),   // Machine-01: indexer
-    ("node-02", "10.50.0.2"),   // Machine-02: validator
-    ("node-03", "10.50.0.2"),   // Machine-02: observer
-    ("node-04", "10.50.0.3"),   // Machine-03: validator
-    ("node-05", "10.50.0.3"),   // Machine-03: cross-chain-verifier
-    ("node-06", "10.50.0.4"),   // Machine-04: validator
-    ("node-07", "10.50.0.4"),   // Machine-04: relayer
-    ("node-08", "10.50.0.5"),   // Machine-05: validator
-    ("node-09", "10.50.0.5"),   // Machine-05: committee
-    ("node-10", "10.50.0.6"),   // Machine-06: security-council
-    ("node-11", "10.50.0.6"),   // Machine-06: oracle
-    ("node-12", "10.50.0.7"),   // Machine-07: witness
-    ("node-13", "10.50.0.7"),   // Machine-07: rpc-gateway
-    ("node-22", "10.50.0.8"),   // Machine-08: uma-coordinator
-    ("node-15", "10.50.0.8"),   // Machine-08: pqc-crypto
-    ("node-16", "10.50.0.9"),   // Machine-09: archive-validator
-    ("node-17", "10.50.0.9"),   // Machine-09: audit-validator
-    ("node-24", "10.50.0.10"),  // Machine-10: treasury-controller
-    ("node-25", "10.50.0.10"),  // Machine-10: governance-auditor
-    ("node-18", "10.50.0.11"),  // Machine-11: data-availability
-    ("node-20", "10.50.0.12"),  // Machine-12: ai-inference
-    ("node-23", "10.50.0.13"),  // Machine-13: compute
+    ("node-01", "10.50.0.1"),  // Machine-01: validator
+    ("node-14", "10.50.0.1"),  // Machine-01: indexer
+    ("node-02", "10.50.0.2"),  // Machine-02: validator
+    ("node-03", "10.50.0.2"),  // Machine-02: observer
+    ("node-04", "10.50.0.3"),  // Machine-03: validator
+    ("node-05", "10.50.0.3"),  // Machine-03: cross-chain-verifier
+    ("node-06", "10.50.0.4"),  // Machine-04: validator
+    ("node-07", "10.50.0.4"),  // Machine-04: relayer
+    ("node-08", "10.50.0.5"),  // Machine-05: validator
+    ("node-09", "10.50.0.5"),  // Machine-05: committee
+    ("node-10", "10.50.0.6"),  // Machine-06: security-council
+    ("node-11", "10.50.0.6"),  // Machine-06: oracle
+    ("node-12", "10.50.0.7"),  // Machine-07: witness
+    ("node-13", "10.50.0.7"),  // Machine-07: rpc-gateway
+    ("node-22", "10.50.0.8"),  // Machine-08: uma-coordinator
+    ("node-15", "10.50.0.8"),  // Machine-08: pqc-crypto
+    ("node-16", "10.50.0.9"),  // Machine-09: archive-validator
+    ("node-17", "10.50.0.9"),  // Machine-09: audit-validator
+    ("node-24", "10.50.0.10"), // Machine-10: treasury-controller
+    ("node-25", "10.50.0.10"), // Machine-10: governance-auditor
+    ("node-18", "10.50.0.11"), // Machine-11: data-availability
+    ("node-20", "10.50.0.12"), // Machine-12: ai-inference
+    ("node-23", "10.50.0.13"), // Machine-13: compute
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -469,102 +469,106 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
         .build()
         .unwrap_or_else(|_| Client::new());
 
-    let probes = targets.into_iter().map(|(physical_machine_id, vpn_ip, node_slot_ids)| {
-        let client = client.clone();
-        async move {
-            let checked_at_utc = Utc::now().to_rfc3339();
-            if vpn_ip.trim().is_empty() {
-                return MonitorAgentReachability {
-                    physical_machine_id,
-                    vpn_ip,
-                    node_slot_ids,
-                    reachable: false,
-                    response_ms: 0,
-                    version: None,
-                    workspace_path: None,
-                    local_vpn_ip: None,
-                    supported_actions: Vec::new(),
-                    checked_at_utc,
-                    error: Some("No VPN IP resolved for this machine.".to_string()),
-                };
-            }
-
-            let endpoint = format!("http://{vpn_ip}:{DEVNET_AGENT_PORT}/health");
-            let started = Instant::now();
-            match client.get(&endpoint).send().await {
-                Ok(response) => {
-                    let response_ms = started.elapsed().as_millis() as u64;
-                    let status = response.status();
-                    if !status.is_success() {
-                        let body = response.text().await.unwrap_or_default();
-                        return MonitorAgentReachability {
-                            physical_machine_id,
-                            vpn_ip,
-                            node_slot_ids,
-                            reachable: false,
-                            response_ms,
-                            version: None,
-                            workspace_path: None,
-                            local_vpn_ip: None,
-                            supported_actions: Vec::new(),
-                            checked_at_utc,
-                            error: Some(format!(
-                                "HTTP {} from agent health endpoint{}",
-                                status,
-                                if body.trim().is_empty() {
-                                    String::new()
-                                } else {
-                                    format!(": {}", truncate_text(body.trim(), 220))
-                                }
-                            )),
-                        };
-                    }
-
-                    match response.json::<DevnetAgentHealth>().await {
-                        Ok(payload) => MonitorAgentReachability {
-                            physical_machine_id,
-                            vpn_ip,
-                            node_slot_ids,
-                            reachable: true,
-                            response_ms,
-                            version: Some(payload.version),
-                            workspace_path: Some(payload.workspace_path),
-                            local_vpn_ip: payload.local_vpn_ip,
-                            supported_actions: payload.supported_actions,
-                            checked_at_utc,
-                            error: None,
-                        },
-                        Err(error) => MonitorAgentReachability {
-                            physical_machine_id,
-                            vpn_ip,
-                            node_slot_ids,
-                            reachable: false,
-                            response_ms,
-                            version: None,
-                            workspace_path: None,
-                            local_vpn_ip: None,
-                            supported_actions: Vec::new(),
-                            checked_at_utc,
-                            error: Some(format!("Failed to decode agent health payload: {error}")),
-                        },
-                    }
+    let probes = targets
+        .into_iter()
+        .map(|(physical_machine_id, vpn_ip, node_slot_ids)| {
+            let client = client.clone();
+            async move {
+                let checked_at_utc = Utc::now().to_rfc3339();
+                if vpn_ip.trim().is_empty() {
+                    return MonitorAgentReachability {
+                        physical_machine_id,
+                        vpn_ip,
+                        node_slot_ids,
+                        reachable: false,
+                        response_ms: 0,
+                        version: None,
+                        workspace_path: None,
+                        local_vpn_ip: None,
+                        supported_actions: Vec::new(),
+                        checked_at_utc,
+                        error: Some("No VPN IP resolved for this machine.".to_string()),
+                    };
                 }
-                Err(error) => MonitorAgentReachability {
-                    physical_machine_id,
-                    vpn_ip,
-                    node_slot_ids,
-                    reachable: false,
-                    response_ms: started.elapsed().as_millis() as u64,
-                    version: None,
-                    workspace_path: None,
-                    local_vpn_ip: None,
-                    supported_actions: Vec::new(),
-                    checked_at_utc,
-                    error: Some(error.to_string()),
-                },
+
+                let endpoint = format!("http://{vpn_ip}:{DEVNET_AGENT_PORT}/health");
+                let started = Instant::now();
+                match client.get(&endpoint).send().await {
+                    Ok(response) => {
+                        let response_ms = started.elapsed().as_millis() as u64;
+                        let status = response.status();
+                        if !status.is_success() {
+                            let body = response.text().await.unwrap_or_default();
+                            return MonitorAgentReachability {
+                                physical_machine_id,
+                                vpn_ip,
+                                node_slot_ids,
+                                reachable: false,
+                                response_ms,
+                                version: None,
+                                workspace_path: None,
+                                local_vpn_ip: None,
+                                supported_actions: Vec::new(),
+                                checked_at_utc,
+                                error: Some(format!(
+                                    "HTTP {} from agent health endpoint{}",
+                                    status,
+                                    if body.trim().is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(": {}", truncate_text(body.trim(), 220))
+                                    }
+                                )),
+                            };
+                        }
+
+                        match response.json::<DevnetAgentHealth>().await {
+                            Ok(payload) => MonitorAgentReachability {
+                                physical_machine_id,
+                                vpn_ip,
+                                node_slot_ids,
+                                reachable: true,
+                                response_ms,
+                                version: Some(payload.version),
+                                workspace_path: Some(payload.workspace_path),
+                                local_vpn_ip: payload.local_vpn_ip,
+                                supported_actions: payload.supported_actions,
+                                checked_at_utc,
+                                error: None,
+                            },
+                            Err(error) => MonitorAgentReachability {
+                                physical_machine_id,
+                                vpn_ip,
+                                node_slot_ids,
+                                reachable: false,
+                                response_ms,
+                                version: None,
+                                workspace_path: None,
+                                local_vpn_ip: None,
+                                supported_actions: Vec::new(),
+                                checked_at_utc,
+                                error: Some(format!(
+                                    "Failed to decode agent health payload: {error}"
+                                )),
+                            },
+                        }
+                    }
+                    Err(error) => MonitorAgentReachability {
+                        physical_machine_id,
+                        vpn_ip,
+                        node_slot_ids,
+                        reachable: false,
+                        response_ms: started.elapsed().as_millis() as u64,
+                        version: None,
+                        workspace_path: None,
+                        local_vpn_ip: None,
+                        supported_actions: Vec::new(),
+                        checked_at_utc,
+                        error: Some(error.to_string()),
+                    },
+                }
             }
-        }
-    });
+        });
 
     let agents = join_all(probes).await;
     let reachable_agents = agents.iter().filter(|entry| entry.reachable).count();
@@ -971,9 +975,7 @@ pub fn monitor_assign_ssh_binding(
 }
 
 #[tauri::command]
-pub fn monitor_remove_ssh_binding(
-    node_slot_id: String,
-) -> Result<MonitorSecurityState, String> {
+pub fn monitor_remove_ssh_binding(node_slot_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
     enforce_security_admin(&actor)?;
@@ -1104,9 +1106,43 @@ pub async fn monitor_bulk_node_control(
                 }
             }
         }
-        let result =
-            execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "bulk")
-                .await?;
+        let result = match execute_monitor_node_control(
+            &node_slot_id,
+            &normalized_action,
+            &operator,
+            "bulk",
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                let executed_at_utc = Utc::now().to_rfc3339();
+                let failure = MonitorControlResult {
+                    node_slot_id: node_slot_id.clone(),
+                    action: normalized_action.clone(),
+                    success: false,
+                    exit_code: -1,
+                    command: "N/A".to_string(),
+                    stdout: String::new(),
+                    stderr: truncate_text(error.trim(), 6000),
+                    executed_at_utc: executed_at_utc.clone(),
+                };
+                let _ = append_audit_event(json!({
+                    "event_type": "control.node.failed",
+                    "mode": "bulk",
+                    "operator_id": operator.operator_id,
+                    "operator_role": operator.role,
+                    "node_slot_id": failure.node_slot_id,
+                    "action": failure.action,
+                    "success": false,
+                    "exit_code": failure.exit_code,
+                    "command": failure.command,
+                    "stderr": failure.stderr,
+                    "timestamp_utc": executed_at_utc,
+                }));
+                failure
+            }
+        };
         results.push(result);
         previous_phase = Some(current_phase);
     }
@@ -1206,9 +1242,24 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
             staked_balance_result,
             synergy_score_breakdown_result,
         ) = tokio::join!(
-            rpc_call(&client, &rpc_url, "synergy_getTokenBalance", json!([address, "SNRG"])),
-            rpc_call(&client, &rpc_url, "synergy_getStakingInfo", json!([address])),
-            rpc_call(&client, &rpc_url, "synergy_getStakedBalance", json!([address, "SNRG"])),
+            rpc_call(
+                &client,
+                &rpc_url,
+                "synergy_getTokenBalance",
+                json!([address, "SNRG"])
+            ),
+            rpc_call(
+                &client,
+                &rpc_url,
+                "synergy_getStakingInfo",
+                json!([address])
+            ),
+            rpc_call(
+                &client,
+                &rpc_url,
+                "synergy_getStakedBalance",
+                json!([address, "SNRG"])
+            ),
             rpc_call(
                 &client,
                 &rpc_url,
@@ -1479,7 +1530,10 @@ fn split_command_arguments(command: &str) -> Result<Vec<String>, String> {
 
 #[cfg(test)]
 mod terminal_command_tests {
-    use super::split_command_arguments;
+    use super::{
+        logical_nodes_for_physical_machine, physical_machine_for_binding_target,
+        split_command_arguments,
+    };
 
     #[test]
     fn splits_powershell_file_command_with_windows_path() {
@@ -1518,6 +1572,38 @@ mod terminal_command_tests {
                 "-Command",
                 "Get-ChildItem 'keys/ssh' -Force | Format-Table -AutoSize Name,Length,LastWriteTime",
             ]
+        );
+    }
+
+    #[test]
+    fn binding_targets_follow_current_topology() {
+        assert_eq!(
+            physical_machine_for_binding_target("node-14"),
+            Some("machine-01")
+        );
+        assert_eq!(
+            physical_machine_for_binding_target("node-22"),
+            Some("machine-08")
+        );
+        assert_eq!(
+            physical_machine_for_binding_target("node-24"),
+            Some("machine-10")
+        );
+    }
+
+    #[test]
+    fn logical_nodes_follow_current_topology() {
+        assert_eq!(
+            logical_nodes_for_physical_machine("machine-01").expect("machine-01 should resolve"),
+            vec!["node-01", "node-14"]
+        );
+        assert_eq!(
+            logical_nodes_for_physical_machine("machine-08").expect("machine-08 should resolve"),
+            vec!["node-15", "node-22"]
+        );
+        assert_eq!(
+            logical_nodes_for_physical_machine("machine-10").expect("machine-10 should resolve"),
+            vec!["node-24", "node-25"]
         );
     }
 }
@@ -1831,9 +1917,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             continue;
         }
 
-        let get = |index: usize| -> String {
-            cells.get(index).cloned().unwrap_or_default()
-        };
+        let get = |index: usize| -> String { cells.get(index).cloned().unwrap_or_default() };
 
         let node_slot_id = get(node_slot_idx);
         let node_alias = get(node_alias_idx);
@@ -2128,7 +2212,10 @@ fn load_node_address_map(inventory_path: &Path) -> HashMap<String, String> {
 
 fn fallback_node_address(lean15_dir: &Path, node_slot_id: &str) -> Option<String> {
     let candidates = [
-        lean15_dir.join("keys").join(node_slot_id).join("address.txt"),
+        lean15_dir
+            .join("keys")
+            .join(node_slot_id)
+            .join("address.txt"),
         lean15_dir
             .join("installers")
             .join(node_slot_id)
@@ -2256,7 +2343,9 @@ fn protocol_profile_path(inventory_path: &Path, node_slot_id: &str) -> Option<Pa
         return Some(installer_path);
     }
 
-    let config_path = base_dir.join("configs").join(format!("{node_slot_id}.toml"));
+    let config_path = base_dir
+        .join("configs")
+        .join(format!("{node_slot_id}.toml"));
     if config_path.is_file() {
         return Some(config_path);
     }
@@ -2388,7 +2477,10 @@ fn is_unknown_method_value(value: Option<&Value>) -> bool {
 
 fn genesis_profile_path(inventory_path: &Path, node_slot_id: &str) -> Option<PathBuf> {
     let base_dir = inventory_path.parent()?;
-    let shared_path = base_dir.join("configs").join("genesis").join("genesis.json");
+    let shared_path = base_dir
+        .join("configs")
+        .join("genesis")
+        .join("genesis.json");
     if shared_path.is_file() {
         return Some(shared_path);
     }
@@ -2447,7 +2539,8 @@ fn load_economics_profile(
                         });
 
                     let value = if let Some(allocation) = allocation {
-                        let balance_raw = parse_value_as_u128(allocation.get("balance")).unwrap_or(0);
+                        let balance_raw =
+                            parse_value_as_u128(allocation.get("balance")).unwrap_or(0);
                         let stake_raw = parse_value_as_u128(allocation.get("stake")).unwrap_or(0);
                         let liquid_raw = balance_raw.saturating_sub(stake_raw);
                         json!({
@@ -2498,7 +2591,10 @@ fn load_economics_profile(
                     "source_path": path.to_string_lossy(),
                     "reason": "genesis.json could not be read",
                 }),
-                Some("Genesis allocation file could not be read from the current workspace.".to_string()),
+                Some(
+                    "Genesis allocation file could not be read from the current workspace."
+                        .to_string(),
+                ),
             ),
         },
         None => (
@@ -2523,8 +2619,8 @@ fn load_economics_profile(
         .iter()
         .filter_map(|entry| parse_value_as_u128(entry.get("amount")))
         .sum();
-    let staked_balance_raw = token_balance_nwei(rpc.staked_balance.as_ref())
-        .unwrap_or(staking_amount_from_entries);
+    let staked_balance_raw =
+        token_balance_nwei(rpc.staked_balance.as_ref()).unwrap_or(staking_amount_from_entries);
     let wallet_balance_raw = token_balance_nwei(rpc.token_balance.as_ref()).unwrap_or(0);
 
     let now = current_unix_seconds();
@@ -2594,8 +2690,11 @@ fn load_economics_profile(
         .as_ref()
         .cloned()
         .unwrap_or(Value::Null);
-    let synergy_multiplier =
-        parse_value_as_f64(rpc.synergy_score_breakdown.as_ref().and_then(|value| value.get("multiplier")));
+    let synergy_multiplier = parse_value_as_f64(
+        rpc.synergy_score_breakdown
+            .as_ref()
+            .and_then(|value| value.get("multiplier")),
+    );
     let synergy_components = rpc
         .synergy_score_breakdown
         .as_ref()
@@ -2621,7 +2720,8 @@ fn load_economics_profile(
 
     let mut telemetry_gaps = Vec::new();
     if !token_balance_available {
-        telemetry_gaps.push("Live wallet balance is not exposed by the current RPC surface.".to_string());
+        telemetry_gaps
+            .push("Live wallet balance is not exposed by the current RPC surface.".to_string());
     }
     if !staking_info_available {
         telemetry_gaps.push("Historical rewards and staking-entry detail are not exposed by the current RPC surface.".to_string());
@@ -2630,7 +2730,10 @@ fn load_economics_profile(
         telemetry_gaps.push("Live staked balance is falling back to staking-entry totals because the dedicated RPC is not exposed.".to_string());
     }
     if !synergy_breakdown_available {
-        telemetry_gaps.push("Synergy multiplier and score components are not exposed by the current RPC surface.".to_string());
+        telemetry_gaps.push(
+            "Synergy multiplier and score components are not exposed by the current RPC surface."
+                .to_string(),
+        );
     }
     if let Some(gap) = genesis_gap {
         telemetry_gaps.push(gap);
@@ -3993,252 +4096,677 @@ fn build_role_operations(
     // ── Class I — Consensus nodes ───────────────────────────────────────
     // Validator
     if node_type == "validator" {
-        push_rpc("rpc:get_validator_activity", "Validator Activity",
-            "Inspect validator stake, blocks produced, epoch participation, and synergy score.", "consensus", &mut operations);
-        push_rpc("rpc:get_validators", "Validator Set",
-            "Fetch the active validator set and verify this node's membership.", "consensus", &mut operations);
-        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
-            "Compare state root hash across validators for fork detection.", "consensus", &mut operations);
-        push_rpc("rpc:get_epoch_info", "Epoch Info",
-            "Fetch current epoch number, progress, and time remaining.", "consensus", &mut operations);
-        push_rpc("rpc:get_staking_info", "Staking Info",
-            "Check staked SNRG amount, rewards earned, and slashing history.", "consensus", &mut operations);
-        push_shell("rotate_vrf_key", "Rotate VRF Key",
-            "Generate and register a new VRF keypair for committee selection.", "consensus", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_validator_activity",
+            "Validator Activity",
+            "Inspect validator stake, blocks produced, epoch participation, and synergy score.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_validators",
+            "Validator Set",
+            "Fetch the active validator set and verify this node's membership.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_determinism_digest",
+            "Determinism Digest",
+            "Compare state root hash across validators for fork detection.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_epoch_info",
+            "Epoch Info",
+            "Fetch current epoch number, progress, and time remaining.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_staking_info",
+            "Staking Info",
+            "Check staked SNRG amount, rewards earned, and slashing history.",
+            "consensus",
+            &mut operations,
+        );
+        push_shell(
+            "rotate_vrf_key",
+            "Rotate VRF Key",
+            "Generate and register a new VRF keypair for committee selection.",
+            "consensus",
+            &commands,
+            &mut operations,
+        );
     }
 
     // Committee
     if node_type == "committee" {
-        push_rpc("rpc:get_validator_activity", "Committee Activity",
-            "Inspect committee member participation and voting record.", "consensus", &mut operations);
-        push_rpc("rpc:get_validators", "Validator Set",
-            "Fetch the active validator set and verify committee membership.", "consensus", &mut operations);
-        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
-            "Compare state root hash for consensus consistency.", "consensus", &mut operations);
-        push_rpc("rpc:get_committee_status", "Committee Status",
-            "Fetch current committee composition and rotation schedule.", "consensus", &mut operations);
-        push_rpc("rpc:get_epoch_info", "Epoch Info",
-            "Fetch current epoch number and committee rotation progress.", "consensus", &mut operations);
+        push_rpc(
+            "rpc:get_validator_activity",
+            "Committee Activity",
+            "Inspect committee member participation and voting record.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_validators",
+            "Validator Set",
+            "Fetch the active validator set and verify committee membership.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_determinism_digest",
+            "Determinism Digest",
+            "Compare state root hash for consensus consistency.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_committee_status",
+            "Committee Status",
+            "Fetch current committee composition and rotation schedule.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_epoch_info",
+            "Epoch Info",
+            "Fetch current epoch number and committee rotation progress.",
+            "consensus",
+            &mut operations,
+        );
     }
 
     // Archive Validator
     if node_type == "archive-validator" || node_type == "archive_validator" {
-        push_rpc("rpc:get_validator_activity", "Validator Activity",
-            "Inspect archive validator stake and block production.", "consensus", &mut operations);
-        push_rpc("rpc:get_validators", "Validator Set",
-            "Verify archive validator is in the active set.", "consensus", &mut operations);
-        push_rpc("rpc:get_archive_status", "Archive Status",
-            "Check archive completeness, oldest retained block, and storage usage.", "consensus", &mut operations);
-        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
-            "Validate full-history state consistency.", "consensus", &mut operations);
-        push_shell("verify_archive_integrity", "Verify Archive Integrity",
-            "Run integrity check across all retained chain data.", "consensus", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_validator_activity",
+            "Validator Activity",
+            "Inspect archive validator stake and block production.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_validators",
+            "Validator Set",
+            "Verify archive validator is in the active set.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_archive_status",
+            "Archive Status",
+            "Check archive completeness, oldest retained block, and storage usage.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_determinism_digest",
+            "Determinism Digest",
+            "Validate full-history state consistency.",
+            "consensus",
+            &mut operations,
+        );
+        push_shell(
+            "verify_archive_integrity",
+            "Verify Archive Integrity",
+            "Run integrity check across all retained chain data.",
+            "consensus",
+            &commands,
+            &mut operations,
+        );
     }
 
     // Audit Validator
     if node_type == "audit-validator" || node_type == "audit_validator" {
-        push_rpc("rpc:get_validator_activity", "Validator Activity",
-            "Inspect audit validator participation and attestations.", "consensus", &mut operations);
-        push_rpc("rpc:get_validators", "Validator Set",
-            "Verify audit validator is in the active set.", "consensus", &mut operations);
-        push_rpc("rpc:get_audit_report", "Audit Report",
-            "Fetch latest audit findings: fork anomalies, state mismatches, invalid transitions.", "consensus", &mut operations);
-        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
-            "Cross-validate state proofs against other validators.", "consensus", &mut operations);
+        push_rpc(
+            "rpc:get_validator_activity",
+            "Validator Activity",
+            "Inspect audit validator participation and attestations.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_validators",
+            "Validator Set",
+            "Verify audit validator is in the active set.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_audit_report",
+            "Audit Report",
+            "Fetch latest audit findings: fork anomalies, state mismatches, invalid transitions.",
+            "consensus",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_determinism_digest",
+            "Determinism Digest",
+            "Cross-validate state proofs against other validators.",
+            "consensus",
+            &mut operations,
+        );
     }
 
     // ── Class II — Interoperability nodes ────────────────────────────────
     // Relayer
     if node_type == "relayer" {
-        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
-            "Check SXCP relayer quorum, heartbeat window, and protocol health.", "interop", &mut operations);
-        push_rpc("rpc:get_relayer_set", "Relayer Set",
-            "Fetch registered relayers and their active/slashed status.", "interop", &mut operations);
-        push_rpc("rpc:get_relayer_health", "Relayer Health",
-            "Inspect this relayer's liveness, message throughput, and heartbeat metrics.", "interop", &mut operations);
-        push_rpc("rpc:get_attestations", "Recent Attestations",
-            "Fetch recent SXCP cross-chain attestations relayed by this node.", "interop", &mut operations);
-        push_rpc("rpc:get_relay_queue", "Relay Queue",
-            "Check pending cross-chain messages awaiting relay.", "interop", &mut operations);
-        push_shell("flush_relay_queue", "Flush Relay Queue",
-            "Force-submit all pending relay messages.", "interop", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_sxcp_status",
+            "SXCP Protocol Status",
+            "Check SXCP relayer quorum, heartbeat window, and protocol health.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_relayer_set",
+            "Relayer Set",
+            "Fetch registered relayers and their active/slashed status.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_relayer_health",
+            "Relayer Health",
+            "Inspect this relayer's liveness, message throughput, and heartbeat metrics.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_attestations",
+            "Recent Attestations",
+            "Fetch recent SXCP cross-chain attestations relayed by this node.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_relay_queue",
+            "Relay Queue",
+            "Check pending cross-chain messages awaiting relay.",
+            "interop",
+            &mut operations,
+        );
+        push_shell(
+            "flush_relay_queue",
+            "Flush Relay Queue",
+            "Force-submit all pending relay messages.",
+            "interop",
+            &commands,
+            &mut operations,
+        );
     }
 
     // Witness
     if node_type == "witness" {
-        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
-            "Check SXCP protocol health from the witness perspective.", "interop", &mut operations);
-        push_rpc("rpc:get_witness_status", "Witness Status",
-            "Fetch witness attestation count, challenge responses, and uptime.", "interop", &mut operations);
-        push_rpc("rpc:get_attestations", "Recent Attestations",
-            "Fetch cross-chain attestations co-signed by this witness.", "interop", &mut operations);
-        push_rpc("rpc:get_relayer_health", "Relayer Health",
-            "Cross-check relayer health from the witness vantage point.", "interop", &mut operations);
+        push_rpc(
+            "rpc:get_sxcp_status",
+            "SXCP Protocol Status",
+            "Check SXCP protocol health from the witness perspective.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_witness_status",
+            "Witness Status",
+            "Fetch witness attestation count, challenge responses, and uptime.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_attestations",
+            "Recent Attestations",
+            "Fetch cross-chain attestations co-signed by this witness.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_relayer_health",
+            "Relayer Health",
+            "Cross-check relayer health from the witness vantage point.",
+            "interop",
+            &mut operations,
+        );
     }
 
     // Oracle
     if node_type == "oracle" {
-        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
-            "Check SXCP oracle feed health and quorum.", "interop", &mut operations);
-        push_rpc("rpc:get_oracle_feeds", "Oracle Feeds",
-            "Fetch active price feeds, data sources, and last update timestamps.", "interop", &mut operations);
-        push_rpc("rpc:get_oracle_health", "Oracle Health",
-            "Check feed freshness, deviation alerts, and source availability.", "interop", &mut operations);
-        push_shell("force_feed_update", "Force Feed Update",
-            "Trigger an immediate oracle price feed refresh.", "interop", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_sxcp_status",
+            "SXCP Protocol Status",
+            "Check SXCP oracle feed health and quorum.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_oracle_feeds",
+            "Oracle Feeds",
+            "Fetch active price feeds, data sources, and last update timestamps.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_oracle_health",
+            "Oracle Health",
+            "Check feed freshness, deviation alerts, and source availability.",
+            "interop",
+            &mut operations,
+        );
+        push_shell(
+            "force_feed_update",
+            "Force Feed Update",
+            "Trigger an immediate oracle price feed refresh.",
+            "interop",
+            &commands,
+            &mut operations,
+        );
     }
 
     // UMA Coordinator
     if node_type == "uma-coordinator" || node_type == "uma_coordinator" {
-        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
-            "Check SXCP health and UMA routing status.", "interop", &mut operations);
-        push_rpc("rpc:get_uma_routing_table", "UMA Routing Table",
-            "Fetch the Universal Meta-Address resolution table and peer mappings.", "interop", &mut operations);
-        push_rpc("rpc:get_uma_resolution_stats", "UMA Resolution Stats",
-            "Check address resolution throughput, cache hit rate, and latency.", "interop", &mut operations);
-        push_rpc("rpc:get_relayer_set", "Relayer Set",
-            "Inspect relayer connectivity for cross-chain UMA resolution.", "interop", &mut operations);
+        push_rpc(
+            "rpc:get_sxcp_status",
+            "SXCP Protocol Status",
+            "Check SXCP health and UMA routing status.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_uma_routing_table",
+            "UMA Routing Table",
+            "Fetch the Universal Meta-Address resolution table and peer mappings.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_uma_resolution_stats",
+            "UMA Resolution Stats",
+            "Check address resolution throughput, cache hit rate, and latency.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_relayer_set",
+            "Relayer Set",
+            "Inspect relayer connectivity for cross-chain UMA resolution.",
+            "interop",
+            &mut operations,
+        );
     }
 
     // Cross-Chain Verifier
     if node_type == "cross-chain-verifier" || node_type == "cross_chain_verifier" {
-        push_rpc("rpc:get_sxcp_status", "SXCP Protocol Status",
-            "Check SXCP verification pipeline health.", "interop", &mut operations);
-        push_rpc("rpc:get_verification_queue", "Verification Queue",
-            "Fetch pending cross-chain proofs awaiting verification.", "interop", &mut operations);
-        push_rpc("rpc:get_attestations", "Recent Attestations",
-            "Fetch attestations verified by this node.", "interop", &mut operations);
-        push_rpc("rpc:get_verification_stats", "Verification Stats",
-            "Check proof verification throughput, rejection rate, and latency.", "interop", &mut operations);
+        push_rpc(
+            "rpc:get_sxcp_status",
+            "SXCP Protocol Status",
+            "Check SXCP verification pipeline health.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_verification_queue",
+            "Verification Queue",
+            "Fetch pending cross-chain proofs awaiting verification.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_attestations",
+            "Recent Attestations",
+            "Fetch attestations verified by this node.",
+            "interop",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_verification_stats",
+            "Verification Stats",
+            "Check proof verification throughput, rejection rate, and latency.",
+            "interop",
+            &mut operations,
+        );
     }
 
     // ── Class III — Intelligence & Computation nodes ────────────────────
     // Compute
     if node_type == "compute" {
-        push_rpc("rpc:get_compute_tasks", "Compute Tasks",
-            "Fetch active and queued compute tasks assigned to this node.", "compute", &mut operations);
-        push_rpc("rpc:get_compute_metrics", "Compute Metrics",
-            "Check CPU/GPU utilization, task throughput, and queue depth.", "compute", &mut operations);
-        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
-            "Validate deterministic compute output consistency.", "compute", &mut operations);
-        push_shell("drain_compute_queue", "Drain Queue",
-            "Stop accepting new tasks and finish active ones gracefully.", "compute", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_compute_tasks",
+            "Compute Tasks",
+            "Fetch active and queued compute tasks assigned to this node.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_compute_metrics",
+            "Compute Metrics",
+            "Check CPU/GPU utilization, task throughput, and queue depth.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_determinism_digest",
+            "Determinism Digest",
+            "Validate deterministic compute output consistency.",
+            "compute",
+            &mut operations,
+        );
+        push_shell(
+            "drain_compute_queue",
+            "Drain Queue",
+            "Stop accepting new tasks and finish active ones gracefully.",
+            "compute",
+            &commands,
+            &mut operations,
+        );
     }
 
     // AI Inference
     if node_type == "ai-inference" || node_type == "ai_inference" {
-        push_rpc("rpc:get_inference_status", "Inference Status",
-            "Check loaded models, GPU memory, and inference throughput.", "compute", &mut operations);
-        push_rpc("rpc:get_compute_tasks", "Inference Queue",
-            "Fetch pending and active inference requests.", "compute", &mut operations);
-        push_rpc("rpc:get_model_registry", "Model Registry",
-            "List loaded AI models, versions, and readiness state.", "compute", &mut operations);
-        push_shell("reload_models", "Reload Models",
-            "Hot-reload AI model weights without restarting the node.", "compute", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_inference_status",
+            "Inference Status",
+            "Check loaded models, GPU memory, and inference throughput.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_compute_tasks",
+            "Inference Queue",
+            "Fetch pending and active inference requests.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_model_registry",
+            "Model Registry",
+            "List loaded AI models, versions, and readiness state.",
+            "compute",
+            &mut operations,
+        );
+        push_shell(
+            "reload_models",
+            "Reload Models",
+            "Hot-reload AI model weights without restarting the node.",
+            "compute",
+            &commands,
+            &mut operations,
+        );
     }
 
     // PQC Crypto
     if node_type == "pqc-crypto" || node_type == "pqc_crypto" {
-        push_rpc("rpc:get_pqc_status", "PQC Status",
-            "Check Aegis PQC suite status: ML-KEM-512, Dilithium-3, SLH-DSA, FN-DSA availability.", "pqc", &mut operations);
-        push_rpc("rpc:get_pqc_key_inventory", "Key Inventory",
-            "Fetch PQC keypair inventory and expiration schedules.", "pqc", &mut operations);
-        push_rpc("rpc:get_determinism_digest", "Determinism Digest",
-            "Validate PQC signature state consistency across the network.", "pqc", &mut operations);
-        push_shell("rotate_pqc_keys", "Rotate PQC Keys",
-            "Trigger PQC key rotation using the Aegis suite.", "pqc", &commands, &mut operations);
-        push_shell("run_pqc_benchmark", "Run PQC Benchmark",
-            "Benchmark PQC signing and verification performance.", "pqc", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_pqc_status",
+            "PQC Status",
+            "Check Aegis PQC suite status: ML-KEM-512, Dilithium-3, SLH-DSA, FN-DSA availability.",
+            "pqc",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_pqc_key_inventory",
+            "Key Inventory",
+            "Fetch PQC keypair inventory and expiration schedules.",
+            "pqc",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_determinism_digest",
+            "Determinism Digest",
+            "Validate PQC signature state consistency across the network.",
+            "pqc",
+            &mut operations,
+        );
+        push_shell(
+            "rotate_pqc_keys",
+            "Rotate PQC Keys",
+            "Trigger PQC key rotation using the Aegis suite.",
+            "pqc",
+            &commands,
+            &mut operations,
+        );
+        push_shell(
+            "run_pqc_benchmark",
+            "Run PQC Benchmark",
+            "Benchmark PQC signing and verification performance.",
+            "pqc",
+            &commands,
+            &mut operations,
+        );
     }
 
     // Data Availability
     if node_type == "data-availability" || node_type == "data_availability" {
-        push_rpc("rpc:get_da_status", "DA Layer Status",
-            "Check data availability layer health, sampling rate, and blob count.", "compute", &mut operations);
-        push_rpc("rpc:get_da_storage_stats", "DA Storage Stats",
-            "Fetch blob storage utilization, retention window, and pruning state.", "compute", &mut operations);
-        push_rpc("rpc:get_da_sampling_results", "DA Sampling",
-            "Fetch recent data availability sampling results and attestations.", "compute", &mut operations);
-        push_shell("trigger_da_sample", "Trigger DA Sample",
-            "Force an immediate data availability sampling round.", "compute", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_da_status",
+            "DA Layer Status",
+            "Check data availability layer health, sampling rate, and blob count.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_da_storage_stats",
+            "DA Storage Stats",
+            "Fetch blob storage utilization, retention window, and pruning state.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_da_sampling_results",
+            "DA Sampling",
+            "Fetch recent data availability sampling results and attestations.",
+            "compute",
+            &mut operations,
+        );
+        push_shell(
+            "trigger_da_sample",
+            "Trigger DA Sample",
+            "Force an immediate data availability sampling round.",
+            "compute",
+            &commands,
+            &mut operations,
+        );
     }
 
     // GPU Node (dedicated GPU acceleration)
     if node_type == "gpu-node" || node_type == "gpu_node" {
-        push_rpc("rpc:get_compute_tasks", "GPU Tasks",
-            "Fetch active and queued GPU compute tasks.", "compute", &mut operations);
-        push_rpc("rpc:get_compute_metrics", "GPU Metrics",
-            "Check GPU utilization, VRAM usage, temperature, and throughput.", "compute", &mut operations);
-        push_rpc("rpc:get_inference_status", "Inference Status",
-            "Check GPU inference pipeline health and loaded models.", "compute", &mut operations);
+        push_rpc(
+            "rpc:get_compute_tasks",
+            "GPU Tasks",
+            "Fetch active and queued GPU compute tasks.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_compute_metrics",
+            "GPU Metrics",
+            "Check GPU utilization, VRAM usage, temperature, and throughput.",
+            "compute",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_inference_status",
+            "Inference Status",
+            "Check GPU inference pipeline health and loaded models.",
+            "compute",
+            &mut operations,
+        );
     }
 
     // ── Class IV — Governance & Treasury nodes ──────────────────────────
     // Governance Auditor
     if node_type == "governance-auditor" || node_type == "governance_auditor" {
-        push_rpc("rpc:get_governance_proposals", "Active Proposals",
-            "Fetch active governance proposals and voting status.", "governance", &mut operations);
-        push_rpc("rpc:get_governance_audit_log", "Audit Log",
-            "Review governance action audit trail and compliance events.", "governance", &mut operations);
-        push_rpc("rpc:get_staking_info", "Staking Info",
-            "Check governance auditor staking bond and slashing status.", "governance", &mut operations);
+        push_rpc(
+            "rpc:get_governance_proposals",
+            "Active Proposals",
+            "Fetch active governance proposals and voting status.",
+            "governance",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_governance_audit_log",
+            "Audit Log",
+            "Review governance action audit trail and compliance events.",
+            "governance",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_staking_info",
+            "Staking Info",
+            "Check governance auditor staking bond and slashing status.",
+            "governance",
+            &mut operations,
+        );
     }
 
     // Treasury Controller
     if node_type == "treasury-controller" || node_type == "treasury_controller" {
-        push_rpc("rpc:get_treasury_balance", "Treasury Balance",
-            "Fetch current treasury SNRG balance and recent disbursements.", "governance", &mut operations);
-        push_rpc("rpc:get_treasury_transactions", "Treasury Transactions",
-            "List recent treasury inflows, outflows, and pending approvals.", "governance", &mut operations);
-        push_rpc("rpc:get_staking_info", "Staking Info",
-            "Check treasury controller staking bond status.", "governance", &mut operations);
+        push_rpc(
+            "rpc:get_treasury_balance",
+            "Treasury Balance",
+            "Fetch current treasury SNRG balance and recent disbursements.",
+            "governance",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_treasury_transactions",
+            "Treasury Transactions",
+            "List recent treasury inflows, outflows, and pending approvals.",
+            "governance",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_staking_info",
+            "Staking Info",
+            "Check treasury controller staking bond status.",
+            "governance",
+            &mut operations,
+        );
     }
 
     // Security Council
     if node_type == "security-council" || node_type == "security_council" {
-        push_rpc("rpc:get_security_alerts", "Security Alerts",
-            "Fetch active security alerts, threat detections, and incident reports.", "governance", &mut operations);
-        push_rpc("rpc:get_slashing_events", "Slashing Events",
-            "Review recent slashing events and penalty enforcement.", "governance", &mut operations);
-        push_rpc("rpc:get_governance_proposals", "Active Proposals",
-            "Fetch governance proposals requiring security council review.", "governance", &mut operations);
-        push_rpc("rpc:get_network_stats", "Network Stats",
-            "Monitor network-wide health metrics for anomaly detection.", "governance", &mut operations);
+        push_rpc(
+            "rpc:get_security_alerts",
+            "Security Alerts",
+            "Fetch active security alerts, threat detections, and incident reports.",
+            "governance",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_slashing_events",
+            "Slashing Events",
+            "Review recent slashing events and penalty enforcement.",
+            "governance",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_governance_proposals",
+            "Active Proposals",
+            "Fetch governance proposals requiring security council review.",
+            "governance",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_network_stats",
+            "Network Stats",
+            "Monitor network-wide health metrics for anomaly detection.",
+            "governance",
+            &mut operations,
+        );
     }
 
     // ── Class V — Service & Support nodes ───────────────────────────────
     // RPC Gateway
     if node_type == "rpc-gateway" || node_type == "rpc_gateway" {
-        push_rpc("rpc:get_network_stats", "Network Stats",
-            "Fetch RPC-facing throughput, request rate, and error rate.", "services", &mut operations);
-        push_rpc("rpc:get_all_wallets", "Wallet Inventory",
-            "Fetch known wallet list for developer tooling.", "services", &mut operations);
-        push_rpc("rpc:get_rpc_method_stats", "RPC Method Stats",
-            "Check per-method call counts, latency percentiles, and error rates.", "services", &mut operations);
-        push_rpc("rpc:get_rate_limit_status", "Rate Limit Status",
-            "Fetch current rate limit configuration and active throttles.", "services", &mut operations);
+        push_rpc(
+            "rpc:get_network_stats",
+            "Network Stats",
+            "Fetch RPC-facing throughput, request rate, and error rate.",
+            "services",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_all_wallets",
+            "Wallet Inventory",
+            "Fetch known wallet list for developer tooling.",
+            "services",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_rpc_method_stats",
+            "RPC Method Stats",
+            "Check per-method call counts, latency percentiles, and error rates.",
+            "services",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_rate_limit_status",
+            "Rate Limit Status",
+            "Fetch current rate limit configuration and active throttles.",
+            "services",
+            &mut operations,
+        );
     }
 
     // Indexer
     if node_type == "indexer" {
-        push_rpc("rpc:get_network_stats", "Network Stats",
-            "Fetch network throughput and block propagation metrics.", "services", &mut operations);
-        push_rpc("rpc:get_indexer_status", "Indexer Status",
-            "Check indexing progress, head lag, and indexed block height.", "services", &mut operations);
-        push_rpc("rpc:get_indexer_stats", "Indexer Stats",
-            "Fetch transaction indexing throughput and query performance.", "services", &mut operations);
-        push_shell("reindex_from_height", "Reindex from Height",
-            "Trigger a reindex starting from a specific block height.", "services", &commands, &mut operations);
+        push_rpc(
+            "rpc:get_network_stats",
+            "Network Stats",
+            "Fetch network throughput and block propagation metrics.",
+            "services",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_indexer_status",
+            "Indexer Status",
+            "Check indexing progress, head lag, and indexed block height.",
+            "services",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_indexer_stats",
+            "Indexer Stats",
+            "Fetch transaction indexing throughput and query performance.",
+            "services",
+            &mut operations,
+        );
+        push_shell(
+            "reindex_from_height",
+            "Reindex from Height",
+            "Trigger a reindex starting from a specific block height.",
+            "services",
+            &commands,
+            &mut operations,
+        );
     }
 
     // Observer
     if node_type == "observer" {
-        push_rpc("rpc:get_network_stats", "Network Stats",
-            "Fetch network-wide health metrics and block propagation.", "services", &mut operations);
-        push_rpc("rpc:get_all_wallets", "Wallet Inventory",
-            "Fetch wallet state for read-only observation.", "services", &mut operations);
-        push_rpc("rpc:get_observer_status", "Observer Status",
-            "Check observer sync height, peer count, and read-only mode status.", "services", &mut operations);
+        push_rpc(
+            "rpc:get_network_stats",
+            "Network Stats",
+            "Fetch network-wide health metrics and block propagation.",
+            "services",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_all_wallets",
+            "Wallet Inventory",
+            "Fetch wallet state for read-only observation.",
+            "services",
+            &mut operations,
+        );
+        push_rpc(
+            "rpc:get_observer_status",
+            "Observer Status",
+            "Check observer sync height, peer count, and read-only mode status.",
+            "services",
+            &mut operations,
+        );
     }
 
     let mut custom_ops = commands
@@ -4272,7 +4800,12 @@ fn build_atlas_links(
         .or_else(|| resolve_override_value(overrides, node_slot_id, node_alias, "atlas_home_url"))
         .or_else(|| resolve_override_value(overrides, node_slot_id, node_alias, "explorer_url"))
         .or_else(|| {
-            resolve_override_value(overrides, node_slot_id, node_alias, "synergy_explorer_endpoint")
+            resolve_override_value(
+                overrides,
+                node_slot_id,
+                node_alias,
+                "synergy_explorer_endpoint",
+            )
         })
         .or_else(|| std::env::var("SYNERGY_ATLAS_BASE_URL").ok())
         .or_else(|| std::env::var("SYNERGY_EXPLORER_ENDPOINT").ok())
@@ -4389,18 +4922,24 @@ fn agent_supports_action(action: &str) -> bool {
     )
 }
 
-fn agent_endpoint_for_node(node: &MonitorNode) -> Option<String> {
-    let host = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
+fn agent_endpoint_for_node(
+    node: &MonitorNode,
+    host_overrides: &HashMap<String, String>,
+) -> Option<String> {
+    let fallback = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
         .map(|entry| entry.to_string())
-        .or_else(|| {
-            let trimmed = node.host.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        })?;
-    Some(format!("http://{host}:{DEVNET_AGENT_PORT}"))
+        .unwrap_or_else(|| node.host.clone());
+    let host = resolve_host_override(
+        host_overrides,
+        &node.node_slot_id,
+        &node.node_alias,
+        fallback,
+    );
+    let trimmed = host.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(format!("http://{trimmed}:{DEVNET_AGENT_PORT}"))
 }
 
 /// Actions that involve stopping/starting a node binary (chain reset, install, setup)
@@ -4409,8 +4948,9 @@ fn agent_endpoint_for_node(node: &MonitorNode) -> Option<String> {
 /// SSH fallback (which uses Rob-specific hardcoded paths and would fail on other machines).
 fn agent_request_timeout(action: &str) -> Duration {
     match action {
-        "reset_chain" | "install_node" | "bootstrap_node" | "setup_node" | "start"
-        | "restart" => Duration::from_secs(300),
+        "reset_chain" | "install_node" | "bootstrap_node" | "setup_node" | "start" | "restart" => {
+            Duration::from_secs(300)
+        }
         _ => Duration::from_secs(30),
     }
 }
@@ -4418,8 +4958,9 @@ fn agent_request_timeout(action: &str) -> Duration {
 async fn try_execute_monitor_agent_control(
     node: &MonitorNode,
     action: &str,
+    host_overrides: &HashMap<String, String>,
 ) -> AgentControlAttempt {
-    let Some(base_url) = agent_endpoint_for_node(node) else {
+    let Some(base_url) = agent_endpoint_for_node(node, host_overrides) else {
         return AgentControlAttempt::Unavailable;
     };
 
@@ -4444,7 +4985,9 @@ async fn try_execute_monitor_agent_control(
         Err(_) => return AgentControlAttempt::Unavailable,
     };
 
-    if response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::METHOD_NOT_ALLOWED {
+    if response.status() == StatusCode::NOT_FOUND
+        || response.status() == StatusCode::METHOD_NOT_ALLOWED
+    {
         return AgentControlAttempt::Unavailable;
     }
 
@@ -4509,9 +5052,7 @@ fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
         "get_committee_status" | "committee_status" => {
             Some(("synergy_getCommitteeStatus", json!([])))
         }
-        "get_archive_status" | "archive_status" => {
-            Some(("synergy_getArchiveStatus", json!([])))
-        }
+        "get_archive_status" | "archive_status" => Some(("synergy_getArchiveStatus", json!([]))),
         "get_audit_report" | "audit_report" => Some(("synergy_getAuditReport", json!([]))),
 
         // ── Class II — Interoperability ─────────────────────────────────
@@ -4520,9 +5061,7 @@ fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
         "get_relayer_health" | "relayer_health" => Some(("synergy_getRelayerHealth", json!([]))),
         "get_attestations" | "attestations" => Some(("synergy_getAttestations", json!([25_u64]))),
         "get_relay_queue" | "relay_queue" => Some(("synergy_getRelayQueue", json!([]))),
-        "get_witness_status" | "witness_status" => {
-            Some(("synergy_getWitnessStatus", json!([])))
-        }
+        "get_witness_status" | "witness_status" => Some(("synergy_getWitnessStatus", json!([]))),
         "get_oracle_feeds" | "oracle_feeds" => Some(("synergy_getOracleFeeds", json!([]))),
         "get_oracle_health" | "oracle_health" => Some(("synergy_getOracleHealth", json!([]))),
         "get_uma_routing_table" | "uma_routing_table" => {
@@ -4540,15 +5079,11 @@ fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
 
         // ── Class III — Intelligence & Computation ──────────────────────
         "get_compute_tasks" | "compute_tasks" => Some(("synergy_getComputeTasks", json!([]))),
-        "get_compute_metrics" | "compute_metrics" => {
-            Some(("synergy_getComputeMetrics", json!([])))
-        }
+        "get_compute_metrics" | "compute_metrics" => Some(("synergy_getComputeMetrics", json!([]))),
         "get_inference_status" | "inference_status" => {
             Some(("synergy_getInferenceStatus", json!([])))
         }
-        "get_model_registry" | "model_registry" => {
-            Some(("synergy_getModelRegistry", json!([])))
-        }
+        "get_model_registry" | "model_registry" => Some(("synergy_getModelRegistry", json!([]))),
         "get_pqc_status" | "pqc_status" => Some(("synergy_getPqcStatus", json!([]))),
         "get_pqc_key_inventory" | "pqc_key_inventory" => {
             Some(("synergy_getPqcKeyInventory", json!([])))
@@ -4574,12 +5109,8 @@ fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
         "get_treasury_transactions" | "treasury_transactions" => {
             Some(("synergy_getTreasuryTransactions", json!([])))
         }
-        "get_security_alerts" | "security_alerts" => {
-            Some(("synergy_getSecurityAlerts", json!([])))
-        }
-        "get_slashing_events" | "slashing_events" => {
-            Some(("synergy_getSlashingEvents", json!([])))
-        }
+        "get_security_alerts" | "security_alerts" => Some(("synergy_getSecurityAlerts", json!([]))),
+        "get_slashing_events" | "slashing_events" => Some(("synergy_getSlashingEvents", json!([]))),
 
         // ── Class V — Service & Support ─────────────────────────────────
         "get_rpc_method_stats" | "rpc_method_stats" => {
@@ -4588,15 +5119,9 @@ fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
         "get_rate_limit_status" | "rate_limit_status" => {
             Some(("synergy_getRateLimitStatus", json!([])))
         }
-        "get_indexer_status" | "indexer_status" => {
-            Some(("synergy_getIndexerStatus", json!([])))
-        }
-        "get_indexer_stats" | "indexer_stats" => {
-            Some(("synergy_getIndexerStats", json!([])))
-        }
-        "get_observer_status" | "observer_status" => {
-            Some(("synergy_getObserverStatus", json!([])))
-        }
+        "get_indexer_status" | "indexer_status" => Some(("synergy_getIndexerStatus", json!([]))),
+        "get_indexer_stats" | "indexer_stats" => Some(("synergy_getIndexerStats", json!([]))),
+        "get_observer_status" | "observer_status" => Some(("synergy_getObserverStatus", json!([]))),
 
         _ => None,
     }
@@ -4841,7 +5366,11 @@ fn legacy_workspace_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
     if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
-        roots.push(home_dir.join(".synergy-node-monitor").join("monitor-workspace"));
+        roots.push(
+            home_dir
+                .join(".synergy-node-monitor")
+                .join("monitor-workspace"),
+        );
     }
 
     if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
@@ -5301,10 +5830,7 @@ fn refresh_installer_bin_directory(source: &Path, destination: &Path) -> Result<
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(
-                    &destination_path,
-                    fs::Permissions::from_mode(0o755),
-                );
+                let _ = fs::set_permissions(&destination_path, fs::Permissions::from_mode(0o755));
             }
         }
     }
@@ -5573,7 +6099,10 @@ fn generate_monitor_hosts_env(
             entry.host.clone()
         };
 
-        lines.push("# -----------------------------------------------------------------------------".to_string());
+        lines.push(
+            "# -----------------------------------------------------------------------------"
+                .to_string(),
+        );
         lines.push(format!(
             "# {} ({} | {} | {} | {})",
             entry.node_slot_id, entry.node_alias, entry.role_group, entry.role, entry.node_type
@@ -5588,7 +6117,9 @@ fn generate_monitor_hosts_env(
             entry.node_slot_id
         ));
         lines.push(format!("# {node_slot_key}_WG_INTERFACE=wg0"));
-        lines.push(format!("# {node_slot_key}_WG_REMOTE_CONF=/etc/wireguard/wg0.conf"));
+        lines.push(format!(
+            "# {node_slot_key}_WG_REMOTE_CONF=/etc/wireguard/wg0.conf"
+        ));
         lines.push(String::new());
 
         for &(env_key, operation) in &operations {
@@ -5889,8 +6420,7 @@ fn ensure_security_config_exists(workspace: &Path) -> Result<(), String> {
 }
 
 fn is_legacy_local_installers_path(value: &str) -> bool {
-    value.contains("/devnet/lean15/installers")
-        || value.contains("\\devnet\\lean15\\installers")
+    value.contains("/devnet/lean15/installers") || value.contains("\\devnet\\lean15\\installers")
 }
 
 fn normalize_remote_root_opt(value: &Option<String>) -> Option<String> {
@@ -5954,19 +6484,19 @@ fn canonical_vpn_ip_for_physical_machine(machine_id: &str) -> Option<&'static st
 
 fn physical_machine_for_binding_target(binding_target: &str) -> Option<&'static str> {
     match binding_target.trim().to_ascii_lowercase().as_str() {
-        "machine-01" | "node-01" => Some("machine-01"),
+        "machine-01" | "node-01" | "node-14" => Some("machine-01"),
         "machine-02" | "node-02" | "node-03" => Some("machine-02"),
         "machine-03" | "node-04" | "node-05" => Some("machine-03"),
         "machine-04" | "node-06" | "node-07" => Some("machine-04"),
         "machine-05" | "node-08" | "node-09" => Some("machine-05"),
         "machine-06" | "node-10" | "node-11" => Some("machine-06"),
         "machine-07" | "node-12" | "node-13" => Some("machine-07"),
-        "machine-08" | "node-14" | "node-15" => Some("machine-08"),
+        "machine-08" | "node-15" | "node-22" => Some("machine-08"),
         "machine-09" | "node-16" | "node-17" => Some("machine-09"),
-        "machine-10" | "node-18" => Some("machine-10"),
-        "machine-11" | "node-20" => Some("machine-11"),
-        "machine-12" | "node-22" | "node-23" => Some("machine-12"),
-        "machine-13" | "node-24" | "node-25" => Some("machine-13"),
+        "machine-10" | "node-24" | "node-25" => Some("machine-10"),
+        "machine-11" | "node-18" => Some("machine-11"),
+        "machine-12" | "node-20" => Some("machine-12"),
+        "machine-13" | "node-23" => Some("machine-13"),
         _ => None,
     }
 }
@@ -6144,19 +6674,19 @@ fn logical_nodes_for_physical_machine(
     physical_machine_id: &str,
 ) -> Result<Vec<&'static str>, String> {
     match physical_machine_id {
-        "machine-01" => Ok(vec!["node-01"]),
+        "machine-01" => Ok(vec!["node-01", "node-14"]),
         "machine-02" => Ok(vec!["node-02", "node-03"]),
         "machine-03" => Ok(vec!["node-04", "node-05"]),
         "machine-04" => Ok(vec!["node-06", "node-07"]),
         "machine-05" => Ok(vec!["node-08", "node-09"]),
         "machine-06" => Ok(vec!["node-10", "node-11"]),
         "machine-07" => Ok(vec!["node-12", "node-13"]),
-        "machine-08" => Ok(vec!["node-14", "node-15"]),
+        "machine-08" => Ok(vec!["node-15", "node-22"]),
         "machine-09" => Ok(vec!["node-16", "node-17"]),
-        "machine-10" => Ok(vec!["node-18"]),
-        "machine-11" => Ok(vec!["node-20"]),
-        "machine-12" => Ok(vec!["node-22", "node-23"]),
-        "machine-13" => Ok(vec!["node-24", "node-25"]),
+        "machine-10" => Ok(vec!["node-24", "node-25"]),
+        "machine-11" => Ok(vec!["node-18"]),
+        "machine-12" => Ok(vec!["node-20"]),
+        "machine-13" => Ok(vec!["node-23"]),
         _ => Err(format!(
             "Unknown physical_machine_id '{}'. Expected machine-01..machine-13.",
             physical_machine_id
@@ -6601,12 +7131,16 @@ fn bulk_action_phase(action: &str, node: &MonitorNode) -> u8 {
 
 fn bulk_action_pause(action: &str, phase: u8) -> Option<Duration> {
     match (action, phase) {
-        ("start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node" | "bootstrap_node", 1) => {
-            Some(Duration::from_secs(8))
-        }
-        ("start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node" | "bootstrap_node", 2) => {
-            Some(Duration::from_secs(5))
-        }
+        (
+            "start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node"
+            | "bootstrap_node",
+            1,
+        ) => Some(Duration::from_secs(8)),
+        (
+            "start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node"
+            | "bootstrap_node",
+            2,
+        ) => Some(Duration::from_secs(5)),
         _ => None,
     }
 }
@@ -6706,7 +7240,7 @@ async fn execute_monitor_node_control(
             },
         }
     } else if agent_supports_action(normalized_action) {
-        match try_execute_monitor_agent_control(&node, normalized_action).await {
+        match try_execute_monitor_agent_control(&node, normalized_action, &host_overrides).await {
             AgentControlAttempt::Completed(result) => result,
             AgentControlAttempt::Unavailable => {
                 let selected_command = resolve_control_action_command(&commands, normalized_action).ok_or_else(

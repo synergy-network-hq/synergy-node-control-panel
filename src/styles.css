@@ -71,6 +71,9 @@ code {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 55%;
 }
 
 /* Centered brand with logo behind text */
@@ -277,9 +280,25 @@ code {
   border-color: var(--primary-color);
 }
 
+.btn-header-active {
+  border-color: rgba(0, 206, 209, 0.7);
+  background:
+    linear-gradient(135deg, rgba(0, 206, 209, 0.16), rgba(0, 96, 255, 0.2)),
+    var(--bg-tertiary);
+  color: var(--snrg-text-bright);
+}
+
 .btn-header:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.btn-header-wide {
+  width: auto;
+  min-width: 148px;
+  padding: 0.42rem 0.9rem;
+  text-align: center;
+  line-height: 1.2;
 }
 
 .btn-header.btn-success {
@@ -326,7 +345,7 @@ code {
 
 .btn-update {
   width: auto;
-  min-width: 132px;
+  min-width: 148px;
   padding: 0.42rem 1rem;
   font-weight: 600;
   border-color: rgba(0, 190, 255, 0.42);
@@ -363,6 +382,50 @@ code {
 /* Update Button */
 .btn-update {
   font-size: 0.72rem;
+}
+
+@media (max-width: 1580px) {
+  .header-content {
+    justify-content: flex-start;
+    align-items: flex-start;
+    min-height: 78px;
+  }
+
+  .header-brand {
+    position: relative;
+    left: auto;
+    transform: none;
+    justify-content: flex-start;
+  }
+
+  .header-right-controls {
+    position: relative;
+    right: auto;
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 1180px) {
+  .app-header {
+    padding-inline: 1rem;
+    min-height: 118px;
+  }
+
+  .header-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.8rem;
+  }
+
+  .header-brand {
+    justify-content: center;
+  }
+
+  .header-right-controls {
+    margin-left: 0;
+    max-width: 100%;
+    justify-content: center;
+  }
 }
 
 .btn-update-available {

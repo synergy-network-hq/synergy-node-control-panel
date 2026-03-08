@@ -1,5 +1,77 @@
 import { check } from '@tauri-apps/plugin-updater';
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+
+const RELEASES_API_LATEST = 'https://api.github.com/repos/synergy-network-hq/devnet-control-panel-releases/releases/latest';
+
+function parseVersionParts(value) {
+  const normalized = String(value || '').trim().replace(/^v/i, '');
+  return normalized.split('.').map((part) => Number.parseInt(part, 10) || 0);
+}
+
+function compareVersions(left, right) {
+  const leftParts = parseVersionParts(left);
+  const rightParts = parseVersionParts(right);
+  const maxLength = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    const a = leftParts[index] || 0;
+    const b = rightParts[index] || 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+async function getLinuxUpdateMode() {
+  try {
+    const result = await invoke('get_linux_update_mode');
+    return result?.mode || 'unsupported';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+function pickLinuxDebAsset(release) {
+  const assets = Array.isArray(release?.assets) ? release.assets : [];
+  return assets.find((asset) => String(asset?.name || '').toLowerCase().endsWith('.deb')) || null;
+}
+
+async function checkForLinuxDebUpdate() {
+  const currentVersion = await getVersion();
+  const response = await fetch(RELEASES_API_LATEST, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub release lookup failed with status ${response.status}`);
+  }
+
+  const release = await response.json();
+  const latestVersion = String(release?.tag_name || '').replace(/^v/i, '');
+  if (!latestVersion) {
+    throw new Error('Latest GitHub release does not contain a version tag.');
+  }
+
+  if (compareVersions(latestVersion, currentVersion) <= 0) {
+    return { available: false };
+  }
+
+  const debAsset = pickLinuxDebAsset(release);
+  if (!debAsset?.browser_download_url) {
+    throw new Error('Latest GitHub release does not include a Linux .deb installer asset.');
+  }
+
+  return {
+    available: true,
+    version: latestVersion,
+    currentVersion,
+    installMode: 'linux-deb',
+    assetName: debAsset.name || '',
+    downloadUrl: debAsset.browser_download_url,
+  };
+}
 
 function normalizeUpdateError(error) {
   const text = String(error ?? '').trim();
@@ -49,6 +121,11 @@ export async function relaunchApp() {
  */
 export async function checkForUpdate() {
   try {
+    const linuxUpdateMode = await getLinuxUpdateMode();
+    if (linuxUpdateMode === 'deb') {
+      return await checkForLinuxDebUpdate();
+    }
+
     const update = await check();
     if (!update) {
       return { available: false };
@@ -70,6 +147,24 @@ export async function checkForUpdate() {
  */
 export async function downloadAndInstallUpdate() {
   try {
+    const linuxUpdateMode = await getLinuxUpdateMode();
+    if (linuxUpdateMode === 'deb') {
+      const update = await checkForLinuxDebUpdate();
+      if (!update?.available) {
+        return { status: 'up_to_date', message: 'No updates available. You are on the latest version.' };
+      }
+
+      const message = await invoke('install_linux_deb_update', {
+        downloadUrl: update.downloadUrl,
+        fileName: update.assetName || undefined,
+      });
+
+      return {
+        status: 'installed',
+        message: String(message || `Update ${update.version} installed. Restart the app to apply the update.`),
+      };
+    }
+
     const update = await check();
     if (!update) {
       return { status: 'up_to_date', message: 'No updates available. You are on the latest version.' };

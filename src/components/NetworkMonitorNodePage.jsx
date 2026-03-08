@@ -641,6 +641,175 @@ function NetworkMonitorNodePage() {
     ['atlas', 'Atlas'],
     ['rpc', 'RPC'],
   ];
+  const controlSection = nodeDetails ? (
+    <section id="control" className="monitor-control-shell">
+      <div className="monitor-card-heading">
+        <div>
+          <p className="monitor-card-kicker">Control Plane</p>
+          <h4>Node Actions</h4>
+        </div>
+      </div>
+      <p className="monitor-control-hint">{control?.configuration_hint || 'No control configuration found.'}</p>
+
+      <div className="monitor-control-buttons">
+        <button
+          className="monitor-btn"
+          disabled={!control?.start_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('start')}
+        >
+          {controlBusyAction === 'start' ? 'Starting...' : 'Start'}
+        </button>
+        <button
+          className="monitor-btn"
+          disabled={!control?.stop_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('stop')}
+        >
+          {controlBusyAction === 'stop' ? 'Stopping...' : 'Stop'}
+        </button>
+        <button
+          className="monitor-btn"
+          disabled={!control?.restart_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('restart')}
+        >
+          {controlBusyAction === 'restart' ? 'Restarting...' : 'Restart'}
+        </button>
+        <button
+          className="monitor-btn"
+          disabled={!control?.status_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('status')}
+        >
+          {controlBusyAction === 'status' ? 'Querying...' : 'Status'}
+        </button>
+        <button
+          className="monitor-btn"
+          disabled={!control?.setup_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('setup')}
+        >
+          {controlBusyAction === 'setup' ? 'Setting Up...' : 'Setup'}
+        </button>
+        <button
+          className="monitor-btn"
+          disabled={!control?.export_logs_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('export_logs')}
+        >
+          {controlBusyAction === 'export_logs' ? 'Exporting Logs...' : 'Export Logs'}
+        </button>
+        <button
+          className="monitor-btn"
+          disabled={!control?.view_chain_data_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('view_chain_data')}
+        >
+          {controlBusyAction === 'view_chain_data' ? 'Loading Chain Data...' : 'View Chain Data'}
+        </button>
+        <button
+          className="monitor-btn"
+          disabled={!control?.export_chain_data_configured || !!controlBusyAction}
+          onClick={() => handleControlAction('export_chain_data')}
+        >
+          {controlBusyAction === 'export_chain_data' ? 'Exporting Chain Data...' : 'Export Chain Data'}
+        </button>
+        <button
+          className="monitor-btn monitor-btn-primary"
+          disabled={exportBusy || !!controlBusyAction}
+          onClick={handleExportNodeData}
+        >
+          {exportBusy ? 'Exporting Node Snapshot...' : 'Export Node Snapshot'}
+        </button>
+        <button
+          className="monitor-btn monitor-btn-danger"
+          disabled={!resetChainAction?.configured || !!controlBusyAction}
+          onClick={() => {
+            const approved = window.confirm(
+              'Reset chain to genesis for this node? This stops the node, deletes local chain state, and restarts it.',
+            );
+            if (approved) {
+              handleControlAction('reset_chain');
+            }
+          }}
+          title="Stop node, delete chain data, and restart from genesis."
+        >
+          {controlBusyAction === 'reset_chain' ? 'Resetting Chain...' : 'Reset Chain (Genesis)'}
+        </button>
+      </div>
+
+      {customActionsVisible.length > 0 && (
+        <div className="monitor-action-group">
+          <h5>Custom Machine Operations</h5>
+          <div className="monitor-control-buttons">
+            {customActionsVisible.map((action) => (
+              <button
+                key={action.key}
+                className="monitor-btn"
+                disabled={!action.configured || !!controlBusyAction}
+                onClick={() => handleControlAction(action.key)}
+                title={action.description}
+              >
+                {controlBusyAction === action.key ? 'Running...' : action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {roleOperations.length > 0 && (
+        <div className="monitor-action-group">
+          <h5>Role-Specific Operations</h5>
+          <div className="monitor-control-buttons">
+            {roleOperations.map((action) => (
+              <button
+                key={action.key}
+                className="monitor-btn"
+                disabled={!action.configured || !!controlBusyAction}
+                onClick={() => handleControlAction(action.key)}
+                title={action.description}
+              >
+                {controlBusyAction === action.key ? 'Running...' : action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {controlResult && (
+        <div className={`monitor-control-result ${controlResult.success ? 'monitor-control-ok' : 'monitor-control-fail'}`}>
+          <p>
+            <strong>Action:</strong> {controlResult.action} | <strong>Success:</strong>{' '}
+            {String(controlResult.success)} | <strong>Exit:</strong> {controlResult.exit_code}
+          </p>
+          <p><strong>Command:</strong> <code>{controlResult.command}</code></p>
+          {controlResult.stdout && (
+            <details>
+              <summary>stdout</summary>
+              <pre>{controlResult.stdout}</pre>
+            </details>
+          )}
+          {controlResult.stderr && (
+            <details>
+              <summary>stderr</summary>
+              <pre>{controlResult.stderr}</pre>
+            </details>
+          )}
+        </div>
+      )}
+
+      {exportResult && (
+        <div className={`monitor-control-result ${exportResult.ok ? 'monitor-control-ok' : 'monitor-control-fail'}`}>
+          <p>
+            <strong>Export Success:</strong> {String(exportResult.ok)} | <strong>When:</strong>{' '}
+            {formatLocalTimestamp(exportResult.exported_at_utc)}
+          </p>
+          {exportResult.ok ? (
+            <>
+              <p><strong>File:</strong> <code>{exportResult.file_path}</code></p>
+              <p><strong>Bytes:</strong> {exportResult.bytes}</p>
+            </>
+          ) : (
+            <p><strong>Error:</strong> {exportResult.error}</p>
+          )}
+        </div>
+      )}
+    </section>
+  ) : null;
 
   return (
     <section className="monitor-shell monitor-shell-node">
@@ -755,6 +924,8 @@ function NetworkMonitorNodePage() {
           </button>
         ))}
       </nav>
+
+      {controlSection}
 
       {detailsError && (
         <div className="monitor-error-box">
@@ -1147,174 +1318,6 @@ function NetworkMonitorNodePage() {
                   <p key={`${node?.node_slot_id}-note-${idx}`}>{note}</p>
                 ))}
               </div>
-            </section>
-
-            <section id="control" className="monitor-control-shell">
-              <div className="monitor-card-heading">
-                <div>
-                  <p className="monitor-card-kicker">Control Plane</p>
-                  <h4>Node Actions</h4>
-                </div>
-              </div>
-              <p className="monitor-control-hint">{control?.configuration_hint || 'No control configuration found.'}</p>
-
-              <div className="monitor-control-buttons">
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.start_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('start')}
-                >
-                  {controlBusyAction === 'start' ? 'Starting...' : 'Start'}
-                </button>
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.stop_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('stop')}
-                >
-                  {controlBusyAction === 'stop' ? 'Stopping...' : 'Stop'}
-                </button>
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.restart_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('restart')}
-                >
-                  {controlBusyAction === 'restart' ? 'Restarting...' : 'Restart'}
-                </button>
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.status_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('status')}
-                >
-                  {controlBusyAction === 'status' ? 'Querying...' : 'Status'}
-                </button>
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.setup_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('setup')}
-                >
-                  {controlBusyAction === 'setup' ? 'Setting Up...' : 'Setup'}
-                </button>
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.export_logs_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('export_logs')}
-                >
-                  {controlBusyAction === 'export_logs' ? 'Exporting Logs...' : 'Export Logs'}
-                </button>
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.view_chain_data_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('view_chain_data')}
-                >
-                  {controlBusyAction === 'view_chain_data' ? 'Loading Chain Data...' : 'View Chain Data'}
-                </button>
-                <button
-                  className="monitor-btn"
-                  disabled={!control?.export_chain_data_configured || !!controlBusyAction}
-                  onClick={() => handleControlAction('export_chain_data')}
-                >
-                  {controlBusyAction === 'export_chain_data' ? 'Exporting Chain Data...' : 'Export Chain Data'}
-                </button>
-                <button
-                  className="monitor-btn monitor-btn-primary"
-                  disabled={exportBusy || !!controlBusyAction}
-                  onClick={handleExportNodeData}
-                >
-                  {exportBusy ? 'Exporting Node Snapshot...' : 'Export Node Snapshot'}
-                </button>
-                <button
-                  className="monitor-btn monitor-btn-danger"
-                  disabled={!resetChainAction?.configured || !!controlBusyAction}
-                  onClick={() => {
-                    const approved = window.confirm(
-                      'Reset chain to genesis for this node? This stops the node, deletes local chain state, and restarts it.',
-                    );
-                    if (approved) {
-                      handleControlAction('reset_chain');
-                    }
-                  }}
-                  title="Stop node, delete chain data, and restart from genesis."
-                >
-                  {controlBusyAction === 'reset_chain' ? 'Resetting Chain...' : 'Reset Chain (Genesis)'}
-                </button>
-              </div>
-
-              {customActionsVisible.length > 0 && (
-                <div className="monitor-action-group">
-                  <h5>Custom Machine Operations</h5>
-                  <div className="monitor-control-buttons">
-                    {customActionsVisible.map((action) => (
-                      <button
-                        key={action.key}
-                        className="monitor-btn"
-                        disabled={!action.configured || !!controlBusyAction}
-                        onClick={() => handleControlAction(action.key)}
-                        title={action.description}
-                      >
-                        {controlBusyAction === action.key ? 'Running...' : action.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {roleOperations.length > 0 && (
-                <div className="monitor-action-group">
-                  <h5>Role-Specific Operations</h5>
-                  <div className="monitor-control-buttons">
-                    {roleOperations.map((action) => (
-                      <button
-                        key={action.key}
-                        className="monitor-btn"
-                        disabled={!action.configured || !!controlBusyAction}
-                        onClick={() => handleControlAction(action.key)}
-                        title={action.description}
-                      >
-                        {controlBusyAction === action.key ? 'Running...' : action.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {controlResult && (
-                <div className={`monitor-control-result ${controlResult.success ? 'monitor-control-ok' : 'monitor-control-fail'}`}>
-                  <p>
-                    <strong>Action:</strong> {controlResult.action} | <strong>Success:</strong>{' '}
-                    {String(controlResult.success)} | <strong>Exit:</strong> {controlResult.exit_code}
-                  </p>
-                  <p><strong>Command:</strong> <code>{controlResult.command}</code></p>
-                  {controlResult.stdout && (
-                    <details>
-                      <summary>stdout</summary>
-                      <pre>{controlResult.stdout}</pre>
-                    </details>
-                  )}
-                  {controlResult.stderr && (
-                    <details>
-                      <summary>stderr</summary>
-                      <pre>{controlResult.stderr}</pre>
-                    </details>
-                  )}
-                </div>
-              )}
-
-              {exportResult && (
-                <div className={`monitor-control-result ${exportResult.ok ? 'monitor-control-ok' : 'monitor-control-fail'}`}>
-                  <p>
-                    <strong>Export Success:</strong> {String(exportResult.ok)} | <strong>When:</strong>{' '}
-                    {formatLocalTimestamp(exportResult.exported_at_utc)}
-                  </p>
-                  {exportResult.ok ? (
-                    <>
-                      <p><strong>File:</strong> <code>{exportResult.file_path}</code></p>
-                      <p><strong>Bytes:</strong> {exportResult.bytes}</p>
-                    </>
-                  ) : (
-                    <p><strong>Error:</strong> {exportResult.error}</p>
-                  )}
-                </div>
-              )}
             </section>
 
             <section id="atlas" className="monitor-atlas-shell">
