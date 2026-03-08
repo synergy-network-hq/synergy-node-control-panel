@@ -6,9 +6,9 @@ Type: governance-auditor
 
 Ports
 -----
-P2P: 38662
-RPC: 48662
-WebSocket: 58662
+P2P: 38657
+RPC: 48657
+WebSocket: 58657
 gRPC: 50075
 Discovery: 39662
 

@@ -320,6 +320,7 @@ pub struct MonitorAgentSnapshot {
 
 const DEVNET_NODE_VPN_MAP: [(&str, &str); 23] = [
     ("node-01", "10.50.0.1"),   // Machine-01: validator
+    ("node-14", "10.50.0.1"),   // Machine-01: indexer
     ("node-02", "10.50.0.2"),   // Machine-02: validator
     ("node-03", "10.50.0.2"),   // Machine-02: observer
     ("node-04", "10.50.0.3"),   // Machine-03: validator
@@ -332,16 +333,15 @@ const DEVNET_NODE_VPN_MAP: [(&str, &str); 23] = [
     ("node-11", "10.50.0.6"),   // Machine-06: oracle
     ("node-12", "10.50.0.7"),   // Machine-07: witness
     ("node-13", "10.50.0.7"),   // Machine-07: rpc-gateway
-    ("node-14", "10.50.0.8"),   // Machine-08: indexer
+    ("node-22", "10.50.0.8"),   // Machine-08: uma-coordinator
     ("node-15", "10.50.0.8"),   // Machine-08: pqc-crypto
     ("node-16", "10.50.0.9"),   // Machine-09: archive-validator
     ("node-17", "10.50.0.9"),   // Machine-09: audit-validator
-    ("node-18", "10.50.0.10"),  // Machine-10: data-availability
-    ("node-20", "10.50.0.11"),  // Machine-11: ai-inference
-    ("node-22", "10.50.0.12"),  // Machine-12: uma-coordinator
-    ("node-23", "10.50.0.12"),  // Machine-12: compute
-    ("node-24", "10.50.0.13"),  // Machine-13: treasury-controller
-    ("node-25", "10.50.0.13"),  // Machine-13: governance-auditor
+    ("node-24", "10.50.0.10"),  // Machine-10: treasury-controller
+    ("node-25", "10.50.0.10"),  // Machine-10: governance-auditor
+    ("node-18", "10.50.0.11"),  // Machine-11: data-availability
+    ("node-20", "10.50.0.12"),  // Machine-12: ai-inference
+    ("node-23", "10.50.0.13"),  // Machine-13: compute
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

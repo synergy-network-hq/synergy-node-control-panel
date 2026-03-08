@@ -6,7 +6,7 @@
     "productionBinary": "synergyd",
     "devnetBinary": "synergy-devnet",
     "consensusLibraries": "PoSy Core v3.x + Aegis Crypto Suite",
-    "vm": "AIVM Runtime (EVM-compatible + Aegis precompiles)",
+    "vm": "AIVM Runtime with native Synergy execution + Aegis precompiles",
     "networking": "libp2p v0.53+, QUIC support, dynamic peer-discovery",
     "database": "RocksDB or LMDB (local state) + PostgreSQL (indexer/explorer)",
     "securityStack": "HSM integration (FIPS 140-2 or YubiHSM2), TLS 1.3",
@@ -197,7 +197,7 @@
     },
     "Archive Validator": {
       "whitepaperType": 3,
-      "description": "Stores full historical ledger, reconstructs Merkle proofs. Not required for consensus; supports explorers and analytics.",
+      "description": "Stores the full historical ledger and acts as Atlas historical fallback when the primary indexer source node is unavailable.",
       "class": "Class I",
       "addressPrefix": "synv1",
       "binary": "synergy-devnet",
@@ -1105,7 +1105,7 @@
     },
     "Indexer": {
       "whitepaperType": 18,
-      "description": "Indexes blocks, transactions, events for Synergy Explorer frontend. Hosts searchable APIs and analytics endpoints.",
+      "description": "Dedicated Synergy feed node for Atlas. Maintains full RPC visibility so the Atlas API/indexer stack on the Linux VPS can ingest blocks, transactions, and validator telemetry.",
       "class": "Class V",
       "addressPrefix": "synv5",
       "binary": "synergy-devnet",
@@ -1117,12 +1117,10 @@
         "event_indexing",
         "search_api",
         "analytics_api",
-        "explorer_backend"
+        "atlas_feed_source"
       ],
       "requiredServices": [
-        "synergy-devnet",
-        "postgresql",
-        "elasticsearch"
+        "synergy-devnet"
       ],
       "healthEndpoint": "/health",
       "metricsEndpoint": "/metrics",
@@ -1156,14 +1154,14 @@
       "monthlyBandwidth": "~900 GB",
       "powerDraw": "200W",
       "functionality": {
-        "primary": "Indexes blocks, transactions, events for Synergy Explorer frontend",
+        "primary": "Feeds Atlas with Synergy-native chain data from a dedicated non-pruning source node",
         "tasks": [
-          "Index all blocks, transactions, and events in real-time",
-          "Host searchable APIs for address, tx hash, block number queries",
-          "Serve analytics endpoints (TPS, gas usage, active addresses)",
-          "Provide backend data for Synergy Explorer frontend",
-          "Maintain PostgreSQL + Elasticsearch indices",
-          "Maintain historical data for explorer and dashboard views"
+          "Maintain a non-pruned Synergy RPC feed for Atlas ingestion",
+          "Expose native Synergy RPC methods for block, transaction, validator, and wallet lookups",
+          "Provide the primary Atlas source endpoint on node-14",
+          "Feed the Atlas PostgreSQL indexer running on the Linux VPS",
+          "Stay aligned with the archive validator for historical recovery",
+          "Maintain searchable chain history for explorer and dashboard views"
         ]
       }
     },

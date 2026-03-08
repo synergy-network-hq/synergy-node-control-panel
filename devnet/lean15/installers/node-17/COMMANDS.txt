@@ -6,9 +6,9 @@ Type: audit-validator
 
 Ports
 -----
-P2P: 38654
-RPC: 48654
-WebSocket: 58654
+P2P: 38655
+RPC: 48655
+WebSocket: 58655
 gRPC: 50067
 Discovery: 39654
 

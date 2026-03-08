@@ -7,9 +7,9 @@
 [network]
 id = 338638
 name = "synergy-devnet-closed"
-p2p_port = 38653
-rpc_port = 48653
-ws_port = 58653
+p2p_port = 38654
+rpc_port = 48654
+ws_port = 58654
 max_peers = 100
 bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:38638", "snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:38639"]
 
@@ -43,19 +43,19 @@ max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "10.50.0.9:48653"
+bind_address = "10.50.0.9:48654"
 enable_http = true
-http_port = 48653
+http_port = 48654
 enable_ws = true
-ws_port = 58653
+ws_port = 58654
 enable_grpc = true
 grpc_port = 50066
 cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "10.50.0.9:38653"
-public_address = "10.50.0.9:38653"
+listen_address = "10.50.0.9:38654"
+public_address = "10.50.0.9:38654"
 node_name = "consensus-07"
 enable_discovery = false
 discovery_port = 39653

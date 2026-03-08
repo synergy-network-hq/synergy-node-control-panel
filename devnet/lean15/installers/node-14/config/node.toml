@@ -43,7 +43,7 @@ max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "10.50.0.8:48651"
+bind_address = "10.50.0.1:48651"
 enable_http = true
 http_port = 48651
 enable_ws = true
@@ -54,8 +54,8 @@ cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "10.50.0.8:38651"
-public_address = "10.50.0.8:38651"
+listen_address = "10.50.0.1:38651"
+public_address = "10.50.0.1:38651"
 node_name = "service-03"
 enable_discovery = false
 discovery_port = 39651

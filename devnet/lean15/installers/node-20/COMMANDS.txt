@@ -6,9 +6,9 @@ Type: ai-inference
 
 Ports
 -----
-P2P: 38657
-RPC: 48657
-WebSocket: 58657
+P2P: 38659
+RPC: 48659
+WebSocket: 58659
 gRPC: 50070
 Discovery: 39657
 

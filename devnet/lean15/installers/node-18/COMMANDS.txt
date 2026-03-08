@@ -6,9 +6,9 @@ Type: data-availability
 
 Ports
 -----
-P2P: 38655
-RPC: 48655
-WebSocket: 58655
+P2P: 38658
+RPC: 48658
+WebSocket: 58658
 gRPC: 50068
 Discovery: 39655
 

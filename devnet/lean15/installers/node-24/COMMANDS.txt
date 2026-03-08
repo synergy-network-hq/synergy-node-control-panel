@@ -6,9 +6,9 @@ Type: treasury-controller
 
 Ports
 -----
-P2P: 38661
-RPC: 48661
-WebSocket: 58661
+P2P: 38656
+RPC: 48656
+WebSocket: 58656
 gRPC: 50074
 Discovery: 39661
 

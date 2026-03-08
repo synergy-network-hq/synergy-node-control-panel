@@ -7,9 +7,9 @@
 [network]
 id = 338638
 name = "synergy-devnet-closed"
-p2p_port = 38659
-rpc_port = 48659
-ws_port = 58659
+p2p_port = 38652
+rpc_port = 48652
+ws_port = 58652
 max_peers = 100
 bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:38638", "snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:38639"]
 
@@ -43,19 +43,19 @@ max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "10.50.0.12:48659"
+bind_address = "10.50.0.8:48652"
 enable_http = true
-http_port = 48659
+http_port = 48652
 enable_ws = true
-ws_port = 58659
+ws_port = 58652
 enable_grpc = true
 grpc_port = 50072
 cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "10.50.0.12:38659"
-public_address = "10.50.0.12:38659"
+listen_address = "10.50.0.8:38652"
+public_address = "10.50.0.8:38652"
 node_name = "interop-05"
 enable_discovery = false
 discovery_port = 39659

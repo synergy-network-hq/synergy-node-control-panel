@@ -6,9 +6,9 @@ Type: archive-validator
 
 Ports
 -----
-P2P: 38653
-RPC: 48653
-WebSocket: 58653
+P2P: 38654
+RPC: 48654
+WebSocket: 58654
 gRPC: 50066
 Discovery: 39653
 

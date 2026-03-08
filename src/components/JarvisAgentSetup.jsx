@@ -4,19 +4,19 @@ import { invoke } from '@tauri-apps/api/core';
 const WG_BOOTSTRAP_SEQUENCE = ['wireguard_install', 'wireguard_connect', 'wireguard_status'];
 const PROVISION_SEQUENCE = ['setup', 'start', 'status'];
 const DEVNET_NODE_LAYOUT = [
-  ['node-01'],
+  ['node-01', 'node-14'],
   ['node-02', 'node-03'],
   ['node-04', 'node-05'],
   ['node-06', 'node-07'],
   ['node-08', 'node-09'],
   ['node-10', 'node-11'],
   ['node-12', 'node-13'],
-  ['node-14', 'node-15'],
+  ['node-22', 'node-15'],
   ['node-16', 'node-17'],
+  ['node-24', 'node-25'],
   ['node-18'],
   ['node-20'],
-  ['node-22', 'node-23'],
-  ['node-24', 'node-25'],
+  ['node-23'],
 ];
 
 function nodeSlotOrdinal(nodeSlotId) {

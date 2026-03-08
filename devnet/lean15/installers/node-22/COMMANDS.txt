@@ -6,9 +6,9 @@ Type: uma-coordinator
 
 Ports
 -----
-P2P: 38659
-RPC: 48659
-WebSocket: 58659
+P2P: 38652
+RPC: 48652
+WebSocket: 58652
 gRPC: 50072
 Discovery: 39659
 

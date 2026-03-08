@@ -49,10 +49,10 @@ scripts/devnet15/generate-wireguard-mesh.sh
 ## Test Harness
 
 ```bash
-scripts/devnet15/run-devnet-test-phases.sh --rpc-url http://10.50.0.13:48650
+scripts/devnet15/run-devnet-test-phases.sh --rpc-url http://10.50.0.7:48650
 scripts/devnet15/check-determinism.sh
-scripts/devnet15/load-generator.sh --rpc-url http://10.50.0.13:48650 --rpm 10000 --minutes 1
-scripts/devnet15/chaos-node.sh --rpc-url http://10.50.0.13:48650
+scripts/devnet15/load-generator.sh --rpc-url http://10.50.0.7:48650 --rpm 10000 --minutes 1
+scripts/devnet15/chaos-node.sh --rpc-url http://10.50.0.7:48650
 ```
 
 ## Observability

@@ -6,9 +6,9 @@ Type: pqc-crypto
 
 Ports
 -----
-P2P: 38652
-RPC: 48652
-WebSocket: 58652
+P2P: 38653
+RPC: 48653
+WebSocket: 58653
 gRPC: 50065
 Discovery: 39652
 
