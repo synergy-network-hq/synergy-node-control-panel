@@ -37,6 +37,18 @@ select_binary() {
   chmod +x "$BIN_SELECTED"
 }
 
+apply_staged_binaries() {
+  local candidate staged
+  for candidate in "$BIN_LINUX" "$BIN_DARWIN"; do
+    staged="${candidate}.pending"
+    if [[ -f "$staged" ]]; then
+      mv -f "$staged" "$candidate"
+      chmod +x "$candidate" || true
+      echo "Applied staged binary update: $candidate"
+    fi
+  done
+}
+
 cleanup_privileged_helper() {
   if [[ -n "$SUDO_KEEPALIVE_PID" ]]; then
     kill "$SUDO_KEEPALIVE_PID" >/dev/null 2>&1 || true
@@ -233,5 +245,6 @@ start_node() {
 }
 
 select_binary
+apply_staged_binaries
 open_ports
 start_node

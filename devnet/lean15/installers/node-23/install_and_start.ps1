@@ -35,6 +35,7 @@ $LogsDir = Join-Path $DataDir "logs"
 $PidFile = Join-Path $DataDir "node.pid"
 $OutFile = Join-Path $LogsDir "node.out"
 $ErrFile = Join-Path $LogsDir "node.err"
+$StagedBinPath = "$BinPath.pending"
 
 if (-not (Test-Path $BinPath)) {
   throw "Missing Windows binary: $BinPath"
@@ -48,6 +49,15 @@ function Test-NodeRunning {
   $pidValue = (Get-Content $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
   if (-not $pidValue) { return $false }
   return $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
+}
+
+function Apply-StagedBinary {
+  if (-not (Test-Path $StagedBinPath)) { return }
+  if (Test-Path $BinPath) {
+    Remove-Item $BinPath -Force -ErrorAction SilentlyContinue
+  }
+  Move-Item -Path $StagedBinPath -Destination $BinPath -Force
+  Write-Host "Applied staged binary update: $BinPath"
 }
 
 function Open-Ports {
@@ -89,6 +99,8 @@ function Start-Node {
     Write-Host "$($NodeEnv['NODE_SLOT_ID']) already running (PID $currentPid)"
     return
   }
+
+  Apply-StagedBinary
 
   New-Item -ItemType Directory -Path $ChainDir -Force | Out-Null
   New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
@@ -138,7 +150,7 @@ function Start-Node {
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
 
   $args = @("start", "--config", $ConfigPath)
-  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -NoNewWindow -PassThru
+  $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru
   Set-Content -Path $PidFile -Value $proc.Id
 
   Write-Host "Started $($NodeEnv['NODE_SLOT_ID']) ($($NodeEnv['NODE_TYPE'])) PID $($proc.Id)"

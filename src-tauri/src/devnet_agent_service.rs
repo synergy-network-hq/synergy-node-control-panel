@@ -226,6 +226,8 @@ fn execute_control(
         "start" | "status" => run_nodectl(&install, &normalized_action),
         "logs" | "node_logs" => run_nodectl(&install, "logs"),
         "setup" | "setup_node" | "install_node" | "bootstrap_node" => {
+            let _ = run_nodectl(&install, "stop");
+            force_kill_node_processes(&install);
             sync_workspace_installer(workspace_root, &install)?;
             run_install_script(&install)
         }
@@ -446,6 +448,21 @@ fn force_kill_node_processes(install: &NodeInstall) {
             .args(["-f", &path])
             .output();
         // Give the OS a moment to reap the process before we delete chain data.
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let install_path = install
+            .install_dir
+            .to_string_lossy()
+            .replace('\'', "''");
+        let script = format!(
+            "$target = '{install_path}'; Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains($target) }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+        );
+        let _ = ProcessCommand::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .output();
         std::thread::sleep(std::time::Duration::from_millis(1500));
     }
 }

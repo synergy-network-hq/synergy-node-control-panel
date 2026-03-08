@@ -5157,6 +5157,107 @@ fn copy_directory_force(source: &Path, destination: &Path) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn staged_binary_path(destination: &Path) -> PathBuf {
+    let file_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("binary");
+    destination.with_file_name(format!("{file_name}.pending"))
+}
+
+fn try_stage_locked_windows_binary(source: &Path, destination: &Path, error: &io::Error) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let is_windows_executable = destination
+            .extension()
+            .and_then(|entry| entry.to_str())
+            .map(|entry| entry.eq_ignore_ascii_case("exe"))
+            .unwrap_or(false);
+        if is_windows_executable
+            && destination.exists()
+            && error.kind() == io::ErrorKind::PermissionDenied
+        {
+            let staged_path = staged_binary_path(destination);
+            if copy_file_atomic(source, &staged_path).is_ok() {
+                return true;
+            }
+        }
+    }
+
+    let _ = source;
+    let _ = destination;
+    let _ = error;
+    false
+}
+
+fn copy_file_force_or_stage_locked_binary(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.is_file() {
+        return Err(format!(
+            "Expected file source but found non-file path: {}",
+            source.display()
+        ));
+    }
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "Failed to create destination parent directory {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+
+    match copy_file_atomic(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error) if try_stage_locked_windows_binary(source, destination, &error) => Ok(()),
+        Err(error) => Err(format!(
+            "Failed to copy {} to {}: {error}",
+            source.display(),
+            destination.display()
+        )),
+    }
+}
+
+fn refresh_installer_bin_directory(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination).map_err(|error| {
+        format!(
+            "Failed to create directory {}: {error}",
+            destination.display()
+        )
+    })?;
+
+    let entries = fs::read_dir(source)
+        .map_err(|error| format!("Failed to read directory {}: {error}", source.display()))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to read directory entry in {}: {error}",
+                source.display()
+            )
+        })?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_directory_force(&source_path, &destination_path)?;
+        } else {
+            copy_file_force_or_stage_locked_binary(&source_path, &destination_path)?;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(
+                    &destination_path,
+                    fs::Permissions::from_mode(0o755),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn refresh_installer_bundle_assets(
     source_installers: &Path,
     destination_installers: &Path,
@@ -5243,7 +5344,11 @@ fn refresh_installer_bundle_assets(
                 continue;
             }
             let destination_dir = destination_machine_dir.join(dir_name);
-            copy_directory_force(&source_dir, &destination_dir)?;
+            if dir_name == "bin" {
+                refresh_installer_bin_directory(&source_dir, &destination_dir)?;
+            } else {
+                copy_directory_force(&source_dir, &destination_dir)?;
+            }
         }
     }
 
