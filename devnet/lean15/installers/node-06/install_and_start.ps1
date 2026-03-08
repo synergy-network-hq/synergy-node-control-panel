@@ -51,6 +51,18 @@ function Test-NodeRunning {
   return $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
 }
 
+function Test-BootnodeSlot {
+  $nodeSlotId = Get-NodeEnvValue "NODE_SLOT_ID"
+  return $nodeSlotId -eq "node-01" -or $nodeSlotId -eq "node-02"
+}
+
+function Test-SyncRequired {
+  if (Test-BootnodeSlot) { return $false }
+  $roleGroup = (Get-NodeEnvValue "ROLE_GROUP").ToLower()
+  $nodeType = (Get-NodeEnvValue "NODE_TYPE").ToLower()
+  return $roleGroup -eq "consensus" -and $nodeType -eq "validator"
+}
+
 function Apply-StagedBinary {
   if (-not (Test-Path $StagedBinPath)) { return }
   if (Test-Path $BinPath) {
@@ -93,6 +105,21 @@ function Open-Ports {
   }
 }
 
+function Invoke-PreStartSync {
+  if (Test-BootnodeSlot) { return $true }
+
+  for ($attempt = 1; $attempt -le 12; $attempt++) {
+    Write-Host "Pre-start sync attempt $attempt/12 for $($NodeEnv['NODE_SLOT_ID'])..."
+    & $BinPath sync --config $ConfigPath 1>> $OutFile 2>> $ErrFile
+    if ($LASTEXITCODE -eq 0) {
+      return $true
+    }
+    Start-Sleep -Seconds 5
+  }
+
+  return $false
+}
+
 function Start-Node {
   if (Test-NodeRunning) {
     $currentPid = Get-Content $PidFile | Select-Object -First 1
@@ -104,6 +131,8 @@ function Start-Node {
 
   New-Item -ItemType Directory -Path $ChainDir -Force | Out-Null
   New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
+  New-Item -ItemType File -Path $OutFile -Force | Out-Null
+  New-Item -ItemType File -Path $ErrFile -Force | Out-Null
 
   $validatorAddress = Get-NodeEnvValue "NODE_ADDRESS"
   if ([string]::IsNullOrWhiteSpace($validatorAddress)) {
@@ -148,6 +177,13 @@ function Start-Node {
   if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = $configuredChainId }
   $env:SYNERGY_NETWORK_ID = $configuredNetworkId
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
+
+  if (-not (Invoke-PreStartSync)) {
+    if (Test-SyncRequired) {
+      throw "Pre-start sync failed for $($NodeEnv['NODE_SLOT_ID']); refusing to start validator while unsynced."
+    }
+    Write-Warning "Pre-start sync did not complete for $($NodeEnv['NODE_SLOT_ID']); continuing with node start."
+  }
 
   $args = @("start", "--config", $ConfigPath)
   $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru

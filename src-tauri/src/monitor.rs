@@ -23,6 +23,8 @@ pub struct MonitorNode {
     pub role_group: String,
     pub role: String,
     pub node_type: String,
+    pub operator: Option<String>,
+    pub device: Option<String>,
     pub host: String,
     pub rpc_port: u16,
     pub p2p_port: u16,
@@ -1008,11 +1010,28 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     let mut statuses = join_all(probes).await;
     statuses.sort_by(|a, b| a.node.node_slot_id.cmp(&b.node.node_slot_id));
 
+    let highest_block = statuses.iter().filter_map(|n| n.block_height).max();
+    if let Some(network_head) = highest_block {
+        for status in &mut statuses {
+            let Some(local_height) = status.block_height else {
+                continue;
+            };
+            let lag = network_head.saturating_sub(local_height);
+            if lag > 1 {
+                status.syncing = Some(true);
+                if status.online {
+                    status.status = "syncing".to_string();
+                }
+            } else if status.online && status.syncing.is_none() {
+                status.syncing = Some(false);
+            }
+        }
+    }
+
     let total_nodes = statuses.len();
     let online_nodes = statuses.iter().filter(|n| n.online).count();
     let offline_nodes = total_nodes.saturating_sub(online_nodes);
     let syncing_nodes = statuses.iter().filter(|n| n.syncing == Some(true)).count();
-    let highest_block = statuses.iter().filter_map(|n| n.block_height).max();
 
     Ok(MonitorSnapshot {
         inventory_path: inventory_path.to_string_lossy().to_string(),
@@ -1043,6 +1062,7 @@ pub async fn monitor_bulk_node_control(
     if selected.is_empty() {
         return Err(format!("No nodes match scope '{scope_value}'"));
     }
+    let ordered = order_nodes_for_bulk_action(&nodes, selected, &normalized_action);
 
     let config = load_security_config()?;
     let operator = resolve_active_operator(&config)?;
@@ -1062,11 +1082,33 @@ pub async fn monitor_bulk_node_control(
     }
 
     let mut results = Vec::new();
-    for node_slot_id in selected {
+    let phase_map = nodes
+        .iter()
+        .map(|node| {
+            (
+                node.node_slot_id.to_ascii_lowercase(),
+                bulk_action_phase(&normalized_action, node),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut previous_phase = None;
+    for node_slot_id in ordered {
+        let current_phase = phase_map
+            .get(&node_slot_id.to_ascii_lowercase())
+            .copied()
+            .unwrap_or(2);
+        if let Some(previous) = previous_phase {
+            if previous != current_phase {
+                if let Some(pause) = bulk_action_pause(&normalized_action, current_phase) {
+                    tokio::time::sleep(pause).await;
+                }
+            }
+        }
         let result =
             execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "bulk")
                 .await?;
         results.push(result);
+        previous_phase = Some(current_phase);
     }
 
     let succeeded = results.iter().filter(|result| result.success).count();
@@ -1770,6 +1812,8 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         return Err("Inventory header missing required column 'host'".to_string());
     };
     let physical_machine_idx = resolve_column(&["physical_machine_id", "physical_machine"]);
+    let operator_idx = resolve_column(&["operator"]);
+    let device_idx = resolve_column(&["device"]);
 
     let mut nodes = Vec::new();
 
@@ -1819,6 +1863,14 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         let rpc_url = build_rpc_url(&host, rpc_port);
 
         let physical_machine_id = physical_machine_idx.map(&get).unwrap_or_default();
+        let operator = operator_idx
+            .map(&get)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let device = device_idx
+            .map(&get)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
 
         nodes.push(MonitorNode {
             node_address: node_addresses
@@ -1835,6 +1887,8 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             role_group: get(role_group_idx),
             role: get(role_idx),
             node_type: get(node_type_idx),
+            operator,
+            device,
             host,
             rpc_port,
             p2p_port,
@@ -6509,6 +6563,80 @@ fn select_nodes_for_scope(nodes: &[MonitorNode], scope: &str) -> Vec<String> {
         })
         .map(|node| node.node_slot_id.clone())
         .collect::<Vec<_>>()
+}
+
+fn is_bootnode_slot(node_slot_id: &str) -> bool {
+    matches!(node_slot_id, "node-01" | "node-02")
+}
+
+fn bulk_action_phase(action: &str, node: &MonitorNode) -> u8 {
+    let is_bootnode = is_bootnode_slot(node.node_slot_id.as_str());
+    let is_consensus_validator = node.role_group.eq_ignore_ascii_case("consensus")
+        && (node.node_type.eq_ignore_ascii_case("validator")
+            || node.role.eq_ignore_ascii_case("validator"));
+
+    match action {
+        "stop" => {
+            if is_bootnode {
+                2
+            } else if is_consensus_validator {
+                1
+            } else {
+                0
+            }
+        }
+        "start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node"
+        | "bootstrap_node" => {
+            if is_bootnode {
+                0
+            } else if is_consensus_validator {
+                1
+            } else {
+                2
+            }
+        }
+        _ => 0,
+    }
+}
+
+fn bulk_action_pause(action: &str, phase: u8) -> Option<Duration> {
+    match (action, phase) {
+        ("start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node" | "bootstrap_node", 1) => {
+            Some(Duration::from_secs(8))
+        }
+        ("start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node" | "bootstrap_node", 2) => {
+            Some(Duration::from_secs(5))
+        }
+        _ => None,
+    }
+}
+
+fn order_nodes_for_bulk_action(
+    nodes: &[MonitorNode],
+    selected: Vec<String>,
+    action: &str,
+) -> Vec<String> {
+    let selected_set = selected
+        .into_iter()
+        .map(|node_slot_id| node_slot_id.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    let mut selected_nodes = nodes
+        .iter()
+        .filter(|node| selected_set.contains(&node.node_slot_id.to_ascii_lowercase()))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    selected_nodes.sort_by(|left, right| {
+        bulk_action_phase(action, left)
+            .cmp(&bulk_action_phase(action, right))
+            .then(left.physical_machine_id.cmp(&right.physical_machine_id))
+            .then(left.node_slot_id.cmp(&right.node_slot_id))
+    });
+
+    selected_nodes
+        .into_iter()
+        .map(|node| node.node_slot_id)
+        .collect()
 }
 
 async fn execute_monitor_node_control(

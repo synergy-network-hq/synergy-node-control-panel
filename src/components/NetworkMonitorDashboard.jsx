@@ -349,7 +349,9 @@ function NetworkMonitorDashboard() {
         <table className="monitor-table">
           <thead>
             <tr>
-              <th>Physical Machine</th>
+              <th>Machine #</th>
+              <th>Operator</th>
+              <th>Device</th>
               <th>Node Slot</th>
               <th>Node Alias</th>
               <th>Role Group</th>
@@ -361,7 +363,7 @@ function NetworkMonitorDashboard() {
               <th>Peers</th>
               <th>Syncing</th>
               <th>Latency</th>
-              <th>Error</th>
+              <th className="monitor-col-error">Error</th>
               <th>Detail</th>
             </tr>
           </thead>
@@ -369,6 +371,8 @@ function NetworkMonitorDashboard() {
             {nodes.map((entry) => (
               <tr key={entry.node.node_slot_id}>
                 <td>{entry.node.physical_machine_id || entry.node.node_slot_id}</td>
+                <td>{entry.node.operator || 'Unassigned'}</td>
+                <td>{entry.node.device || 'Unknown device'}</td>
                 <td>{entry.node.node_slot_id}</td>
                 <td>{entry.node.node_alias}</td>
                 <td>{entry.node.role_group}</td>
@@ -388,7 +392,7 @@ function NetworkMonitorDashboard() {
                   {' '}
                   ms
                 </td>
-                <td>{truncate(entry.error || '')}</td>
+                <td className="monitor-col-error">{truncate(entry.error || '', 88)}</td>
                 <td>
                   <Link
                     className="monitor-link-btn"

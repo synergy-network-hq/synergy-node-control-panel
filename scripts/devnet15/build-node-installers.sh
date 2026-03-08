@@ -369,6 +369,60 @@ is_running() {
   return 1
 }
 
+is_bootnode_slot() {
+  [[ "$NODE_SLOT_ID" == "node-01" || "$NODE_SLOT_ID" == "node-02" ]]
+}
+
+sync_required_before_start() {
+  if is_bootnode_slot; then
+    return 1
+  fi
+  [[ "${ROLE_GROUP:-}" == "consensus" && "${NODE_TYPE:-}" == "validator" ]]
+}
+
+run_prestart_sync() {
+  if is_bootnode_slot; then
+    return 0
+  fi
+
+  local validator_address
+  validator_address="${SYNERGY_VALIDATOR_ADDRESS:-${NODE_ADDRESS:-}}"
+  local auto_register_validator
+  auto_register_validator="${SYNERGY_AUTO_REGISTER_VALIDATOR:-${AUTO_REGISTER_VALIDATOR:-false}}"
+  local strict_allowlist
+  strict_allowlist="${SYNERGY_STRICT_VALIDATOR_ALLOWLIST:-${STRICT_VALIDATOR_ALLOWLIST:-true}}"
+  local allowed_validators
+  allowed_validators="${SYNERGY_ALLOWED_VALIDATOR_ADDRESSES:-${ALLOWED_VALIDATOR_ADDRESSES:-}}"
+  local rpc_bind_address
+  rpc_bind_address="${SYNERGY_RPC_BIND_ADDRESS:-${RPC_BIND_ADDRESS:-}}"
+  local configured_chain_id
+  configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338638}}"
+  local configured_network_id
+  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-$configured_chain_id}}"
+  local config_path
+  config_path="$BASE_DIR/config/node.toml"
+
+  for attempt in {1..12}; do
+    echo "Pre-start sync attempt ${attempt}/12 for $NODE_SLOT_ID..."
+    if env \
+      SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
+      NODE_ADDRESS="$validator_address" \
+      SYNERGY_AUTO_REGISTER_VALIDATOR="$auto_register_validator" \
+      SYNERGY_STRICT_VALIDATOR_ALLOWLIST="$strict_allowlist" \
+      SYNERGY_ALLOWED_VALIDATOR_ADDRESSES="$allowed_validators" \
+      SYNERGY_RPC_BIND_ADDRESS="$rpc_bind_address" \
+      SYNERGY_NETWORK_ID="$configured_network_id" \
+      SYNERGY_CHAIN_ID="$configured_chain_id" \
+      SYNERGY_CONFIG_PATH="$config_path" \
+      "$BIN_SELECTED" sync --config "$config_path" >> "$OUT_FILE" 2>> "$ERR_FILE"; then
+      return 0
+    fi
+    sleep 5
+  done
+
+  return 1
+}
+
 start_node() {
   if is_running; then
     echo "$NODE_SLOT_ID already running (PID $(cat "$PID_FILE"))"
@@ -376,6 +430,7 @@ start_node() {
   fi
 
   mkdir -p "$CHAIN_DIR" "$LOG_DIR"
+  touch "$OUT_FILE" "$ERR_FILE"
 
   local validator_address
   validator_address="${SYNERGY_VALIDATOR_ADDRESS:-${NODE_ADDRESS:-}}"
@@ -399,6 +454,14 @@ start_node() {
 
   # Keep relative storage/log paths in node.toml anchored to the installer directory.
   cd "$BASE_DIR"
+
+  if ! run_prestart_sync; then
+    if sync_required_before_start; then
+      echo "Pre-start sync failed for $NODE_SLOT_ID; refusing to start validator while unsynced." >&2
+      return 1
+    fi
+    echo "Warning: pre-start sync did not complete for $NODE_SLOT_ID; continuing with node start." >&2
+  fi
 
   nohup env \
     SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
@@ -629,6 +692,18 @@ function Test-NodeRunning {
   return $null -ne (Get-Process -Id $pidValue -ErrorAction SilentlyContinue)
 }
 
+function Test-BootnodeSlot {
+  $nodeSlotId = Get-NodeEnvValue "NODE_SLOT_ID"
+  return $nodeSlotId -eq "node-01" -or $nodeSlotId -eq "node-02"
+}
+
+function Test-SyncRequired {
+  if (Test-BootnodeSlot) { return $false }
+  $roleGroup = (Get-NodeEnvValue "ROLE_GROUP").ToLower()
+  $nodeType = (Get-NodeEnvValue "NODE_TYPE").ToLower()
+  return $roleGroup -eq "consensus" -and $nodeType -eq "validator"
+}
+
 function Apply-StagedBinary {
   if (-not (Test-Path $StagedBinPath)) { return }
   if (Test-Path $BinPath) {
@@ -671,6 +746,21 @@ function Open-Ports {
   }
 }
 
+function Invoke-PreStartSync {
+  if (Test-BootnodeSlot) { return $true }
+
+  for ($attempt = 1; $attempt -le 12; $attempt++) {
+    Write-Host "Pre-start sync attempt $attempt/12 for $($NodeEnv['NODE_SLOT_ID'])..."
+    & $BinPath sync --config $ConfigPath 1>> $OutFile 2>> $ErrFile
+    if ($LASTEXITCODE -eq 0) {
+      return $true
+    }
+    Start-Sleep -Seconds 5
+  }
+
+  return $false
+}
+
 function Start-Node {
   if (Test-NodeRunning) {
     $currentPid = Get-Content $PidFile | Select-Object -First 1
@@ -682,6 +772,8 @@ function Start-Node {
 
   New-Item -ItemType Directory -Path $ChainDir -Force | Out-Null
   New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
+  New-Item -ItemType File -Path $OutFile -Force | Out-Null
+  New-Item -ItemType File -Path $ErrFile -Force | Out-Null
 
   $validatorAddress = Get-NodeEnvValue "NODE_ADDRESS"
   if ([string]::IsNullOrWhiteSpace($validatorAddress)) {
@@ -726,6 +818,13 @@ function Start-Node {
   if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = $configuredChainId }
   $env:SYNERGY_NETWORK_ID = $configuredNetworkId
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
+
+  if (-not (Invoke-PreStartSync)) {
+    if (Test-SyncRequired) {
+      throw "Pre-start sync failed for $($NodeEnv['NODE_SLOT_ID']); refusing to start validator while unsynced."
+    }
+    Write-Warning "Pre-start sync did not complete for $($NodeEnv['NODE_SLOT_ID']); continuing with node start."
+  }
 
   $args = @("start", "--config", $ConfigPath)
   $proc = Start-Process -FilePath $BinPath -ArgumentList $args -WorkingDirectory $BaseDir -RedirectStandardOutput $OutFile -RedirectStandardError $ErrFile -PassThru

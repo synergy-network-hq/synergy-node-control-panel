@@ -346,7 +346,15 @@ fn installed_node_slots(workspace_root: &Path, inventory: &[InventoryNode]) -> V
         .collect()
 }
 
-fn resolve_node_install(workspace_root: &Path, node_slot_id: &str) -> Result<NodeInstall, String> {
+fn legacy_workspace_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
+        roots.push(home_dir.join(".synergy-node-monitor").join("monitor-workspace"));
+    }
+    roots
+}
+
+fn install_candidates(workspace_root: &Path, node_slot_id: &str) -> Result<Vec<PathBuf>, String> {
     let hosts_env = parse_hosts_env(workspace_root.join("devnet/lean15/hosts.env"))?;
     let key_prefix = node_slot_id.to_ascii_uppercase().replace('-', "_");
     let remote_dir_key = format!("{key_prefix}_REMOTE_DIR");
@@ -373,13 +381,60 @@ fn resolve_node_install(workspace_root: &Path, node_slot_id: &str) -> Result<Nod
             .join("devnet/lean15/installers")
             .join(node_slot_id),
     );
+    for legacy_root in legacy_workspace_roots() {
+        candidates.push(legacy_root.join("devnet/lean15/installers").join(node_slot_id));
+    }
 
-    let install_dir = candidates
+    let mut deduped = Vec::new();
+    for candidate in candidates {
+        if !deduped.iter().any(|existing: &PathBuf| existing == &candidate) {
+            deduped.push(candidate);
+        }
+    }
+
+    Ok(deduped)
+}
+
+fn is_process_running_for_install_dir(install_dir: &Path) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let install_path = install_dir.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$target = '{install_path}'; $match = Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains($target) }} | Select-Object -First 1; if ($match) {{ exit 0 }} else {{ exit 1 }}"
+        );
+        return ProcessCommand::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let install_path = install_dir.to_string_lossy().to_string();
+        return ProcessCommand::new("pgrep")
+            .args(["-f", &install_path])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+    }
+}
+
+fn resolve_node_install(workspace_root: &Path, node_slot_id: &str) -> Result<NodeInstall, String> {
+    let candidates = install_candidates(workspace_root, node_slot_id)?;
+    let existing_candidates = candidates
         .into_iter()
-        .find(|candidate| candidate.join("node.env").is_file())
+        .filter(|candidate| candidate.join("node.env").is_file())
+        .collect::<Vec<_>>();
+
+    let install_dir = existing_candidates
+        .iter()
+        .find(|candidate| is_process_running_for_install_dir(candidate))
+        .cloned()
+        .or_else(|| existing_candidates.first().cloned())
         .ok_or_else(|| {
             format!(
-                "No local installer directory found for {node_slot_id}. Expected node.env in workspace installer or configured remote root."
+                "No local installer directory found for {node_slot_id}. Expected node.env in workspace installer, legacy workspace, or configured remote root."
             )
         })?;
 

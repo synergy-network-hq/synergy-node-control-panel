@@ -11,7 +11,7 @@ p2p_port = 38647
 rpc_port = 48647
 ws_port = 58647
 max_peers = 100
-bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:38638"]
+bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:38638", "snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:38639"]
 
 [blockchain]
 block_time = 2

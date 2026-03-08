@@ -452,7 +452,7 @@
 .monitor-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1450px;
+  min-width: 1620px;
 }
 
 .monitor-table thead th {
@@ -482,6 +482,11 @@
 
 .monitor-table code {
   font-size: 0.77rem;
+}
+
+.monitor-col-error {
+  width: 180px;
+  max-width: 180px;
 }
 
 .status-pill {
