@@ -113,13 +113,26 @@ function Open-Ports {
 function Invoke-PreStartSync {
   if (Test-BootnodeSlot) { return $true }
 
-  for ($attempt = 1; $attempt -le 24; $attempt++) {
-    Write-Host "Pre-start sync attempt $attempt/24 for $($NodeEnv['NODE_SLOT_ID'])..."
+  # Use a wall-clock deadline instead of a fixed attempt count so that nodes
+  # far behind the chain tip (e.g. late joiners) are given enough time to
+  # fully catch up.  Override with PRESTART_SYNC_TIMEOUT_SECS in the calling
+  # environment (default: 600 s = 10 min; use e.g. 3600 for a late joiner).
+  $timeoutSecs = if ($env:PRESTART_SYNC_TIMEOUT_SECS) { [int]$env:PRESTART_SYNC_TIMEOUT_SECS } else { 600 }
+  $deadline = (Get-Date).AddSeconds($timeoutSecs)
+  $attempt = 0
+
+  while ((Get-Date) -lt $deadline) {
+    $attempt++
+    $remaining = [int]($deadline - (Get-Date)).TotalSeconds
+    Write-Host "Pre-start sync attempt $attempt for $($NodeEnv['NODE_SLOT_ID']) (${remaining}s remaining of ${timeoutSecs}s)..."
     & $BinPath sync --config $ConfigPath 1>> $OutFile 2>> $ErrFile
     if ($LASTEXITCODE -eq 0) {
       return $true
     }
-    Start-Sleep -Seconds 5
+    $remaining = ($deadline - (Get-Date)).TotalSeconds
+    if ($remaining -gt 5) {
+      Start-Sleep -Seconds 5
+    }
   }
 
   return $false
@@ -199,4 +212,18 @@ function Start-Node {
 }
 
 Open-Ports
+
+# SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
+# Used by nodectl.ps1 sync to let an operator explicitly catch up a late-joining
+# node before starting it.
+if ($env:SYNC_ONLY -eq "true") {
+  if (Invoke-PreStartSync) {
+    Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Node is ready for manual start."
+    exit 0
+  } else {
+    Write-Error "[$($NodeEnv['NODE_SLOT_ID'])] Sync did not complete within the timeout."
+    exit 1
+  }
+}
+
 Start-Node

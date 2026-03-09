@@ -403,8 +403,18 @@ run_prestart_sync() {
   local config_path
   config_path="$BASE_DIR/config/node.toml"
 
-  for attempt in {1..24}; do
-    echo "Pre-start sync attempt ${attempt}/24 for $NODE_SLOT_ID..."
+  # Use a wall-clock deadline instead of a fixed attempt count so that nodes
+  # far behind the chain tip (e.g. late joiners) are given enough time to
+  # fully catch up.  Override with PRESTART_SYNC_TIMEOUT_SECS in the calling
+  # environment (default: 600 s = 10 min; use e.g. 3600 for a late joiner).
+  local timeout_secs="${PRESTART_SYNC_TIMEOUT_SECS:-600}"
+  local deadline=$(( $(date +%s) + timeout_secs ))
+  local attempt=0
+
+  while [[ $(date +%s) -lt $deadline ]]; do
+    attempt=$(( attempt + 1 ))
+    local remaining=$(( deadline - $(date +%s) ))
+    echo "Pre-start sync attempt ${attempt} for $NODE_SLOT_ID (${remaining}s remaining of ${timeout_secs}s)..."
     if env \
       SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
       NODE_ADDRESS="$validator_address" \
@@ -418,7 +428,10 @@ run_prestart_sync() {
       "$BIN_SELECTED" sync --config "$config_path" >> "$OUT_FILE" 2>> "$ERR_FILE"; then
       return 0
     fi
-    sleep 5
+    # Brief pause before retrying (skip if the deadline is almost up).
+    if [[ $(date +%s) -lt $(( deadline - 5 )) ]]; then
+      sleep 5
+    fi
   done
 
   return 1
@@ -484,6 +497,20 @@ start_node() {
 select_binary
 apply_staged_binaries
 open_ports
+
+# SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
+# Used by "nodectl.sh sync" to let an operator explicitly catch up a late-joining
+# node before starting it.
+if [[ "${SYNC_ONLY:-false}" == "true" ]]; then
+  if run_prestart_sync; then
+    echo "[$NODE_SLOT_ID] Sync complete. Node is ready for manual start."
+    exit 0
+  else
+    echo "[$NODE_SLOT_ID] Sync did not complete within the timeout." >&2
+    exit 1
+  fi
+fi
+
 start_node
 SCRIPT
   chmod +x "$node_dir/install_and_start.sh"
@@ -530,6 +557,16 @@ is_running() {
 }
 
 start_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
+
+# Sync only — download all missing blocks from peers without starting the node.
+# Intended for late-joining nodes or nodes that have been offline for a long time.
+# The sync runs until complete or until PRESTART_SYNC_TIMEOUT_SECS is exceeded
+# (default: 7200 s = 2 hours for deep catch-up).
+sync_node() {
+  SYNC_ONLY=true \
+  PRESTART_SYNC_TIMEOUT_SECS="${PRESTART_SYNC_TIMEOUT_SECS:-7200}" \
   "$BASE_DIR/install_and_start.sh"
 }
 
@@ -611,6 +648,9 @@ case "${1:-}" in
     stop_node
     start_node
     ;;
+  sync)
+    sync_node
+    ;;
   status)
     status_node
     ;;
@@ -622,10 +662,22 @@ case "${1:-}" in
     ;;
   *)
     cat <<USAGE
-Usage: $0 <start|stop|restart|status|logs|info>
+Usage: $0 <start|stop|restart|sync|status|logs|info>
+
+  start    Start the node (includes pre-start sync check).
+  stop     Stop the node.
+  restart  Stop then start the node.
+  sync     Sync all missing blocks from peers WITHOUT starting the node.
+           Use for late-joining nodes or nodes offline for a long time.
+           Override timeout: PRESTART_SYNC_TIMEOUT_SECS=3600 $0 sync
+  status   Show whether the node process is running.
+  logs     Tail node logs. Pass --follow to stream.
+  info     Print node configuration details.
 
 Examples:
   $0 start
+  $0 sync
+  PRESTART_SYNC_TIMEOUT_SECS=3600 $0 sync
   $0 status
   $0 logs --follow
   $0 restart
@@ -755,13 +807,26 @@ function Open-Ports {
 function Invoke-PreStartSync {
   if (Test-BootnodeSlot) { return $true }
 
-  for ($attempt = 1; $attempt -le 24; $attempt++) {
-    Write-Host "Pre-start sync attempt $attempt/24 for $($NodeEnv['NODE_SLOT_ID'])..."
+  # Use a wall-clock deadline instead of a fixed attempt count so that nodes
+  # far behind the chain tip (e.g. late joiners) are given enough time to
+  # fully catch up.  Override with PRESTART_SYNC_TIMEOUT_SECS in the calling
+  # environment (default: 600 s = 10 min; use e.g. 3600 for a late joiner).
+  $timeoutSecs = if ($env:PRESTART_SYNC_TIMEOUT_SECS) { [int]$env:PRESTART_SYNC_TIMEOUT_SECS } else { 600 }
+  $deadline = (Get-Date).AddSeconds($timeoutSecs)
+  $attempt = 0
+
+  while ((Get-Date) -lt $deadline) {
+    $attempt++
+    $remaining = [int]($deadline - (Get-Date)).TotalSeconds
+    Write-Host "Pre-start sync attempt $attempt for $($NodeEnv['NODE_SLOT_ID']) (${remaining}s remaining of ${timeoutSecs}s)..."
     & $BinPath sync --config $ConfigPath 1>> $OutFile 2>> $ErrFile
     if ($LASTEXITCODE -eq 0) {
       return $true
     }
-    Start-Sleep -Seconds 5
+    $remaining = ($deadline - (Get-Date)).TotalSeconds
+    if ($remaining -gt 5) {
+      Start-Sleep -Seconds 5
+    }
   }
 
   return $false
@@ -841,6 +906,20 @@ function Start-Node {
 }
 
 Open-Ports
+
+# SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
+# Used by nodectl.ps1 sync to let an operator explicitly catch up a late-joining
+# node before starting it.
+if ($env:SYNC_ONLY -eq "true") {
+  if (Invoke-PreStartSync) {
+    Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Node is ready for manual start."
+    exit 0
+  } else {
+    Write-Error "[$($NodeEnv['NODE_SLOT_ID'])] Sync did not complete within the timeout."
+    exit 1
+  }
+}
+
 Start-Node
 SCRIPT
 }
@@ -850,7 +929,7 @@ write_nodectl_ps1() {
   cat > "$node_dir/nodectl.ps1" <<'SCRIPT'
 param(
   [Parameter(Position = 0)]
-  [ValidateSet("start", "stop", "restart", "status", "logs", "info")]
+  [ValidateSet("start", "stop", "restart", "sync", "status", "logs", "info")]
   [string]$Action = "status",
   [switch]$Follow
 )
@@ -890,6 +969,14 @@ function Test-NodeRunning {
 }
 
 function Start-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
+
+# Sync only — download all missing blocks from peers without starting the node.
+# Intended for late-joining nodes or nodes that have been offline for a long time.
+function Sync-Node {
+  $env:SYNC_ONLY = "true"
+  if (-not $env:PRESTART_SYNC_TIMEOUT_SECS) { $env:PRESTART_SYNC_TIMEOUT_SECS = "7200" }
+  & (Join-Path $BaseDir "install_and_start.ps1")
+}
 
 function Stop-Node {
   if (-not (Test-NodeRunning)) {
@@ -952,6 +1039,7 @@ switch ($Action) {
   "start"   { Start-Node }
   "stop"    { Stop-Node }
   "restart" { Stop-Node; Start-Node }
+  "sync"    { Sync-Node }
   "status"  { Status-Node }
   "logs"    { Logs-Node }
   "info"    { Info-Node }

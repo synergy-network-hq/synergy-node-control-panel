@@ -35,7 +35,14 @@ is_running() {
   return 1
 }
 
-start_node() {
+
+# Sync only — download all missing blocks from peers without starting the node.
+# Intended for late-joining nodes or nodes that have been offline for a long time.
+# The sync runs until complete or until PRESTART_SYNC_TIMEOUT_SECS is exceeded
+# (default: 7200 s = 2 hours for deep catch-up).
+sync_node() {
+  SYNC_ONLY=true \
+  PRESTART_SYNC_TIMEOUT_SECS="${PRESTART_SYNC_TIMEOUT_SECS:-7200}" \
   "$BASE_DIR/install_and_start.sh"
 }
 
@@ -117,6 +124,9 @@ case "${1:-}" in
     stop_node
     start_node
     ;;
+  sync)
+    sync_node
+    ;;
   status)
     status_node
     ;;
@@ -128,10 +138,22 @@ case "${1:-}" in
     ;;
   *)
     cat <<USAGE
-Usage: $0 <start|stop|restart|status|logs|info>
+Usage: $0 <start|stop|restart|sync|status|logs|info>
+
+  start    Start the node (includes pre-start sync check).
+  stop     Stop the node.
+  restart  Stop then start the node.
+  sync     Sync all missing blocks from peers WITHOUT starting the node.
+           Use for late-joining nodes or nodes offline for a long time.
+           Override timeout: PRESTART_SYNC_TIMEOUT_SECS=3600 $0 sync
+  status   Show whether the node process is running.
+  logs     Tail node logs. Pass --follow to stream.
+  info     Print node configuration details.
 
 Examples:
   $0 start
+  $0 sync
+  PRESTART_SYNC_TIMEOUT_SECS=3600 $0 sync
   $0 status
   $0 logs --follow
   $0 restart

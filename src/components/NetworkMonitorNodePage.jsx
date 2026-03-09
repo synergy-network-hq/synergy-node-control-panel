@@ -716,17 +716,32 @@ function NetworkMonitorNodePage() {
           {exportBusy ? 'Exporting Node Snapshot...' : 'Export Node Snapshot'}
         </button>
         <button
+          className="monitor-btn monitor-btn-warning"
+          disabled={!control?.sync_node_configured || !!controlBusyAction}
+          onClick={() => {
+            const approved = window.confirm(
+              'Sync node from peers?\n\nThis runs "nodectl sync" which downloads all missing blocks without starting the node. The operation can take up to 2 hours for a node that is far behind.\n\nThe node must be stopped before syncing.',
+            );
+            if (approved) {
+              handleControlAction('sync_node');
+            }
+          }}
+          title="Download all missing blocks from peers without starting the node. Use for late-joining or long-offline nodes."
+        >
+          {controlBusyAction === 'sync_node' ? 'Syncing...' : 'Sync Node'}
+        </button>
+        <button
           className="monitor-btn monitor-btn-danger"
           disabled={!resetChainAction?.configured || !!controlBusyAction}
           onClick={() => {
             const approved = window.confirm(
-              'Reset chain to genesis for this node? This stops the node, deletes local chain state, and restarts it.',
+              'Reset chain to genesis for this node?\n\nThis stops the node and deletes all local chain state. The node will NOT restart automatically — use Start or Start All when ready.',
             );
             if (approved) {
               handleControlAction('reset_chain');
             }
           }}
-          title="Stop node, delete chain data, and restart from genesis."
+          title="Stop node and delete chain data. Node will not auto-restart."
         >
           {controlBusyAction === 'reset_chain' ? 'Resetting Chain...' : 'Reset Chain (Genesis)'}
         </button>

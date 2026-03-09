@@ -146,6 +146,7 @@ fn supported_agent_actions() -> Vec<String> {
         "explorer_reset",
         "node_logs",
         "logs",
+        "sync_node",
     ]
     .iter()
     .map(|entry| entry.to_string())
@@ -278,6 +279,18 @@ fn execute_control(
         "start" => {
             let install = resolve_node_install(workspace_root, &node_slot_id)?;
             run_nodectl(&install, &normalized_action)
+        }
+        "sync_node" => {
+            // Run the pre-start sync without starting the node.  Intended for
+            // late-joining nodes or nodes that have been offline long enough to
+            // fall significantly behind the chain tip.
+            //
+            // The HTTP timeout for this action is set to 7200 s in monitor.rs so
+            // that the caller waits as long as the sync needs.  The sync itself
+            // honours PRESTART_SYNC_TIMEOUT_SECS (defaulting to 7200 s inside
+            // nodectl.sh sync) which gives a 2-hour window to download blocks.
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
+            run_nodectl(&install, "sync")
         }
         "status" => {
             let install = resolve_node_install(workspace_root, &node_slot_id)?;

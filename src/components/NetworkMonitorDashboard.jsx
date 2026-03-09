@@ -23,8 +23,8 @@ function NetworkMonitorDashboard() {
   const [resetBusy, setResetBusy] = useState(false);
   const [resetResult, setResetResult] = useState(null);
 
-  // Global fleet control state (stop all / start all / restart all)
-  const [fleetAction, setFleetAction] = useState(null); // 'stop' | 'start' | 'restart'
+  // Global fleet control state (stop all / start all / restart all / sync_node)
+  const [fleetAction, setFleetAction] = useState(null); // 'stop' | 'start' | 'restart' | 'sync_node'
   const [fleetConfirmOpen, setFleetConfirmOpen] = useState(false);
   const [fleetBusy, setFleetBusy] = useState(false);
   const [fleetResult, setFleetResult] = useState(null);
@@ -177,10 +177,18 @@ function NetworkMonitorDashboard() {
             {fleetBusy && fleetAction === 'restart' ? 'Restarting...' : 'Restart All'}
           </button>
           <button
+            className="monitor-btn monitor-btn-warning"
+            onClick={() => handleFleetConfirm('sync_node')}
+            disabled={fleetBusy || resetBusy}
+            title="Download all missing blocks on every node without starting them. Use after a reset or for nodes that have been offline."
+          >
+            {fleetBusy && fleetAction === 'sync_node' ? 'Syncing All...' : 'Sync All'}
+          </button>
+          <button
             className="monitor-btn monitor-btn-danger"
             onClick={() => setResetConfirmOpen(true)}
             disabled={resetBusy || fleetBusy}
-            title="Reset all machines back to genesis block"
+            title="Reset all machines back to genesis block (no auto-restart)"
           >
             {resetBusy ? 'Resetting...' : 'Reset Chain to Genesis'}
           </button>
@@ -230,10 +238,10 @@ function NetworkMonitorDashboard() {
               <li>Stop running</li>
               <li>Delete all chain state, logs, and runtime artifacts</li>
               <li>Redeploy configuration from the installer bundle</li>
-              <li>Restart from genesis block 0</li>
             </ul>
             <p className="monitor-confirm-warning">
               This action is irreversible. All chain data will be permanently deleted.
+              Nodes will <strong>not</strong> auto-restart — use <em>Sync All</em> then <em>Start All</em> when ready.
             </p>
             <div className="monitor-confirm-actions">
               <button
@@ -263,18 +271,24 @@ function NetworkMonitorDashboard() {
               {fleetAction === 'stop' && 'Stop All Nodes'}
               {fleetAction === 'start' && 'Start All Nodes'}
               {fleetAction === 'restart' && 'Restart All Nodes'}
+              {fleetAction === 'sync_node' && 'Sync All Nodes'}
             </h3>
-            <p>
-              This will send a
-              {' '}
-              <code>{fleetAction}</code>
-              {' '}
-              command to
-              {' '}
-              <strong>all {snapshot?.total_nodes ?? 0} nodes</strong>
-              {' '}
-              across all machines.
-            </p>
+            {fleetAction === 'sync_node' ? (
+              <p>
+                This will run <code>nodectl sync</code> on{' '}
+                <strong>all {snapshot?.total_nodes ?? 0} nodes</strong> in parallel. Each node will
+                download all missing blocks from peers <em>without starting</em>. This can take up
+                to 2 hours for cold nodes. Nodes should be stopped before syncing.
+              </p>
+            ) : (
+              <p>
+                This will send a{' '}
+                <code>{fleetAction}</code>{' '}
+                command to{' '}
+                <strong>all {snapshot?.total_nodes ?? 0} nodes</strong>{' '}
+                across all machines.
+              </p>
+            )}
             <div className="monitor-confirm-actions">
               <button
                 className="monitor-btn"
@@ -284,13 +298,17 @@ function NetworkMonitorDashboard() {
                 Cancel
               </button>
               <button
-                className={`monitor-btn ${fleetAction === 'stop' ? '' : 'monitor-btn-primary'}`}
+                className={`monitor-btn ${fleetAction === 'stop' ? '' : fleetAction === 'sync_node' ? 'monitor-btn-warning' : 'monitor-btn-primary'}`}
                 onClick={handleGlobalFleet}
                 disabled={fleetBusy}
               >
                 {fleetBusy
-                  ? `${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)}ing All Nodes...`
-                  : `Confirm: ${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)} All Nodes`}
+                  ? fleetAction === 'sync_node'
+                    ? 'Syncing All Nodes...'
+                    : `${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)}ing All Nodes...`
+                  : fleetAction === 'sync_node'
+                    ? 'Confirm: Sync All Nodes'
+                    : `Confirm: ${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)} All Nodes`}
               </button>
             </div>
           </div>
@@ -301,9 +319,11 @@ function NetworkMonitorDashboard() {
       {fleetResult && !fleetResult.error && (
         <div className="monitor-success-box">
           <strong>
-            {fleetResult.action
-              ? `${fleetResult.action.charAt(0).toUpperCase()}${fleetResult.action.slice(1)} complete:`
-              : 'Fleet action complete:'}
+            {fleetResult.action === 'sync_node'
+              ? 'Sync complete:'
+              : fleetResult.action
+                ? `${fleetResult.action.charAt(0).toUpperCase()}${fleetResult.action.slice(1)} complete:`
+                : 'Fleet action complete:'}
           </strong>
           {' '}
           {fleetResult.succeeded} succeeded, {fleetResult.failed} failed across {fleetResult.requested_nodes} nodes.

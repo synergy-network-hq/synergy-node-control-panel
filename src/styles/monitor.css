@@ -252,6 +252,15 @@
   );
 }
 
+.monitor-btn-warning {
+  border-color: var(--snrg-warning-border);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 184, 0, 0.15),
+    rgba(200, 120, 0, 0.2)
+  );
+}
+
 .monitor-link-btn {
   border: 1px solid var(--snrg-border-blue-strong);
   border-radius: 10px;

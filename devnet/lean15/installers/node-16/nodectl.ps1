@@ -1,6 +1,6 @@
 param(
   [Parameter(Position = 0)]
-  [ValidateSet("start", "stop", "restart", "status", "logs", "info")]
+  [ValidateSet("start", "stop", "restart", "sync", "status", "logs", "info")]
   [string]$Action = "status",
   [switch]$Follow
 )
@@ -40,6 +40,14 @@ function Test-NodeRunning {
 }
 
 function Start-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
+
+# Sync only — download all missing blocks from peers without starting the node.
+# Intended for late-joining nodes or nodes that have been offline for a long time.
+function Sync-Node {
+  $env:SYNC_ONLY = "true"
+  if (-not $env:PRESTART_SYNC_TIMEOUT_SECS) { $env:PRESTART_SYNC_TIMEOUT_SECS = "7200" }
+  & (Join-Path $BaseDir "install_and_start.ps1")
+}
 
 function Stop-Node {
   if (-not (Test-NodeRunning)) {
@@ -102,6 +110,7 @@ switch ($Action) {
   "start"   { Start-Node }
   "stop"    { Stop-Node }
   "restart" { Stop-Node; Start-Node }
+  "sync"    { Sync-Node }
   "status"  { Status-Node }
   "logs"    { Logs-Node }
   "info"    { Info-Node }

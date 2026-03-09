@@ -230,8 +230,18 @@ run_prestart_sync() {
   local config_path
   config_path="$BASE_DIR/config/node.toml"
 
-  for attempt in {1..24}; do
-    echo "Pre-start sync attempt ${attempt}/24 for $NODE_SLOT_ID..."
+  # Use a wall-clock deadline instead of a fixed attempt count so that nodes
+  # far behind the chain tip (e.g. late joiners) are given enough time to
+  # fully catch up.  Override with PRESTART_SYNC_TIMEOUT_SECS in the calling
+  # environment (default: 600 s = 10 min; use e.g. 3600 for a late joiner).
+  local timeout_secs="${PRESTART_SYNC_TIMEOUT_SECS:-600}"
+  local deadline=$(( $(date +%s) + timeout_secs ))
+  local attempt=0
+
+  while [[ $(date +%s) -lt $deadline ]]; do
+    attempt=$(( attempt + 1 ))
+    local remaining=$(( deadline - $(date +%s) ))
+    echo "Pre-start sync attempt ${attempt} for $NODE_SLOT_ID (${remaining}s remaining of ${timeout_secs}s)..."
     if env \
       SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
       NODE_ADDRESS="$validator_address" \
@@ -245,7 +255,10 @@ run_prestart_sync() {
       "$BIN_SELECTED" sync --config "$config_path" >> "$OUT_FILE" 2>> "$ERR_FILE"; then
       return 0
     fi
-    sleep 5
+    # Brief pause before retrying (skip if the deadline is almost up).
+    if [[ $(date +%s) -lt $(( deadline - 5 )) ]]; then
+      sleep 5
+    fi
   done
 
   return 1
@@ -311,4 +324,18 @@ start_node() {
 select_binary
 apply_staged_binaries
 open_ports
+
+# SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
+# Used by "nodectl.sh sync" to let an operator explicitly catch up a late-joining
+# node before starting it.
+if [[ "${SYNC_ONLY:-false}" == "true" ]]; then
+  if run_prestart_sync; then
+    echo "[$NODE_SLOT_ID] Sync complete. Node is ready for manual start."
+    exit 0
+  else
+    echo "[$NODE_SLOT_ID] Sync did not complete within the timeout." >&2
+    exit 1
+  fi
+fi
+
 start_node

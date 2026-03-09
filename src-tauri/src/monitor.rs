@@ -90,6 +90,9 @@ pub struct MonitorControlCapabilities {
     pub export_logs_configured: bool,
     pub view_chain_data_configured: bool,
     pub export_chain_data_configured: bool,
+    /// True when the node can be reached via the devnet-agent or a configured
+    /// SSH command, meaning the `sync_node` action (nodectl sync) is available.
+    pub sync_node_configured: bool,
     pub custom_actions: Vec<MonitorControlAction>,
     pub configuration_hint: String,
 }
@@ -4124,6 +4127,10 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
     let export_logs_configured = commands.export_logs.is_some();
     let view_chain_data_configured = commands.view_chain_data.is_some();
     let export_chain_data_configured = commands.export_chain_data.is_some();
+    // sync_node runs `nodectl sync` via the agent (or SSH fallback); it is
+    // available whenever the node has a start command configured, since both
+    // go through the same nodectl script.
+    let sync_node_configured = start_configured;
 
     // Node-type-specific shell actions are surfaced in role_operations, not here.
     let role_operation_keys: &[&str] = &[
@@ -4163,6 +4170,7 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
         || export_logs_configured
         || view_chain_data_configured
         || export_chain_data_configured
+        || sync_node_configured
         || !custom_actions.is_empty();
 
     let configuration_hint = if enabled {
@@ -4181,6 +4189,7 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
         export_logs_configured,
         view_chain_data_configured,
         export_chain_data_configured,
+        sync_node_configured,
         custom_actions,
         configuration_hint,
     }
@@ -5083,6 +5092,7 @@ fn agent_supports_action(action: &str) -> bool {
             | "install_node"
             | "bootstrap_node"
             | "reset_chain"
+            | "sync_node"
             | "logs"
             | "node_logs"
     )
@@ -5116,6 +5126,9 @@ fn agent_request_timeout(action: &str) -> Duration {
         "reset_chain" | "install_node" | "bootstrap_node" | "setup_node" | "start" | "restart" => {
             Duration::from_secs(300)
         }
+        // sync_node downloads all missing blocks — can take hours for a cold node.
+        // Set to 2 hours to match the default PRESTART_SYNC_TIMEOUT_SECS in nodectl.sh.
+        "sync_node" => Duration::from_secs(7200),
         _ => Duration::from_secs(30),
     }
 }
@@ -7461,6 +7474,8 @@ fn bulk_action_phase(action: &str, node: &MonitorNode) -> u8 {
                 2
             }
         }
+        // sync_node: each node syncs independently from peers; no ordering needed.
+        "sync_node" => 0,
         _ => 0,
     }
 }
@@ -7471,7 +7486,13 @@ fn bulk_action_pause(action: &str, phase: u8) -> Option<Duration> {
             "start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node"
             | "bootstrap_node",
             1,
-        ) => Some(Duration::from_secs(8)),
+        ) => {
+            // Give bootnodes (phase 0) 30 s to bind their P2P and RPC ports before
+            // the consensus validators (phase 1) attempt their pre-start sync.
+            // The pre-start sync retry loop will cover any remaining startup time,
+            // but a generous initial pause reduces first-attempt failures in logs.
+            Some(Duration::from_secs(30))
+        }
         (
             "start" | "restart" | "reset_chain" | "setup" | "setup_node" | "install_node"
             | "bootstrap_node",
