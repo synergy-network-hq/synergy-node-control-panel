@@ -93,6 +93,11 @@ pub struct MonitorControlCapabilities {
     /// True when the node can be reached via the devnet-agent or a configured
     /// SSH command, meaning the `sync_node` action (nodectl sync) is available.
     pub sync_node_configured: bool,
+    /// True when the orchestrator `deploy_agent` action is available for this node,
+    /// meaning the agent binary can be pushed and restarted via SSH.  Always uses
+    /// the orchestrator path (never the agent itself) so it works even when the
+    /// remote agent is missing or running an outdated binary.
+    pub update_agent_configured: bool,
     pub custom_actions: Vec<MonitorControlAction>,
     pub configuration_hint: String,
 }
@@ -4090,6 +4095,9 @@ fn resolve_control_commands(
             ("bootstrap_node", "bootstrap_node"),
             ("reset_chain", "reset_chain"),
             ("node_logs", "logs"),
+            // Agent management — always routed through orchestrator (SSH), never via
+            // the agent itself, so it works even when the remote agent is absent or stale.
+            ("update_agent", "deploy_agent"),
             // Class I — Consensus
             ("rotate_vrf_key", "rotate_vrf_key"),
             ("verify_archive_integrity", "verify_archive_integrity"),
@@ -4133,6 +4141,8 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
     let sync_node_configured = start_configured;
 
     // Node-type-specific shell actions are surfaced in role_operations, not here.
+    // `update_agent` gets its own dedicated UI button, so exclude it from the
+    // generic custom_actions list as well.
     let role_operation_keys: &[&str] = &[
         "rotate_vrf_key",
         "verify_archive_integrity",
@@ -4144,7 +4154,10 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
         "run_pqc_benchmark",
         "trigger_da_sample",
         "reindex_from_height",
+        "update_agent",
     ];
+
+    let update_agent_configured = commands.custom_actions.contains_key("update_agent");
 
     let mut custom_actions = commands
         .custom_actions
@@ -4190,6 +4203,7 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
         view_chain_data_configured,
         export_chain_data_configured,
         sync_node_configured,
+        update_agent_configured,
         custom_actions,
         configuration_hint,
     }

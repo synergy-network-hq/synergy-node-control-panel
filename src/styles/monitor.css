@@ -261,6 +261,17 @@
   );
 }
 
+/* Infrastructure / agent-management actions — teal-to-violet to distinguish from
+   lifecycle (primary), danger, and warning variants. */
+.monitor-btn-agent {
+  border-color: rgba(128, 90, 213, 0.7);
+  background: linear-gradient(
+    135deg,
+    rgba(0, 210, 180, 0.15),
+    rgba(128, 90, 213, 0.22)
+  );
+}
+
 .monitor-link-btn {
   border: 1px solid var(--snrg-border-blue-strong);
   border-radius: 10px;

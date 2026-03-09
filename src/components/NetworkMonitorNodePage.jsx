@@ -731,6 +731,21 @@ function NetworkMonitorNodePage() {
           {controlBusyAction === 'sync_node' ? 'Syncing...' : 'Sync Node'}
         </button>
         <button
+          className="monitor-btn monitor-btn-agent"
+          disabled={!control?.update_agent_configured || !!controlBusyAction}
+          onClick={() => {
+            const approved = window.confirm(
+              'Update devnet agent on this node?\n\nThis pushes the latest synergy-devnet-agent binary to the remote machine via SSH and restarts the agent service.\n\nPrerequisite: run scripts/build-sidecars.sh first to compile binaries.\n\nThis operation uses SSH directly — it works even when the remote agent is offline or running an outdated version.',
+            );
+            if (approved) {
+              handleControlAction('update_agent');
+            }
+          }}
+          title="Push the latest devnet-agent binary to the remote machine via SSH and restart it. Use when the remote agent is missing, outdated, or unresponsive."
+        >
+          {controlBusyAction === 'update_agent' ? 'Updating Agent...' : 'Update Agent'}
+        </button>
+        <button
           className="monitor-btn monitor-btn-danger"
           disabled={!resetChainAction?.configured || !!controlBusyAction}
           onClick={() => {

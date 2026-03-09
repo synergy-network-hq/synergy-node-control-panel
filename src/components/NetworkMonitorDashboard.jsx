@@ -185,6 +185,14 @@ function NetworkMonitorDashboard() {
             {fleetBusy && fleetAction === 'sync_node' ? 'Syncing All...' : 'Sync All'}
           </button>
           <button
+            className="monitor-btn monitor-btn-agent"
+            onClick={() => handleFleetConfirm('update_agent')}
+            disabled={fleetBusy || resetBusy}
+            title="Push the latest devnet-agent binary to every remote machine via SSH and restart it. Prerequisite: run scripts/build-sidecars.sh first."
+          >
+            {fleetBusy && fleetAction === 'update_agent' ? 'Updating All Agents...' : 'Update All Agents'}
+          </button>
+          <button
             className="monitor-btn monitor-btn-danger"
             onClick={() => setResetConfirmOpen(true)}
             disabled={resetBusy || fleetBusy}
@@ -272,6 +280,7 @@ function NetworkMonitorDashboard() {
               {fleetAction === 'start' && 'Start All Nodes'}
               {fleetAction === 'restart' && 'Restart All Nodes'}
               {fleetAction === 'sync_node' && 'Sync All Nodes'}
+              {fleetAction === 'update_agent' && 'Update All Agents'}
             </h3>
             {fleetAction === 'sync_node' ? (
               <p>
@@ -279,6 +288,15 @@ function NetworkMonitorDashboard() {
                 <strong>all {snapshot?.total_nodes ?? 0} nodes</strong> in parallel. Each node will
                 download all missing blocks from peers <em>without starting</em>. This can take up
                 to 2 hours for cold nodes. Nodes should be stopped before syncing.
+              </p>
+            ) : fleetAction === 'update_agent' ? (
+              <p>
+                This will push the latest <code>synergy-devnet-agent</code> binary to{' '}
+                <strong>all {snapshot?.total_nodes ?? 0} remote machines</strong> via SSH and
+                restart the agent service on each. Local nodes (running on this machine) are
+                skipped automatically.{' '}
+                <strong>Prerequisite:</strong> run <code>scripts/build-sidecars.sh</code> first to
+                compile the binaries.
               </p>
             ) : (
               <p>
@@ -298,17 +316,29 @@ function NetworkMonitorDashboard() {
                 Cancel
               </button>
               <button
-                className={`monitor-btn ${fleetAction === 'stop' ? '' : fleetAction === 'sync_node' ? 'monitor-btn-warning' : 'monitor-btn-primary'}`}
+                className={`monitor-btn ${
+                  fleetAction === 'stop'
+                    ? ''
+                    : fleetAction === 'sync_node'
+                      ? 'monitor-btn-warning'
+                      : fleetAction === 'update_agent'
+                        ? 'monitor-btn-agent'
+                        : 'monitor-btn-primary'
+                }`}
                 onClick={handleGlobalFleet}
                 disabled={fleetBusy}
               >
                 {fleetBusy
                   ? fleetAction === 'sync_node'
                     ? 'Syncing All Nodes...'
-                    : `${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)}ing All Nodes...`
+                    : fleetAction === 'update_agent'
+                      ? 'Updating All Agents...'
+                      : `${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)}ing All Nodes...`
                   : fleetAction === 'sync_node'
                     ? 'Confirm: Sync All Nodes'
-                    : `Confirm: ${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)} All Nodes`}
+                    : fleetAction === 'update_agent'
+                      ? 'Confirm: Update All Agents'
+                      : `Confirm: ${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)} All Nodes`}
               </button>
             </div>
           </div>
@@ -321,9 +351,11 @@ function NetworkMonitorDashboard() {
           <strong>
             {fleetResult.action === 'sync_node'
               ? 'Sync complete:'
-              : fleetResult.action
-                ? `${fleetResult.action.charAt(0).toUpperCase()}${fleetResult.action.slice(1)} complete:`
-                : 'Fleet action complete:'}
+              : fleetResult.action === 'update_agent'
+                ? 'Agent update complete:'
+                : fleetResult.action
+                  ? `${fleetResult.action.charAt(0).toUpperCase()}${fleetResult.action.slice(1)} complete:`
+                  : 'Fleet action complete:'}
           </strong>
           {' '}
           {fleetResult.succeeded} succeeded, {fleetResult.failed} failed across {fleetResult.requested_nodes} nodes.

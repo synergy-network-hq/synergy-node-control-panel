@@ -26,6 +26,9 @@ Core Operations:
   view_chain_data       Show chain data size and top files on remote machine
   export_chain_data     Download chain data archive from remote machine to local reports dir
   explorer_reset        Trigger explorer reindex from the remote machine using localhost/VPN-safe routing
+  deploy_agent          Push updated devnet-agent binary to remote machine and (re)start as a service
+                        Prerequisite: run scripts/build-sidecars.sh first to compile the binary.
+                        This is the one-time bootstrap for machines that don't yet have the agent.
 
 Node-Type-Specific Operations:
   rotate_vrf_key            [Validator]       Rotate VRF keypair and restart
@@ -724,6 +727,134 @@ echo 'Reindex initiated from block 0.'
 "
 }
 
+deploy_agent() {
+  if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
+    echo "Node $NODE_SLOT_ID is on the local machine — the devnet agent runs as a Tauri app sidecar here."
+    echo "Rebuild and relaunch the control panel app to update the local agent."
+    exit 0
+  fi
+
+  # Detect remote OS and architecture so we pick the right pre-built binary.
+  echo "Detecting remote platform for $REMOTE_TARGET ..."
+  local remote_os remote_arch
+  remote_os="$(ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" 'uname -s' 2>/dev/null | tr '[:upper:]' '[:lower:]')" || {
+    echo "Failed to connect to $REMOTE_TARGET via SSH. Check connectivity and SSH key." >&2
+    exit 1
+  }
+  remote_arch="$(ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" 'uname -m' 2>/dev/null)"
+
+  local platform_suffix
+  case "$remote_os" in
+    linux)
+      case "$remote_arch" in
+        x86_64|amd64)    platform_suffix="linux-amd64" ;;
+        aarch64|arm64)   platform_suffix="linux-arm64" ;;
+        *) echo "Unsupported remote arch: $remote_arch" >&2; exit 1 ;;
+      esac ;;
+    darwin)
+      case "$remote_arch" in
+        x86_64)          platform_suffix="darwin-amd64" ;;
+        arm64|aarch64)   platform_suffix="darwin-arm64" ;;
+        *) echo "Unsupported remote arch: $remote_arch" >&2; exit 1 ;;
+      esac ;;
+    *)
+      echo "Unsupported remote OS: $remote_os" >&2
+      exit 1 ;;
+  esac
+  echo "Remote platform: $remote_os/$remote_arch → binary suffix: $platform_suffix"
+
+  # Locate the compiled agent binary.
+  local binary_ext=""
+  [[ "$remote_os" == "windows"* ]] && binary_ext=".exe"
+  local binary_src="$ROOT_DIR/binaries/synergy-devnet-agent-${platform_suffix}${binary_ext}"
+  if [[ ! -f "$binary_src" ]]; then
+    echo "Agent binary not found: $binary_src" >&2
+    echo "Run  scripts/build-sidecars.sh  first to compile the binary for $platform_suffix." >&2
+    exit 1
+  fi
+
+  # Paths on the remote machine.
+  local agent_dir="/opt/synergy/devnet-agent"
+  local agent_bin="$agent_dir/synergy-devnet-agent${binary_ext}"
+  local workspace_dir="$agent_dir/workspace"
+
+  echo "Creating remote directories ..."
+  ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "mkdir -p '$agent_dir' '$workspace_dir/devnet/lean15'"
+
+  # Push workspace metadata so the agent can resolve node installs.
+  echo "Pushing inventory and hosts config ..."
+  scp "${SCP_ARGS[@]}" \
+    "$ROOT_DIR/devnet/lean15/node-inventory.csv" \
+    "${REMOTE_TARGET}:${workspace_dir}/devnet/lean15/node-inventory.csv"
+  scp "${SCP_ARGS[@]}" \
+    "$ROOT_DIR/devnet/lean15/hosts.env" \
+    "${REMOTE_TARGET}:${workspace_dir}/devnet/lean15/hosts.env"
+
+  # Push the agent binary.
+  echo "Pushing agent binary ($binary_src) ..."
+  scp "${SCP_ARGS[@]}" "$binary_src" "${REMOTE_TARGET}:${agent_bin}"
+  ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "chmod +x '$agent_bin'"
+
+  # Install as a systemd service (Linux) or run in background (macOS/other).
+  remote_run_script "
+set -euo pipefail
+
+AGENT_BIN='$agent_bin'
+WORKSPACE='$workspace_dir'
+
+if command -v systemctl >/dev/null 2>&1 && [[ -d /etc/systemd/system ]]; then
+  # Write the unit file (requires root; sudo is attempted if not root).
+  SERVICE_FILE=/etc/systemd/system/synergy-devnet-agent.service
+  UNIT_CONTENT=\"[Unit]
+Description=Synergy Devnet Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=\${AGENT_BIN} --workspace \${WORKSPACE}
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=synergy-devnet-agent
+
+[Install]
+WantedBy=multi-user.target\"
+
+  if [[ \$(id -u) -eq 0 ]]; then
+    printf '%s\n' \"\$UNIT_CONTENT\" > \"\$SERVICE_FILE\"
+    systemctl daemon-reload
+    systemctl enable synergy-devnet-agent
+    systemctl restart synergy-devnet-agent
+    sleep 2
+    systemctl status synergy-devnet-agent --no-pager || true
+  else
+    echo \"\$UNIT_CONTENT\" | sudo tee \"\$SERVICE_FILE\" >/dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl enable synergy-devnet-agent
+    sudo systemctl restart synergy-devnet-agent
+    sleep 2
+    sudo systemctl status synergy-devnet-agent --no-pager || true
+  fi
+  echo 'Agent installed as systemd service and started.'
+
+else
+  # Non-systemd fallback: kill old agent, start fresh in background.
+  pkill -f 'synergy-devnet-agent' 2>/dev/null || true
+  sleep 1
+  LOG_FILE='/var/log/synergy-devnet-agent.log'
+  touch \"\$LOG_FILE\" 2>/dev/null || LOG_FILE=\"\$HOME/synergy-devnet-agent.log\"
+  nohup \"\$AGENT_BIN\" --workspace \"\$WORKSPACE\" > \"\$LOG_FILE\" 2>&1 &
+  echo \"Agent started in background (PID \$!). Logs: \$LOG_FILE\"
+fi
+"
+
+  echo ""
+  echo "Agent deployed successfully on $REMOTE_TARGET."
+  echo "It is listening on port 47990 and will restart automatically on failure."
+}
+
 show_info() {
   cat <<INFO
 Machine:            $NODE_SLOT_ID
@@ -747,6 +878,7 @@ case "$OPERATION" in
                       remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh" ;;
   reset_chain)        reset_chain ;;
   explorer_reset)     explorer_reset ;;
+  deploy_agent)       deploy_agent ;;
   start)              run_nodectl "start" ;;
   stop)               run_nodectl "stop" || true; kill_machine_processes "stop" ;;
   restart)            run_nodectl "stop" || true; kill_machine_processes "restart"; run_nodectl "start" ;;
