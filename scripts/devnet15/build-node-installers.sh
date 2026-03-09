@@ -695,6 +695,10 @@ SCRIPT
 write_install_ps1() {
   local node_dir="$1"
   cat > "$node_dir/install_and_start.ps1" <<'SCRIPT'
+param(
+  [switch]$OpenPortsOnly
+)
+
 $ErrorActionPreference = "Stop"
 
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -784,6 +788,29 @@ function Open-Ports {
   if ([string]::IsNullOrWhiteSpace($vpnCidr)) { $vpnCidr = "10.50.0.0/24" }
 
   if (-not (Test-Admin)) {
+    $canPromptForElevation = [Environment]::UserInteractive `
+      -and [string]::IsNullOrWhiteSpace($env:SSH_CONNECTION) `
+      -and [string]::IsNullOrWhiteSpace($env:SSH_CLIENT)
+    if ($canPromptForElevation -and -not $OpenPortsOnly) {
+      try {
+        $argumentList = @(
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "`"$PSCommandPath`"",
+          "-OpenPortsOnly"
+        )
+        $elevated = Start-Process -FilePath "powershell" -Verb RunAs -WorkingDirectory $BaseDir -ArgumentList $argumentList -Wait -PassThru
+        if ($elevated.ExitCode -eq 0) {
+          Write-Host "Opened Windows Firewall ports using an elevated PowerShell prompt."
+          return
+        }
+        Write-Warning "Elevated firewall setup exited with code $($elevated.ExitCode)."
+      } catch {
+        Write-Warning "Unable to prompt for Windows Firewall elevation automatically: $_"
+      }
+    }
     Write-Warning "Run PowerShell as Administrator to auto-open Windows Firewall ports."
     Write-Host "Open these TCP ports manually: $($ports -join ', ')"
     return
@@ -909,6 +936,11 @@ function Start-Node {
 }
 
 Open-Ports
+
+if ($OpenPortsOnly) {
+  Write-Host "Firewall rule setup completed for $($NodeEnv['NODE_SLOT_ID'])."
+  exit 0
+}
 
 # SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
 # Used by nodectl.ps1 sync to let an operator explicitly catch up a late-joining
@@ -1184,7 +1216,7 @@ Notes
 - The installer includes Linux x86_64, macOS arm64, and Windows x86_64 binaries.
 - Linux firewall automation supports ufw, firewalld, and iptables.
 - In WireGuard mode, firewall rules are scoped to VPN CIDR traffic.
-- Windows firewall automation uses New-NetFirewallRule when run as Administrator.
+- Windows firewall automation prompts for elevation when needed and otherwise prints the required TCP ports.
 - This folder is self-contained for this node instance.
 - Public DNS should resolve to public hosts only; never point public DNS at private VPN IPs.
 - Binary provenance:

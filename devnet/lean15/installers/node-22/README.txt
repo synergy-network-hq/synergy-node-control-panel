@@ -29,7 +29,7 @@ Notes
 - The installer includes Linux x86_64, macOS arm64, and Windows x86_64 binaries.
 - Linux firewall automation supports ufw, firewalld, and iptables.
 - In WireGuard mode, firewall rules are scoped to VPN CIDR traffic.
-- Windows firewall automation uses New-NetFirewallRule when run as Administrator.
+- Windows firewall automation prompts for elevation when needed and otherwise prints the required TCP ports.
 - This folder is self-contained for this node instance.
 - Public DNS should resolve to public hosts only; never point public DNS at private VPN IPs.
 - Binary provenance:

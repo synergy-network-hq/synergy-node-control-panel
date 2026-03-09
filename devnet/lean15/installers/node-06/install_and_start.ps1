@@ -1,3 +1,7 @@
+param(
+  [switch]$OpenPortsOnly
+)
+
 $ErrorActionPreference = "Stop"
 
 $BaseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -87,6 +91,29 @@ function Open-Ports {
   if ([string]::IsNullOrWhiteSpace($vpnCidr)) { $vpnCidr = "10.50.0.0/24" }
 
   if (-not (Test-Admin)) {
+    $canPromptForElevation = [Environment]::UserInteractive `
+      -and [string]::IsNullOrWhiteSpace($env:SSH_CONNECTION) `
+      -and [string]::IsNullOrWhiteSpace($env:SSH_CLIENT)
+    if ($canPromptForElevation -and -not $OpenPortsOnly) {
+      try {
+        $argumentList = @(
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "`"$PSCommandPath`"",
+          "-OpenPortsOnly"
+        )
+        $elevated = Start-Process -FilePath "powershell" -Verb RunAs -WorkingDirectory $BaseDir -ArgumentList $argumentList -Wait -PassThru
+        if ($elevated.ExitCode -eq 0) {
+          Write-Host "Opened Windows Firewall ports using an elevated PowerShell prompt."
+          return
+        }
+        Write-Warning "Elevated firewall setup exited with code $($elevated.ExitCode)."
+      } catch {
+        Write-Warning "Unable to prompt for Windows Firewall elevation automatically: $_"
+      }
+    }
     Write-Warning "Run PowerShell as Administrator to auto-open Windows Firewall ports."
     Write-Host "Open these TCP ports manually: $($ports -join ', ')"
     return
@@ -212,6 +239,11 @@ function Start-Node {
 }
 
 Open-Ports
+
+if ($OpenPortsOnly) {
+  Write-Host "Firewall rule setup completed for $($NodeEnv['NODE_SLOT_ID'])."
+  exit 0
+}
 
 # SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
 # Used by nodectl.ps1 sync to let an operator explicitly catch up a late-joining
