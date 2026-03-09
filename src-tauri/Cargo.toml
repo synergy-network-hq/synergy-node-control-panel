@@ -1,6 +1,6 @@
 [package]
 name = "synergy-devnet-control-panel"
-version = "2.9.4"
+version = "2.10.0"
 description = "Synergy Devnet Control Panel"
 authors = ["Synergy Network"]
 edition = "2021"
