@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
-const WG_BOOTSTRAP_SEQUENCE = ['wireguard_install', 'wireguard_connect', 'wireguard_status'];
 const PROVISION_SEQUENCE = ['setup', 'start', 'status'];
 const DEVNET_NODE_LAYOUT = [
   ['node-01', 'node-14'],
@@ -116,7 +115,6 @@ function JarvisAgentSetup() {
     sshPort: '22',
     sshKeyPath: '~/.ssh/id_ed25519',
     remoteRoot: '/opt/synergy',
-    wgInterface: 'wg0',
     atlasBaseUrl: 'https://devnet-explorer.synergy-network.io',
   });
 
@@ -180,12 +178,9 @@ function JarvisAgentSetup() {
       );
       addMessage(
         'jarvis',
-        `First target sequence on node-01 is ${formatSequence(WG_BOOTSTRAP_SEQUENCE)}.`,
+        'The VPN is assumed to be pre-provisioned. I will only map reachable machine hosts and orchestrate node actions.',
       );
-      addMessage(
-        'jarvis',
-        'Step 1: enter the reachable SSH host/IP for node-01 (public/LAN address, not 10.50.0.x).',
-      );
+      addMessage('jarvis', 'Step 1: enter the reachable SSH host/IP for node-01.');
       setPhase('await_machine01_host');
     } catch (error) {
       addMessage('jarvis', `Initialization failed: ${String(error)}`);
@@ -278,7 +273,6 @@ function JarvisAgentSetup() {
         ssh_port: Number(defaults.sshPort || 22),
         ssh_key_path: defaults.sshKeyPath,
         remote_dir: `${defaults.remoteRoot}/${nodeSlotId}`,
-        wg_interface: defaults.wgInterface,
       })),
     );
 
@@ -303,42 +297,14 @@ function JarvisAgentSetup() {
       });
       addMessage('jarvis', `Updated hosts config: ${String(hostsPath)}`);
 
-      addMessage('jarvis', 'Generating WireGuard mesh configs (keys + peer configs)...');
-      const meshResult = await invoke('agent_generate_wireguard_mesh');
-      if (!meshResult?.success) {
-        setHaltedAction({
-          nodeSlotId: 'local-control',
-          action: 'generate_wireguard_mesh',
-          command: String(meshResult?.command || ''),
-          reason: truncateText(meshResult?.stderr || meshResult?.stdout || 'Mesh generation failed.'),
-        });
-        addMessage(
-          'jarvis',
-          'WireGuard mesh generation failed locally. Install local WireGuard tools if missing, run the command shown, then continue.',
-        );
-        setConfiguredMachineIds(nodeSlotMappings.map((entry) => entry.node_slot_id));
-        setPhase('ready_actions');
-        return;
-      }
-
-      addMessage('jarvis', 'WireGuard mesh artifacts generated successfully.');
-
       const configuredIds = sortNodeSlotIds(nodeSlotMappings.map((entry) => entry.node_slot_id));
       setConfiguredMachineIds(configuredIds);
 
-      if (configuredIds.includes('node-01')) {
-        const ok = await runSequenceForNodeSlot('node-01', WG_BOOTSTRAP_SEQUENCE, 'WireGuard bootstrap');
-        if (!ok) {
-          setPhase('ready_actions');
-          return;
-        }
-        addMessage('jarvis', 'node-01 WireGuard bootstrap completed.');
-      }
-
       addMessage(
         'jarvis',
-        'Base setup complete. Use the action buttons to run WireGuard/provisioning across all assigned machines.',
+        'Connection mappings saved. The control panel will use the existing VPN and will not manage WireGuard from here.',
       );
+      addMessage('jarvis', 'Use Provision + Start All Assigned when you are ready to deploy node bundles.');
       setPhase('ready_actions');
     } catch (error) {
       addMessage('jarvis', `Apply step failed: ${String(error)}`);
@@ -346,33 +312,7 @@ function JarvisAgentSetup() {
     } finally {
       setRunning(false);
     }
-  }, [addMessage, assignmentPlan, defaults, runSequenceForNodeSlot]);
-
-  const runWireguardAll = useCallback(async () => {
-    const targets = configuredNodeSlotIds.length
-      ? configuredNodeSlotIds
-      : sortNodeSlotIds(assignmentPlan.flatMap((entry) => entry.nodeSlotIds));
-
-    if (!targets.length) {
-      addMessage('jarvis', 'No configured machine targets available. Apply setup plan first.');
-      return;
-    }
-
-    setRunning(true);
-    setHaltedAction(null);
-    try {
-      for (const nodeSlotId of targets) {
-        const ok = await runSequenceForNodeSlot(nodeSlotId, WG_BOOTSTRAP_SEQUENCE, 'WireGuard setup');
-        if (!ok) {
-          addMessage('jarvis', 'WireGuard fleet run paused on failure. Resolve and retry.');
-          return;
-        }
-      }
-      addMessage('jarvis', 'WireGuard sequence completed across all assigned machines.');
-    } finally {
-      setRunning(false);
-    }
-  }, [addMessage, assignmentPlan, configuredNodeSlotIds, runSequenceForNodeSlot]);
+  }, [addMessage, assignmentPlan, defaults]);
 
   const runProvisionAll = useCallback(async () => {
     const targets = configuredNodeSlotIds.length
@@ -586,11 +526,6 @@ function JarvisAgentSetup() {
               placeholder="Remote node root"
             />
             <input
-              value={defaults.wgInterface}
-              onChange={(event) => setDefaults((prev) => ({ ...prev, wgInterface: event.target.value }))}
-              placeholder="WireGuard interface"
-            />
-            <input
               value={defaults.atlasBaseUrl}
               onChange={(event) => setDefaults((prev) => ({ ...prev, atlasBaseUrl: event.target.value }))}
               placeholder="Atlas base URL"
@@ -609,10 +544,7 @@ function JarvisAgentSetup() {
 
           <div className="jarvis-action-row">
             <button className="monitor-btn monitor-btn-primary" onClick={applyPlan} disabled={running || phase === 'booting'}>
-              Apply Plan + Bootstrap node-01
-            </button>
-            <button className="monitor-btn" onClick={runWireguardAll} disabled={running || !assignmentPlan.length}>
-              WireGuard All Assigned
+              Apply Plan
             </button>
             <button className="monitor-btn" onClick={runProvisionAll} disabled={running || !assignmentPlan.length}>
               Provision + Start All Assigned
@@ -643,26 +575,7 @@ function JarvisAgentSetup() {
                   className="monitor-btn"
                   onClick={async () => {
                     setRunning(true);
-                    let ok = false;
-                    if (
-                      haltedAction.nodeSlotId === 'local-control'
-                      && haltedAction.action === 'generate_wireguard_mesh'
-                    ) {
-                      try {
-                        const meshResult = await invoke('agent_generate_wireguard_mesh');
-                        ok = Boolean(meshResult?.success);
-                        if (!ok) {
-                          addMessage(
-                            'jarvis',
-                            `Local mesh retry failed: ${truncateText(meshResult?.stderr || meshResult?.stdout)}`,
-                          );
-                        }
-                      } catch (error) {
-                        addMessage('jarvis', `Local mesh retry failed: ${String(error)}`);
-                      }
-                    } else {
-                      ok = await runNodeAction(haltedAction.nodeSlotId, haltedAction.action);
-                    }
+                    const ok = await runNodeAction(haltedAction.nodeSlotId, haltedAction.action);
                     if (ok) {
                       setHaltedAction(null);
                       addMessage('jarvis', 'Retry succeeded.');

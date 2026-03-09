@@ -14,11 +14,6 @@ const BULK_ACTIONS = [
   'export_logs',
   'view_chain_data',
   'export_chain_data',
-  'wireguard_install',
-  'wireguard_connect',
-  'wireguard_disconnect',
-  'wireguard_restart',
-  'wireguard_status',
   'rpc:get_node_status',
   'rpc:get_sync_status',
   'rpc:get_peer_info',
@@ -170,12 +165,12 @@ function OperatorConfigurationPage() {
     {
       kicker: '04',
       title: 'Run bulk control safely',
-      copy: 'WireGuard bootstrap first, then status and RPC checks. Use narrow scopes before you touch the entire fleet.',
+      copy: 'Save bindings first, then use status and RPC checks on narrow scopes before you touch the entire fleet.',
     },
     {
       kicker: '05',
       title: 'Verify agent reachability',
-      copy: 'Global reset/start/stop should only be attempted once every physical machine shows a reachable WireGuard agent.',
+      copy: 'Global reset/start/stop should only be attempted once every physical machine shows a reachable agent over the private VPN.',
     },
   ];
   const sectionLinks = [
@@ -664,7 +659,7 @@ function OperatorConfigurationPage() {
         <article id="agent-health" className="monitor-panel monitor-panel-span-3">
           <div className="monitor-card-heading">
             <div>
-              <p className="monitor-card-kicker">WireGuard Control Plane</p>
+              <p className="monitor-card-kicker">Private Control Plane</p>
               <h3>Agent Health / Reachability</h3>
             </div>
             <span className={`monitor-inline-pill monitor-inline-pill-${totalAgents > 0 && reachableAgents === totalAgents ? 'healthy' : 'degraded'}`}>
@@ -676,7 +671,7 @@ function OperatorConfigurationPage() {
             </span>
           </div>
           <p className="monitor-path">
-            Global lifecycle/reset actions use the per-machine agent over VPN first and fall back to SSH only when the agent is unavailable.
+            Global lifecycle/reset actions use the per-machine agent over the existing VPN first and fall back to SSH only when the agent is unavailable.
           </p>
 
           {agentError ? (
@@ -771,15 +766,13 @@ function OperatorConfigurationPage() {
           <div className="monitor-settings-guide-grid monitor-settings-guide-grid-compact">
             <article className="monitor-settings-guide-card">
               <span className="monitor-settings-guide-kicker">Safe Sequence</span>
-              <strong>WireGuard bootstrap first</strong>
+              <strong>Bindings first, then health checks</strong>
               <p>
-                <code>wireguard_install</code>
-                {' -> '}
-                <code>wireguard_connect</code>
-                {' -> '}
-                <code>wireguard_status</code>
-                {' -> '}
                 <code>status</code>
+                {' -> '}
+                <code>rpc:get_sync_status</code>
+                {' -> '}
+                <code>rpc:get_peer_info</code>
               </p>
             </article>
             <article className="monitor-settings-guide-card">

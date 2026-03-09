@@ -6,7 +6,9 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -33,6 +35,10 @@ pub struct DevnetAgentHealth {
 pub struct DevnetAgentControlRequest {
     pub node_slot_id: String,
     pub action: String,
+    #[serde(default)]
+    pub target_reason: Option<String>,
+    #[serde(default)]
+    pub target_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +143,7 @@ fn supported_agent_actions() -> Vec<String> {
         "install_node",
         "bootstrap_node",
         "reset_chain",
+        "explorer_reset",
         "node_logs",
         "logs",
     ]
@@ -246,9 +253,12 @@ fn execute_control(
         return Err("action is required".to_string());
     }
 
-    let install = resolve_node_install(workspace_root, &node_slot_id)?;
     let result = match normalized_action.as_str() {
+        "explorer_reset" => {
+            trigger_explorer_reset(input.target_url.as_deref(), input.target_reason.as_deref())
+        }
         "stop" => {
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
             // Ask nodectl to stop first (clean shutdown via PID file if available).
             let nodectl_result = run_nodectl(&install, "stop");
             // Always follow with force-kill to handle the case where the node was
@@ -259,13 +269,18 @@ fn execute_control(
             nodectl_result
         }
         "restart" => {
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
             // Same safe-stop sequence, then start fresh.
             let _ = run_nodectl(&install, "stop");
             force_kill_node_processes(&install);
             run_nodectl(&install, "start")
         }
-        "start" => run_nodectl(&install, &normalized_action),
+        "start" => {
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
+            run_nodectl(&install, &normalized_action)
+        }
         "status" => {
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
             // Run nodectl status first (PID-file based), then cross-check with
             // OS-level process detection to catch nodes running without PID files.
             let nodectl_result = run_nodectl(&install, "status");
@@ -304,14 +319,21 @@ fn execute_control(
                 }
             }
         }
-        "logs" | "node_logs" => run_nodectl(&install, "logs"),
+        "logs" | "node_logs" => {
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
+            run_nodectl(&install, "logs")
+        }
         "setup" | "setup_node" | "install_node" | "bootstrap_node" => {
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
             let _ = run_nodectl(&install, "stop");
             force_kill_node_processes(&install);
             sync_workspace_installer(workspace_root, &install)?;
             run_install_script(&install)
         }
-        "reset_chain" => reset_chain(workspace_root, &install),
+        "reset_chain" => {
+            let install = resolve_node_install(workspace_root, &node_slot_id)?;
+            reset_chain(workspace_root, &install)
+        }
         other => Err(format!("Unsupported devnet agent action: {other}")),
     }?;
 
@@ -337,6 +359,88 @@ struct CommandOutcome {
 
 fn normalize_action(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace(' ', "_")
+}
+
+fn trigger_explorer_reset(
+    endpoint: Option<&str>,
+    reason: Option<&str>,
+) -> Result<CommandOutcome, String> {
+    let endpoint = endpoint
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "target_url is required for explorer_reset".to_string())?;
+    let reason = reason
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("chain_reset");
+    let parsed =
+        Url::parse(endpoint).map_err(|error| format!("Invalid explorer reset URL: {error}"))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Explorer reset URL is missing a hostname".to_string())?
+        .to_string();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| "Explorer reset URL is missing a known port".to_string())?;
+    let payload = json!({
+        "action": "reindex_from_genesis",
+        "reason": reason,
+        "timestamp_utc": Utc::now().to_rfc3339(),
+    });
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("Failed to build async runtime for explorer reset: {error}"))?;
+
+    let (transport, body) = runtime.block_on(async move {
+        let loopback_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .resolve(&host, SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+            .build()
+            .map_err(|error| format!("Failed to build loopback HTTP client: {error}"))?;
+
+        match loopback_client.post(endpoint).json(&payload).send().await {
+            Ok(response) if response.status().is_success() => {
+                let body = response.text().await.unwrap_or_default();
+                return Ok((format!("loopback-resolve({host})"), body));
+            }
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                eprintln!("Explorer reset loopback attempt returned HTTP {status}: {body}");
+            }
+            Err(error) => {
+                eprintln!("Explorer reset loopback attempt failed: {error}");
+            }
+        }
+
+        let direct_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|error| format!("Failed to build direct HTTP client: {error}"))?;
+        let response = direct_client
+            .post(endpoint)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| format!("Explorer reset direct request failed: {error}"))?;
+        if response.status().is_success() {
+            let body = response.text().await.unwrap_or_default();
+            Ok(("direct".to_string(), body))
+        } else {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            Err(format!("Explorer reset returned HTTP {status}: {body}"))
+        }
+    })?;
+
+    Ok(CommandOutcome {
+        success: true,
+        exit_code: 0,
+        stdout: format!("Explorer reset accepted via {transport}\n{body}"),
+        stderr: String::new(),
+    })
 }
 
 fn is_allowed_remote(ip: IpAddr) -> bool {
@@ -614,7 +718,13 @@ fn is_node_process_running(install: &NodeInstall) -> bool {
             "$target = '{install_path}'; $p = Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -and $_.CommandLine.Contains($target) }}; if ($p) {{ exit 0 }} else {{ exit 1 }}"
         );
         match ProcessCommand::new("powershell")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
             .output()
         {
             Ok(output) => output.status.success(),

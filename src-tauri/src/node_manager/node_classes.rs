@@ -76,8 +76,12 @@ impl NodeClass {
         match self {
             NodeClass::ClassI => "Consensus Nodes — Secure the chain through PoSy consensus",
             NodeClass::ClassII => "Interoperability Nodes — Execute SXCP and UMA operations",
-            NodeClass::ClassIII => "Intelligence & Computation Nodes — Provide decentralized compute and AI services",
-            NodeClass::ClassIV => "Governance & Treasury Nodes — Manage DAO proposals and treasury execution",
+            NodeClass::ClassIII => {
+                "Intelligence & Computation Nodes — Provide decentralized compute and AI services"
+            }
+            NodeClass::ClassIV => {
+                "Governance & Treasury Nodes — Manage DAO proposals and treasury execution"
+            }
             NodeClass::ClassV => "Service & Support Nodes — Operate ancillary infrastructure",
         }
     }
@@ -99,29 +103,86 @@ mod tests {
     #[test]
     fn test_node_type_mapping() {
         // Class I — Consensus
-        assert_eq!(NodeClass::from_node_type(&NodeType::Validator), NodeClass::ClassI);
-        assert_eq!(NodeClass::from_node_type(&NodeType::Committee), NodeClass::ClassI);
-        assert_eq!(NodeClass::from_node_type(&NodeType::ArchiveValidator), NodeClass::ClassI);
-        assert_eq!(NodeClass::from_node_type(&NodeType::AuditValidator), NodeClass::ClassI);
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Validator),
+            NodeClass::ClassI
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Committee),
+            NodeClass::ClassI
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::ArchiveValidator),
+            NodeClass::ClassI
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::AuditValidator),
+            NodeClass::ClassI
+        );
         // Class II — Interoperability
-        assert_eq!(NodeClass::from_node_type(&NodeType::Relayer), NodeClass::ClassII);
-        assert_eq!(NodeClass::from_node_type(&NodeType::Witness), NodeClass::ClassII);
-        assert_eq!(NodeClass::from_node_type(&NodeType::Oracle), NodeClass::ClassII);
-        assert_eq!(NodeClass::from_node_type(&NodeType::UmaCoordinator), NodeClass::ClassII);
-        assert_eq!(NodeClass::from_node_type(&NodeType::CrossChainVerifier), NodeClass::ClassII);
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Relayer),
+            NodeClass::ClassII
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Witness),
+            NodeClass::ClassII
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Oracle),
+            NodeClass::ClassII
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::UmaCoordinator),
+            NodeClass::ClassII
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::CrossChainVerifier),
+            NodeClass::ClassII
+        );
         // Class III — Intelligence & Computation
-        assert_eq!(NodeClass::from_node_type(&NodeType::Compute), NodeClass::ClassIII);
-        assert_eq!(NodeClass::from_node_type(&NodeType::AiInference), NodeClass::ClassIII);
-        assert_eq!(NodeClass::from_node_type(&NodeType::PqcCrypto), NodeClass::ClassIII);
-        assert_eq!(NodeClass::from_node_type(&NodeType::DataAvailability), NodeClass::ClassIII);
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Compute),
+            NodeClass::ClassIII
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::AiInference),
+            NodeClass::ClassIII
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::PqcCrypto),
+            NodeClass::ClassIII
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::DataAvailability),
+            NodeClass::ClassIII
+        );
         // Class IV — Governance & Treasury
-        assert_eq!(NodeClass::from_node_type(&NodeType::GovernanceAuditor), NodeClass::ClassIV);
-        assert_eq!(NodeClass::from_node_type(&NodeType::TreasuryController), NodeClass::ClassIV);
-        assert_eq!(NodeClass::from_node_type(&NodeType::SecurityCouncil), NodeClass::ClassIV);
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::GovernanceAuditor),
+            NodeClass::ClassIV
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::TreasuryController),
+            NodeClass::ClassIV
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::SecurityCouncil),
+            NodeClass::ClassIV
+        );
         // Class V — Service & Support
-        assert_eq!(NodeClass::from_node_type(&NodeType::RpcGateway), NodeClass::ClassV);
-        assert_eq!(NodeClass::from_node_type(&NodeType::Indexer), NodeClass::ClassV);
-        assert_eq!(NodeClass::from_node_type(&NodeType::Observer), NodeClass::ClassV);
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::RpcGateway),
+            NodeClass::ClassV
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Indexer),
+            NodeClass::ClassV
+        );
+        assert_eq!(
+            NodeClass::from_node_type(&NodeType::Observer),
+            NodeClass::ClassV
+        );
     }
 
     #[test]

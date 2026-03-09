@@ -49,15 +49,13 @@ fn setup_panic_hook() {
 }
 
 use crate::agent::{
-    agent_generate_wireguard_mesh, agent_get_inventory_machines,
-    agent_monitor_initialize_workspace, agent_prepare_hosts_env, agent_setup_node,
-    ensure_local_devnet_agent,
+    agent_get_inventory_machines, agent_monitor_initialize_workspace, agent_prepare_hosts_env,
+    agent_setup_node, ensure_local_devnet_agent,
 };
 use crate::monitor::{
     get_monitor_agent_snapshot, get_monitor_inventory_path, get_monitor_node_details,
-    get_monitor_security_state,
-    get_monitor_snapshot, get_monitor_user_manual_markdown, get_monitor_workspace_path,
-    monitor_apply_devnet_topology, monitor_assign_ssh_binding,
+    get_monitor_security_state, get_monitor_snapshot, get_monitor_user_manual_markdown,
+    get_monitor_workspace_path, monitor_apply_devnet_topology, monitor_assign_ssh_binding,
     monitor_bulk_node_control, monitor_delete_operator, monitor_delete_ssh_profile,
     monitor_detect_local_vpn_identity, monitor_export_node_data, monitor_get_setup_status,
     monitor_initialize_workspace, monitor_mark_setup_complete, monitor_node_control,
@@ -73,11 +71,12 @@ use node_manager::{
     get_network_peers, get_node_alerts, get_node_balance, get_node_by_id, get_node_config,
     get_node_health, get_node_logs, get_node_status, get_peer_info, get_performance_history,
     get_rewards_data, get_rpc_node_info, get_security_status, get_synergy_score_breakdown,
-    get_system_metrics, get_validator_activity, init_multi_node_environment, init_network_discovery,
-    init_node_environment, install_node_binaries, multi_node::MultiNodeManager,
-    read_diagnostics_log, read_log_file, refresh_network_peers, reload_node_config, remove_node,
-    restart_node, restart_node_by_id, save_node_config, setup_node, start_node, start_node_by_id,
-    stop_node, stop_node_by_id, stream_logs, NodeManager, ProcessManager,
+    get_system_metrics, get_validator_activity, init_multi_node_environment,
+    init_network_discovery, init_node_environment, install_node_binaries,
+    multi_node::MultiNodeManager, read_diagnostics_log, read_log_file, refresh_network_peers,
+    reload_node_config, remove_node, restart_node, restart_node_by_id, save_node_config,
+    setup_node, start_node, start_node_by_id, stop_node, stop_node_by_id, stream_logs, NodeManager,
+    ProcessManager,
 };
 
 #[tauri::command]
@@ -163,12 +162,20 @@ async fn download_file_to_path(download_url: &str, destination: &Path) -> anyhow
         .context("Failed to read downloaded update bytes")?;
 
     if let Some(parent) = destination.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create update download directory {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to create update download directory {}",
+                parent.display()
+            )
+        })?;
     }
 
-    std::fs::write(destination, &bytes)
-        .with_context(|| format!("Failed to write downloaded update to {}", destination.display()))?;
+    std::fs::write(destination, &bytes).with_context(|| {
+        format!(
+            "Failed to write downloaded update to {}",
+            destination.display()
+        )
+    })?;
 
     Ok(())
 }
@@ -228,10 +235,12 @@ fn run_linux_package_installer(deb_path: &Path) -> anyhow::Result<()> {
     for attempt in attempts {
         let binary = &attempt[0];
         let args: Vec<&str> = attempt.iter().skip(1).map(String::as_str).collect();
-        let output = Command::new(binary)
-            .args(&args)
-            .output()
-            .with_context(|| format!("Failed to launch Linux package installer: {}", attempt.join(" ")))?;
+        let output = Command::new(binary).args(&args).output().with_context(|| {
+            format!(
+                "Failed to launch Linux package installer: {}",
+                attempt.join(" ")
+            )
+        })?;
 
         if output.status.success() {
             return Ok(());
@@ -251,7 +260,10 @@ fn run_linux_package_installer(deb_path: &Path) -> anyhow::Result<()> {
 }
 
 #[tauri::command]
-async fn install_linux_deb_update(download_url: String, file_name: Option<String>) -> Result<String, String> {
+async fn install_linux_deb_update(
+    download_url: String,
+    file_name: Option<String>,
+) -> Result<String, String> {
     #[cfg(target_os = "linux")]
     {
         validate_linux_deb_download_url(&download_url).map_err(|error| error.to_string())?;
@@ -419,7 +431,6 @@ async fn main() {
             agent_monitor_initialize_workspace,
             agent_get_inventory_machines,
             agent_prepare_hosts_env,
-            agent_generate_wireguard_mesh,
             // Genesis and staking commands
             get_genesis_config,
             get_genesis_summary,

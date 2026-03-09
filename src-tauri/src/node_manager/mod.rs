@@ -70,7 +70,9 @@ pub use multi_node_process::{
 pub use config_editor::{get_node_config, reload_node_config, save_node_config};
 
 // Re-export genesis commands
-pub use genesis::{auto_stake_node, generate_devnet_address, get_genesis_config, get_genesis_summary};
+pub use genesis::{
+    auto_stake_node, generate_devnet_address, get_genesis_config, get_genesis_summary,
+};
 
 // Re-export system metrics commands
 pub use system_metrics::{

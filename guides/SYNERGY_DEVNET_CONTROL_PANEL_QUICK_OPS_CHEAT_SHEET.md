@@ -24,16 +24,16 @@ Critical files:
 
 - Inventory: `devnet/lean15/node-inventory.csv`
 - Host overrides + Atlas URL: `devnet/lean15/hosts.env`
-- WireGuard configs: `devnet/lean15/wireguard/configs/`
+- VPN topology reference: `devnet/lean15/wireguard/deployed-topology.json`
 - Security/RBAC: `config/security.json`
 - Audit log: `audit/control-actions.jsonl`
 
 Hard rules:
 
-- Run `generate-monitor-hosts-env.sh` before `generate-wireguard-mesh.sh`.
+- The control panel does not create or manage WireGuard.
 - `MACHINE_XX_HOST` must be bootstrap-reachable (LAN/public/DNS), not a placeholder.
 - `MACHINE_XX_VPN_IP` stays in `10.50.0.0/24` for overlay traffic.
-- Do not move WG artifacts out of `devnet/lean15/wireguard/`.
+- Keep deployed VPN details external to node provisioning workflows.
 
 ## 3. First Operator Fast Path
 
@@ -41,7 +41,6 @@ From workspace root:
 
 ```bash
 ./scripts/devnet15/generate-monitor-hosts-env.sh
-./scripts/devnet15/generate-wireguard-mesh.sh
 ```
 
 Important:
@@ -55,15 +54,8 @@ In app (Settings -> Operator Configuration):
 
 1. Set active operator to `admin`.
 2. Configure SSH profile + SSH bindings.
-3. Single-machine bootstrap (machine-01 scope):
-   - `wireguard_install`
-   - `wireguard_connect`
-   - `wireguard_status`
-4. Fleet bootstrap (only after hosts are populated):
-   - `wireguard_install`
-   - `wireguard_connect`
-   - `wireguard_status`
-5. Start nodes by groups:
+3. Confirm agents are reachable over the existing VPN.
+4. Start nodes by groups:
    - consensus core (`node-01`,`node-02`,`node-04`,`node-06`,`node-08`,`node-09`,`node-16`,`node-17`)
    - governance (`node-10`,`node-24`,`node-25`)
    - interop (`node-05`,`node-07`,`node-11`,`node-12`,`node-22`)
@@ -86,7 +78,7 @@ Node page checks:
 - `Role Execution Status` should be `healthy` or `degraded` (investigate `critical` immediately).
 - `Atlas Explorer Bridge` should show `connected`.
 
-## 5. WireGuard Quick Commands
+## 5. VPN Quick Checks
 
 Linux/macOS:
 
@@ -107,12 +99,12 @@ Windows PowerShell:
 Get-Service WireGuardManager
 ```
 
-If `wireguard_connect` fails:
+If private-network reachability fails:
 
-1. Regenerate mesh: `./scripts/devnet15/generate-wireguard-mesh.sh`
-2. Confirm machine config exists: `devnet/lean15/wireguard/configs/<machine-id>.conf`
-3. Confirm UDP WG ports `51820-51834` are open between node hosts.
-4. Confirm `MACHINE_XX_HOST` is not an unresolved placeholder.
+1. Confirm the machine already has its expected `10.50.0.x` VPN IP.
+2. Confirm UDP WG ports `51820-51834` are open between node hosts and the hub.
+3. Confirm `MACHINE_XX_HOST` is not an unresolved placeholder.
+4. Use the control panel only after the VPN path is already healthy.
 
 If `wg-quick up` says `Address already in use` (macOS):
 
@@ -161,16 +153,11 @@ Custom operations (admin):
 
 - `install_node`
 - `bootstrap_node`
-- `wireguard_install`
-- `wireguard_connect`
-- `wireguard_disconnect`
-- `wireguard_status`
-- `wireguard_restart`
 
 ## 9. RBAC Reminder
 
 - `admin`: all actions
-- `operator`: no admin-only install/bootstrap/WireGuard connect-disconnect-restart
+- `operator`: no admin-only install/bootstrap/reset actions
 - `viewer`: read-only
 
 ## 10. Troubleshooting 60-Second Triage

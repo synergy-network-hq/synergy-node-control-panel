@@ -1,5 +1,5 @@
-use crate::node_manager::commands::{setup_node, NodeSetupOptions, SetupProgress};
 use crate::devnet_agent_service::DEVNET_AGENT_PORT;
+use crate::node_manager::commands::{setup_node, NodeSetupOptions, SetupProgress};
 use crate::node_manager::multi_node::MultiNodeManager;
 use crate::node_manager::multi_node_process::ProcessManager;
 use crate::recipe::load_and_validate;
@@ -59,6 +59,7 @@ pub async fn agent_setup_node(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JarvisInventoryMachine {
+    pub physical_machine_id: String,
     pub node_slot_id: String,
     pub node_alias: String,
     pub role_group: String,
@@ -66,6 +67,14 @@ pub struct JarvisInventoryMachine {
     pub node_type: String,
     pub host: String,
     pub vpn_ip: String,
+    pub operator: String,
+    pub device: String,
+    pub operating_system: String,
+    pub public_ip: String,
+    pub local_ip: String,
+    pub p2p_port: u16,
+    pub rpc_port: u16,
+    pub ws_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,7 +86,6 @@ pub struct JarvisMachineConnectionInput {
     pub ssh_port: Option<u16>,
     pub ssh_key_path: Option<String>,
     pub remote_dir: Option<String>,
-    pub wg_interface: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,14 +95,6 @@ pub struct JarvisPrepareHostsEnvInput {
     pub global_ssh_key_path: Option<String>,
     pub atlas_base_url: Option<String>,
     pub machines: Vec<JarvisMachineConnectionInput>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JarvisCommandResult {
-    pub success: bool,
-    pub command: String,
-    pub stdout: String,
-    pub stderr: String,
 }
 
 #[tauri::command]
@@ -158,9 +158,6 @@ pub fn agent_prepare_hosts_env(
         if let Some(value) = normalize_opt(&machine.remote_dir) {
             updates.insert(format!("{machine_key}_REMOTE_DIR"), value);
         }
-        if let Some(value) = normalize_opt(&machine.wg_interface) {
-            updates.insert(format!("{machine_key}_WG_INTERFACE"), value);
-        }
     }
 
     let ordered_updates = updates
@@ -169,52 +166,6 @@ pub fn agent_prepare_hosts_env(
         .collect::<Vec<_>>();
     upsert_env_values(&hosts_env_path, &ordered_updates)?;
     Ok(hosts_env_path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn agent_generate_wireguard_mesh(app_handle: AppHandle) -> Result<JarvisCommandResult, String> {
-    let workspace = crate::monitor::ensure_monitor_workspace(&app_handle)?;
-    let script_path = workspace.join("scripts/devnet15/generate-wireguard-mesh.sh");
-    let output_dir = workspace.join("devnet/lean15/wireguard");
-    let hosts_env = workspace.join("devnet/lean15/hosts.env");
-
-    if !script_path.is_file() {
-        return Err(format!(
-            "WireGuard mesh generator script missing at {}",
-            script_path.display()
-        ));
-    }
-
-    fs::create_dir_all(&output_dir).map_err(|error| {
-        format!(
-            "Failed to create WireGuard output directory {}: {error}",
-            output_dir.display()
-        )
-    })?;
-
-    let command = format!(
-        "SYNERGY_MONITOR_HOSTS_ENV={} bash {} {}",
-        shell_quote(hosts_env.to_string_lossy().as_ref()),
-        shell_quote(script_path.to_string_lossy().as_ref()),
-        shell_quote(output_dir.to_string_lossy().as_ref())
-    );
-
-    let output = ProcessCommand::new("bash")
-        .arg(script_path.to_string_lossy().to_string())
-        .arg(output_dir.to_string_lossy().to_string())
-        .env(
-            "SYNERGY_MONITOR_HOSTS_ENV",
-            hosts_env.to_string_lossy().to_string(),
-        )
-        .output()
-        .map_err(|error| format!("Failed to run WireGuard mesh generator: {error}"))?;
-
-    Ok(JarvisCommandResult {
-        success: output.status.success(),
-        command,
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-    })
 }
 
 fn normalize_opt(value: &Option<String>) -> Option<String> {
@@ -350,6 +301,18 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
     let node_type_idx = column(&["node_type"], "node_type")?;
     let host_idx = column(&["host"], "host")?;
     let vpn_ip_idx = column(&["vpn_ip"], "vpn_ip")?;
+    let physical_machine_idx = column(
+        &["physical_machine_id", "physical_machine"],
+        "physical_machine_id",
+    )?;
+    let operator_idx = column(&["operator"], "operator")?;
+    let device_idx = column(&["device"], "device")?;
+    let operating_system_idx = column(&["operating_system"], "operating_system")?;
+    let public_ip_idx = column(&["public_ip"], "public_ip")?;
+    let local_ip_idx = column(&["local_ip"], "local_ip")?;
+    let p2p_port_idx = column(&["p2p_port"], "p2p_port")?;
+    let rpc_port_idx = column(&["rpc_port"], "rpc_port")?;
+    let ws_port_idx = column(&["ws_port"], "ws_port")?;
 
     let mut output = Vec::new();
     for raw_line in lines {
@@ -366,7 +329,29 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
         if node_slot_id.is_empty() {
             continue;
         }
+        let p2p_port = get(p2p_port_idx).parse::<u16>().map_err(|error| {
+            format!(
+                "Invalid p2p_port for {} in {}: {error}",
+                node_slot_id,
+                path.display()
+            )
+        })?;
+        let rpc_port = get(rpc_port_idx).parse::<u16>().map_err(|error| {
+            format!(
+                "Invalid rpc_port for {} in {}: {error}",
+                node_slot_id,
+                path.display()
+            )
+        })?;
+        let ws_port = get(ws_port_idx).parse::<u16>().map_err(|error| {
+            format!(
+                "Invalid ws_port for {} in {}: {error}",
+                node_slot_id,
+                path.display()
+            )
+        })?;
         output.push(JarvisInventoryMachine {
+            physical_machine_id: get(physical_machine_idx),
             node_slot_id,
             node_alias: get(node_alias_idx),
             role_group: get(role_group_idx),
@@ -374,6 +359,14 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
             node_type: get(node_type_idx),
             host: get(host_idx),
             vpn_ip: get(vpn_ip_idx),
+            operator: get(operator_idx),
+            device: get(device_idx),
+            operating_system: get(operating_system_idx),
+            public_ip: get(public_ip_idx),
+            local_ip: get(local_ip_idx),
+            p2p_port,
+            rpc_port,
+            ws_port,
         });
     }
 

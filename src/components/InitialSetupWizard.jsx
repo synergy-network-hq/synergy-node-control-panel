@@ -1,191 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
-const MACHINE_OPTIONS = Array.from({ length: 13 }, (_, index) => `machine-${String(index + 1).padStart(2, '0')}`);
 const IS_WINDOWS_HOST = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
-
-const ACTIVE_MACHINE_PLAN = [
-  {
-    machineId: 'machine-01',
-    owner: 'Rob',
-    os: 'macOS',
-    vpnIp: '10.50.0.1',
-    primaryRole: 'Validator',
-    secondaryRole: 'Indexer',
-    notes: 'Primary validator plus dedicated Atlas indexer source.',
-  },
-  {
-    machineId: 'machine-02',
-    owner: 'Justin',
-    os: 'macOS',
-    vpnIp: '10.50.0.2',
-    primaryRole: 'Validator',
-    secondaryRole: 'Observer',
-    notes: 'Class I + Class V',
-  },
-  {
-    machineId: 'machine-03',
-    owner: 'Rob',
-    os: 'macOS',
-    vpnIp: '10.50.0.3',
-    primaryRole: 'Validator',
-    secondaryRole: 'Cross-Chain Verifier',
-    notes: 'Class I + Class II',
-  },
-  {
-    machineId: 'machine-04',
-    owner: 'Justin',
-    os: 'Ubuntu',
-    vpnIp: '10.50.0.4',
-    primaryRole: 'Validator',
-    secondaryRole: 'Relayer',
-    notes: 'Class I + Class II',
-  },
-  {
-    machineId: 'machine-05',
-    owner: 'Rob',
-    os: 'Ubuntu',
-    vpnIp: '10.50.0.5',
-    primaryRole: 'Validator',
-    secondaryRole: 'Committee',
-    notes: 'Class I + Class I',
-  },
-  {
-    machineId: 'machine-06',
-    owner: 'Network',
-    os: 'Ubuntu Server',
-    vpnIp: '10.50.0.6',
-    primaryRole: 'Security Council',
-    secondaryRole: 'Oracle',
-    notes: 'Class IV + Class II',
-  },
-  {
-    machineId: 'machine-07',
-    owner: 'Rob',
-    os: 'Windows',
-    vpnIp: '10.50.0.7',
-    primaryRole: 'Witness',
-    secondaryRole: 'RPC Gateway',
-    notes: 'Class II + Class V',
-  },
-  {
-    machineId: 'machine-08',
-    owner: 'Rob',
-    os: 'Windows',
-    vpnIp: '10.50.0.8',
-    primaryRole: 'UMA Coordinator',
-    secondaryRole: 'PQC Crypto',
-    notes: 'Class III + Class III',
-  },
-  {
-    machineId: 'machine-09',
-    owner: 'David',
-    os: 'Ubuntu Server',
-    vpnIp: '10.50.0.9',
-    primaryRole: 'Archive Validator',
-    secondaryRole: 'Audit Validator',
-    notes: 'Class I + Class I',
-  },
-  {
-    machineId: 'machine-10',
-    owner: 'Gunther',
-    os: 'Ubuntu',
-    vpnIp: '10.50.0.10',
-    primaryRole: 'Treasury Controller',
-    secondaryRole: 'Governance Auditor',
-    notes: 'Class IV + Class IV',
-  },
-  {
-    machineId: 'machine-11',
-    owner: 'TBD',
-    os: '',
-    vpnIp: '10.50.0.11',
-    primaryRole: 'Data Availability',
-    secondaryRole: '',
-    notes: 'Class III. GPU node is a host capability note, not a second logical node.',
-  },
-  {
-    machineId: 'machine-12',
-    owner: 'TBD',
-    os: '',
-    vpnIp: '10.50.0.12',
-    primaryRole: 'AI Inference',
-    secondaryRole: '',
-    notes: 'Class III.',
-  },
-  {
-    machineId: 'machine-13',
-    owner: 'TBD',
-    os: '',
-    vpnIp: '10.50.0.13',
-    primaryRole: 'Compute',
-    secondaryRole: '',
-    notes: 'Class III.',
-  },
-];
-
-const PHYSICAL_TO_LOGICAL_NODE_MAP = {
-  'machine-01': ['node-01', 'node-14'],
-  'machine-02': ['node-02', 'node-03'],
-  'machine-03': ['node-04', 'node-05'],
-  'machine-04': ['node-06', 'node-07'],
-  'machine-05': ['node-08', 'node-09'],
-  'machine-06': ['node-10', 'node-11'],
-  'machine-07': ['node-12', 'node-13'],
-  'machine-08': ['node-22', 'node-15'],
-  'machine-09': ['node-16', 'node-17'],
-  'machine-10': ['node-24', 'node-25'],
-  'machine-11': ['node-18'],
-  'machine-12': ['node-20'],
-  'machine-13': ['node-23'],
-};
-
-const PHYSICAL_MACHINE_VPN_IP = {
-  'machine-01': '10.50.0.1',
-  'machine-02': '10.50.0.2',
-  'machine-03': '10.50.0.3',
-  'machine-04': '10.50.0.4',
-  'machine-05': '10.50.0.5',
-  'machine-06': '10.50.0.6',
-  'machine-07': '10.50.0.7',
-  'machine-08': '10.50.0.8',
-  'machine-09': '10.50.0.9',
-  'machine-10': '10.50.0.10',
-  'machine-11': '10.50.0.11',
-  'machine-12': '10.50.0.12',
-  'machine-13': '10.50.0.13',
-};
-
-const LOGICAL_NODE_METADATA = {
-  'node-01': 'validator',
-  'node-02': 'validator',
-  'node-03': 'observer',
-  'node-04': 'validator',
-  'node-05': 'cross-chain-verifier',
-  'node-06': 'validator',
-  'node-07': 'relayer',
-  'node-08': 'validator',
-  'node-09': 'committee',
-  'node-10': 'security-council',
-  'node-11': 'oracle',
-  'node-12': 'witness',
-  'node-13': 'rpc-gateway',
-  'node-14': 'indexer',
-  'node-15': 'pqc-crypto',
-  'node-16': 'archive-validator',
-  'node-17': 'audit-validator',
-  'node-18': 'data-availability',
-  'node-20': 'ai-inference',
-  'node-22': 'uma-coordinator',
-  'node-23': 'compute',
-  'node-24': 'treasury-controller',
-  'node-25': 'governance-auditor',
-};
-
-const ALL_LOGICAL_MACHINE_IDS = Object.values(PHYSICAL_TO_LOGICAL_NODE_MAP)
-  .flat()
-  .filter((machineId, index, source) => source.indexOf(machineId) === index)
-  .sort();
 
 const STEPS = [
   { id: 1, title: 'Operator Profile' },
@@ -223,6 +39,24 @@ function newAutopilotSteps() {
 
 function nowLabel() {
   return new Date().toLocaleTimeString();
+}
+
+function numericOrdinal(value) {
+  const match = String(value || '').match(/(\d+)/);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+function sortMachineIds(machineIds) {
+  return [...machineIds].sort((left, right) => {
+    const leftOrdinal = numericOrdinal(left);
+    const rightOrdinal = numericOrdinal(right);
+    if (leftOrdinal !== rightOrdinal) return leftOrdinal - rightOrdinal;
+    return String(left).localeCompare(String(right));
+  });
+}
+
+function sortNodeSlotIds(nodeSlotIds) {
+  return sortMachineIds(nodeSlotIds);
 }
 
 function normalizeOutputLines(value) {
@@ -277,8 +111,77 @@ function toCanonicalMachineId(value, fallback = '') {
   return normalize(fallback);
 }
 
-function newLogicalNodeStates() {
-  return ALL_LOGICAL_MACHINE_IDS.reduce((acc, machineId) => {
+function titleCaseLabel(value) {
+  return String(value || '')
+    .replace(/[-_]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function buildInventoryTopology(inventoryRows) {
+  const grouped = new Map();
+
+  (Array.isArray(inventoryRows) ? inventoryRows : []).forEach((entry) => {
+    const machineId = toCanonicalMachineId(entry?.physical_machine_id, entry?.node_slot_id);
+    const nodeSlotId = toCanonicalMachineId(entry?.node_slot_id);
+    if (!machineId || !nodeSlotId) return;
+
+    const existing = grouped.get(machineId) || {
+      machineId,
+      owner: '',
+      device: '',
+      os: '',
+      vpnIp: '',
+      publicIp: '',
+      localIp: '',
+      logicalNodes: [],
+    };
+
+    const vpnIp = String(entry?.vpn_ip || '').trim();
+    const host = String(entry?.host || '').trim();
+    if (!existing.vpnIp) {
+      existing.vpnIp = vpnIp || (host.startsWith('10.50.0.') ? host : '');
+    }
+    if (!existing.owner) existing.owner = String(entry?.operator || '').trim();
+    if (!existing.device) existing.device = String(entry?.device || '').trim();
+    if (!existing.os) existing.os = String(entry?.operating_system || '').trim();
+    if (!existing.publicIp) existing.publicIp = String(entry?.public_ip || '').trim();
+    if (!existing.localIp) existing.localIp = String(entry?.local_ip || '').trim();
+
+    existing.logicalNodes.push({
+      machineId: nodeSlotId,
+      role: titleCaseLabel(entry?.role || entry?.node_type || entry?.role_group || 'node'),
+      roleGroup: String(entry?.role_group || '').trim(),
+      nodeType: String(entry?.node_type || '').trim(),
+      p2pPort: entry?.p2p_port,
+      rpcPort: entry?.rpc_port,
+      wsPort: entry?.ws_port,
+    });
+
+    grouped.set(machineId, existing);
+  });
+
+  return sortMachineIds([...grouped.keys()]).map((machineId) => {
+    const entry = grouped.get(machineId);
+    const logicalNodes = sortNodeSlotIds(entry.logicalNodes.map((node) => node.machineId))
+      .map((nodeSlotId) => entry.logicalNodes.find((node) => node.machineId === nodeSlotId))
+      .filter(Boolean);
+
+    return {
+      ...entry,
+      owner: entry.owner || 'TBD',
+      logicalNodes,
+      logicalNodeIds: logicalNodes.map((node) => node.machineId),
+      primaryRole: logicalNodes[0]?.role || '',
+      secondaryRole: logicalNodes[1]?.role || '',
+    };
+  });
+}
+
+function newLogicalNodeStates(logicalNodeIds = []) {
+  return sortNodeSlotIds(logicalNodeIds).reduce((acc, machineId) => {
     acc[machineId] = {
       status: 'idle',
       detail: 'not scheduled',
@@ -375,6 +278,7 @@ function InitialSetupWizard({ onComplete }) {
 
   const [workspacePath, setWorkspacePath] = useState('');
   const [securityState, setSecurityState] = useState(null);
+  const [inventoryMachines, setInventoryMachines] = useState([]);
   const [lastWhoami, setLastWhoami] = useState('');
 
   const [operatorForm, setOperatorForm] = useState({
@@ -453,14 +357,29 @@ function InitialSetupWizard({ onComplete }) {
       setError('');
       try {
         await invoke('monitor_initialize_workspace');
-        const [workspace, state] = await Promise.all([
+        const [workspace, state, inventory] = await Promise.all([
           invoke('get_monitor_workspace_path'),
           refreshSecurityState(),
+          invoke('agent_get_inventory_machines'),
         ]);
 
         const resolvedWorkspace = String(workspace || '');
+        const inventoryRows = Array.isArray(inventory) ? inventory : [];
+        const topologyRows = buildInventoryTopology(inventoryRows);
+        const topologyMap = topologyRows.reduce((acc, entry) => {
+          acc[entry.machineId] = entry;
+          return acc;
+        }, {});
+        const nodeToMachineMap = topologyRows.reduce((acc, entry) => {
+          entry.logicalNodeIds.forEach((nodeId) => {
+            acc[nodeId] = entry.machineId;
+          });
+          return acc;
+        }, {});
+
         setWorkspacePath(resolvedWorkspace);
         setTerminalCwd(resolvedWorkspace);
+        setInventoryMachines(inventoryRows);
 
         const topologyMessage = await invoke('monitor_apply_devnet_topology');
         addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
@@ -469,7 +388,7 @@ function InitialSetupWizard({ onComplete }) {
         const detectedMachine = toCanonicalMachineId(identity?.physical_machine_id);
         if (identity?.detected && detectedMachine) {
           const detectedVpnIp =
-            String(identity?.vpn_ip || '').trim() || PHYSICAL_MACHINE_VPN_IP[detectedMachine] || '';
+            String(identity?.vpn_ip || '').trim() || topologyMap[detectedMachine]?.vpnIp || '';
           const logicalNodes = Array.isArray(identity?.node_slot_ids) ? identity.node_slot_ids : [];
 
           setSelectedPhysicalMachine(detectedMachine);
@@ -487,23 +406,14 @@ function InitialSetupWizard({ onComplete }) {
             `Auto-detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Queueing autonomous setup...`,
           );
         } else {
-          // VPN not detected — try to infer the machine from any existing SSH bindings
-          // (e.g. re-open after a crash that completed the binding step but not WireGuard)
           const existingBindings = Array.isArray(state?.ssh_bindings) ? state.ssh_bindings : [];
-          const nodeToMachineMap = Object.entries(PHYSICAL_TO_LOGICAL_NODE_MAP).reduce(
-            (acc, [machineId, nodeIds]) => {
-              nodeIds.forEach((nodeId) => { acc[nodeId] = machineId; });
-              return acc;
-            },
-            {},
-          );
           const inferredMachine = existingBindings.reduce((found, binding) => {
             if (found) return found;
             return nodeToMachineMap[String(binding?.node_slot_id || '').toLowerCase()] || null;
           }, null);
 
           if (inferredMachine) {
-            const vpnIp = PHYSICAL_MACHINE_VPN_IP[inferredMachine] || '';
+            const vpnIp = topologyMap[inferredMachine]?.vpnIp || '';
             setSelectedPhysicalMachine(inferredMachine);
             setBindingForm((prev) => ({
               ...prev,
@@ -549,13 +459,32 @@ function InitialSetupWizard({ onComplete }) {
     initialize();
   }, []);
 
-  const activeMachineSet = useMemo(() => new Set(ACTIVE_MACHINE_PLAN.map((entry) => entry.machineId)), []);
+  const machineTopologyRows = useMemo(
+    () => buildInventoryTopology(inventoryMachines),
+    [inventoryMachines],
+  );
+  const machineTopologyMap = useMemo(
+    () =>
+      machineTopologyRows.reduce((acc, entry) => {
+        acc[entry.machineId] = entry;
+        return acc;
+      }, {}),
+    [machineTopologyRows],
+  );
+  const machineOptions = useMemo(
+    () => machineTopologyRows.map((entry) => entry.machineId),
+    [machineTopologyRows],
+  );
+  const allLogicalNodeIds = useMemo(
+    () => sortNodeSlotIds(machineTopologyRows.flatMap((entry) => entry.logicalNodeIds)),
+    [machineTopologyRows],
+  );
   const sshProfiles = securityState?.ssh_profiles || [];
   const machineBindings = securityState?.ssh_bindings || [];
   const recentSetupLines = useMemo(() => terminalLines.slice(-8), [terminalLines]);
   const selectedLogicalNodes = useMemo(
-    () => PHYSICAL_TO_LOGICAL_NODE_MAP[selectedPhysicalMachine] || [],
-    [selectedPhysicalMachine],
+    () => machineTopologyMap[selectedPhysicalMachine]?.logicalNodeIds || [],
+    [machineTopologyMap, selectedPhysicalMachine],
   );
   const selectedLogicalNodeSet = useMemo(
     () => new Set(selectedLogicalNodes),
@@ -563,17 +492,30 @@ function InitialSetupWizard({ onComplete }) {
   );
   const overlayTopologyRows = useMemo(
     () =>
-      ACTIVE_MACHINE_PLAN.map((entry) => ({
+      machineTopologyRows.map((entry) => ({
         ...entry,
-        logicalNodes: (PHYSICAL_TO_LOGICAL_NODE_MAP[entry.machineId] || []).map((logicalId) => ({
-          machineId: logicalId,
-          role: LOGICAL_NODE_METADATA[logicalId] || 'node',
-          state: logicalNodeStates[logicalId] || { status: 'idle', detail: 'not scheduled' },
-          isTarget: selectedLogicalNodeSet.has(logicalId),
+        logicalNodes: entry.logicalNodes.map((logicalNode) => ({
+          ...logicalNode,
+          state: logicalNodeStates[logicalNode.machineId] || { status: 'idle', detail: 'not scheduled' },
+          isTarget: selectedLogicalNodeSet.has(logicalNode.machineId),
         })),
       })),
-    [logicalNodeStates, selectedLogicalNodeSet],
+    [logicalNodeStates, machineTopologyRows, selectedLogicalNodeSet],
   );
+
+  useEffect(() => {
+    if (!allLogicalNodeIds.length) return;
+    setLogicalNodeStates((prev) => {
+      const previous = prev || {};
+      const next = newLogicalNodeStates(allLogicalNodeIds);
+      allLogicalNodeIds.forEach((logicalId) => {
+        if (previous[logicalId]) {
+          next[logicalId] = previous[logicalId];
+        }
+      });
+      return next;
+    });
+  }, [allLogicalNodeIds]);
 
   const setLogicalNodeState = (machineId, status, detail = '') => {
     setLogicalNodeStates((prev) => ({
@@ -589,7 +531,7 @@ function InitialSetupWizard({ onComplete }) {
   const resetLogicalNodeStateForMachine = (machineId, targetNodes) => {
     const targetSet = new Set(targetNodes);
     setLogicalNodeStates(() =>
-      ALL_LOGICAL_MACHINE_IDS.reduce((acc, logicalId) => {
+      allLogicalNodeIds.reduce((acc, logicalId) => {
         acc[logicalId] = {
           status: targetSet.has(logicalId) ? 'pending' : 'idle',
           detail: targetSet.has(logicalId) ? `queued for ${machineId}` : 'not scheduled',
@@ -727,7 +669,7 @@ function InitialSetupWizard({ onComplete }) {
     setError('');
     try {
       const selectedMachine = toCanonicalMachineId(bindingForm.node_slot_id);
-      const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [selectedMachine];
+      const logicalNodes = machineTopologyMap[selectedMachine]?.logicalNodeIds || [];
       const basePayload = {
         profile_id: String(bindingForm.profile_id || '').trim().toLowerCase(),
         host_override: String(bindingForm.host_override || '').trim() || null,
@@ -735,6 +677,9 @@ function InitialSetupWizard({ onComplete }) {
       };
       if (!selectedMachine || !basePayload.profile_id) {
         throw new Error('node_slot_id and profile_id are required.');
+      }
+      if (!logicalNodes.length) {
+        throw new Error(`No logical nodes found in inventory for ${selectedMachine}.`);
       }
 
       for (const logicalMachineId of logicalNodes) {
@@ -764,12 +709,12 @@ function InitialSetupWizard({ onComplete }) {
       if (!selectedMachine) {
         throw new Error('Select the physical machine before running local node setup.');
       }
-      const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [];
+      const logicalNodes = machineTopologyMap[selectedMachine]?.logicalNodeIds || [];
       if (logicalNodes.length === 0) {
         throw new Error(`No logical node mapping found for ${selectedMachine}.`);
       }
 
-      const hostOverride = String(bindingForm.host_override || '').trim() || PHYSICAL_MACHINE_VPN_IP[selectedMachine] || '';
+      const hostOverride = String(bindingForm.host_override || '').trim() || machineTopologyMap[selectedMachine]?.vpnIp || '';
       for (const logicalMachineId of logicalNodes) {
         await invoke('monitor_assign_ssh_binding', {
           input: {
@@ -840,9 +785,9 @@ function InitialSetupWizard({ onComplete }) {
       if (!selectedMachine) {
         throw new Error('Select the physical machine (machine-01 through machine-13) before running autonomous setup.');
       }
-      const logicalNodes = PHYSICAL_TO_LOGICAL_NODE_MAP[selectedMachine] || [];
+      const logicalNodes = machineTopologyMap[selectedMachine]?.logicalNodeIds || [];
       runLogicalNodes = logicalNodes;
-      const vpnHost = PHYSICAL_MACHINE_VPN_IP[selectedMachine] || String(bindingForm.host_override || '').trim();
+      const vpnHost = machineTopologyMap[selectedMachine]?.vpnIp || String(bindingForm.host_override || '').trim();
 
       if (!logicalNodes.length) {
         throw new Error(`No logical node mapping found for ${selectedMachine}`);
@@ -1388,21 +1333,10 @@ function InitialSetupWizard({ onComplete }) {
             <div className="wizard-section">
               <h3>Step 4: Bind SSH Profile To Machine</h3>
               <p>
-                Machine options are
+                Machine options are loaded from
                 {' '}
-                <code>machine-01</code>
-                {' '}
-                through
-                {' '}
-                <code>machine-13</code>
-                . Active deployment currently uses
-                {' '}
-                <code>machine-01</code>
-                {' '}
-                through
-                {' '}
-                <code>machine-08</code>
-                .
+                <code>node-inventory.csv</code>
+                . When the VPN is detected, this binding defaults to the local machine&apos;s VPN IP.
               </p>
               <div className="wizard-form-grid">
                 <label>
@@ -1414,18 +1348,17 @@ function InitialSetupWizard({ onComplete }) {
                       setBindingForm((prev) => ({
                         ...prev,
                         node_slot_id: nextMachineId,
-                        host_override: PHYSICAL_MACHINE_VPN_IP[nextMachineId] || prev.host_override,
+                        host_override: machineTopologyMap[nextMachineId]?.vpnIp || prev.host_override,
                       }));
-                      if (PHYSICAL_MACHINE_VPN_IP[nextMachineId]) {
+                      if (machineTopologyMap[nextMachineId]?.vpnIp) {
                         setSelectedPhysicalMachine(nextMachineId);
                       }
                     }}
                   >
                     <option value="" disabled>— Select this machine —</option>
-                    {MACHINE_OPTIONS.map((machineId) => (
+                    {machineOptions.map((machineId) => (
                       <option key={machineId} value={machineId}>
                         {machineId}
-                        {activeMachineSet.has(machineId) ? ' (active)' : ''}
                       </option>
                     ))}
                   </select>
@@ -1491,12 +1424,12 @@ function InitialSetupWizard({ onComplete }) {
                       setBindingForm((prev) => ({
                         ...prev,
                         node_slot_id: nextMachineId,
-                        host_override: PHYSICAL_MACHINE_VPN_IP[nextMachineId] || prev.host_override,
+                        host_override: machineTopologyMap[nextMachineId]?.vpnIp || prev.host_override,
                       }));
                     }}
                   >
                     <option value="" disabled>— Select this machine —</option>
-                    {ACTIVE_MACHINE_PLAN.map((entry) => (
+                    {machineTopologyRows.map((entry) => (
                       <option key={entry.machineId} value={entry.machineId}>
                         {entry.machineId}
                         {' '}
@@ -1509,7 +1442,7 @@ function InitialSetupWizard({ onComplete }) {
                 <label>
                   Logical Node Slots
                   <input
-                    value={formatLogicalNodeList(PHYSICAL_TO_LOGICAL_NODE_MAP[selectedPhysicalMachine] || [])}
+                    value={formatLogicalNodeList(machineTopologyMap[selectedPhysicalMachine]?.logicalNodeIds || [])}
                     readOnly
                   />
                 </label>
@@ -1559,8 +1492,21 @@ function InitialSetupWizard({ onComplete }) {
         </article>
 
         <aside className="wizard-side-panel">
-          <h3>Active 13-Machine Devnet Topology</h3>
-          <p>25 node slots across 13 physical machines. Primary validators are node-01, node-02, node-04, node-06, and node-08.</p>
+          <h3>Inventory-Driven Machine Topology</h3>
+          <p>
+            The setup flow groups node slots by
+            {' '}
+            <code>physical_machine_id</code>
+            {' '}
+            and
+            {' '}
+            <code>vpn_ip</code>
+            {' '}
+            from
+            {' '}
+            <code>node-inventory.csv</code>
+            .
+          </p>
           <div className="wizard-plan-table-wrap">
             <table className="wizard-plan-table">
               <thead>
@@ -1572,7 +1518,7 @@ function InitialSetupWizard({ onComplete }) {
                 </tr>
               </thead>
               <tbody>
-                {ACTIVE_MACHINE_PLAN.map((entry) => (
+                {machineTopologyRows.map((entry) => (
                   <tr key={entry.machineId}>
                     <td>{entry.machineId}</td>
                     <td>{entry.vpnIp}</td>

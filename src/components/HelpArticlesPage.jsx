@@ -195,19 +195,13 @@ function HelpArticlesPage() {
       <div className="help-brief-grid">
         <article className="help-brief-card">
           <span className="help-brief-label">Bootstrap Sequence</span>
-          <strong className="help-brief-title">WireGuard before node control</strong>
+          <strong className="help-brief-title">VPN is external to the panel</strong>
           <p>
-            Use
+            The control panel assumes the private VPN already exists. Use bindings,
             {' '}
-            <code>wireguard_install</code>
-            {' -> '}
-            <code>wireguard_connect</code>
-            {' -> '}
-            <code>wireguard_status</code>
-            {' -> '}
             <code>status</code>
             {' '}
-            before expecting fleet RPC health.
+            and RPC checks to validate the fleet instead of trying to manage WireGuard here.
           </p>
         </article>
         <article className="help-brief-card">

@@ -5,7 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/devnet/lean15/node-inventory.csv"
 HOSTS_ENV_FILE="${SYNERGY_MONITOR_HOSTS_ENV:-$ROOT_DIR/devnet/lean15/hosts.env}"
 INSTALLERS_DIR="$ROOT_DIR/devnet/lean15/installers"
-WIREGUARD_CONFIGS_DIR="${SYNERGY_WIREGUARD_CONFIGS_DIR:-$ROOT_DIR/devnet/lean15/wireguard/configs}"
 REMOTE_ROOT_DEFAULT="${SYNERGY_REMOTE_ROOT:-/opt/synergy}"
 REMOTE_EXPORTS_DIR="$ROOT_DIR/devnet/lean15/reports/remote-exports"
 
@@ -16,7 +15,7 @@ Usage: $0 <machine-id> <operation>
 Core Operations:
   install_node          Copy installer bundle to remote machine
   setup_node            Deploy installer bundle and run install_and_start.sh
-  bootstrap_node        install_node + wireguard_install + wireguard_connect + start
+  bootstrap_node        Deploy installer bundle and run install_and_start.sh
   reset_chain           Stop node, delete ALL chain state, redeploy config (does NOT restart)
   start                 nodectl start
   stop                  nodectl stop
@@ -26,11 +25,7 @@ Core Operations:
   export_logs           Download logs archive from remote machine to local reports dir
   view_chain_data       Show chain data size and top files on remote machine
   export_chain_data     Download chain data archive from remote machine to local reports dir
-  wireguard_status      Show WireGuard mesh VPN status, peer reachability, and transfer stats
-  wireguard_install     Install wireguard tooling on remote machine (best-effort)
-  wireguard_connect     Upload WireGuard config and bring tunnel up
-  wireguard_disconnect  Bring tunnel down
-  wireguard_restart     Reapply WireGuard config (down/up)
+  explorer_reset        Trigger explorer reindex from the remote machine using localhost/VPN-safe routing
 
 Node-Type-Specific Operations:
   rotate_vrf_key            [Validator]       Rotate VRF keypair and restart
@@ -50,9 +45,6 @@ Required local files:
   - devnet/lean15/node-inventory.csv
   - devnet/lean15/hosts.env
   - devnet/lean15/installers/<machine-id>/
-
-WireGuard operation requires:
-  - devnet/lean15/wireguard/configs/<machine-id>.conf
 USAGE
 }
 
@@ -90,14 +82,23 @@ resolve_var() {
   printf '%s' "${!name:-}"
 }
 
+shell_escape() {
+  printf '%q' "$1"
+}
+
+is_truthy() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 HOST_VAR="${MACHINE_KEY_UPPER}_HOST"
 VPN_VAR="${MACHINE_KEY_UPPER}_VPN_IP"
 SSH_USER_VAR="${MACHINE_KEY_UPPER}_SSH_USER"
 SSH_PORT_VAR="${MACHINE_KEY_UPPER}_SSH_PORT"
 SSH_KEY_VAR="${MACHINE_KEY_UPPER}_SSH_KEY"
 REMOTE_DIR_VAR="${MACHINE_KEY_UPPER}_REMOTE_DIR"
-WG_INTERFACE_VAR="${MACHINE_KEY_UPPER}_WG_INTERFACE"
-WG_REMOTE_CONF_VAR="${MACHINE_KEY_UPPER}_WG_REMOTE_CONF"
 
 HOST="$(resolve_var "$HOST_VAR")"
 if [[ -z "$HOST" ]]; then
@@ -125,16 +126,6 @@ fi
 REMOTE_NODE_DIR="$(resolve_var "$REMOTE_DIR_VAR")"
 if [[ -z "$REMOTE_NODE_DIR" ]]; then
   REMOTE_NODE_DIR="$REMOTE_ROOT_DEFAULT/$NODE_SLOT_ID"
-fi
-
-WG_INTERFACE="$(resolve_var "$WG_INTERFACE_VAR")"
-if [[ -z "$WG_INTERFACE" ]]; then
-  WG_INTERFACE="${SYNERGY_DEVNET_WG_INTERFACE:-wg0}"
-fi
-
-WG_REMOTE_CONF="$(resolve_var "$WG_REMOTE_CONF_VAR")"
-if [[ -z "$WG_REMOTE_CONF" ]]; then
-  WG_REMOTE_CONF="${SYNERGY_DEVNET_WG_REMOTE_CONF:-/etc/wireguard/${WG_INTERFACE}.conf}"
 fi
 
 if [[ -z "$HOST" ]]; then
@@ -213,7 +204,6 @@ fi
 
 REMOTE_TARGET="${SSH_USER}@${HOST}"
 INSTALLER_DIR="$INSTALLERS_DIR/$NODE_SLOT_ID"
-WG_CONFIG_FILE="$WIREGUARD_CONFIGS_DIR/$NODE_SLOT_ID.conf"
 
 remote_run_script() {
   local script="$1"
@@ -222,44 +212,6 @@ remote_run_script() {
   else
     ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "bash -s" <<<"$script"
   fi
-}
-
-resolve_remote_wireguard_interface() {
-  local desired_interface="$1"
-  local resolved_interface
-
-  resolved_interface="$(
-    remote_run_script "
-set -euo pipefail
-desired='$desired_interface'
-if ! command -v wg >/dev/null 2>&1; then
-  printf '%s\n' \"\$desired\"
-  exit 0
-fi
-interfaces=\$(wg show interfaces 2>/dev/null || true)
-if [[ -z \"\$interfaces\" ]]; then
-  if [[ \"\$desired\" == \"synergy-devnet\" ]]; then
-    printf 'wg0\n'
-  else
-    printf '%s\n' \"\$desired\"
-  fi
-  exit 0
-fi
-if printf '%s' \"\$interfaces\" | tr ' ' '\n' | grep -Fxq \"\$desired\"; then
-  printf '%s\n' \"\$desired\"
-elif printf '%s' \"\$interfaces\" | tr ' ' '\n' | grep -Fxq 'wg0'; then
-  printf 'wg0\n'
-else
-  printf '%s\n' \"\$(printf '%s' \"\$interfaces\" | tr ' ' '\n' | sed '/^$/d' | head -n1)\"
-fi
-" 2>/dev/null | tr -d '\r' | tail -n1
-  )"
-
-  if [[ -z "$resolved_interface" ]]; then
-    resolved_interface="$desired_interface"
-  fi
-
-  printf '%s' "$resolved_interface"
 }
 
 copy_to_remote() {
@@ -374,25 +326,6 @@ wait_for_bootnode_ready() {
   return 1
 }
 
-wait_for_vpn_connectivity() {
-  # Pings a VPN IP until it responds or times out.
-  # Usage: wait_for_vpn_connectivity <vpn_ip> [max_attempts]
-  local target_ip="$1"
-  local max_attempts="${2:-10}"
-  local attempt=0
-  echo "Checking VPN connectivity to $target_ip..."
-  while [[ $attempt -lt $max_attempts ]]; do
-    attempt=$((attempt + 1))
-    if ping -c 1 -W 2 "$target_ip" >/dev/null 2>&1; then
-      echo "VPN peer $target_ip is reachable (attempt $attempt/$max_attempts)."
-      return 0
-    fi
-    sleep 2
-  done
-  echo "WARNING: VPN peer $target_ip did not respond after $max_attempts attempts." >&2
-  return 1
-}
-
 check_node_alive() {
   # Uses pgrep to check if a node process is running, independent of PID files.
   # Returns 0 if running, 1 if not.
@@ -465,267 +398,89 @@ echo 'Cleared all chain state for $NODE_SLOT_ID in $REMOTE_NODE_DIR — node is 
   echo "[$NODE_SLOT_ID] Chain reset complete. Node stopped and ready."
 }
 
-wireguard_install() {
-  remote_run_script "
-set -euo pipefail
-
-# ── Step 1: Install WireGuard tools if missing ──
-if ! command -v wg >/dev/null 2>&1 || ! command -v wg-quick >/dev/null 2>&1; then
-  echo 'Installing WireGuard tools...'
-  if command -v apt-get >/dev/null 2>&1; then
-    if command -v sudo >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y wireguard wireguard-tools; else apt-get update -y && apt-get install -y wireguard wireguard-tools; fi
-  elif command -v dnf >/dev/null 2>&1; then
-    if command -v sudo >/dev/null 2>&1; then sudo dnf install -y wireguard-tools; else dnf install -y wireguard-tools; fi
-  elif command -v yum >/dev/null 2>&1; then
-    if command -v sudo >/dev/null 2>&1; then sudo yum install -y wireguard-tools; else yum install -y wireguard-tools; fi
-  elif command -v pacman >/dev/null 2>&1; then
-    if command -v sudo >/dev/null 2>&1; then sudo pacman -Sy --noconfirm wireguard-tools; else pacman -Sy --noconfirm wireguard-tools; fi
-  elif command -v brew >/dev/null 2>&1; then
-    brew list wireguard-tools >/dev/null 2>&1 || brew install wireguard-tools
-  else
-    echo 'Unable to install wireguard-tools automatically (unsupported package manager).' >&2
-    exit 1
-  fi
-else
-  echo 'WireGuard tools already installed.'
-fi
-
-# ── Step 2: Import existing WireGuard config if present ──
-# Search known locations for an existing wg0.conf and install it
-# to /etc/wireguard/ so that wireguard_connect and other functions work.
-EXISTING_CONF=''
-SEARCH_PATHS=(
-  \"\$HOME/wireguard/wg0.conf\"
-  '/etc/wireguard/wg0.conf'
-  '/opt/wireguard/wg0.conf'
-  '/usr/local/etc/wireguard/wg0.conf'
-  'C:/WireGuard/wg0.conf'
-  'C:/Program Files/WireGuard/Data/Configurations/wg0.conf.dpapi'
-)
-for candidate in \"\${SEARCH_PATHS[@]}\"; do
-  if [[ -f \"\$candidate\" ]]; then
-    EXISTING_CONF=\"\$candidate\"
-    break
-  fi
-done
-
-if [[ -n \"\$EXISTING_CONF\" ]]; then
-  echo \"Found existing WireGuard config at: \$EXISTING_CONF\"
-  TARGET='/etc/wireguard/wg0.conf'
-  # Only copy if the config isn't already at the target location
-  if [[ \"\$EXISTING_CONF\" != \"\$TARGET\" ]]; then
-    if command -v sudo >/dev/null 2>&1; then
-      sudo mkdir -p /etc/wireguard
-      sudo install -m 600 \"\$EXISTING_CONF\" \"\$TARGET\"
-    else
-      mkdir -p /etc/wireguard
-      install -m 600 \"\$EXISTING_CONF\" \"\$TARGET\"
-    fi
-    echo \"Imported WireGuard config to \$TARGET\"
-  else
-    echo \"Config already at \$TARGET — no import needed.\"
-  fi
-  # Bring up the interface if it's not already running
-  if command -v wg-quick >/dev/null 2>&1; then
-    IFACE='wg0'
-    if command -v sudo >/dev/null 2>&1; then
-      if ! sudo wg show \"\$IFACE\" >/dev/null 2>&1; then
-        echo \"Bringing up WireGuard interface \$IFACE...\"
-        sudo wg-quick up \"\$IFACE\" || echo \"Warning: failed to bring up \$IFACE (may need manual config).\"
-      else
-        echo \"WireGuard interface \$IFACE is already active.\"
-      fi
-    else
-      if ! wg show \"\$IFACE\" >/dev/null 2>&1; then
-        echo \"Bringing up WireGuard interface \$IFACE...\"
-        wg-quick up \"\$IFACE\" || echo \"Warning: failed to bring up \$IFACE (may need manual config).\"
-      else
-        echo \"WireGuard interface \$IFACE is already active.\"
-      fi
-    fi
-  fi
-else
-  echo 'No existing WireGuard config found at known locations.'
-  echo 'Searched: ~/wireguard/wg0.conf, /etc/wireguard/wg0.conf, /opt/wireguard/wg0.conf, /usr/local/etc/wireguard/wg0.conf'
-  echo 'You can upload a config via wireguard_connect, or place wg0.conf in one of the above paths and re-run.'
-fi
-"
-}
-
-wireguard_connect() {
-  if [[ ! -f "$WG_CONFIG_FILE" ]]; then
-    # Try to use existing remote config instead of failing
-    echo "Local WireGuard config not found at: $WG_CONFIG_FILE"
-    echo "Checking if remote machine already has a WireGuard config..."
-
-    local remote_has_config
-    remote_has_config="$(remote_run_script "
-set -euo pipefail
-SEARCH_PATHS=(
-  \"\$HOME/wireguard/wg0.conf\"
-  '/etc/wireguard/wg0.conf'
-  '/opt/wireguard/wg0.conf'
-  '/usr/local/etc/wireguard/wg0.conf'
-)
-for candidate in \"\${SEARCH_PATHS[@]}\"; do
-  if [[ -f \"\$candidate\" ]]; then
-    echo \"\$candidate\"
-    exit 0
-  fi
-done
-echo ''
-" 2>/dev/null | tr -d '\r' | tail -n1)"
-
-    if [[ -n "$remote_has_config" ]]; then
-      echo "Found existing config on remote at: $remote_has_config"
-      echo "Importing and activating..."
-      local wg_interface_effective
-      wg_interface_effective="$(resolve_remote_wireguard_interface "$WG_INTERFACE")"
-      local wg_remote_conf_effective="$WG_REMOTE_CONF"
-      if [[ "$WG_REMOTE_CONF" == "/etc/wireguard/${WG_INTERFACE}.conf" ]]; then
-        wg_remote_conf_effective="/etc/wireguard/${wg_interface_effective}.conf"
-      fi
-
-      remote_run_script "
-set -euo pipefail
-SOURCE='$remote_has_config'
-TARGET='$wg_remote_conf_effective'
-if [[ \"\$SOURCE\" != \"\$TARGET\" ]]; then
-  if command -v sudo >/dev/null 2>&1; then
-    sudo mkdir -p /etc/wireguard
-    sudo install -m 600 \"\$SOURCE\" \"\$TARGET\"
-  else
-    mkdir -p /etc/wireguard
-    install -m 600 \"\$SOURCE\" \"\$TARGET\"
-  fi
-fi
-if command -v sudo >/dev/null 2>&1; then
-  sudo wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
-  sudo wg-quick up '$wg_interface_effective'
-  sudo wg show '$wg_interface_effective' || true
-else
-  wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
-  wg-quick up '$wg_interface_effective'
-  wg show '$wg_interface_effective' || true
-fi
-"
-      WG_INTERFACE="$wg_interface_effective"
-      WG_REMOTE_CONF="$wg_remote_conf_effective"
-      return 0
-    fi
-
-    echo "No WireGuard config found on remote machine either." >&2
-    echo "Run scripts/devnet15/generate-wireguard-mesh.sh or place wg0.conf on the remote machine." >&2
+explorer_reset() {
+  local endpoint="${SYNERGY_EXPLORER_RESET_ENDPOINT:-}"
+  if [[ -z "$endpoint" ]]; then
+    echo "SYNERGY_EXPLORER_RESET_ENDPOINT is not configured." >&2
     exit 1
   fi
 
-  local wg_interface_effective
-  wg_interface_effective="$(resolve_remote_wireguard_interface "$WG_INTERFACE")"
-  local wg_remote_conf_effective="$WG_REMOTE_CONF"
-  if [[ "$WG_REMOTE_CONF" == "/etc/wireguard/${WG_INTERFACE}.conf" ]]; then
-    wg_remote_conf_effective="/etc/wireguard/${wg_interface_effective}.conf"
+  local reason="${SYNERGY_EXPLORER_RESET_REASON:-chain_reset}"
+  local scheme="https"
+  local endpoint_without_scheme="$endpoint"
+  if [[ "$endpoint" == https://* ]]; then
+    endpoint_without_scheme="${endpoint#https://}"
+  elif [[ "$endpoint" == http://* ]]; then
+    scheme="http"
+    endpoint_without_scheme="${endpoint#http://}"
   fi
 
-  local remote_tmp_conf
-  remote_tmp_conf="/tmp/${NODE_SLOT_ID}-${wg_interface_effective}.conf"
-  copy_to_remote "$WG_CONFIG_FILE" "$remote_tmp_conf"
+  local host_port="${endpoint_without_scheme%%/*}"
+  local host="$host_port"
+  local port
+  if [[ "$host_port" == *:* ]]; then
+    host="${host_port%%:*}"
+    port="${host_port##*:}"
+  elif [[ "$scheme" == "http" ]]; then
+    port="80"
+  else
+    port="443"
+  fi
+
+  local endpoint_q reason_q host_q port_q vpn_ip_q
+  endpoint_q="$(shell_escape "$endpoint")"
+  reason_q="$(shell_escape "$reason")"
+  host_q="$(shell_escape "$host")"
+  port_q="$(shell_escape "$port")"
+  vpn_ip_q="$(shell_escape "${VPN_IP:-}")"
 
   remote_run_script "
 set -euo pipefail
-if ! command -v wg-quick >/dev/null 2>&1; then
-  echo 'wg-quick is not available. Run wireguard_install first.' >&2
+endpoint=$endpoint_q
+reason=$reason_q
+host=$host_q
+port=$port_q
+vpn_ip=$vpn_ip_q
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo 'curl is required for explorer_reset.' >&2
   exit 1
 fi
-if command -v sudo >/dev/null 2>&1; then
-  sudo mkdir -p /etc/wireguard
-  sudo install -m 600 '$remote_tmp_conf' '$wg_remote_conf_effective'
-  sudo wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
-  sudo wg-quick up '$wg_interface_effective'
-  sudo wg show '$wg_interface_effective' || true
-else
-  mkdir -p /etc/wireguard
-  install -m 600 '$remote_tmp_conf' '$wg_remote_conf_effective'
-  wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
-  wg-quick up '$wg_interface_effective'
-  wg show '$wg_interface_effective' || true
-fi
-rm -f '$remote_tmp_conf'
-"
 
-  WG_INTERFACE="$wg_interface_effective"
-  WG_REMOTE_CONF="$wg_remote_conf_effective"
-}
+timestamp_utc=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
+body=\$(printf '{\"action\":\"reindex_from_genesis\",\"reason\":\"%s\",\"timestamp_utc\":\"%s\"}' \"\$reason\" \"\$timestamp_utc\")
 
-wireguard_disconnect() {
-  local wg_interface_effective
-  wg_interface_effective="$(resolve_remote_wireguard_interface "$WG_INTERFACE")"
+attempt_reset() {
+  local label=\"\$1\"
+  local resolve_ip=\"\$2\"
+  local response curl_exit status payload
 
-  remote_run_script "
-set -euo pipefail
-if command -v sudo >/dev/null 2>&1; then
-  sudo wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
-else
-  wg-quick down '$wg_interface_effective' >/dev/null 2>&1 || true
-fi
-echo 'WireGuard interface $wg_interface_effective is down.'
-"
-
-  WG_INTERFACE="$wg_interface_effective"
-}
-
-wireguard_status() {
-  local wg_interface_effective
-  wg_interface_effective="$(resolve_remote_wireguard_interface "$WG_INTERFACE")"
-
-  remote_run_script "
-set -euo pipefail
-echo '=== WireGuard Mesh VPN Status for $NODE_SLOT_ID ==='
-echo ''
-
-# Interface and endpoint info
-WG_CMD='wg'
-if command -v sudo >/dev/null 2>&1; then WG_CMD='sudo wg'; fi
-
-if ! command -v wg >/dev/null 2>&1; then
-  echo 'WireGuard tools NOT installed on this machine.'
-  exit 0
-fi
-
-echo '--- Interface: $wg_interface_effective ---'
-\$WG_CMD show '$wg_interface_effective' 2>/dev/null || {
-  echo 'Interface $wg_interface_effective is DOWN or not configured.'
-  exit 0
-}
-
-echo ''
-echo '--- Local VPN Address ---'
-ip -4 addr show dev '$wg_interface_effective' 2>/dev/null | grep inet || echo 'No IPv4 address assigned'
-
-echo ''
-echo '--- Mesh Peer Reachability ---'
-for peer_ip in \$(ip -4 route show dev '$wg_interface_effective' 2>/dev/null | awk '{print \$1}' | grep -v '/'); do
-  if ping -c 1 -W 1 \"\$peer_ip\" >/dev/null 2>&1; then
-    echo \"  \$peer_ip  ✓ reachable\"
+  if [[ -n \"\$resolve_ip\" ]]; then
+    response=\$(curl --silent --show-error --connect-timeout 5 --max-time 20 --write-out '\nHTTP_STATUS:%{http_code}' --resolve \"\$host:\$port:\$resolve_ip\" -X POST \"\$endpoint\" -H 'Content-Type: application/json' --data \"\$body\" 2>&1) || curl_exit=\$?
   else
-    echo \"  \$peer_ip  ✗ unreachable\"
+    response=\$(curl --silent --show-error --connect-timeout 5 --max-time 20 --write-out '\nHTTP_STATUS:%{http_code}' -X POST \"\$endpoint\" -H 'Content-Type: application/json' --data \"\$body\" 2>&1) || curl_exit=\$?
   fi
-done
+  curl_exit=\${curl_exit:-0}
+  status=\$(printf '%s\n' \"\$response\" | sed -n 's/^HTTP_STATUS://p' | tail -n1)
+  payload=\$(printf '%s\n' \"\$response\" | sed '/^HTTP_STATUS:/d')
 
-echo ''
-echo '--- Connection Summary ---'
-TOTAL_PEERS=\$(\$WG_CMD show '$wg_interface_effective' peers 2>/dev/null | wc -l)
-HANDSHAKE_PEERS=\$(\$WG_CMD show '$wg_interface_effective' latest-handshakes 2>/dev/null | awk '\$2 != \"0\" {n++} END {print n+0}')
-echo \"Connected peers: \$HANDSHAKE_PEERS / \$TOTAL_PEERS\"
+  if [[ \"\$curl_exit\" -eq 0 && \"\$status\" == 2* ]]; then
+    printf '%s\n' \"\$payload\"
+    echo \"Explorer reset accepted via \$label.\"
+    return 0
+  fi
 
-TRANSFER=\$(\$WG_CMD show '$wg_interface_effective' transfer 2>/dev/null)
-if [[ -n \"\$TRANSFER\" ]]; then
-  echo ''
-  echo '--- Transfer Stats (bytes rx / tx per peer) ---'
-  echo \"\$TRANSFER\"
-fi
+  echo \"Explorer reset attempt via \$label failed.\" >&2
+  if [[ -n \"\$payload\" ]]; then
+    printf '%s\n' \"\$payload\" >&2
+  fi
+  return 1
+}
+
+attempt_reset 'localhost' '127.0.0.1' \
+  || attempt_reset 'vpn' \"\$vpn_ip\" \
+  || attempt_reset 'endpoint' ''
 "
-
-  WG_INTERFACE="$wg_interface_effective"
 }
 
 export_logs() {
@@ -979,10 +734,7 @@ SSH user:           $SSH_USER
 SSH port:           $SSH_PORT
 SSH key:            ${SSH_KEY:-default-agent}
 Remote node dir:    $REMOTE_NODE_DIR
-WireGuard iface:    $WG_INTERFACE
-WireGuard conf dst: $WG_REMOTE_CONF
 Installer source:   $INSTALLER_DIR
-WireGuard source:   $WG_CONFIG_FILE
 INFO
 }
 
@@ -991,15 +743,10 @@ case "$OPERATION" in
   install_node)       deploy_installer_bundle ;;
   setup_node)         deploy_installer_bundle
                       remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh" ;;
-  bootstrap_node)     deploy_installer_bundle; wireguard_install; wireguard_connect || echo "WireGuard connect skipped (may already be active)."
-                      # Verify VPN connectivity to bootnodes before starting.
-                      if [[ -n "${BOOTNODE_VPN_IPS:-}" ]]; then
-                        for bootnode_ip in $BOOTNODE_VPN_IPS; do
-                          wait_for_vpn_connectivity "$bootnode_ip" 10 || echo "WARNING: Could not reach bootnode at $bootnode_ip, proceeding anyway."
-                        done
-                      fi
-                      run_nodectl "start" ;;
+  bootstrap_node)     deploy_installer_bundle
+                      remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh" ;;
   reset_chain)        reset_chain ;;
+  explorer_reset)     explorer_reset ;;
   start)              run_nodectl "start" ;;
   stop)               run_nodectl "stop" || true; kill_machine_processes "stop" ;;
   restart)            run_nodectl "stop" || true; kill_machine_processes "restart"; run_nodectl "start" ;;
@@ -1008,13 +755,6 @@ case "$OPERATION" in
   export_logs)        export_logs ;;
   view_chain_data)    view_chain_data ;;
   export_chain_data)  export_chain_data ;;
-
-  # ── WireGuard (status only exposed in UI) ──────────────────────────────
-  wireguard_install)    wireguard_install ;;
-  wireguard_connect)    wireguard_connect ;;
-  wireguard_disconnect) wireguard_disconnect ;;
-  wireguard_status)     wireguard_status ;;
-  wireguard_restart)    wireguard_disconnect; wireguard_connect ;;
 
   # ── Class I — Consensus ────────────────────────────────────────────────
   rotate_vrf_key)             rotate_vrf_key ;;

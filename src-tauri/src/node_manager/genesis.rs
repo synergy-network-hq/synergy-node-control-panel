@@ -83,7 +83,12 @@ pub struct GenesisConfig {
 
 /// Generate a deterministic devnet address for a node.
 /// Format: {class_prefix}devnet{slot_num}{type_slug}{hash} (42 chars, all lowercase)
-pub fn generate_node_address(node_slot_id: &str, node_type: &str, node_class: u8, p2p_port: Option<u16>) -> String {
+pub fn generate_node_address(
+    node_slot_id: &str,
+    node_type: &str,
+    node_class: u8,
+    p2p_port: Option<u16>,
+) -> String {
     let class_prefix = match node_class {
         1 => "synv1",
         2 => "synv2",
@@ -94,9 +99,7 @@ pub fn generate_node_address(node_slot_id: &str, node_type: &str, node_class: u8
     };
 
     // Extract node slot number
-    let slot_num = node_slot_id
-        .replace("node-", "")
-        .replace("Node-", "");
+    let slot_num = node_slot_id.replace("node-", "").replace("Node-", "");
     let slot_num = format!("{:0>2}", slot_num);
 
     // Create type slug (lowercase, no spaces/hyphens, max 12 chars)
@@ -115,7 +118,10 @@ pub fn generate_node_address(node_slot_id: &str, node_type: &str, node_class: u8
     let hash_short = &hash[..8];
 
     // Build address, pad to 42 chars
-    let base = format!("{}devnet{}{}{}", class_prefix, slot_num, type_slug, hash_short);
+    let base = format!(
+        "{}devnet{}{}{}",
+        class_prefix, slot_num, type_slug, hash_short
+    );
     let mut address = base;
     while address.len() < 42 {
         address.push('0');
@@ -133,9 +139,13 @@ pub fn generate_genesis_from_inventory(inventory_path: &Path) -> Result<GenesisC
     let mut class_totals: HashMap<String, ClassBreakdown> = HashMap::new();
 
     for (i, line) in content.lines().enumerate() {
-        if i == 0 { continue; } // skip header
+        if i == 0 {
+            continue;
+        } // skip header
         let fields: Vec<&str> = line.split(',').collect();
-        if fields.len() < 7 { continue; }
+        if fields.len() < 7 {
+            continue;
+        }
 
         let node_slot_id = fields[0].trim();
         let node_type_str = fields[4].trim();
@@ -158,11 +168,22 @@ pub fn generate_genesis_from_inventory(inventory_path: &Path) -> Result<GenesisC
             node_slot_id: node_slot_id.to_string(),
         });
 
-        let class_key = format!("Class {}", match address_class {
-            1 => "I", 2 => "II", 3 => "III", 4 => "IV", 5 => "V", _ => "N/A",
-        });
+        let class_key = format!(
+            "Class {}",
+            match address_class {
+                1 => "I",
+                2 => "II",
+                3 => "III",
+                4 => "IV",
+                5 => "V",
+                _ => "N/A",
+            }
+        );
         let entry = class_totals.entry(class_key).or_insert(ClassBreakdown {
-            nodes: 0, allocated: 0, staked: 0, liquid: 0,
+            nodes: 0,
+            allocated: 0,
+            staked: 0,
+            liquid: 0,
         });
         entry.nodes += 1;
         entry.allocated += GENESIS_ALLOCATION_PER_NODE;
@@ -191,16 +212,16 @@ pub fn generate_genesis_from_inventory(inventory_path: &Path) -> Result<GenesisC
 }
 
 /// Perform auto-staking for a specific node
-pub fn auto_stake_for_node(node_type: &NodeType, node_slot_id: &str, p2p_port: Option<u16>) -> AutoStakeResult {
+pub fn auto_stake_for_node(
+    node_type: &NodeType,
+    node_slot_id: &str,
+    p2p_port: Option<u16>,
+) -> AutoStakeResult {
     let class = NodeClass::from_node_type(node_type);
     let class_num = class.class_number();
     let stake_amount = DEFAULT_STAKE_PER_NODE;
-    let address = generate_node_address(
-        node_slot_id,
-        node_type.display_name(),
-        class_num,
-        p2p_port,
-    );
+    let address =
+        generate_node_address(node_slot_id, node_type.display_name(), class_num, p2p_port);
 
     if stake_amount == 0 {
         return AutoStakeResult {
@@ -272,8 +293,7 @@ pub fn load_or_generate_genesis(
     }
     let json = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize genesis config: {}", e))?;
-    fs::write(genesis_path, json)
-        .map_err(|e| format!("Failed to write genesis config: {}", e))?;
+    fs::write(genesis_path, json).map_err(|e| format!("Failed to write genesis config: {}", e))?;
 
     Ok(config)
 }
@@ -347,7 +367,10 @@ mod tests {
     fn test_generate_address_unique() {
         let a1 = generate_node_address("node-01", "validator", 1, Some(38638));
         let a2 = generate_node_address("node-02", "validator", 1, Some(38639));
-        assert_ne!(a1, a2, "Different machines should produce different addresses");
+        assert_ne!(
+            a1, a2,
+            "Different machines should produce different addresses"
+        );
     }
 
     #[test]

@@ -13,11 +13,14 @@ usage() {
   cat <<USAGE
 Usage: $0 [output-dir]
 
-Generates full-mesh WireGuard configs for all machines in:
+Generates hub-and-spoke WireGuard configs for all machines in:
 - devnet/lean15/node-inventory.csv
 
 Environment:
 - WIREGUARD_PORT_BASE (default: 51820)
+- SYNERGY_DEVNET_WG_HUB_PUBLIC_IP (default: 64.227.107.57)
+- SYNERGY_DEVNET_WG_HUB_VPN_IP (default: 10.50.0.254)
+- SYNERGY_DEVNET_WG_HUB_PORT (default: 51820)
 USAGE
 }
 
@@ -42,6 +45,11 @@ if ! command -v wg >/dev/null 2>&1; then
 fi
 
 mkdir -p "$KEYS_DIR" "$CONFIGS_DIR"
+
+HUB_PUBLIC_IP="${SYNERGY_DEVNET_WG_HUB_PUBLIC_IP:-64.227.107.57}"
+HUB_VPN_IP="${SYNERGY_DEVNET_WG_HUB_VPN_IP:-10.50.0.254}"
+HUB_PORT="${SYNERGY_DEVNET_WG_HUB_PORT:-51820}"
+HUB_KEY_DIR="$KEYS_DIR/hub"
 
 resolve_var() {
   local name="$1"
@@ -111,6 +119,18 @@ while IFS=, read -r node_slot_id _ _ _ _ _ _ _ _ _ _ host vpn_ip physical_machin
   logical_physical_indexes+=("$idx")
 done < "$INVENTORY_FILE"
 
+mkdir -p "$HUB_KEY_DIR"
+if [[ ! -f "$HUB_KEY_DIR/privatekey" || ! -f "$HUB_KEY_DIR/publickey" ]]; then
+  hub_private_key="$(wg genkey)"
+  hub_public_key="$(printf '%s' "$hub_private_key" | wg pubkey)"
+  printf '%s\n' "$hub_private_key" > "$HUB_KEY_DIR/privatekey"
+  printf '%s\n' "$hub_public_key" > "$HUB_KEY_DIR/publickey"
+  chmod 600 "$HUB_KEY_DIR/privatekey" "$HUB_KEY_DIR/publickey"
+fi
+
+hub_private_key="$(cat "$HUB_KEY_DIR/privatekey")"
+hub_public_key="$(cat "$HUB_KEY_DIR/publickey")"
+
 for node_slot_id in "${physical_primary_node_slots[@]}"; do
   key_dir="$KEYS_DIR/$node_slot_id"
   mkdir -p "$key_dir"
@@ -124,6 +144,28 @@ for node_slot_id in "${physical_primary_node_slots[@]}"; do
     printf '%s\n' "$public_key" > "$public_key_file"
     chmod 600 "$private_key_file" "$public_key_file"
   fi
+done
+
+hub_conf_file="$CONFIGS_DIR/hub.conf"
+{
+  echo "[Interface]"
+  echo "Address = ${HUB_VPN_IP}/24"
+  echo "ListenPort = ${HUB_PORT}"
+  echo "PrivateKey = ${hub_private_key}"
+  echo ""
+} > "$hub_conf_file"
+
+for j in "${!physical_keys[@]}"; do
+  peer_machine="${physical_primary_node_slots[$j]}"
+  peer_vpn_ip="${physical_vpn_ips[$j]}"
+  peer_public_key="$(cat "$KEYS_DIR/$peer_machine/publickey")"
+
+  {
+    echo "[Peer]"
+    echo "PublicKey = ${peer_public_key}"
+    echo "AllowedIPs = ${peer_vpn_ip}/32"
+    echo ""
+  } >> "$hub_conf_file"
 done
 
 for i in "${!logical_node_slots[@]}"; do
@@ -141,29 +183,16 @@ for i in "${!logical_node_slots[@]}"; do
     echo "Address = ${machine_vpn_ip}/32"
     echo "ListenPort = $machine_listen_port"
     echo ""
+    echo "[Peer]"
+    echo "PublicKey = ${hub_public_key}"
+    echo "AllowedIPs = 10.50.0.0/24"
+    echo "Endpoint = ${HUB_PUBLIC_IP}:${HUB_PORT}"
+    echo "PersistentKeepalive = 25"
+    echo ""
   } > "$conf_file"
-
-  for j in "${!physical_keys[@]}"; do
-    if [[ "$machine_physical_index" == "$j" ]]; then
-      continue
-    fi
-    peer_machine="${physical_primary_node_slots[$j]}"
-    peer_vpn_ip="${physical_vpn_ips[$j]}"
-    peer_host="${physical_hosts[$j]}"
-    peer_port="${physical_listen_ports[$j]}"
-    peer_public_key="$(cat "$KEYS_DIR/$peer_machine/publickey")"
-
-    {
-      echo "[Peer]"
-      echo "PublicKey = $peer_public_key"
-      echo "AllowedIPs = ${peer_vpn_ip}/32"
-      echo "Endpoint = ${peer_host}:${peer_port}"
-      echo "PersistentKeepalive = 25"
-      echo ""
-    } >> "$conf_file"
-  done
 
   echo "Generated WireGuard config: $conf_file"
 done
 
+echo "Generated WireGuard config: $hub_conf_file"
 echo "WireGuard mesh artifacts written to: $OUT_DIR"

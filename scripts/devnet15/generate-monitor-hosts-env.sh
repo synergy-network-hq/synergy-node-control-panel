@@ -32,12 +32,13 @@ SYNERGY_DEVNET_SSH_USER=ops
 SYNERGY_DEVNET_SSH_PORT=22
 # Optional global SSH private key path:
 # SYNERGY_DEVNET_SSH_KEY=/Users/you/.ssh/id_ed25519
-# Optional global WireGuard defaults:
-# SYNERGY_DEVNET_WG_INTERFACE=wg0
-# SYNERGY_DEVNET_WG_REMOTE_CONF=/etc/wireguard/wg0.conf
+SYNERGY_DEVNET_WG_HUB_PUBLIC_IP=64.227.107.57
+SYNERGY_DEVNET_WG_HUB_VPN_IP=10.50.0.254
+SYNERGY_DEVNET_WG_HUB_PORT=51820
 
 # Explorer bridge used by control panel Atlas links:
 ATLAS_BASE_URL=https://devnet-explorer.synergy-network.io
+SYNERGY_EXPLORER_RESET_ENDPOINT=https://devnet-atlas-api.synergy-network.io/v1/admin/reindex-from-genesis
 
 HEADER
 
@@ -60,8 +61,6 @@ ${node_slot_key}_SSH_USER=ops
 ${node_slot_key}_SSH_PORT=22
 # ${node_slot_key}_SSH_KEY=
 # ${node_slot_key}_REMOTE_DIR=/opt/synergy/$node_slot_id
-# ${node_slot_key}_WG_INTERFACE=wg0
-# ${node_slot_key}_WG_REMOTE_CONF=/etc/wireguard/wg0.conf
 
 ${node_slot_key}_START_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id start"
 ${node_slot_key}_STOP_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id stop"
@@ -74,10 +73,6 @@ ${node_slot_key}_EXPORT_CHAIN_DATA_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id expor
 
 ${node_slot_key}_ACTION_INSTALL_NODE_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id install_node"
 ${node_slot_key}_ACTION_BOOTSTRAP_NODE_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id bootstrap_node"
-${node_slot_key}_ACTION_WIREGUARD_INSTALL_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_install"
-${node_slot_key}_ACTION_WIREGUARD_CONNECT_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_connect"
-${node_slot_key}_ACTION_WIREGUARD_DISCONNECT_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_disconnect"
-${node_slot_key}_ACTION_WIREGUARD_STATUS_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id wireguard_status"
 ${node_slot_key}_ACTION_NODE_LOGS_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id logs"
 ${node_slot_key}_ACTION_RESET_CHAIN_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id reset_chain"
 

@@ -26,6 +26,7 @@ pub struct MonitorNode {
     pub operator: Option<String>,
     pub device: Option<String>,
     pub host: String,
+    pub vpn_ip: Option<String>,
     pub rpc_port: u16,
     pub p2p_port: u16,
     pub ws_port: u16,
@@ -425,6 +426,7 @@ pub fn get_monitor_security_state() -> Result<MonitorSecurityState, String> {
 pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
+    let machine_topology = build_inventory_machine_topology(&nodes);
 
     let mut machine_targets = HashMap::<String, (String, Vec<String>)>::new();
     for node in nodes {
@@ -433,8 +435,9 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
         } else {
             node.physical_machine_id.clone()
         };
-        let vpn_ip = canonical_vpn_ip_for_physical_machine(&physical_machine_id)
-            .map(str::to_string)
+        let vpn_ip = machine_topology
+            .get(&physical_machine_id.to_ascii_lowercase())
+            .map(|entry| entry.vpn_ip.clone())
             .or_else(|| {
                 let host = node.host.trim();
                 if is_wireguard_vpn_ip(host) {
@@ -610,20 +613,17 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
             physical_machine_id: None,
             node_slot_ids: Vec::new(),
             message: format!(
-                "Detected local VPN IP {vpn_ip}, but it does not map to machine-01..machine-13."
+                "Detected local VPN IP {vpn_ip}, but it does not map to any physical_machine_id in node-inventory.csv."
             ),
         });
     };
 
-    let node_slot_ids = logical_nodes_for_physical_machine(physical_machine_id)?
-        .into_iter()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
+    let node_slot_ids = logical_nodes_for_physical_machine(&physical_machine_id)?;
 
     Ok(MonitorLocalVpnIdentity {
         detected: true,
         vpn_ip: Some(vpn_ip.clone()),
-        physical_machine_id: Some(physical_machine_id.to_string()),
+        physical_machine_id: Some(physical_machine_id.clone()),
         node_slot_ids,
         message: format!("Detected VPN IP {vpn_ip}; mapped to {physical_machine_id}."),
     })
@@ -1181,53 +1181,67 @@ pub async fn monitor_bulk_node_control(
     })
 }
 
-/// Notify the explorer/indexer service to reindex from genesis after a chain reset.
-/// Reads the endpoint from SYNERGY_EXPLORER_RESET_ENDPOINT env var or hosts.env.
-/// This is a best-effort, non-blocking call — if the explorer is unreachable or
-/// the endpoint is not configured, the chain reset still succeeds.
-async fn reset_explorer_index() -> Result<(), String> {
-    let endpoint = std::env::var("SYNERGY_EXPLORER_RESET_ENDPOINT").ok();
+fn resolve_hosts_env_path() -> Result<PathBuf, String> {
+    let inventory_path = resolve_inventory_path()?;
+    inventory_path
+        .parent()
+        .map(|parent| parent.join("hosts.env"))
+        .filter(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            "Unable to resolve devnet/lean15/hosts.env from the active monitor workspace."
+                .to_string()
+        })
+}
 
-    // If no endpoint is configured, try to read from hosts.env.
-    let endpoint = match endpoint {
-        Some(url) if !url.is_empty() => url,
-        _ => {
-            let hosts_env = resolve_hosts_env_path().ok();
-            if let Some(path) = hosts_env {
-                if let Ok(contents) = std::fs::read_to_string(&path) {
-                    contents
-                        .lines()
-                        .find(|line| line.starts_with("SYNERGY_EXPLORER_RESET_ENDPOINT="))
-                        .and_then(|line| line.split_once('='))
-                        .map(|(_, value)| value.trim().trim_matches('"').to_string())
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            }
+fn read_hosts_env_value(key: &str) -> Option<String> {
+    let path = resolve_hosts_env_path().ok()?;
+    let contents = fs::read_to_string(path).ok()?;
+
+    contents.lines().find_map(|raw_line| {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return None;
         }
-    };
 
-    if endpoint.is_empty() {
-        return Err(
-            "SYNERGY_EXPLORER_RESET_ENDPOINT not configured. Explorer must be reindexed manually. \
-             See Explorer-Reset-Integration-Guide.md for setup instructions."
-                .to_string(),
-        );
-    }
+        let stripped = line.strip_prefix("export ").unwrap_or(line).trim();
+        let (raw_key, raw_value) = stripped.split_once('=')?;
+        if raw_key.trim() != key {
+            return None;
+        }
 
+        let value = raw_value
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim()
+            .to_string();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    })
+}
+
+fn resolve_process_or_hosts_env_value(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| read_hosts_env_value(key))
+}
+
+async fn send_explorer_reset_request(endpoint: &str, reason: &str) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|error| format!("Failed to build HTTP client: {error}"))?;
 
     let response = client
-        .post(&endpoint)
+        .post(endpoint)
         .json(&serde_json::json!({
             "action": "reindex_from_genesis",
-            "reason": "chain_reset",
+            "reason": reason,
             "timestamp_utc": chrono::Utc::now().to_rfc3339(),
         }))
         .send()
@@ -1243,6 +1257,83 @@ async fn reset_explorer_index() -> Result<(), String> {
             response.status(),
             response.text().await.unwrap_or_default()
         ))
+    }
+}
+
+fn send_explorer_reset_via_orchestrator(endpoint: &str, reason: &str) -> Result<(), String> {
+    let inventory_path = resolve_inventory_path()?;
+    let script_path = resolve_orchestrator_script_path(&inventory_path).ok_or_else(|| {
+        "Unable to resolve scripts/devnet15/remote-node-orchestrator.sh for explorer reset fallback."
+            .to_string()
+    })?;
+    let hosts_env_path = resolve_hosts_env_path()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string());
+    let remote_node = resolve_process_or_hosts_env_value("SYNERGY_EXPLORER_RESET_REMOTE_NODE")
+        .unwrap_or_else(|| "node-01".to_string());
+    let base_command = build_orchestrator_command(
+        &script_path,
+        hosts_env_path.as_deref(),
+        &remote_node,
+        "explorer_reset",
+    );
+    let command = format!(
+        "SYNERGY_EXPLORER_RESET_ENDPOINT={} SYNERGY_EXPLORER_RESET_REASON={} {}",
+        shell_quote(endpoint),
+        shell_quote(reason),
+        base_command
+    );
+    let (exit_code, stdout, stderr) = run_shell_command(&command)?;
+    if exit_code == 0 {
+        eprintln!(
+            "Explorer reindex-from-genesis request sent via orchestrator fallback on {remote_node}"
+        );
+        return Ok(());
+    }
+
+    let mut detail = Vec::new();
+    if !stdout.trim().is_empty() {
+        detail.push(format!("stdout: {}", truncate_text(stdout.trim(), 1200)));
+    }
+    if !stderr.trim().is_empty() {
+        detail.push(format!("stderr: {}", truncate_text(stderr.trim(), 1200)));
+    }
+    Err(format!(
+        "Explorer reset orchestrator fallback failed on {remote_node} (exit {exit_code}){}",
+        if detail.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", detail.join(" | "))
+        }
+    ))
+}
+
+/// Notify the explorer/indexer service to reindex from genesis after a chain reset.
+/// Reads the endpoint from SYNERGY_EXPLORER_RESET_ENDPOINT env var or hosts.env.
+/// This is a best-effort, non-blocking call — if the explorer is unreachable or
+/// the endpoint is not configured, the chain reset still succeeds.
+async fn reset_explorer_index() -> Result<(), String> {
+    let endpoint = resolve_process_or_hosts_env_value("SYNERGY_EXPLORER_RESET_ENDPOINT")
+        .ok_or_else(|| {
+            "SYNERGY_EXPLORER_RESET_ENDPOINT not configured. Explorer must be reindexed manually. \
+             See Explorer-Reset-Integration-Guide.md for setup instructions."
+                .to_string()
+        })?;
+    let reason = "chain_reset";
+
+    match send_explorer_reset_request(&endpoint, reason).await {
+        Ok(()) => Ok(()),
+        Err(direct_error) => match send_explorer_reset_via_orchestrator(&endpoint, reason) {
+            Ok(()) => {
+                eprintln!(
+                    "Explorer reset direct request failed ({direct_error}); orchestrator fallback succeeded."
+                );
+                Ok(())
+            }
+            Err(fallback_error) => Err(format!(
+                "Explorer reset failed via direct request ({direct_error}) and orchestrator fallback ({fallback_error})"
+            )),
+        },
     }
 }
 
@@ -1653,15 +1744,15 @@ mod terminal_command_tests {
     fn binding_targets_follow_current_topology() {
         assert_eq!(
             physical_machine_for_binding_target("node-14"),
-            Some("machine-01")
+            Some("machine-01".to_string())
         );
         assert_eq!(
             physical_machine_for_binding_target("node-22"),
-            Some("machine-08")
+            Some("machine-08".to_string())
         );
         assert_eq!(
             physical_machine_for_binding_target("node-24"),
-            Some("machine-10")
+            Some("machine-10".to_string())
         );
     }
 
@@ -1971,6 +2062,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
     let Some(host_idx) = resolve_column(&["host"]) else {
         return Err("Inventory header missing required column 'host'".to_string());
     };
+    let vpn_ip_idx = resolve_column(&["vpn_ip"]);
     let physical_machine_idx = resolve_column(&["physical_machine_id", "physical_machine"]);
     let operator_idx = resolve_column(&["operator"]);
     let device_idx = resolve_column(&["device"]);
@@ -2021,6 +2113,10 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         let rpc_url = build_rpc_url(&host, rpc_port);
 
         let physical_machine_id = physical_machine_idx.map(&get).unwrap_or_default();
+        let vpn_ip = vpn_ip_idx
+            .map(&get)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         let operator = operator_idx
             .map(&get)
             .map(|value| value.trim().to_string())
@@ -2048,6 +2144,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             operator,
             device,
             host,
+            vpn_ip,
             rpc_port,
             p2p_port,
             ws_port,
@@ -3936,7 +4033,7 @@ fn resolve_control_commands(
                 continue;
             };
             let action_key = normalize_action_key(action_slug);
-            if action_key.is_empty() {
+            if action_key.is_empty() || is_deprecated_wireguard_action(&action_key) {
                 continue;
             }
             custom_actions
@@ -3989,11 +4086,6 @@ fn resolve_control_commands(
             ("install_node", "install_node"),
             ("bootstrap_node", "bootstrap_node"),
             ("reset_chain", "reset_chain"),
-            ("wireguard_install", "wireguard_install"),
-            ("wireguard_connect", "wireguard_connect"),
-            ("wireguard_disconnect", "wireguard_disconnect"),
-            ("wireguard_restart", "wireguard_restart"),
-            ("wireguard_status", "wireguard_status"),
             ("node_logs", "logs"),
             // Class I — Consensus
             ("rotate_vrf_key", "rotate_vrf_key"),
@@ -5001,7 +5093,6 @@ fn agent_endpoint_for_node(
     host_overrides: &HashMap<String, String>,
 ) -> Option<String> {
     let fallback = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
-        .map(|entry| entry.to_string())
         .unwrap_or_else(|| node.host.clone());
     let host = resolve_host_override(
         host_overrides,
@@ -5047,6 +5138,8 @@ async fn try_execute_monitor_agent_control(
     let request = DevnetAgentControlRequest {
         node_slot_id: node.node_slot_id.clone(),
         action: action.to_string(),
+        target_reason: None,
+        target_url: None,
     };
 
     let response = match client
@@ -5485,7 +5578,8 @@ fn extract_bundled_resources_to_workspace(
         "devnet/lean15/keys",
         "devnet/lean15/configs",
         "devnet/lean15/installers",
-        "devnet/lean15/wireguard",
+        "devnet/lean15/wireguard/README.md",
+        "devnet/lean15/wireguard/deployed-topology.json",
         "binaries",
         "scripts/devnet15",
         "scripts/reset-devnet.sh",
@@ -5518,7 +5612,6 @@ fn extract_bundled_resources_to_workspace(
     let always_refresh = [
         "devnet/lean15/node-inventory.csv",
         "scripts/devnet15/remote-node-orchestrator.sh",
-        "scripts/devnet15/generate-wireguard-mesh.sh",
         "scripts/devnet15/generate-monitor-hosts-env.sh",
         "scripts/devnet15/build-node-installers.sh",
         "scripts/devnet15/render-configs.sh",
@@ -6137,12 +6230,13 @@ fn generate_monitor_hosts_env(
         "SYNERGY_DEVNET_SSH_PORT=22".to_string(),
         "# Optional global SSH private key path:".to_string(),
         "# SYNERGY_DEVNET_SSH_KEY=/Users/you/.ssh/id_ed25519".to_string(),
-        "# Optional global WireGuard defaults:".to_string(),
-        "# SYNERGY_DEVNET_WG_INTERFACE=wg0".to_string(),
-        "# SYNERGY_DEVNET_WG_REMOTE_CONF=/etc/wireguard/wg0.conf".to_string(),
+        "SYNERGY_DEVNET_WG_HUB_PUBLIC_IP=64.227.107.57".to_string(),
+        "SYNERGY_DEVNET_WG_HUB_VPN_IP=10.50.0.254".to_string(),
+        "SYNERGY_DEVNET_WG_HUB_PORT=51820".to_string(),
         String::new(),
         "# Explorer bridge used by control panel Atlas links:".to_string(),
         "ATLAS_BASE_URL=https://devnet-explorer.synergy-network.io".to_string(),
+        "SYNERGY_EXPLORER_RESET_ENDPOINT=https://devnet-atlas-api.synergy-network.io/v1/admin/reindex-from-genesis".to_string(),
         String::new(),
     ];
 
@@ -6157,10 +6251,6 @@ fn generate_monitor_hosts_env(
         ("EXPORT_CHAIN_DATA_CMD", "export_chain_data"),
         ("ACTION_INSTALL_NODE_CMD", "install_node"),
         ("ACTION_BOOTSTRAP_NODE_CMD", "bootstrap_node"),
-        ("ACTION_WIREGUARD_INSTALL_CMD", "wireguard_install"),
-        ("ACTION_WIREGUARD_CONNECT_CMD", "wireguard_connect"),
-        ("ACTION_WIREGUARD_DISCONNECT_CMD", "wireguard_disconnect"),
-        ("ACTION_WIREGUARD_STATUS_CMD", "wireguard_status"),
         ("ACTION_NODE_LOGS_CMD", "logs"),
         ("ACTION_RESET_CHAIN_CMD", "reset_chain"),
     ];
@@ -6189,10 +6279,6 @@ fn generate_monitor_hosts_env(
         lines.push(format!(
             "# {node_slot_key}_REMOTE_DIR=/opt/synergy/{}",
             entry.node_slot_id
-        ));
-        lines.push(format!("# {node_slot_key}_WG_INTERFACE=wg0"));
-        lines.push(format!(
-            "# {node_slot_key}_WG_REMOTE_CONF=/etc/wireguard/wg0.conf"
         ));
         lines.push(String::new());
 
@@ -6537,44 +6623,6 @@ fn normalize_host_override_opt(value: &Option<String>) -> Option<String> {
         .map(|entry| entry.to_string())
 }
 
-fn canonical_vpn_ip_for_physical_machine(machine_id: &str) -> Option<&'static str> {
-    match machine_id.trim().to_ascii_lowercase().as_str() {
-        "machine-01" => Some("10.50.0.1"),
-        "machine-02" => Some("10.50.0.2"),
-        "machine-03" => Some("10.50.0.3"),
-        "machine-04" => Some("10.50.0.4"),
-        "machine-05" => Some("10.50.0.5"),
-        "machine-06" => Some("10.50.0.6"),
-        "machine-07" => Some("10.50.0.7"),
-        "machine-08" => Some("10.50.0.8"),
-        "machine-09" => Some("10.50.0.9"),
-        "machine-10" => Some("10.50.0.10"),
-        "machine-11" => Some("10.50.0.11"),
-        "machine-12" => Some("10.50.0.12"),
-        "machine-13" => Some("10.50.0.13"),
-        _ => None,
-    }
-}
-
-fn physical_machine_for_binding_target(binding_target: &str) -> Option<&'static str> {
-    match binding_target.trim().to_ascii_lowercase().as_str() {
-        "machine-01" | "node-01" | "node-14" => Some("machine-01"),
-        "machine-02" | "node-02" | "node-03" => Some("machine-02"),
-        "machine-03" | "node-04" | "node-05" => Some("machine-03"),
-        "machine-04" | "node-06" | "node-07" => Some("machine-04"),
-        "machine-05" | "node-08" | "node-09" => Some("machine-05"),
-        "machine-06" | "node-10" | "node-11" => Some("machine-06"),
-        "machine-07" | "node-12" | "node-13" => Some("machine-07"),
-        "machine-08" | "node-15" | "node-22" => Some("machine-08"),
-        "machine-09" | "node-16" | "node-17" => Some("machine-09"),
-        "machine-10" | "node-24" | "node-25" => Some("machine-10"),
-        "machine-11" | "node-18" => Some("machine-11"),
-        "machine-12" | "node-20" => Some("machine-12"),
-        "machine-13" | "node-23" => Some("machine-13"),
-        _ => None,
-    }
-}
-
 fn validate_host_override_for_binding(
     binding_target: &str,
     host_override: &Option<String>,
@@ -6587,11 +6635,11 @@ fn validate_host_override_for_binding(
     let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
         return Ok(normalized);
     };
-    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(physical_machine_id) else {
+    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(&physical_machine_id) else {
         return Ok(normalized);
     };
 
-    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip) {
+    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
         return Err(format!(
             "Invalid host override for {binding_target}: got {value}, expected {expected_vpn_ip}."
         ));
@@ -6612,12 +6660,12 @@ fn migrate_host_override_for_binding(
     let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
         return normalized;
     };
-    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(physical_machine_id) else {
+    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(&physical_machine_id) else {
         return normalized;
     };
 
-    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip) {
-        return Some(expected_vpn_ip.to_string());
+    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
+        return Some(expected_vpn_ip);
     }
 
     normalized
@@ -6744,47 +6792,254 @@ fn build_monitor_setup_status(config: &MonitorSecurityConfig) -> MonitorSetupSta
     }
 }
 
-fn logical_nodes_for_physical_machine(
-    physical_machine_id: &str,
-) -> Result<Vec<&'static str>, String> {
-    match physical_machine_id {
-        "machine-01" => Ok(vec!["node-01", "node-14"]),
-        "machine-02" => Ok(vec!["node-02", "node-03"]),
-        "machine-03" => Ok(vec!["node-04", "node-05"]),
-        "machine-04" => Ok(vec!["node-06", "node-07"]),
-        "machine-05" => Ok(vec!["node-08", "node-09"]),
-        "machine-06" => Ok(vec!["node-10", "node-11"]),
-        "machine-07" => Ok(vec!["node-12", "node-13"]),
-        "machine-08" => Ok(vec!["node-15", "node-22"]),
-        "machine-09" => Ok(vec!["node-16", "node-17"]),
-        "machine-10" => Ok(vec!["node-24", "node-25"]),
-        "machine-11" => Ok(vec!["node-18"]),
-        "machine-12" => Ok(vec!["node-20"]),
-        "machine-13" => Ok(vec!["node-23"]),
-        _ => Err(format!(
-            "Unknown physical_machine_id '{}'. Expected machine-01..machine-13.",
-            physical_machine_id
-        )),
-    }
+#[derive(Debug, Clone)]
+struct InventoryMachineTopology {
+    physical_machine_id: String,
+    vpn_ip: String,
+    node_slot_ids: Vec<String>,
 }
 
-fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<&'static str> {
-    match vpn_ip.trim() {
-        "10.50.0.1" => Some("machine-01"),
-        "10.50.0.2" => Some("machine-02"),
-        "10.50.0.3" => Some("machine-03"),
-        "10.50.0.4" => Some("machine-04"),
-        "10.50.0.5" => Some("machine-05"),
-        "10.50.0.6" => Some("machine-06"),
-        "10.50.0.7" => Some("machine-07"),
-        "10.50.0.8" => Some("machine-08"),
-        "10.50.0.9" => Some("machine-09"),
-        "10.50.0.10" => Some("machine-10"),
-        "10.50.0.11" => Some("machine-11"),
-        "10.50.0.12" => Some("machine-12"),
-        "10.50.0.13" => Some("machine-13"),
-        _ => None,
+fn node_slot_ordinal(node_slot_id: &str) -> u16 {
+    node_slot_id
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>()
+        .parse::<u16>()
+        .unwrap_or(u16::MAX)
+}
+
+fn build_inventory_machine_topology(
+    nodes: &[MonitorNode],
+) -> HashMap<String, InventoryMachineTopology> {
+    let mut topology = HashMap::<String, InventoryMachineTopology>::new();
+
+    for node in nodes {
+        let physical_machine_id = node.physical_machine_id.trim().to_ascii_lowercase();
+        if physical_machine_id.is_empty() {
+            continue;
+        }
+
+        let node_slot_id = node.node_slot_id.trim().to_ascii_lowercase();
+        let vpn_ip = node
+            .vpn_ip
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| is_wireguard_vpn_ip(value))
+            .or_else(|| {
+                let host = node.host.trim();
+                is_wireguard_vpn_ip(host).then(|| host.to_string())
+            })
+            .unwrap_or_default();
+
+        let entry = topology
+            .entry(physical_machine_id.clone())
+            .or_insert_with(|| InventoryMachineTopology {
+                physical_machine_id: physical_machine_id.clone(),
+                vpn_ip: vpn_ip.clone(),
+                node_slot_ids: Vec::new(),
+            });
+
+        if entry.vpn_ip.is_empty() && !vpn_ip.is_empty() {
+            entry.vpn_ip = vpn_ip;
+        }
+
+        if !node_slot_id.is_empty()
+            && !entry
+                .node_slot_ids
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&node_slot_id))
+        {
+            entry.node_slot_ids.push(node_slot_id);
+        }
     }
+
+    for entry in topology.values_mut() {
+        entry.node_slot_ids.sort_by(|left, right| {
+            match node_slot_ordinal(left).cmp(&node_slot_ordinal(right)) {
+                std::cmp::Ordering::Equal => left.cmp(right),
+                ordering => ordering,
+            }
+        });
+    }
+
+    topology
+}
+
+fn load_inventory_machine_topology() -> Result<HashMap<String, InventoryMachineTopology>, String> {
+    let inventory_path = resolve_inventory_path()?;
+    let content = fs::read_to_string(&inventory_path).map_err(|error| {
+        format!(
+            "Failed to read inventory file {}: {error}",
+            inventory_path.display()
+        )
+    })?;
+
+    let mut lines = content.lines().filter(|line| !line.trim().is_empty());
+    let header = lines
+        .next()
+        .ok_or_else(|| format!("Inventory file is empty: {}", inventory_path.display()))?;
+    let header_cols = header
+        .split(',')
+        .map(|cell| cell.trim().trim_start_matches('\u{feff}').to_string())
+        .collect::<Vec<_>>();
+    let index_map = header_cols
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| (name.clone(), idx))
+        .collect::<HashMap<_, _>>();
+
+    let resolve_column = |aliases: &[&str], label: &str| -> Result<usize, String> {
+        aliases
+            .iter()
+            .find_map(|name| index_map.get(*name).copied())
+            .ok_or_else(|| format!("Inventory header missing required column '{label}'"))
+    };
+
+    let node_slot_idx = resolve_column(&["node_slot_id", "machine_id"], "node_slot_id")?;
+    let vpn_ip_idx = resolve_column(&["vpn_ip"], "vpn_ip")?;
+    let physical_machine_idx = resolve_column(
+        &["physical_machine_id", "physical_machine"],
+        "physical_machine_id",
+    )?;
+
+    let mut topology = HashMap::<String, InventoryMachineTopology>::new();
+    for raw_line in lines {
+        let trimmed = raw_line.trim();
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        let cells = trimmed
+            .split(',')
+            .map(|cell| cell.trim().to_string())
+            .collect::<Vec<_>>();
+        if cells.len() < header_cols.len() {
+            continue;
+        }
+
+        let get = |index: usize| -> String { cells.get(index).cloned().unwrap_or_default() };
+        let node_slot_id = get(node_slot_idx).to_ascii_lowercase();
+        let physical_machine_id = get(physical_machine_idx).to_ascii_lowercase();
+        if node_slot_id.is_empty() || physical_machine_id.is_empty() {
+            continue;
+        }
+
+        let vpn_ip = get(vpn_ip_idx);
+        let entry = topology
+            .entry(physical_machine_id.clone())
+            .or_insert_with(|| InventoryMachineTopology {
+                physical_machine_id: physical_machine_id.clone(),
+                vpn_ip: String::new(),
+                node_slot_ids: Vec::new(),
+            });
+
+        if entry.vpn_ip.is_empty() && is_wireguard_vpn_ip(&vpn_ip) {
+            entry.vpn_ip = vpn_ip;
+        }
+
+        if !entry
+            .node_slot_ids
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(&node_slot_id))
+        {
+            entry.node_slot_ids.push(node_slot_id);
+        }
+    }
+
+    for entry in topology.values_mut() {
+        entry.node_slot_ids.sort_by(|left, right| {
+            match node_slot_ordinal(left).cmp(&node_slot_ordinal(right)) {
+                std::cmp::Ordering::Equal => left.cmp(right),
+                ordering => ordering,
+            }
+        });
+    }
+
+    if topology.is_empty() {
+        return Err(format!(
+            "No machine topology rows loaded from {}",
+            inventory_path.display()
+        ));
+    }
+
+    Ok(topology)
+}
+
+fn canonical_vpn_ip_for_physical_machine(machine_id: &str) -> Option<String> {
+    let normalized_machine = machine_id.trim().to_ascii_lowercase();
+    if normalized_machine.is_empty() {
+        return None;
+    }
+
+    load_inventory_machine_topology().ok().and_then(|topology| {
+        topology.get(&normalized_machine).and_then(|entry| {
+            let vpn_ip = entry.vpn_ip.trim();
+            if vpn_ip.is_empty() {
+                None
+            } else {
+                Some(vpn_ip.to_string())
+            }
+        })
+    })
+}
+
+fn logical_nodes_for_physical_machine(physical_machine_id: &str) -> Result<Vec<String>, String> {
+    let normalized_machine = physical_machine_id.trim().to_ascii_lowercase();
+    if normalized_machine.is_empty() {
+        return Err("physical_machine_id is required".to_string());
+    }
+
+    let topology = load_inventory_machine_topology()?;
+    topology
+        .get(&normalized_machine)
+        .map(|entry| entry.node_slot_ids.clone())
+        .ok_or_else(|| {
+            let known = topology
+                .values()
+                .map(|entry| entry.physical_machine_id.clone())
+                .collect::<Vec<_>>();
+            format!(
+                "Unknown physical_machine_id '{}'. Known machines: {}.",
+                physical_machine_id,
+                known.join(", ")
+            )
+        })
+}
+
+fn physical_machine_for_binding_target(binding_target: &str) -> Option<String> {
+    let normalized_target = binding_target.trim().to_ascii_lowercase();
+    if normalized_target.is_empty() {
+        return None;
+    }
+
+    let topology = load_inventory_machine_topology().ok()?;
+    if topology.contains_key(&normalized_target) {
+        return Some(normalized_target);
+    }
+
+    topology.values().find_map(|entry| {
+        entry
+            .node_slot_ids
+            .iter()
+            .any(|node_slot_id| node_slot_id.eq_ignore_ascii_case(&normalized_target))
+            .then(|| entry.physical_machine_id.clone())
+    })
+}
+
+fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<String> {
+    let target_vpn_ip = vpn_ip.trim();
+    if target_vpn_ip.is_empty() {
+        return None;
+    }
+
+    let topology = load_inventory_machine_topology().ok()?;
+    topology.values().find_map(|entry| {
+        entry
+            .vpn_ip
+            .trim()
+            .eq_ignore_ascii_case(target_vpn_ip)
+            .then(|| entry.physical_machine_id.clone())
+    })
 }
 
 fn detect_local_vpn_ip() -> Option<String> {
@@ -6795,7 +7050,7 @@ fn detect_local_vpn_ip() -> Option<String> {
         }
     }
 
-    let route_targets = ["10.50.0.1:51820", "10.50.0.2:51820", "10.50.0.254:51820"];
+    let route_targets = ["10.50.0.254:51820", "10.50.0.1:51820", "10.50.0.2:51820"];
     for target in route_targets {
         let socket = UdpSocket::bind("0.0.0.0:0").ok();
         let Some(socket) = socket else {
@@ -6970,10 +7225,6 @@ fn role_allows_control(role: &str, action: &str) -> bool {
         "install_node",
         "bootstrap_node",
         "reset_chain",
-        "wireguard_install",
-        "wireguard_connect",
-        "wireguard_disconnect",
-        "wireguard_restart",
         "rotate_vrf_key",
         "rotate_pqc_keys",
         "flush_relay_queue",
@@ -6983,6 +7234,17 @@ fn role_allows_control(role: &str, action: &str) -> bool {
     !admin_only
         .iter()
         .any(|admin_action| normalized_action == *admin_action)
+}
+
+fn is_deprecated_wireguard_action(action: &str) -> bool {
+    matches!(
+        normalize_action_key(action).as_str(),
+        "wireguard_install"
+            | "wireguard_connect"
+            | "wireguard_disconnect"
+            | "wireguard_restart"
+            | "wireguard_status"
+    )
 }
 
 fn apply_security_ssh_profile(
