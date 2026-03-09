@@ -179,6 +179,7 @@ function NetworkMonitorNodePage() {
   const [detailsError, setDetailsError] = useState('');
 
   const [snapshot, setSnapshot] = useState(null);
+  const [localVpnIdentity, setLocalVpnIdentity] = useState(null);
 
   const [refreshSeconds, setRefreshSeconds] = useState(5);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -194,6 +195,16 @@ function NetworkMonitorNodePage() {
       setSnapshot(data);
     } catch (err) {
       console.error('Failed to fetch monitor snapshot for routing context:', err);
+    }
+  };
+
+  const fetchLocalVpnIdentity = async () => {
+    try {
+      const identity = await invoke('monitor_detect_local_vpn_identity');
+      setLocalVpnIdentity(identity);
+    } catch (err) {
+      console.error('Failed to detect local VPN identity:', err);
+      setLocalVpnIdentity(null);
     }
   };
 
@@ -216,6 +227,7 @@ function NetworkMonitorNodePage() {
   useEffect(() => {
     fetchNodeDetails();
     fetchSnapshot();
+    fetchLocalVpnIdentity();
   }, [nodeSlotId]);
 
   useEffect(() => {
@@ -322,6 +334,31 @@ function NetworkMonitorNodePage() {
     }
   };
 
+  const handleLocalAgentUpdate = async () => {
+    if (!nodeSlotId) return;
+    setControlBusyAction('update_agent');
+    setControlResult(null);
+
+    try {
+      const result = await invoke('monitor_update_local_agent', { nodeSlotId });
+      setControlResult(result);
+      await fetchNodeDetails(true);
+      await fetchSnapshot();
+    } catch (err) {
+      setControlResult({
+        success: false,
+        action: 'update_agent',
+        exit_code: -1,
+        stdout: '',
+        stderr: String(err),
+        command: 'N/A',
+        executed_at_utc: new Date().toISOString(),
+      });
+    } finally {
+      setControlBusyAction('');
+    }
+  };
+
   const scrollToSection = (sectionId) => {
     const target = document.getElementById(sectionId);
     if (!target) return;
@@ -349,6 +386,14 @@ function NetworkMonitorNodePage() {
   const resetChainAction = customActions.find((action) => action?.key === 'reset_chain');
   const customActionsVisible = customActions.filter((action) => action?.key !== 'reset_chain');
   const node = nodeDetails?.status?.node;
+  const localMachineMatch =
+    normalize(localVpnIdentity?.physical_machine_id) !== ''
+    && normalize(localVpnIdentity?.physical_machine_id) === normalize(node?.physical_machine_id);
+  const agentUpdateAvailable = localMachineMatch || control?.update_agent_configured;
+  const agentUpdateTitle = localMachineMatch
+    ? 'Reinstall the bundled devnet-agent on this machine and restart the local service. No SSH keys are required.'
+    : 'Push the latest devnet-agent binary to the remote machine via SSH and restart it. Use when the remote agent is missing, outdated, or unresponsive.';
+  const agentUpdateLabel = localMachineMatch ? 'Update Local Agent' : 'Update Agent';
   const protocolProfile = isRecord(nodeDetails?.protocol_profile) ? nodeDetails.protocol_profile : {};
   const economicsProfile = isRecord(nodeDetails?.economics_profile) ? nodeDetails.economics_profile : {};
   const economicsLive = isRecord(economicsProfile.live) ? economicsProfile.live : {};
@@ -732,18 +777,24 @@ function NetworkMonitorNodePage() {
         </button>
         <button
           className="monitor-btn monitor-btn-agent"
-          disabled={!control?.update_agent_configured || !!controlBusyAction}
+          disabled={!agentUpdateAvailable || !!controlBusyAction}
           onClick={() => {
             const approved = window.confirm(
-              'Update devnet agent on this node?\n\nThis pushes the latest synergy-devnet-agent binary to the remote machine via SSH and restarts the agent service.\n\nPrerequisite: run scripts/build-sidecars.sh first to compile binaries.\n\nThis operation uses SSH directly — it works even when the remote agent is offline or running an outdated version.',
+              localMachineMatch
+                ? 'Update the local devnet agent for this machine?\n\nThis reinstalls the bundled synergy-devnet-agent binary from the control panel resources and restarts the local agent service/process.\n\nNo SSH keys are required, but this only works when you are running the control panel on the same physical machine as the selected node.'
+                : 'Update devnet agent on this node?\n\nThis pushes the latest synergy-devnet-agent binary to the remote machine via SSH and restarts the agent service.\n\nPrerequisite: run scripts/build-sidecars.sh first to compile binaries.\n\nThis operation uses SSH directly — it works even when the remote agent is offline or running an outdated version.',
             );
             if (approved) {
-              handleControlAction('update_agent');
+              if (localMachineMatch) {
+                handleLocalAgentUpdate();
+              } else {
+                handleControlAction('update_agent');
+              }
             }
           }}
-          title="Push the latest devnet-agent binary to the remote machine via SSH and restart it. Use when the remote agent is missing, outdated, or unresponsive."
+          title={agentUpdateTitle}
         >
-          {controlBusyAction === 'update_agent' ? 'Updating Agent...' : 'Update Agent'}
+          {controlBusyAction === 'update_agent' ? 'Updating Agent...' : agentUpdateLabel}
         </button>
         <button
           className="monitor-btn monitor-btn-danger"

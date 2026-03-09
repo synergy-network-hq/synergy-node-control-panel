@@ -60,7 +60,7 @@ use crate::monitor::{
     monitor_detect_local_vpn_identity, monitor_export_node_data, monitor_get_setup_status,
     monitor_initialize_workspace, monitor_mark_setup_complete, monitor_node_control,
     monitor_remove_ssh_binding, monitor_run_terminal_command, monitor_set_active_operator,
-    monitor_upsert_operator, monitor_upsert_ssh_profile,
+    monitor_update_local_agent, monitor_upsert_operator, monitor_upsert_ssh_profile,
 };
 use crate::node_manager::monitoring::MonitoringService;
 use blockchain::BlockchainService;
@@ -461,6 +461,7 @@ async fn main() {
             get_monitor_node_details,
             get_monitor_agent_snapshot,
             monitor_node_control,
+            monitor_update_local_agent,
             monitor_bulk_node_control,
             monitor_export_node_data,
             monitor_run_terminal_command,

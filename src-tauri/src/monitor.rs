@@ -43,6 +43,8 @@ pub struct MonitorNodeStatus {
     pub status: String,
     pub online: bool,
     pub block_height: Option<u64>,
+    pub average_block_time_secs: Option<f64>,
+    pub throughput_tps: Option<f64>,
     pub peer_count: Option<u64>,
     pub syncing: Option<bool>,
     pub response_ms: u64,
@@ -59,6 +61,8 @@ pub struct MonitorSnapshot {
     pub offline_nodes: usize,
     pub syncing_nodes: usize,
     pub highest_block: Option<u64>,
+    pub average_block_time_secs: Option<f64>,
+    pub throughput_tps: Option<f64>,
     pub nodes: Vec<MonitorNodeStatus>,
 }
 
@@ -1042,6 +1046,12 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     let online_nodes = statuses.iter().filter(|n| n.online).count();
     let offline_nodes = total_nodes.saturating_sub(online_nodes);
     let syncing_nodes = statuses.iter().filter(|n| n.syncing == Some(true)).count();
+    let average_block_time_secs = preferred_network_average(
+        &statuses,
+        highest_block,
+        |status| status.average_block_time_secs,
+    );
+    let throughput_tps = preferred_network_average(&statuses, highest_block, |status| status.throughput_tps);
 
     Ok(MonitorSnapshot {
         inventory_path: inventory_path.to_string_lossy().to_string(),
@@ -1051,6 +1061,8 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
         offline_nodes,
         syncing_nodes,
         highest_block,
+        average_block_time_secs,
+        throughput_tps,
         nodes: statuses,
     })
 }
@@ -1548,6 +1560,62 @@ pub async fn monitor_node_control(
     }
 
     execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "single").await
+}
+
+#[tauri::command]
+pub async fn monitor_update_local_agent(
+    node_slot_id: String,
+    app_handle: AppHandle,
+) -> Result<MonitorControlResult, String> {
+    let inventory_path = resolve_inventory_path()?;
+    let nodes = load_inventory_nodes(&inventory_path)?;
+    let node = nodes
+        .iter()
+        .find(|candidate| {
+            candidate.node_slot_id.eq_ignore_ascii_case(&node_slot_id)
+                || candidate.node_alias.eq_ignore_ascii_case(&node_slot_id)
+        })
+        .cloned()
+        .ok_or_else(|| format!("Node not found in inventory: {node_slot_id}"))?;
+
+    let identity = monitor_detect_local_vpn_identity()?;
+    if !identity.detected {
+        return Err(format!(
+            "Local devnet-agent self-update is only available on the target machine. {}",
+            identity.message
+        ));
+    }
+
+    let local_machine_id = identity
+        .physical_machine_id
+        .clone()
+        .ok_or_else(|| "Local physical machine identity is unavailable.".to_string())?;
+    if !node
+        .physical_machine_id
+        .eq_ignore_ascii_case(local_machine_id.as_str())
+    {
+        return Err(format!(
+            "Node {} belongs to {}, but this control panel is running on {}. Open the control panel on the target machine to update its local devnet agent without SSH.",
+            node.node_slot_id, node.physical_machine_id, local_machine_id
+        ));
+    }
+
+    let installed_binary = crate::agent::force_update_local_devnet_agent(app_handle).await?;
+    Ok(MonitorControlResult {
+        node_slot_id: node.node_slot_id.clone(),
+        action: "update_agent".to_string(),
+        success: true,
+        exit_code: 0,
+        command: "local devnet agent self-update".to_string(),
+        stdout: format!(
+            "Updated the local devnet agent for {} on {} using the bundled resource binary at {}.",
+            node.node_slot_id,
+            node.physical_machine_id,
+            installed_binary.display()
+        ),
+        stderr: String::new(),
+        executed_at_utc: Utc::now().to_rfc3339(),
+    })
 }
 
 /// Timeout applied to every terminal command. Long-running installer scripts
@@ -2985,8 +3053,18 @@ async fn probe_node(node: MonitorNode) -> MonitorNodeStatus {
     let started = Instant::now();
     let rpc_url = node.rpc_url.clone();
 
-    let (node_info_result, block_result_primary, block_result_alt, peer_result, sync_result) = tokio::join!(
+    let (
+        node_info_result,
+        node_status_result,
+        latest_block_result,
+        block_result_primary,
+        block_result_alt,
+        peer_result,
+        sync_result,
+    ) = tokio::join!(
         rpc_call(&client, &rpc_url, "synergy_nodeInfo", json!([])),
+        rpc_call(&client, &rpc_url, "synergy_getNodeStatus", json!([])),
+        rpc_call(&client, &rpc_url, "synergy_getLatestBlock", json!([])),
         rpc_call(&client, &rpc_url, "synergy_getBlockNumber", json!([])),
         rpc_call(&client, &rpc_url, "synergy_blockNumber", json!([])),
         rpc_call(&client, &rpc_url, "synergy_getPeerInfo", json!([])),
@@ -3015,10 +3093,31 @@ async fn probe_node(node: MonitorNode) -> MonitorNodeStatus {
             .and_then(|value| extract_syncing(Some(value)))
             .or_else(|| sync_result.as_ref().ok().and_then(|value| value.as_bool()))
     });
+    let average_block_time_secs = node_status_result
+        .as_ref()
+        .ok()
+        .and_then(|value| extract_average_block_time(Some(value)))
+        .or_else(|| node_info.and_then(|value| extract_average_block_time(Some(value))));
+    let latest_block_tx_count = latest_block_result
+        .as_ref()
+        .ok()
+        .and_then(|value| extract_transaction_count(Some(value)));
+    let throughput_tps = match (average_block_time_secs, latest_block_tx_count) {
+        (Some(block_time), Some(tx_count)) if block_time.is_finite() && block_time > 0.0 => {
+            Some(tx_count as f64 / block_time)
+        }
+        _ => None,
+    };
 
     let mut errors = Vec::new();
     if let Err(err) = &node_info_result {
         errors.push(format!("nodeInfo: {err}"));
+    }
+    if let Err(err) = &node_status_result {
+        errors.push(format!("getNodeStatus: {err}"));
+    }
+    if let Err(err) = &latest_block_result {
+        errors.push(format!("getLatestBlock: {err}"));
     }
     if let Err(err) = &block_result_primary {
         errors.push(format!("getBlockNumber: {err}"));
@@ -3030,10 +3129,14 @@ async fn probe_node(node: MonitorNode) -> MonitorNodeStatus {
         errors.push(format!("getSyncStatus: {err}"));
     }
 
+    // Determine online by checking whether the node exposes any substantive RPC data
+    // (node info, block height, or peer count).  `sync_result.is_ok()` is intentionally
+    // excluded: the indexer node (node-14) keeps its HTTP server alive after the process
+    // is stopped, so a successful sync-status response alone is not a reliable liveness
+    // signal — it would cause the node to appear "syncing" even when stopped.
     let online = node_info.is_some()
         || block_height.is_some()
         || peer_count.is_some()
-        || sync_result.is_ok()
         || block_result_alt.is_ok();
 
     let status = if !online {
@@ -3049,6 +3152,8 @@ async fn probe_node(node: MonitorNode) -> MonitorNodeStatus {
         status,
         online,
         block_height,
+        average_block_time_secs,
+        throughput_tps,
         peer_count,
         syncing,
         response_ms: started.elapsed().as_millis() as u64,
@@ -3209,6 +3314,89 @@ fn extract_syncing(value: Option<&Value>) -> Option<bool> {
         }
         _ => None,
     }
+}
+
+fn extract_average_block_time(value: Option<&Value>) -> Option<f64> {
+    let value = value?;
+    match value {
+        Value::Number(number) => number.as_f64(),
+        Value::String(raw) => raw.trim().parse::<f64>().ok(),
+        Value::Object(map) => {
+            let keys = [
+                "average_block_time",
+                "avg_block_time",
+                "block_time",
+                "block_time_secs",
+            ];
+            keys.iter()
+                .find_map(|key| map.get(*key))
+                .and_then(|candidate| extract_average_block_time(Some(candidate)))
+        }
+        _ => None,
+    }
+    .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn extract_transaction_count(value: Option<&Value>) -> Option<u64> {
+    let value = value?;
+    match value {
+        Value::Array(items) => Some(items.len() as u64),
+        Value::Number(number) => number.as_u64(),
+        Value::String(raw) => parse_u64(raw),
+        Value::Object(map) => {
+            let collection_keys = ["transactions", "txs", "items", "results"];
+            for key in collection_keys {
+                if let Some(candidate) = map.get(key) {
+                    if let Some(count) = extract_transaction_count(Some(candidate)) {
+                        return Some(count);
+                    }
+                }
+            }
+
+            let count_keys = ["transaction_count", "tx_count", "count", "total_transactions"];
+            count_keys
+                .iter()
+                .find_map(|key| map.get(*key))
+                .and_then(|candidate| extract_transaction_count(Some(candidate)))
+        }
+        _ => None,
+    }
+}
+
+fn average_values(values: impl IntoIterator<Item = f64>) -> Option<f64> {
+    let mut total = 0.0;
+    let mut count = 0usize;
+    for value in values.into_iter().filter(|value| value.is_finite()) {
+        total += value;
+        count += 1;
+    }
+    if count == 0 {
+        None
+    } else {
+        Some(total / count as f64)
+    }
+}
+
+fn preferred_network_average(
+    statuses: &[MonitorNodeStatus],
+    highest_block: Option<u64>,
+    selector: impl Fn(&MonitorNodeStatus) -> Option<f64>,
+) -> Option<f64> {
+    if let Some(network_head) = highest_block {
+        if let Some(value) = average_values(statuses.iter().filter_map(|status| {
+            (status.online && status.block_height == Some(network_head))
+                .then(|| selector(status))
+                .flatten()
+        })) {
+            return Some(value);
+        }
+    }
+
+    average_values(
+        statuses
+            .iter()
+            .filter_map(|status| status.online.then(|| selector(status)).flatten()),
+    )
 }
 
 fn parse_u64(raw: &str) -> Option<u64> {
@@ -4095,6 +4283,10 @@ fn resolve_control_commands(
             ("bootstrap_node", "bootstrap_node"),
             ("reset_chain", "reset_chain"),
             ("node_logs", "logs"),
+            // Sync — downloads all missing blocks from peers without starting the node.
+            // Goes through the agent first; this SSH fallback is the safety net for nodes
+            // whose agent binary is absent or too old to advertise `sync_node`.
+            ("sync_node", "sync_node"),
             // Agent management — always routed through orchestrator (SSH), never via
             // the agent itself, so it works even when the remote agent is absent or stale.
             ("update_agent", "deploy_agent"),
@@ -7664,6 +7856,16 @@ async fn execute_monitor_node_control(
             executed_at_utc: Utc::now().to_rfc3339(),
         }
     };
+
+    // After a single-node reset_chain, notify the explorer/indexer to reindex from genesis
+    // so it doesn't continue showing stale chain data.  Mirrors the same call in the bulk
+    // control path.  Non-blocking: a failure here is logged but does not fail the overall
+    // reset_chain outcome.
+    if normalized_action == "reset_chain" && outcome.success {
+        if let Err(warning) = reset_explorer_index().await {
+            eprintln!("Explorer reset warning (non-blocking): {warning}");
+        }
+    }
 
     append_audit_event(json!({
         "event_type": "control.node.executed",

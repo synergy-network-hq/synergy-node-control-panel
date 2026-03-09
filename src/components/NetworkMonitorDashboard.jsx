@@ -10,8 +10,32 @@ function truncate(value, max = 120) {
   return `${value.slice(0, max - 3)}...`;
 }
 
+function formatCountRatio(value, total) {
+  const safeValue = Number(value || 0);
+  const safeTotal = Number(total || 0);
+  return `${safeValue}/${safeTotal}`;
+}
+
+function formatWholeNumber(value) {
+  if (value === null || value === undefined) return 'N/A';
+  return Number(value).toLocaleString();
+}
+
+function formatBlockTime(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+  return `${Number(value).toFixed(2)}s`;
+}
+
+function formatThroughput(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+  const numeric = Number(value);
+  const digits = numeric >= 10 ? 1 : 2;
+  return `${numeric.toFixed(digits)} tx/s`;
+}
+
 function NetworkMonitorDashboard() {
   const [snapshot, setSnapshot] = useState(null);
+  const [agentSnapshot, setAgentSnapshot] = useState(null);
   const [refreshSeconds, setRefreshSeconds] = useState(5);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -28,6 +52,7 @@ function NetworkMonitorDashboard() {
   const [fleetConfirmOpen, setFleetConfirmOpen] = useState(false);
   const [fleetBusy, setFleetBusy] = useState(false);
   const [fleetResult, setFleetResult] = useState(null);
+  const [nodeActionKey, setNodeActionKey] = useState('');
 
   const fetchSnapshot = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -37,8 +62,12 @@ function NetworkMonitorDashboard() {
         await invoke('monitor_apply_devnet_topology');
         setWorkspaceReady(true);
       }
-      const data = await invoke('get_monitor_snapshot');
+      const [data, agentData] = await Promise.all([
+        invoke('get_monitor_snapshot'),
+        invoke('get_monitor_agent_snapshot').catch(() => null),
+      ]);
       setSnapshot(data);
+      setAgentSnapshot(agentData);
       setError('');
     } catch (err) {
       console.error('Failed to fetch monitor snapshot:', err);
@@ -104,7 +133,72 @@ function NetworkMonitorDashboard() {
     }
   };
 
+  const handleNodeAction = async (nodeSlotId, action) => {
+    const actionKey = `${nodeSlotId}:${action}`;
+    setNodeActionKey(actionKey);
+    setFleetResult(null);
+    try {
+      await invoke('monitor_node_control', {
+        nodeSlotId,
+        action,
+      });
+      await fetchSnapshot(true);
+      setError('');
+    } catch (err) {
+      console.error(`Failed to ${action} ${nodeSlotId}:`, err);
+      setError(String(err));
+    } finally {
+      setNodeActionKey('');
+    }
+  };
+
   const nodes = snapshot?.nodes || [];
+  const totalNodes = snapshot?.total_nodes ?? 0;
+  const summaryCards = [
+    {
+      label: 'Online',
+      value: formatCountRatio(snapshot?.online_nodes, totalNodes),
+      note: 'Nodes responding',
+      tone: 'cyan',
+    },
+    {
+      label: 'Syncing',
+      value: formatCountRatio(snapshot?.syncing_nodes, totalNodes),
+      note: 'Catching up',
+      tone: 'blue',
+    },
+    {
+      label: 'Average Block Time',
+      value: formatBlockTime(snapshot?.average_block_time_secs),
+      note: 'Consensus cadence',
+      tone: 'violet',
+    },
+    {
+      label: 'Offline',
+      value: formatCountRatio(snapshot?.offline_nodes, totalNodes),
+      note: 'Need attention',
+      tone: 'crimson',
+    },
+    {
+      label: 'Highest Block',
+      value: formatWholeNumber(snapshot?.highest_block),
+      note: 'Network head',
+      tone: 'lime',
+    },
+    {
+      label: 'Throughput',
+      value: formatThroughput(snapshot?.throughput_tps),
+      note: 'Block emission velocity',
+      tone: 'amber',
+    },
+  ];
+
+  // Build a per-machine agent lookup so the table can show agent reachability without
+  // an extra column fetch.  Keyed on physical_machine_id to match entry.node.physical_machine_id.
+  const agentByMachine = {};
+  for (const a of (agentSnapshot?.agents || [])) {
+    agentByMachine[a.physical_machine_id] = a;
+  }
 
   if (loading) {
     return (
@@ -121,108 +215,70 @@ function NetworkMonitorDashboard() {
     <section className="monitor-shell">
       <div className="monitor-toolbar">
         <div className="monitor-toolbar-left">
-          <h2>Devnet Control Panel</h2>
-          <div className="monitor-cards monitor-cards-compact">
-            <article className="monitor-card monitor-card-border-lime">
-              <span>Total Nodes</span>
-              <strong>{snapshot?.total_nodes ?? 0}</strong>
-            </article>
-            <article className="monitor-card monitor-card-border-cyan">
-              <span>Online</span>
-              <strong>{snapshot?.online_nodes ?? 0}</strong>
-            </article>
-            <article className="monitor-card monitor-card-border-purple">
-              <span>Offline</span>
-              <strong>{snapshot?.offline_nodes ?? 0}</strong>
-            </article>
-            <article className="monitor-card monitor-card-border-blue">
-              <span>Syncing</span>
-              <strong>{snapshot?.syncing_nodes ?? 0}</strong>
-            </article>
-            <article className="monitor-card monitor-card-border-lime">
-              <span>Highest Block</span>
-              <strong>{snapshot?.highest_block ?? 'N/A'}</strong>
-            </article>
+          <div className="monitor-summary-strip">
+            <div className="monitor-summary-title">
+              <h2>Devnet Control Panel</h2>
+            </div>
+            <div className="monitor-summary-grid">
+              {summaryCards.map((card) => (
+                <article
+                  key={card.label}
+                  className={`monitor-summary-card monitor-summary-card-${card.tone}`}
+                >
+                  <span className="monitor-summary-card-label">{card.label}</span>
+                  <strong className="monitor-summary-card-value">{card.value}</strong>
+                  <span className="monitor-summary-card-note">{card.note}</span>
+                </article>
+              ))}
+            </div>
           </div>
         </div>
         <div className="monitor-toolbar-right">
-          <Link className="monitor-link-btn" to="/settings">
-            Operator Configuration
-          </Link>
-          <button className="monitor-btn monitor-btn-primary" onClick={() => fetchSnapshot()}>
-            Refresh Now
-          </button>
-          <button
-            className="monitor-btn monitor-btn-success"
-            onClick={() => handleFleetConfirm('start')}
-            disabled={fleetBusy || resetBusy}
-            title="Start all nodes across all machines"
-          >
-            {fleetBusy && fleetAction === 'start' ? 'Starting...' : 'Start All'}
-          </button>
-          <button
-            className="monitor-btn"
-            onClick={() => handleFleetConfirm('stop')}
-            disabled={fleetBusy || resetBusy}
-            title="Stop all nodes across all machines"
-          >
-            {fleetBusy && fleetAction === 'stop' ? 'Stopping...' : 'Stop All'}
-          </button>
-          <button
-            className="monitor-btn monitor-btn-primary"
-            onClick={() => handleFleetConfirm('restart')}
-            disabled={fleetBusy || resetBusy}
-            title="Restart all nodes across all machines"
-          >
-            {fleetBusy && fleetAction === 'restart' ? 'Restarting...' : 'Restart All'}
-          </button>
-          <button
-            className="monitor-btn monitor-btn-warning"
-            onClick={() => handleFleetConfirm('sync_node')}
-            disabled={fleetBusy || resetBusy}
-            title="Download all missing blocks on every node without starting them. Use after a reset or for nodes that have been offline."
-          >
-            {fleetBusy && fleetAction === 'sync_node' ? 'Syncing All...' : 'Sync All'}
-          </button>
-          <button
-            className="monitor-btn monitor-btn-agent"
-            onClick={() => handleFleetConfirm('update_agent')}
-            disabled={fleetBusy || resetBusy}
-            title="Push the latest devnet-agent binary to every remote machine via SSH and restart it. Prerequisite: run scripts/build-sidecars.sh first."
-          >
-            {fleetBusy && fleetAction === 'update_agent' ? 'Updating All Agents...' : 'Update All Agents'}
-          </button>
-          <button
-            className="monitor-btn monitor-btn-danger"
-            onClick={() => setResetConfirmOpen(true)}
-            disabled={resetBusy || fleetBusy}
-            title="Reset all machines back to genesis block (no auto-restart)"
-          >
-            {resetBusy ? 'Resetting...' : 'Reset Chain to Genesis'}
-          </button>
-          <label className="monitor-toggle">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(event) => setAutoRefresh(event.target.checked)}
-            />
-            Auto-refresh
-          </label>
-          <label className="monitor-refresh-select">
-            Interval
-            <select
-              value={refreshSeconds}
-              onChange={(event) => setRefreshSeconds(Number(event.target.value))}
-              disabled={!autoRefresh}
+          <div className="monitor-toolbar-actions">
+            <button className="monitor-btn monitor-btn-primary" onClick={() => fetchSnapshot()}>
+              Refresh Now
+            </button>
+            <button
+              className="monitor-btn monitor-btn-success"
+              onClick={() => handleFleetConfirm('start')}
+              disabled={fleetBusy || resetBusy}
+              title="Start all nodes across all machines"
             >
-              {REFRESH_SECONDS_OPTIONS.map((seconds) => (
-                <option key={seconds} value={seconds}>
-                  {seconds}
-                  s
-                </option>
-              ))}
-            </select>
-          </label>
+              {fleetBusy && fleetAction === 'start' ? 'Starting...' : 'Start All'}
+            </button>
+            <button
+              className="monitor-btn"
+              onClick={() => handleFleetConfirm('stop')}
+              disabled={fleetBusy || resetBusy}
+              title="Stop all nodes across all machines"
+            >
+              {fleetBusy && fleetAction === 'stop' ? 'Stopping...' : 'Stop All'}
+            </button>
+            <button
+              className="monitor-btn monitor-btn-primary"
+              onClick={() => handleFleetConfirm('restart')}
+              disabled={fleetBusy || resetBusy}
+              title="Restart all nodes across all machines"
+            >
+              {fleetBusy && fleetAction === 'restart' ? 'Restarting...' : 'Restart All'}
+            </button>
+            <button
+              className="monitor-btn monitor-btn-warning"
+              onClick={() => handleFleetConfirm('sync_node')}
+              disabled={fleetBusy || resetBusy}
+              title="Download all missing blocks on every node without starting them. Use after a reset or for nodes that have been offline."
+            >
+              {fleetBusy && fleetAction === 'sync_node' ? 'Syncing All...' : 'Sync All'}
+            </button>
+            <button
+              className="monitor-btn monitor-btn-danger"
+              onClick={() => setResetConfirmOpen(true)}
+              disabled={resetBusy || fleetBusy}
+              title="Reset all machines back to genesis block (no auto-restart)"
+            >
+              {resetBusy ? 'Resetting...' : 'Reset Chain to Genesis'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -280,7 +336,6 @@ function NetworkMonitorDashboard() {
               {fleetAction === 'start' && 'Start All Nodes'}
               {fleetAction === 'restart' && 'Restart All Nodes'}
               {fleetAction === 'sync_node' && 'Sync All Nodes'}
-              {fleetAction === 'update_agent' && 'Update All Agents'}
             </h3>
             {fleetAction === 'sync_node' ? (
               <p>
@@ -288,15 +343,6 @@ function NetworkMonitorDashboard() {
                 <strong>all {snapshot?.total_nodes ?? 0} nodes</strong> in parallel. Each node will
                 download all missing blocks from peers <em>without starting</em>. This can take up
                 to 2 hours for cold nodes. Nodes should be stopped before syncing.
-              </p>
-            ) : fleetAction === 'update_agent' ? (
-              <p>
-                This will push the latest <code>synergy-devnet-agent</code> binary to{' '}
-                <strong>all {snapshot?.total_nodes ?? 0} remote machines</strong> via SSH and
-                restart the agent service on each. Local nodes (running on this machine) are
-                skipped automatically.{' '}
-                <strong>Prerequisite:</strong> run <code>scripts/build-sidecars.sh</code> first to
-                compile the binaries.
               </p>
             ) : (
               <p>
@@ -321,9 +367,7 @@ function NetworkMonitorDashboard() {
                     ? ''
                     : fleetAction === 'sync_node'
                       ? 'monitor-btn-warning'
-                      : fleetAction === 'update_agent'
-                        ? 'monitor-btn-agent'
-                        : 'monitor-btn-primary'
+                      : 'monitor-btn-primary'
                 }`}
                 onClick={handleGlobalFleet}
                 disabled={fleetBusy}
@@ -331,14 +375,10 @@ function NetworkMonitorDashboard() {
                 {fleetBusy
                   ? fleetAction === 'sync_node'
                     ? 'Syncing All Nodes...'
-                    : fleetAction === 'update_agent'
-                      ? 'Updating All Agents...'
-                      : `${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)}ing All Nodes...`
+                    : `${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)}ing All Nodes...`
                   : fleetAction === 'sync_node'
                     ? 'Confirm: Sync All Nodes'
-                    : fleetAction === 'update_agent'
-                      ? 'Confirm: Update All Agents'
-                      : `Confirm: ${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)} All Nodes`}
+                    : `Confirm: ${fleetAction.charAt(0).toUpperCase()}${fleetAction.slice(1)} All Nodes`}
               </button>
             </div>
           </div>
@@ -351,11 +391,9 @@ function NetworkMonitorDashboard() {
           <strong>
             {fleetResult.action === 'sync_node'
               ? 'Sync complete:'
-              : fleetResult.action === 'update_agent'
-                ? 'Agent update complete:'
-                : fleetResult.action
-                  ? `${fleetResult.action.charAt(0).toUpperCase()}${fleetResult.action.slice(1)} complete:`
-                  : 'Fleet action complete:'}
+              : fleetResult.action
+                ? `${fleetResult.action.charAt(0).toUpperCase()}${fleetResult.action.slice(1)} complete:`
+                : 'Fleet action complete:'}
           </strong>
           {' '}
           {fleetResult.succeeded} succeeded, {fleetResult.failed} failed across {fleetResult.requested_nodes} nodes.
@@ -402,36 +440,45 @@ function NetworkMonitorDashboard() {
           <thead>
             <tr>
               <th>Machine #</th>
+              <th>Node Slot</th>
               <th>Operator</th>
               <th>Device</th>
-              <th>Node Slot</th>
-              <th>Node Alias</th>
-              <th>Role Group</th>
               <th>Role</th>
-              <th>Type</th>
               <th>RPC</th>
+              <th>Agent</th>
               <th>Status</th>
               <th>Block</th>
               <th>Peers</th>
               <th>Syncing</th>
               <th>Latency</th>
               <th className="monitor-col-error">Error</th>
-              <th>Detail</th>
+              <th>Controls</th>
             </tr>
           </thead>
           <tbody>
             {nodes.map((entry) => (
               <tr key={entry.node.node_slot_id}>
                 <td>{entry.node.physical_machine_id || entry.node.node_slot_id}</td>
+                <td>{entry.node.node_slot_id}</td>
                 <td>{entry.node.operator || 'Unassigned'}</td>
                 <td>{entry.node.device || 'Unknown device'}</td>
-                <td>{entry.node.node_slot_id}</td>
-                <td>{entry.node.node_alias}</td>
-                <td>{entry.node.role_group}</td>
                 <td>{entry.node.role}</td>
-                <td>{entry.node.node_type}</td>
                 <td>
                   <code>{entry.node.rpc_url}</code>
+                </td>
+                <td>
+                  {(() => {
+                    const machineId = entry.node.physical_machine_id;
+                    const agent = machineId ? agentByMachine[machineId] : undefined;
+                    if (!agent) {
+                      return <span className="status-pill" style={{ color: 'var(--snrg-muted, #888)', borderColor: 'transparent' }}>—</span>;
+                    }
+                    return (
+                      <span className={`status-pill status-${agent.reachable ? 'online' : 'offline'}`}>
+                        {agent.reachable ? 'online' : 'offline'}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td>
                   <span className={`status-pill status-${entry.status}`}>{entry.status}</span>
@@ -445,18 +492,59 @@ function NetworkMonitorDashboard() {
                   ms
                 </td>
                 <td className="monitor-col-error">{truncate(entry.error || '', 88)}</td>
-                <td>
-                  <Link
-                    className="monitor-link-btn"
-                    to={`/node/${encodeURIComponent(entry.node.node_slot_id)}`}
-                  >
-                    Open
-                  </Link>
+                <td className="monitor-controls-cell">
+                  <div className="monitor-row-controls">
+                    <button
+                      className="monitor-row-btn monitor-row-btn-success"
+                      onClick={() => handleNodeAction(entry.node.node_slot_id, 'start')}
+                      disabled={fleetBusy || resetBusy || !!nodeActionKey || entry.online}
+                    >
+                      {nodeActionKey === `${entry.node.node_slot_id}:start` ? 'Starting...' : 'Start'}
+                    </button>
+                    <button
+                      className="monitor-row-btn monitor-row-btn-danger"
+                      onClick={() => handleNodeAction(entry.node.node_slot_id, 'stop')}
+                      disabled={fleetBusy || resetBusy || !!nodeActionKey || !entry.online}
+                    >
+                      {nodeActionKey === `${entry.node.node_slot_id}:stop` ? 'Stopping...' : 'Stop'}
+                    </button>
+                    <Link
+                      className="monitor-link-btn monitor-row-link-btn"
+                      to={`/node/${encodeURIComponent(entry.node.node_slot_id)}`}
+                    >
+                      Details
+                    </Link>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="monitor-table-footer">
+        <label className="monitor-toggle">
+          <input
+            type="checkbox"
+            checked={autoRefresh}
+            onChange={(event) => setAutoRefresh(event.target.checked)}
+          />
+          Auto-refresh
+        </label>
+        <label className="monitor-refresh-select">
+          Interval
+          <select
+            value={refreshSeconds}
+            onChange={(event) => setRefreshSeconds(Number(event.target.value))}
+            disabled={!autoRefresh}
+          >
+            {REFRESH_SECONDS_OPTIONS.map((seconds) => (
+              <option key={seconds} value={seconds}>
+                {seconds}
+                s
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </section>
   );

@@ -883,6 +883,7 @@ case "$OPERATION" in
   stop)               run_nodectl "stop" || true; kill_machine_processes "stop" ;;
   restart)            run_nodectl "stop" || true; kill_machine_processes "restart"; run_nodectl "start" ;;
   status)             run_nodectl "status" ;;
+  sync_node)          run_nodectl "sync" ;;
   logs)               run_nodectl "logs" ;;
   export_logs)        export_logs ;;
   view_chain_data)    view_chain_data ;;

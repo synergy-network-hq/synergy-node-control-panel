@@ -17,7 +17,65 @@ permissions:
   contents: read
 
 jobs:
+  # ── Build the devnet-agent sidecar for every remote-deployment target ──────────
+  # These binaries end up in binaries/ and are bundled into the Tauri app as
+  # resources (see tauri.conf.json "resources": ["../binaries"]).  Each platform
+  # job in the main `build` step downloads all of them so the installer for any
+  # OS can deploy the agent to any remote machine (Linux, macOS, Windows).
+  build-agents:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            suffix: linux-amd64
+            binary_ext: ""
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            suffix: darwin-arm64
+            binary_ext: ""
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: windows-amd64
+            binary_ext: ".exe"
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri/devnet-agent -> target
+          key: agent-${{ matrix.target }}
+
+      - name: Build agent binary
+        shell: bash
+        run: |
+          CARGO_BUILD_TARGET=${{ matrix.target }} bash scripts/build-sidecars.sh
+          echo "Built: binaries/synergy-devnet-agent-${{ matrix.suffix }}${{ matrix.binary_ext }}"
+          ls -la binaries/
+
+      - name: Upload agent artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.suffix }}
+          path: binaries/synergy-devnet-agent-${{ matrix.suffix }}${{ matrix.binary_ext }}
+          if-no-files-found: error
+
+  # ── Build the Tauri desktop app for each distribution platform ───────────────
   build:
+    needs: build-agents
     strategy:
       fail-fast: false
       matrix:
@@ -68,6 +126,25 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
+
+      # Download all agent binaries built by build-agents so that binaries/ contains
+      # the full set (linux-amd64, darwin-arm64, windows-amd64) before tauri build.
+      # Tauri bundles binaries/ as a resource so the shipped app can deploy agents to
+      # any remote OS regardless of which platform the control panel is installed on.
+      - name: Download all agent binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agent-*
+          path: binaries
+          merge-multiple: true
+
+      - name: Verify agent binaries present
+        shell: bash
+        run: |
+          echo "Agent binaries available for bundling:"
+          ls -la binaries/synergy-devnet-agent-* || true
+          # Require at minimum the linux-amd64 binary since all devnet nodes run Linux.
+          ls binaries/synergy-devnet-agent-linux-amd64
 
       # env_config.rs embeds .env at compile time via include_str! — provide a placeholder
       - name: Create .env if missing

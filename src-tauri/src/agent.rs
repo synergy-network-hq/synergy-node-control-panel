@@ -1,5 +1,6 @@
 use crate::devnet_agent_service::DEVNET_AGENT_PORT;
 use crate::node_manager::commands::{setup_node, NodeSetupOptions, SetupProgress};
+use chrono::Utc;
 use crate::node_manager::multi_node::MultiNodeManager;
 use crate::node_manager::multi_node_process::ProcessManager;
 use crate::recipe::load_and_validate;
@@ -404,6 +405,30 @@ pub async fn ensure_local_devnet_agent(app_handle: AppHandle) -> Result<(), Stri
     Err("Local devnet agent did not become healthy after startup".to_string())
 }
 
+pub async fn force_update_local_devnet_agent(app_handle: AppHandle) -> Result<PathBuf, String> {
+    let workspace_root = crate::monitor::ensure_monitor_workspace(&app_handle)?;
+    let binary_source = resolve_agent_resource_binary(&workspace_root)?;
+    let installed_binary = install_agent_binary(&workspace_root, &binary_source)?;
+
+    let autostart_ok = match install_agent_autostart(&workspace_root, &installed_binary) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("devnet agent autostart warning during update: {error}");
+            false
+        }
+    };
+
+    restart_local_agent_runtime(&workspace_root, &installed_binary, autostart_ok)?;
+    for _ in 0..20 {
+        sleep(Duration::from_millis(250)).await;
+        if local_agent_running().await {
+            return Ok(installed_binary);
+        }
+    }
+
+    Err("Local devnet agent did not become healthy after update".to_string())
+}
+
 async fn local_agent_running() -> bool {
     let client = Client::builder()
         .timeout(Duration::from_millis(800))
@@ -454,7 +479,7 @@ fn install_agent_binary(workspace_root: &Path, source: &Path) -> Result<PathBuf,
         })?;
     }
 
-    fs::copy(source, &destination).map_err(|error| {
+    copy_file_atomic(source, &destination).map_err(|error| {
         format!(
             "Failed to install devnet agent binary {} -> {}: {error}",
             source.display(),
@@ -474,6 +499,45 @@ fn install_agent_binary(workspace_root: &Path, source: &Path) -> Result<PathBuf,
     }
 
     Ok(destination)
+}
+
+fn copy_file_atomic(source: &Path, destination: &Path) -> Result<(), std::io::Error> {
+    let destination_name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("devnet-agent");
+    let temp_name = format!(
+        ".{}.tmp-{}-{}",
+        destination_name,
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    let temp_path = destination.with_file_name(temp_name);
+
+    let copy_result = (|| -> Result<(), std::io::Error> {
+        fs::copy(source, &temp_path)?;
+        match fs::rename(&temp_path, destination) {
+            Ok(()) => Ok(()),
+            Err(rename_error) => {
+                #[cfg(target_os = "windows")]
+                {
+                    if destination.exists() {
+                        let _ = fs::remove_file(destination);
+                        if let Ok(()) = fs::rename(&temp_path, destination) {
+                            return Ok(());
+                        }
+                    }
+                }
+                Err(rename_error)
+            }
+        }
+    })();
+
+    if copy_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+
+    copy_result
 }
 
 fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
@@ -519,6 +583,48 @@ fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), St
         .map_err(|error| format!("Failed to spawn local devnet agent: {error}"))?;
 
     Ok(())
+}
+
+fn restart_local_agent_runtime(
+    workspace_root: &Path,
+    binary_path: &Path,
+    autostart_ok: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        kill_local_agent_processes(workspace_root);
+        return spawn_local_agent(workspace_root, binary_path);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if autostart_ok {
+            return Ok(());
+        }
+        kill_local_agent_processes(workspace_root);
+        spawn_local_agent(workspace_root, binary_path)
+    }
+}
+
+fn kill_local_agent_processes(workspace_root: &Path) {
+    let binary_path = workspace_root
+        .join("agent")
+        .join("bin")
+        .join(agent_installed_binary_name());
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = ProcessCommand::new("taskkill")
+            .args(["/F", "/IM", "synergy-devnet-agent.exe"])
+            .output();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = ProcessCommand::new("pkill")
+            .args(["-f", binary_path.to_string_lossy().as_ref()])
+            .output();
+    }
 }
 
 fn install_agent_autostart(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
@@ -593,9 +699,16 @@ fn install_agent_launchd(workspace_root: &Path, binary_path: &Path) -> Result<()
     let _ = ProcessCommand::new("launchctl")
         .args(["unload", plist_path.to_string_lossy().as_ref()])
         .output();
-    let _ = ProcessCommand::new("launchctl")
+    let output = ProcessCommand::new("launchctl")
         .args(["load", "-w", plist_path.to_string_lossy().as_ref()])
-        .output();
+        .output()
+        .map_err(|error| format!("Failed to load launchd agent: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "launchctl load failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
     Ok(())
 }
 
@@ -626,12 +739,38 @@ fn install_agent_systemd_user(workspace_root: &Path, binary_path: &Path) -> Resu
         )
     })?;
 
-    let _ = ProcessCommand::new("systemctl")
+    let reload = ProcessCommand::new("systemctl")
         .args(["--user", "daemon-reload"])
-        .output();
-    let _ = ProcessCommand::new("systemctl")
-        .args(["--user", "enable", "--now", "synergy-devnet-agent.service"])
-        .output();
+        .output()
+        .map_err(|error| format!("Failed to reload systemd user daemon: {error}"))?;
+    if !reload.status.success() {
+        return Err(format!(
+            "systemctl --user daemon-reload failed: {}",
+            String::from_utf8_lossy(&reload.stderr).trim()
+        ));
+    }
+
+    let enable = ProcessCommand::new("systemctl")
+        .args(["--user", "enable", "synergy-devnet-agent.service"])
+        .output()
+        .map_err(|error| format!("Failed to enable systemd user agent: {error}"))?;
+    if !enable.status.success() {
+        return Err(format!(
+            "systemctl --user enable failed: {}",
+            String::from_utf8_lossy(&enable.stderr).trim()
+        ));
+    }
+
+    let restart = ProcessCommand::new("systemctl")
+        .args(["--user", "restart", "synergy-devnet-agent.service"])
+        .output()
+        .map_err(|error| format!("Failed to restart systemd user agent: {error}"))?;
+    if !restart.status.success() {
+        return Err(format!(
+            "systemctl --user restart failed: {}",
+            String::from_utf8_lossy(&restart.stderr).trim()
+        ));
+    }
     Ok(())
 }
 

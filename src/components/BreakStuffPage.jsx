@@ -18,8 +18,8 @@ const capabilities = [
 function BreakStuffPage() {
   return (
     <FutureLabPage
-      eyebrow="Adversarial Lab"
-      title="Let's Break Stuff"
+      eyebrow="Resilience Lab"
+      title="Resilience Drills"
       subtitle="A future workspace for stress testing, fault injection, and malicious-behavior simulation."
       statusLabel="Future Update"
       intro="This area is reserved for deliberate network abuse testing. It will be used to pressure the devnet, create hostile conditions, and verify that consensus, monitoring, and recovery logic behave the way they should."

@@ -187,6 +187,20 @@ function Layout({ children }) {
     <div className="app-container">
       <header className="app-header">
         <div className="header-content">
+          <div className="header-left-status">
+            <span className={`header-status-pill header-status-${updateState.status}`}>
+              {updateState.status === 'available' ? `Update ${updateState.version} available` : updateState.message}
+            </span>
+            <button
+              className={`btn-header btn-update btn-update-${updateState.status}`}
+              onClick={handleUpdateAction}
+              disabled={updateState.status === 'checking' || updateState.status === 'installing'}
+              title={updateState.message}
+            >
+              {updateButtonLabel(updateState)}
+            </button>
+          </div>
+
           <div className="header-brand">
             <div className="logo-container">
               <img
@@ -201,35 +215,22 @@ function Layout({ children }) {
           </div>
 
           <div className="header-right-controls">
-            <button
-              className={`btn-header btn-update btn-update-${updateState.status}`}
-              onClick={handleUpdateAction}
-              disabled={updateState.status === 'checking' || updateState.status === 'installing'}
-              title={updateState.message}
-            >
-              {updateButtonLabel(updateState)}
-            </button>
-            <Link className={`btn-header btn-header-wide ${onTransactionsRoute ? 'btn-header-active' : ''}`} to="/test-transactions">
+            <Link className={`btn-header btn-header-nav ${onTransactionsRoute ? 'btn-header-active' : ''}`} to="/test-transactions">
               Test Transactions
             </Link>
-            <Link className={`btn-header btn-header-wide ${onBreakStuffRoute ? 'btn-header-active' : ''}`} to="/break-stuff">
-              Let&apos;s Break Stuff
+            <Link className={`btn-header btn-header-nav ${onBreakStuffRoute ? 'btn-header-active' : ''}`} to="/break-stuff">
+              Resilience Drills
             </Link>
-            <Link className="btn-header" to={onSXCPRoute ? '/' : '/sxcp'}>
+            <Link className={`btn-header btn-header-nav ${onSXCPRoute ? 'btn-header-active' : ''}`} to={onSXCPRoute ? '/' : '/sxcp'}>
               {onSXCPRoute ? 'Monitor' : 'SXCP'}
             </Link>
-            <Link className="btn-header" to={onSettingsRoute ? '/' : '/settings'}>
-              {onSettingsRoute ? 'Dashboard' : 'Settings'}
+            <Link className={`btn-header btn-header-nav ${onSettingsRoute ? 'btn-header-active' : ''}`} to={onSettingsRoute ? '/' : '/settings'}>
+              {onSettingsRoute ? 'Dashboard' : 'Operator Settings'}
             </Link>
-            <button className="btn-header btn-help" onClick={openHelpWindow}>
+            <button className="btn-header btn-header-nav btn-help" onClick={openHelpWindow}>
               {onHelpRoute ? 'Help Window' : 'Help'}
             </button>
           </div>
-        </div>
-        <div className="header-status-bar">
-          <span className={`header-status-pill header-status-${updateState.status}`}>
-            {updateState.status === 'available' ? `Update ${updateState.version} available` : updateState.message}
-          </span>
         </div>
       </header>
       <main className="app-main">{children}</main>
