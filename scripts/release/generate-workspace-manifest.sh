@@ -115,7 +115,7 @@ for rel in required_paths:
     bundle_hasher.update(rel.encode("utf-8"))
     if path.is_file():
         rel_path = path.relative_to(root)
-        rel_str = str(rel_path)
+        rel_str = rel_path.as_posix()
         if not should_hash(rel_path):
             continue
         if tracked_files is not None and rel_str not in tracked_files:
@@ -127,7 +127,7 @@ for rel in required_paths:
     if path.is_dir():
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
             rel_path = child.relative_to(root)
-            rel_str = str(rel_path)
+            rel_str = rel_path.as_posix()
             if not should_hash(rel_path):
                 continue
             if tracked_files is not None and rel_str not in tracked_files:
