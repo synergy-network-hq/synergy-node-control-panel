@@ -162,8 +162,8 @@ ROLE=$role
 NODE_TYPE=$node_type
 ADDRESS_CLASS=$address_class
 NODE_ADDRESS=$address
-PUBLIC_KEY_FILE=$node_key_dir/public.key
-PRIVATE_KEY_FILE=$node_key_dir/private.key
+PUBLIC_KEY_FILE=public.key
+PRIVATE_KEY_FILE=private.key
 ENV
 }
 

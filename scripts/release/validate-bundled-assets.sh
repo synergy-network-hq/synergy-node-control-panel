@@ -10,7 +10,6 @@ required_paths=(
   "devnet/lean15/configs"
   "devnet/lean15/installers"
   "devnet/lean15/keys"
-  "devnet/lean15/wireguard"
   "devnet/lean15/workspace-manifest.json"
   "binaries"
 )

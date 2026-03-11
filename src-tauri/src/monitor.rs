@@ -6120,7 +6120,6 @@ fn extract_bundled_resources_to_workspace(
         "devnet/lean15/keys",
         "devnet/lean15/configs",
         "devnet/lean15/installers",
-        "devnet/lean15/wireguard",
         MONITOR_WORKSPACE_MANIFEST_RELATIVE,
         "binaries",
         "scripts/devnet15",
@@ -6175,7 +6174,6 @@ fn extract_bundled_resources_to_workspace(
     let always_refresh_dirs = [
         "devnet/lean15/configs",
         "devnet/lean15/keys",
-        "devnet/lean15/wireguard",
         "binaries",
         "scripts/cleanup",
     ];
@@ -6272,7 +6270,6 @@ fn validate_monitor_workspace_assets(workspace_root: &Path) -> Result<(), String
     let required_dirs = [
         "devnet/lean15/configs",
         "devnet/lean15/installers",
-        "devnet/lean15/wireguard",
         "binaries",
     ];
     for relative in required_dirs {

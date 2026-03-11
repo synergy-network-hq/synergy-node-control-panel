@@ -6,6 +6,35 @@ cd "$ROOT_DIR"
 
 echo "== Bundle prep =="
 
+ensure_version_alignment() {
+  local package_version cargo_version tauri_version
+
+  package_version="$(node -e 'const fs=require("fs"); const pkg=JSON.parse(fs.readFileSync("package.json","utf8")); process.stdout.write(pkg.version);')"
+  cargo_version="$(python3 - <<'PY'
+import pathlib
+import re
+
+content = pathlib.Path("src-tauri/Cargo.toml").read_text(encoding="utf-8")
+match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+if not match:
+    raise SystemExit("Missing version in src-tauri/Cargo.toml")
+print(match.group(1), end="")
+PY
+)"
+  tauri_version="$(node -e 'const fs=require("fs"); const cfg=JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json","utf8")); process.stdout.write(cfg.version);')"
+
+  if [[ "$package_version" != "$cargo_version" || "$package_version" != "$tauri_version" ]]; then
+    cat >&2 <<EOF
+Version mismatch detected:
+  package.json:            $package_version
+  src-tauri/Cargo.toml:    $cargo_version
+  src-tauri/tauri.conf.json: $tauri_version
+Keep all three release version sources aligned before tagging a release.
+EOF
+    exit 1
+  fi
+}
+
 ensure_tracked_devnet_keys() {
   local inventory_file="$ROOT_DIR/devnet/lean15/node-inventory.csv"
   local missing_or_untracked=0
@@ -72,6 +101,7 @@ do
   fi
 done
 
+ensure_version_alignment
 ensure_tracked_devnet_keys
 
 if [[ ! -f "$ROOT_DIR/binaries/synergy-devnet-agent-darwin-arm64" || \

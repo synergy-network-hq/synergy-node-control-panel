@@ -10,6 +10,7 @@ python3 - <<'PY' "$ROOT_DIR" "$MANIFEST_PATH" "$APP_VERSION"
 import hashlib
 import json
 import pathlib
+import subprocess
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -21,7 +22,6 @@ required_paths = [
     "devnet/lean15/hosts.env.example",
     "devnet/lean15/configs",
     "devnet/lean15/installers",
-    "devnet/lean15/wireguard",
     "binaries",
     "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md",
 ]
@@ -35,12 +35,36 @@ checksum_targets = [
     "binaries/synergy-devnet-windows-amd64.exe",
 ]
 
+ignored_names = {
+    ".DS_Store",
+    "Thumbs.db",
+}
+
+tracked_files = None
+
 def sha256_file(path: pathlib.Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+def should_hash(path: pathlib.Path) -> bool:
+    return not any(part.startswith(".") or part in ignored_names for part in path.parts)
+
+def load_tracked_files():
+    try:
+        output = subprocess.run(
+            ["git", "-C", str(root), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except Exception:
+        return None
+    return {line.strip() for line in output.splitlines() if line.strip()}
+
+tracked_files = load_tracked_files()
 
 checksums = {}
 for rel in checksum_targets:
@@ -53,11 +77,23 @@ for rel in required_paths:
     path = root / rel
     bundle_hasher.update(rel.encode("utf-8"))
     if path.is_file():
+        rel_path = path.relative_to(root)
+        rel_str = str(rel_path)
+        if not should_hash(rel_path):
+            continue
+        if tracked_files is not None and rel_str not in tracked_files:
+            continue
         bundle_hasher.update(sha256_file(path).encode("utf-8"))
         continue
     if path.is_dir():
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
-            bundle_hasher.update(str(child.relative_to(root)).encode("utf-8"))
+            rel_path = child.relative_to(root)
+            rel_str = str(rel_path)
+            if not should_hash(rel_path):
+                continue
+            if tracked_files is not None and rel_str not in tracked_files:
+                continue
+            bundle_hasher.update(rel_str.encode("utf-8"))
             bundle_hasher.update(sha256_file(child).encode("utf-8"))
 
 bundle_digest = bundle_hasher.hexdigest()

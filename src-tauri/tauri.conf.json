@@ -2,7 +2,7 @@
   "$schema": "https://schemas.tauri.app/config.schema.json",
   "productName": "Synergy Devnet Control Panel",
   "mainBinaryName": "synergy-devnet-control-panel",
-  "version": "4.0.12",
+  "version": "4.0.13",
   "identifier": "com.synergy.node-monitor",
   "build": {
     "frontendDist": "../dist",
@@ -54,7 +54,6 @@
       "../devnet/lean15/hosts.env.example",
       "../devnet/lean15/configs",
       "../devnet/lean15/installers",
-      "../devnet/lean15/wireguard",
       "../devnet/lean15/workspace-manifest.json",
       "../binaries",
       "../scripts/devnet15",
