@@ -41,16 +41,12 @@ ignored_names = {
 }
 
 tracked_files = None
-tracked_eol_info = None
 
 # Text extensions whose line endings should be normalised (CRLF→LF) before
 # hashing so that Windows and Unix checkouts produce the same bundle digest.
 _TEXT_EXTENSIONS = {
     ".json", ".toml", ".sh", ".ps1", ".env", ".txt",
     ".csv", ".md", ".html", ".js", ".ts", ".yaml", ".yml", ".rs",
-}
-_TEXT_NAME_SUFFIXES = {
-    ".env.example",
 }
 
 def sha256_file(path: pathlib.Path, normalize_eol: bool = True) -> str:
@@ -60,7 +56,7 @@ def sha256_file(path: pathlib.Path, normalize_eol: bool = True) -> str:
     Binary files (executables, etc.) are hashed from their raw bytes."""
     with path.open("rb") as fh:
         content = fh.read()
-    if normalize_eol and should_normalize_eol(path):
+    if normalize_eol and path.suffix.lower() in _TEXT_EXTENSIONS:
         content = content.replace(b"\r\n", b"\n")
     return hashlib.sha256(content).hexdigest()
 
@@ -79,46 +75,7 @@ def load_tracked_files():
         return None
     return {line.strip() for line in output.splitlines() if line.strip()}
 
-def load_tracked_eol_info():
-    try:
-        output = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--eol"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    except Exception:
-        return None
-
-    info = {}
-    for line in output.splitlines():
-        if "\t" not in line:
-            continue
-        meta, rel_path = line.split("\t", 1)
-        parts = meta.split()
-        if len(parts) < 2:
-            continue
-        index_token = parts[0][2:] if parts[0].startswith("i/") else ""
-        worktree_token = parts[1][2:] if parts[1].startswith("w/") else ""
-        info[rel_path] = (index_token, worktree_token)
-    return info
-
-def should_normalize_eol(path: pathlib.Path) -> bool:
-    rel_path = str(path.relative_to(root))
-
-    if tracked_eol_info is not None:
-        eol_info = tracked_eol_info.get(rel_path)
-        if eol_info is not None:
-            index_eol, worktree_eol = eol_info
-            return any(token and token != "-text" for token in (index_eol, worktree_eol))
-
-    if path.suffix.lower() in _TEXT_EXTENSIONS:
-        return True
-
-    return any(path.name.endswith(suffix) for suffix in _TEXT_NAME_SUFFIXES)
-
 tracked_files = load_tracked_files()
-tracked_eol_info = load_tracked_eol_info()
 
 checksums = {}
 for rel in checksum_targets:
