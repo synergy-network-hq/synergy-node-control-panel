@@ -38,7 +38,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -46,7 +45,7 @@ jobs:
           workspaces: src-tauri -> target
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
 
       - name: Create .env if missing
         shell: bash
