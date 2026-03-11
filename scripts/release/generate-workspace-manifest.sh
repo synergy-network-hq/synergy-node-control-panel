@@ -41,22 +41,13 @@ ignored_names = {
 }
 
 tracked_files = None
+tracked_file_modes = None
 
-# Text extensions whose line endings should be normalised (CRLF→LF) before
-# hashing so that Windows and Unix checkouts produce the same bundle digest.
-_TEXT_EXTENSIONS = {
-    ".json", ".toml", ".sh", ".ps1", ".env", ".txt",
-    ".csv", ".md", ".html", ".js", ".ts", ".yaml", ".yml", ".rs",
-}
-
-def sha256_file(path: pathlib.Path, normalize_eol: bool = True) -> str:
-    """Hash a file.  For known text extensions, CRLF is collapsed to LF
-    before hashing when normalize_eol=True so that Windows CI runners and
-    Unix developers produce the same digest for the same committed content.
-    Binary files (executables, etc.) are hashed from their raw bytes."""
+def sha256_file(path: pathlib.Path, normalize_eol: bool = False) -> str:
+    """Hash a file, optionally collapsing CRLF to LF for tracked text files."""
     with path.open("rb") as fh:
         content = fh.read()
-    if normalize_eol and path.suffix.lower() in _TEXT_EXTENSIONS:
+    if normalize_eol:
         content = content.replace(b"\r\n", b"\n")
     return hashlib.sha256(content).hexdigest()
 
@@ -75,7 +66,38 @@ def load_tracked_files():
         return None
     return {line.strip() for line in output.splitlines() if line.strip()}
 
+def load_tracked_file_modes():
+    try:
+        output = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--eol"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except Exception:
+        return None
+
+    modes = {}
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split(None, 3)
+        if len(parts) != 4:
+            continue
+        index_mode, worktree_mode, _attr_mode, rel_path = parts
+        modes[rel_path] = {
+            "is_binary": index_mode == "i/-text" or worktree_mode == "w/-text",
+        }
+    return modes
+
+def should_normalize_eol(rel_str: str) -> bool:
+    if tracked_file_modes is None:
+        return False
+    mode = tracked_file_modes.get(rel_str)
+    return bool(mode) and not mode["is_binary"]
+
 tracked_files = load_tracked_files()
+tracked_file_modes = load_tracked_file_modes()
 
 checksums = {}
 for rel in checksum_targets:
@@ -94,7 +116,9 @@ for rel in required_paths:
             continue
         if tracked_files is not None and rel_str not in tracked_files:
             continue
-        bundle_hasher.update(sha256_file(path).encode("utf-8"))
+        bundle_hasher.update(
+            sha256_file(path, normalize_eol=should_normalize_eol(rel_str)).encode("utf-8")
+        )
         continue
     if path.is_dir():
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
@@ -105,7 +129,9 @@ for rel in required_paths:
             if tracked_files is not None and rel_str not in tracked_files:
                 continue
             bundle_hasher.update(rel_str.encode("utf-8"))
-            bundle_hasher.update(sha256_file(child).encode("utf-8"))
+            bundle_hasher.update(
+                sha256_file(child, normalize_eol=should_normalize_eol(rel_str)).encode("utf-8")
+            )
 
 bundle_digest = bundle_hasher.hexdigest()
 
