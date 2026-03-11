@@ -172,10 +172,6 @@ jobs:
           Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.exe.sig"  artifacts\updater\ -ErrorAction SilentlyContinue
           Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.nsis.zip"  artifacts\updater\ -ErrorAction SilentlyContinue
           Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.nsis.zip.sig"  artifacts\updater\ -ErrorAction SilentlyContinue
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.msi"   artifacts\installers\ -ErrorAction SilentlyContinue
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.msi.sig"   artifacts\updater\ -ErrorAction SilentlyContinue
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.msi.zip"   artifacts\updater\ -ErrorAction SilentlyContinue
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.msi.zip.sig"   artifacts\updater\ -ErrorAction SilentlyContinue
           Write-Output "== installers =="
           Get-ChildItem artifacts\installers\
           Write-Output "== updater =="
@@ -192,8 +188,7 @@ jobs:
               ls artifacts/installers/*.deb >/dev/null
               ;;
             windows-x64)
-              ls artifacts/installers/*.exe >/dev/null 2>&1 || \
-                ls artifacts/installers/*.msi >/dev/null
+              ls artifacts/installers/*.exe >/dev/null
               ;;
           esac
 
@@ -210,9 +205,7 @@ jobs:
               ;;
             windows-x64)
               ls artifacts/installers/*.exe artifacts/updater/*.exe.sig >/dev/null 2>&1 || \
-                ls artifacts/installers/*.msi artifacts/updater/*.msi.sig >/dev/null 2>&1 || \
-                ls artifacts/updater/*.nsis.zip artifacts/updater/*.nsis.zip.sig >/dev/null 2>&1 || \
-                ls artifacts/updater/*.msi.zip artifacts/updater/*.msi.zip.sig >/dev/null
+                ls artifacts/updater/*.nsis.zip artifacts/updater/*.nsis.zip.sig >/dev/null
               ;;
           esac
 

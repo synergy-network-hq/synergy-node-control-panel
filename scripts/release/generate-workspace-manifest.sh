@@ -125,7 +125,12 @@ for rel in required_paths:
         )
         continue
     if path.is_dir():
-        for child in sorted(p for p in path.rglob("*") if p.is_file()):
+        # Sort by normalized POSIX path so Windows and Unix hash files in the same order.
+        children = sorted(
+            (p for p in path.rglob("*") if p.is_file()),
+            key=lambda child: child.relative_to(root).as_posix(),
+        )
+        for child in children:
             rel_path = child.relative_to(root)
             rel_str = rel_path.as_posix()
             if not should_hash(rel_path):
