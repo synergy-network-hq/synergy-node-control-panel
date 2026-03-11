@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getVersion } from '@tauri-apps/api/app';
 import { Link } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { getVersion, invoke } from '../lib/desktopClient';
 
 function extractText(children) {
   if (children === null || children === undefined) return '';

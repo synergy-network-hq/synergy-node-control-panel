@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { getVersion } from '@tauri-apps/api/app';
 import { Link, useLocation } from 'react-router-dom';
 import { openHelpWindow } from '../lib/helpWindow';
 import { checkForUpdate, downloadAndInstallUpdate, relaunchApp } from '../lib/appUpdater';
+import { getVersion } from '../lib/desktopClient';
+import { brandLogoSrc } from '../lib/runtimeAssets';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
 
@@ -180,7 +181,7 @@ function Layout({ children }) {
           <div className="header-brand">
             <div className="logo-container">
               <img
-                src="/snrg.gif"
+                src={brandLogoSrc}
                 alt="Synergy Logo"
                 className="logo-icon-bg"
               />

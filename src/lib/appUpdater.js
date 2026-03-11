@@ -60,7 +60,7 @@ function normalizeUpdateError(error) {
     || lower.includes('endpoints')
     || lower.includes('pubkey')
   ) {
-    return 'Updater is not configured yet. Configure updater endpoints + signing pubkey in tauri.conf.json, then rebuild.';
+    return 'Updater is not configured yet. Publish the latest installers to GitHub releases and rebuild the Electron desktop package.';
   }
 
   if (lower.includes('network') || lower.includes('timed out') || lower.includes('timeout')) {

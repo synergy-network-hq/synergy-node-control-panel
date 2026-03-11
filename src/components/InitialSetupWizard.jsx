@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../lib/desktopClient';
 
 const IS_WINDOWS_HOST = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent || '');
 

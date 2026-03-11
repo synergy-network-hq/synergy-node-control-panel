@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import Layout from './components/Layout';
 import NetworkMonitorDashboard from './components/NetworkMonitorDashboard';
 import NetworkMonitorNodePage from './components/NetworkMonitorNodePage';
@@ -11,6 +10,7 @@ import StartupLoadingScreen from './components/StartupLoadingScreen';
 import TestTransactionsPage from './components/TestTransactionsPage';
 import BreakStuffPage from './components/BreakStuffPage';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { invoke } from './lib/desktopClient';
 
 const SPLASH_DURATION_MS = 6000;
 const SPLASH_FADE_OUT_MS = 800;

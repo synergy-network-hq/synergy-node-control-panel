@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Link } from 'react-router-dom';
+import { invoke } from '../lib/desktopClient';
 
 const BULK_ACTIONS = [
   'status',

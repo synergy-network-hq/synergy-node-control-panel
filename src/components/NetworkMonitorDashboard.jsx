@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Link } from 'react-router-dom';
+import { invoke } from '../lib/desktopClient';
 
 const REFRESH_SECONDS_OPTIONS = [3, 5, 10, 15, 30];
 
