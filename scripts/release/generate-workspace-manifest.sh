@@ -81,10 +81,14 @@ def load_tracked_file_modes():
     for line in output.splitlines():
         if not line.strip():
             continue
-        parts = line.split(None, 3)
-        if len(parts) != 4:
+        if "\t" in line:
+            meta, rel_path = line.split("\t", 1)
+        else:
+            meta, rel_path = line.rsplit(None, 1)
+        parts = meta.split()
+        if len(parts) < 2:
             continue
-        index_mode, worktree_mode, _attr_mode, rel_path = parts
+        index_mode, worktree_mode = parts[:2]
         modes[rel_path] = {
             "is_binary": index_mode == "i/-text" or worktree_mode == "w/-text",
         }
