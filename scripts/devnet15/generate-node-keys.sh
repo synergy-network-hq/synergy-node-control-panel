@@ -4,8 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/devnet/lean15/node-inventory.csv"
 KEY_DIR="$ROOT_DIR/devnet/lean15/keys"
-BINARY="$ROOT_DIR/target/release/synergy-devnet"
 FORCE="false"
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(uname -m)"
+BINARY_OVERRIDE="${SYNERGY_DEVNET_BINARY:-}"
+BINARY=""
 
 if [[ "${1:-}" == "--force" ]]; then
   FORCE="true"
@@ -16,10 +19,43 @@ if [[ ! -f "$INVENTORY_FILE" ]]; then
   exit 1
 fi
 
-if [[ ! -x "$BINARY" ]]; then
-  echo "synergy-devnet binary not found at $BINARY; building release binary..."
-  (cd "$ROOT_DIR" && cargo build --release)
-fi
+resolve_binary() {
+  if [[ -n "$BINARY_OVERRIDE" ]]; then
+    if [[ ! -x "$BINARY_OVERRIDE" ]]; then
+      echo "Configured synergy-devnet binary is not executable: $BINARY_OVERRIDE" >&2
+      exit 1
+    fi
+    BINARY="$BINARY_OVERRIDE"
+    return
+  fi
+
+  case "${HOST_OS}:${HOST_ARCH}" in
+    Darwin:arm64)
+      BINARY="$ROOT_DIR/binaries/synergy-devnet-darwin-arm64"
+      ;;
+    Linux:x86_64)
+      BINARY="$ROOT_DIR/binaries/synergy-devnet-linux-amd64"
+      ;;
+    Linux:aarch64|Linux:arm64)
+      BINARY="$ROOT_DIR/binaries/synergy-devnet-linux-arm64"
+      ;;
+    MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64)
+      BINARY="$ROOT_DIR/binaries/synergy-devnet-windows-amd64.exe"
+      ;;
+    *)
+      echo "Unsupported host platform for node key generation: ${HOST_OS}/${HOST_ARCH}" >&2
+      exit 1
+      ;;
+  esac
+
+  if [[ ! -x "$BINARY" ]]; then
+    echo "synergy-devnet binary not found or not executable at $BINARY" >&2
+    echo "Set SYNERGY_DEVNET_BINARY to a valid platform binary if needed." >&2
+    exit 1
+  fi
+}
+
+resolve_binary
 
 mkdir -p "$KEY_DIR"
 ADDRESS_REPORT="$KEY_DIR/node-addresses.csv"

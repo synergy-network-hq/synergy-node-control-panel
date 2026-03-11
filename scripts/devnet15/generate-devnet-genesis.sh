@@ -31,7 +31,7 @@ chain_id = int(os.environ.get("DEVNET_CHAIN_ID", "338638"))
 genesis_time = os.environ.get("DEVNET_GENESIS_TIME", "2026-01-01T00:00:00Z")
 node_genesis_allocation = int(os.environ.get("DEVNET_NODE_GENESIS_ALLOCATION", "100000000000000"))
 node_stake = int(os.environ.get("DEVNET_NODE_STAKE", os.environ.get("DEVNET_VALIDATOR_STAKE", "5000000000000")))
-min_validators = int(os.environ.get("DEVNET_MIN_VALIDATORS", "2"))
+min_validators = int(os.environ.get("DEVNET_MIN_VALIDATORS", "5"))
 max_validators = int(os.environ.get("DEVNET_MAX_VALIDATORS", "15"))
 
 faucet_address = os.environ.get("DEVNET_FAUCET_ADDRESS", "synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07")
