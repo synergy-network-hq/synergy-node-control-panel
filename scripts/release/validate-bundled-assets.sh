@@ -81,10 +81,21 @@ for binary_path in "${windows_binary_paths[@]}"; do
 done
 
 if [[ "${ALLOW_DIRTY_BUNDLE_PREP:-0}" != "1" ]]; then
-  if [[ -n "$(git status --short --untracked-files=all -- devnet/lean15/keys devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json)" ]]; then
+  BUNDLE_PATHS=(devnet/lean15/keys devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json)
+
+  # Detect untracked files (new files not yet in index)
+  untracked="$(git status --short --untracked-files=all -- "${BUNDLE_PATHS[@]}" | grep '^??' || true)"
+
+  # Detect content changes, ignoring pure CRLF-vs-LF differences so that Windows
+  # CI runners (where some tools write CRLF) don't cause false-positive failures.
+  # If a file differs only in line endings the regenerated content is still correct
+  # and the CRLF will be normalised to LF by .gitattributes on the next commit.
+  content_diff="$(git diff --ignore-cr-at-eol -- "${BUNDLE_PATHS[@]}" 2>/dev/null || true)"
+
+  if [[ -n "$untracked" || -n "$content_diff" ]]; then
     echo "Deterministic bundle assets are stale or untracked. Re-run bundle prep and commit devnet/lean15/keys, configs, installers, and workspace-manifest outputs." >&2
-    git status --short --untracked-files=all -- devnet/lean15/keys devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json >&2 || true
-    git diff -- devnet/lean15/keys devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json >&2 || true
+    git status --short --untracked-files=all -- "${BUNDLE_PATHS[@]}" >&2 || true
+    git diff --ignore-cr-at-eol -- "${BUNDLE_PATHS[@]}" >&2 || true
     exit 1
   fi
 fi

@@ -42,12 +42,23 @@ ignored_names = {
 
 tracked_files = None
 
-def sha256_file(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
+# Text extensions whose line endings should be normalised (CRLF→LF) before
+# hashing so that Windows and Unix checkouts produce the same bundle digest.
+_TEXT_EXTENSIONS = {
+    ".json", ".toml", ".sh", ".ps1", ".env", ".txt",
+    ".csv", ".md", ".html", ".js", ".ts", ".yaml", ".yml", ".rs",
+}
+
+def sha256_file(path: pathlib.Path, normalize_eol: bool = True) -> str:
+    """Hash a file.  For known text extensions, CRLF is collapsed to LF
+    before hashing when normalize_eol=True so that Windows CI runners and
+    Unix developers produce the same digest for the same committed content.
+    Binary files (executables, etc.) are hashed from their raw bytes."""
     with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        content = fh.read()
+    if normalize_eol and path.suffix.lower() in _TEXT_EXTENSIONS:
+        content = content.replace(b"\r\n", b"\n")
+    return hashlib.sha256(content).hexdigest()
 
 def should_hash(path: pathlib.Path) -> bool:
     return not any(part.startswith(".") or part in ignored_names for part in path.parts)
@@ -70,7 +81,7 @@ checksums = {}
 for rel in checksum_targets:
     path = root / rel
     if path.is_file():
-        checksums[rel] = sha256_file(path)
+        checksums[rel] = sha256_file(path, normalize_eol=False)
 
 bundle_hasher = hashlib.sha256()
 for rel in required_paths:
@@ -106,7 +117,8 @@ manifest = {
     "checksums": checksums,
 }
 
-manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+with open(str(manifest_path), "w", encoding="utf-8", newline="\n") as _fh:
+    _fh.write(json.dumps(manifest, indent=2) + "\n")
 PY
 
 echo "Workspace manifest ready: $MANIFEST_PATH"
