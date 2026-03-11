@@ -6,6 +6,17 @@ cd "$ROOT_DIR"
 
 echo "== Bundle prep =="
 
+for binary_path in \
+  "$ROOT_DIR/binaries/synergy-devnet-darwin-arm64" \
+  "$ROOT_DIR/binaries/synergy-devnet-linux-amd64" \
+  "$ROOT_DIR/binaries/synergy-devnet-agent-darwin-arm64" \
+  "$ROOT_DIR/binaries/synergy-devnet-agent-linux-amd64"
+do
+  if [[ -f "$binary_path" ]]; then
+    chmod +x "$binary_path"
+  fi
+done
+
 ./scripts/build-sidecars.sh
 ./scripts/devnet15/generate-node-keys.sh
 ./scripts/devnet15/generate-devnet-genesis.sh

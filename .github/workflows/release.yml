@@ -202,6 +202,20 @@ jobs:
           path: binaries
           merge-multiple: true
 
+      - name: Restore Unix executable bits
+        shell: bash
+        run: |
+          for binary_path in \
+            binaries/synergy-devnet-darwin-arm64 \
+            binaries/synergy-devnet-linux-amd64 \
+            binaries/synergy-devnet-agent-darwin-arm64 \
+            binaries/synergy-devnet-agent-linux-amd64
+          do
+            if [[ -f "$binary_path" ]]; then
+              chmod +x "$binary_path"
+            fi
+          done
+
       - name: Verify bundled binaries present
         shell: bash
         run: |
