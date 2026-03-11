@@ -29,7 +29,7 @@ linux:
   maintainer: "Synergy Network <support@synergy-network.io>"
   synopsis: "Synergy Devnet Control Panel"
   description: "Desktop control panel for provisioning, monitoring, and operating Synergy Devnet nodes."
-  icon: src-tauri/icons/128x128.png
+  icon: src-tauri/icons/icon.png
 win:
   target:
     - nsis
