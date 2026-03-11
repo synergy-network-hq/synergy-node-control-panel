@@ -9,6 +9,7 @@ required_paths=(
   "devnet/lean15/hosts.env.example"
   "devnet/lean15/configs"
   "devnet/lean15/installers"
+  "devnet/lean15/keys"
   "devnet/lean15/wireguard"
   "devnet/lean15/workspace-manifest.json"
   "binaries"
@@ -81,9 +82,10 @@ for binary_path in "${windows_binary_paths[@]}"; do
 done
 
 if [[ "${ALLOW_DIRTY_BUNDLE_PREP:-0}" != "1" ]]; then
-  if ! git diff --quiet -- devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json; then
-    echo "Generated configs/installers/manifest are stale. Re-run bundle prep and commit the outputs." >&2
-    git diff -- devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json >&2 || true
+  if [[ -n "$(git status --short --untracked-files=all -- devnet/lean15/keys devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json)" ]]; then
+    echo "Deterministic bundle assets are stale or untracked. Re-run bundle prep and commit devnet/lean15/keys, configs, installers, and workspace-manifest outputs." >&2
+    git status --short --untracked-files=all -- devnet/lean15/keys devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json >&2 || true
+    git diff -- devnet/lean15/keys devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json >&2 || true
     exit 1
   fi
 fi
