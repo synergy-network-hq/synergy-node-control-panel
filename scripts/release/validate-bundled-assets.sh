@@ -60,12 +60,14 @@ windows_binary_paths=(
   "binaries/synergy-devnet-agent-windows-amd64.exe"
 )
 
+host_os="$(uname -s)"
+
 for binary_path in "${unix_binary_paths[@]}"; do
   if [[ ! -f "$binary_path" ]]; then
     echo "Missing binary: $binary_path" >&2
     exit 1
   fi
-  if [[ ! -x "$binary_path" ]]; then
+  if [[ ! "$host_os" =~ ^(MINGW|MSYS|CYGWIN) ]] && [[ ! -x "$binary_path" ]]; then
     echo "Unix binary is not executable: $binary_path" >&2
     exit 1
   fi
