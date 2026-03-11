@@ -1,6 +1,6 @@
 {
-  "workspace_resource_version": "4.0.14+774f9373db22",
-  "app_version": "4.0.14",
+  "workspace_resource_version": "4.0.15+774f9373db22",
+  "app_version": "4.0.15",
   "bundle_digest": "774f9373db227df33a0844771e6793e3817b9233ac50e5ca8a9c91f6e1929a66",
   "required_paths": [
     "devnet/lean15/node-inventory.csv",
