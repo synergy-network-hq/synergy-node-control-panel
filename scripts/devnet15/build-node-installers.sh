@@ -246,6 +246,7 @@ LOG_DIR="$DATA_DIR/logs"
 PID_FILE="$DATA_DIR/node.pid"
 OUT_FILE="$LOG_DIR/node.out"
 ERR_FILE="$LOG_DIR/node.err"
+INSTALL_STAMP_FILE="$DATA_DIR/.installed_at"
 NETWORK_TRANSPORT="${NETWORK_TRANSPORT:-wireguard}"
 WIREGUARD_INTERFACE="${WIREGUARD_INTERFACE:-wg0}"
 VPN_CIDR="${VPN_CIDR:-10.50.0.0/24}"
@@ -499,14 +500,25 @@ run_prestart_sync() {
   return 1
 }
 
+mark_node_installed() {
+  if [[ ! -f "$INSTALL_STAMP_FILE" ]]; then
+    date -u +"%Y-%m-%dT%H:%M:%SZ" > "$INSTALL_STAMP_FILE"
+  fi
+}
+
+prepare_install_layout() {
+  mkdir -p "$CHAIN_DIR" "$LOG_DIR"
+  touch "$OUT_FILE" "$ERR_FILE"
+  mark_node_installed
+}
+
 start_node() {
   if is_running; then
     echo "$NODE_SLOT_ID already running (PID $(cat "$PID_FILE"))"
     return
   fi
 
-  mkdir -p "$CHAIN_DIR" "$LOG_DIR"
-  touch "$OUT_FILE" "$ERR_FILE"
+  prepare_install_layout
 
   local validator_address
   validator_address="${SYNERGY_VALIDATOR_ADDRESS:-${NODE_ADDRESS:-}}"
@@ -531,12 +543,14 @@ start_node() {
   # Keep relative storage/log paths in node.toml anchored to the installer directory.
   cd "$BASE_DIR"
 
-  if ! run_prestart_sync; then
-    if sync_required_before_start; then
-      echo "Pre-start sync failed for $NODE_SLOT_ID; refusing to start validator while unsynced." >&2
-      return 1
+  if [[ "${SKIP_PRESTART_SYNC:-false}" != "true" ]]; then
+    if ! run_prestart_sync; then
+      if sync_required_before_start; then
+        echo "Pre-start sync failed for $NODE_SLOT_ID; refusing to start validator while unsynced." >&2
+        return 1
+      fi
+      echo "Warning: pre-start sync did not complete for $NODE_SLOT_ID; continuing with node start." >&2
     fi
-    echo "Warning: pre-start sync did not complete for $NODE_SLOT_ID; continuing with node start." >&2
   fi
 
   nohup env \
@@ -560,12 +574,25 @@ select_binary
 apply_staged_binaries
 open_ports
 
+if [[ "${INSTALL_ONLY:-false}" == "true" ]]; then
+  prepare_install_layout
+  echo "[$NODE_SLOT_ID] Install complete. Node remains offline until sync/start."
+  exit 0
+fi
+
 # SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
 # Used by "nodectl.sh sync" to let an operator explicitly catch up a late-joining
-# node before starting it.
+# node before starting it. AUTO_START_AFTER_SYNC=true promotes sync into the
+# catch-up-and-start path for dashboard-driven node activation.
 if [[ "${SYNC_ONLY:-false}" == "true" ]]; then
+  prepare_install_layout
   if run_prestart_sync; then
-    echo "[$NODE_SLOT_ID] Sync complete. Node is ready for manual start."
+    if [[ "${AUTO_START_AFTER_SYNC:-false}" == "true" ]]; then
+      echo "[$NODE_SLOT_ID] Sync complete. Starting node automatically..."
+      SKIP_PRESTART_SYNC=true start_node
+    else
+      echo "[$NODE_SLOT_ID] Sync complete. Node is ready for manual start."
+    fi
     exit 0
   else
     echo "[$NODE_SLOT_ID] Sync did not complete within the timeout." >&2
@@ -631,11 +658,11 @@ start_node() {
 }
 
 setup_node() {
-  "$BASE_DIR/install_and_start.sh"
+  INSTALL_ONLY=true "$BASE_DIR/install_and_start.sh"
 }
 
 install_node() {
-  "$BASE_DIR/install_and_start.sh"
+  INSTALL_ONLY=true "$BASE_DIR/install_and_start.sh"
 }
 
 bootstrap_node() {
@@ -648,6 +675,7 @@ bootstrap_node() {
 # (default: 7200 s = 2 hours for deep catch-up).
 sync_node() {
   SYNC_ONLY=true \
+  AUTO_START_AFTER_SYNC=true \
   PRESTART_SYNC_TIMEOUT_SECS="${PRESTART_SYNC_TIMEOUT_SECS:-7200}" \
   "$BASE_DIR/install_and_start.sh"
 }
@@ -797,9 +825,9 @@ case "${1:-}" in
 Usage: $0 <start|setup|install_node|bootstrap_node|stop|restart|sync|reset_chain|status|logs|export_logs|view_chain_data|export_chain_data|info>
 
   start    Start the node (includes pre-start sync check).
-  setup    Install and start the node locally.
+  setup    Install the node locally but leave it offline.
   install_node
-           Install and start the node locally.
+           Install the node locally but leave it offline.
   bootstrap_node
            Install and start the node locally.
   stop     Stop the node.
@@ -878,6 +906,7 @@ $LogsDir = Join-Path $DataDir "logs"
 $PidFile = Join-Path $DataDir "node.pid"
 $OutFile = Join-Path $LogsDir "node.out"
 $ErrFile = Join-Path $LogsDir "node.err"
+$InstallStampFile = Join-Path $DataDir ".installed_at"
 $StagedBinPath = "$BinPath.pending"
 
 if (-not (Test-Path $BinPath)) {
@@ -1004,6 +1033,20 @@ function Invoke-PreStartSync {
   return $false
 }
 
+function Set-NodeInstalled {
+  if (-not (Test-Path $InstallStampFile)) {
+    Set-Content -Path $InstallStampFile -Value (Get-Date -AsUTC -Format "yyyy-MM-ddTHH:mm:ssZ")
+  }
+}
+
+function Initialize-InstallLayout {
+  New-Item -ItemType Directory -Path $ChainDir -Force | Out-Null
+  New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
+  New-Item -ItemType File -Path $OutFile -Force | Out-Null
+  New-Item -ItemType File -Path $ErrFile -Force | Out-Null
+  Set-NodeInstalled
+}
+
 function Start-Node {
   if (Test-NodeRunning) {
     $currentPid = Get-Content $PidFile | Select-Object -First 1
@@ -1013,10 +1056,7 @@ function Start-Node {
 
   Apply-StagedBinary
 
-  New-Item -ItemType Directory -Path $ChainDir -Force | Out-Null
-  New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
-  New-Item -ItemType File -Path $OutFile -Force | Out-Null
-  New-Item -ItemType File -Path $ErrFile -Force | Out-Null
+  Initialize-InstallLayout
 
   $validatorAddress = Get-NodeEnvValue "NODE_ADDRESS"
   if ([string]::IsNullOrWhiteSpace($validatorAddress)) {
@@ -1062,11 +1102,14 @@ function Start-Node {
   $env:SYNERGY_NETWORK_ID = $configuredNetworkId
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
 
-  if (-not (Invoke-PreStartSync)) {
-    if (Test-SyncRequired) {
-      throw "Pre-start sync failed for $($NodeEnv['NODE_SLOT_ID']); refusing to start validator while unsynced."
+  $skipPrestartSync = $env:SKIP_PRESTART_SYNC -eq "true"
+  if (-not $skipPrestartSync) {
+    if (-not (Invoke-PreStartSync)) {
+      if (Test-SyncRequired) {
+        throw "Pre-start sync failed for $($NodeEnv['NODE_SLOT_ID']); refusing to start validator while unsynced."
+      }
+      Write-Warning "Pre-start sync did not complete for $($NodeEnv['NODE_SLOT_ID']); continuing with node start."
     }
-    Write-Warning "Pre-start sync did not complete for $($NodeEnv['NODE_SLOT_ID']); continuing with node start."
   }
 
   $args = @("start", "--config", $ConfigPath)
@@ -1084,12 +1127,26 @@ if ($OpenPortsOnly) {
   exit 0
 }
 
+if ($env:INSTALL_ONLY -eq "true") {
+  Initialize-InstallLayout
+  Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Install complete. Node remains offline until sync/start."
+  exit 0
+}
+
 # SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
 # Used by nodectl.ps1 sync to let an operator explicitly catch up a late-joining
-# node before starting it.
+# node before starting it. AUTO_START_AFTER_SYNC=true promotes sync into the
+# catch-up-and-start path for dashboard-driven node activation.
 if ($env:SYNC_ONLY -eq "true") {
+  Initialize-InstallLayout
   if (Invoke-PreStartSync) {
-    Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Node is ready for manual start."
+    if ($env:AUTO_START_AFTER_SYNC -eq "true") {
+      Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Starting node automatically..."
+      $env:SKIP_PRESTART_SYNC = "true"
+      Start-Node
+    } else {
+      Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Node is ready for manual start."
+    }
     exit 0
   } else {
     Write-Error "[$($NodeEnv['NODE_SLOT_ID'])] Sync did not complete within the timeout."
@@ -1139,6 +1196,7 @@ $PidFile = Join-Path $DataDir "node.pid"
 $OutFile = Join-Path $DataDir "logs/node.out"
 $LogsDir = Join-Path $DataDir "logs"
 $ChainDir = Join-Path $DataDir "chain"
+$InstallStampFile = Join-Path $DataDir ".installed_at"
 
 function Test-NodeRunning {
   if (-not (Test-Path $PidFile)) { return $false }
@@ -1148,14 +1206,22 @@ function Test-NodeRunning {
 }
 
 function Start-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
-function Setup-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
-function Install-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
+function Setup-Node {
+  $env:INSTALL_ONLY = "true"
+  & (Join-Path $BaseDir "install_and_start.ps1")
+}
+function Install-Node {
+  $env:INSTALL_ONLY = "true"
+  & (Join-Path $BaseDir "install_and_start.ps1")
+}
 function Bootstrap-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
 
-# Sync only — download all missing blocks from peers without starting the node.
-# Intended for late-joining nodes or nodes that have been offline for a long time.
+# Sync only — download all missing blocks from peers, then start the node when
+# catch-up completes. Intended for late-joining nodes or nodes that have been
+# offline for a long time.
 function Sync-Node {
   $env:SYNC_ONLY = "true"
+  $env:AUTO_START_AFTER_SYNC = "true"
   if (-not $env:PRESTART_SYNC_TIMEOUT_SECS) { $env:PRESTART_SYNC_TIMEOUT_SECS = "7200" }
   & (Join-Path $BaseDir "install_and_start.ps1")
 }

@@ -1,8 +1,7 @@
-import { check } from '@tauri-apps/plugin-updater';
-import { invoke } from '@tauri-apps/api/core';
-import { getVersion } from '@tauri-apps/api/app';
+import { getVersion, openExternal, relaunchApp as relaunchDesktopApp } from './desktopClient';
 
 const RELEASES_API_LATEST = 'https://api.github.com/repos/synergy-network-hq/devnet-control-panel-releases/releases/latest';
+const RELEASES_PAGE = 'https://github.com/synergy-network-hq/devnet-control-panel-releases/releases/latest';
 
 function parseVersionParts(value) {
   const normalized = String(value || '').trim().replace(/^v/i, '');
@@ -22,21 +21,7 @@ function compareVersions(left, right) {
   return 0;
 }
 
-async function getLinuxUpdateMode() {
-  try {
-    const result = await invoke('get_linux_update_mode');
-    return result?.mode || 'unsupported';
-  } catch {
-    return 'unsupported';
-  }
-}
-
-function pickLinuxDebAsset(release) {
-  const assets = Array.isArray(release?.assets) ? release.assets : [];
-  return assets.find((asset) => String(asset?.name || '').toLowerCase().endsWith('.deb')) || null;
-}
-
-async function checkForLinuxDebUpdate() {
+async function checkForPublishedUpdate() {
   const currentVersion = await getVersion();
   const response = await fetch(RELEASES_API_LATEST, {
     headers: {
@@ -58,18 +43,10 @@ async function checkForLinuxDebUpdate() {
     return { available: false };
   }
 
-  const debAsset = pickLinuxDebAsset(release);
-  if (!debAsset?.browser_download_url) {
-    throw new Error('Latest GitHub release does not include a Linux .deb installer asset.');
-  }
-
   return {
     available: true,
     version: latestVersion,
     currentVersion,
-    installMode: 'linux-deb',
-    assetName: debAsset.name || '',
-    downloadUrl: debAsset.browser_download_url,
   };
 }
 
@@ -112,7 +89,7 @@ function normalizeUpdateError(error) {
  * Relaunch (restart) the application immediately.
  */
 export async function relaunchApp() {
-  await invoke('app_relaunch');
+  await relaunchDesktopApp();
 }
 
 /**
@@ -121,20 +98,7 @@ export async function relaunchApp() {
  */
 export async function checkForUpdate() {
   try {
-    const linuxUpdateMode = await getLinuxUpdateMode();
-    if (linuxUpdateMode === 'deb') {
-      return await checkForLinuxDebUpdate();
-    }
-
-    const update = await check();
-    if (!update) {
-      return { available: false };
-    }
-    return {
-      available: true,
-      version: update.version,
-      currentVersion: update.currentVersion,
-    };
+    return await checkForPublishedUpdate();
   } catch (error) {
     return { available: false, error: normalizeUpdateError(error) };
   }
@@ -147,34 +111,16 @@ export async function checkForUpdate() {
  */
 export async function downloadAndInstallUpdate() {
   try {
-    const linuxUpdateMode = await getLinuxUpdateMode();
-    if (linuxUpdateMode === 'deb') {
-      const update = await checkForLinuxDebUpdate();
-      if (!update?.available) {
-        return { status: 'up_to_date', message: 'No updates available. You are on the latest version.' };
-      }
-
-      const message = await invoke('install_linux_deb_update', {
-        downloadUrl: update.downloadUrl,
-        fileName: update.assetName || undefined,
-      });
-
-      return {
-        status: 'installed',
-        message: String(message || `Update ${update.version} installed. Restart the app to apply the update.`),
-      };
-    }
-
-    const update = await check();
-    if (!update) {
+    const update = await checkForPublishedUpdate();
+    if (!update?.available) {
       return { status: 'up_to_date', message: 'No updates available. You are on the latest version.' };
     }
 
-    await update.downloadAndInstall();
+    await openExternal(RELEASES_PAGE);
 
     return {
-      status: 'installed',
-      message: `Update ${update.version} installed. Restart the app to apply the update.`,
+      status: 'manual',
+      message: `Opened the latest release page for ${update.version}. Download the installer package for your platform.`,
     };
   } catch (error) {
     return { status: 'error', message: normalizeUpdateError(error) };
@@ -185,30 +131,5 @@ export async function downloadAndInstallUpdate() {
  * Legacy combined check-and-install function (kept for compatibility).
  */
 export async function checkAndInstallAppUpdate() {
-  try {
-    const update = await check();
-    if (!update) {
-      return { status: 'up_to_date', message: 'No updates available. You are on the latest version.' };
-    }
-
-    const confirmInstall = window.confirm(
-      `Update available: ${update.currentVersion} -> ${update.version}\n\nInstall now?`
-    );
-    if (!confirmInstall) {
-      await update.close();
-      return {
-        status: 'cancelled',
-        message: `Update ${update.version} is available but installation was cancelled.`,
-      };
-    }
-
-    await update.downloadAndInstall();
-
-    return {
-      status: 'installed',
-      message: `Update ${update.version} installed. Restart the app to apply the update.`,
-    };
-  } catch (error) {
-    return { status: 'error', message: normalizeUpdateError(error) };
-  }
+  return downloadAndInstallUpdate();
 }

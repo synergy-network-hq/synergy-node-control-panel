@@ -4,6 +4,79 @@ import { Link } from 'react-router-dom';
 
 const REFRESH_SECONDS_OPTIONS = [3, 5, 10, 15, 30];
 
+function normalizeId(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function numericOrdinal(value) {
+  const match = String(value || '').match(/(\d+)/);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+function sortMachineIds(values) {
+  return [...values].sort((left, right) => {
+    const leftOrdinal = numericOrdinal(left);
+    const rightOrdinal = numericOrdinal(right);
+    if (leftOrdinal !== rightOrdinal) return leftOrdinal - rightOrdinal;
+    return String(left).localeCompare(String(right));
+  });
+}
+
+function sortNodeSlotIds(values) {
+  return sortMachineIds(values);
+}
+
+function isBootstrapConsensusValidator(node) {
+  return normalizeId(node?.role_group) === 'consensus'
+    && normalizeId(node?.node_type || node?.role) === 'validator';
+}
+
+function buildMachineTopology(entries = []) {
+  const grouped = new Map();
+
+  entries.forEach((entry) => {
+    const node = entry?.node || entry;
+    const machineId = normalizeId(node?.physical_machine_id || node?.node_slot_id);
+    const nodeSlotId = normalizeId(node?.node_slot_id);
+    if (!machineId || !nodeSlotId) return;
+
+    const existing = grouped.get(machineId) || {
+      machineId,
+      vpnIp: String(node?.vpn_ip || '').trim() || String(node?.host || '').trim(),
+      operator: String(node?.operator || '').trim(),
+      device: String(node?.device || '').trim(),
+      slots: [],
+    };
+
+    if (!existing.vpnIp) {
+      existing.vpnIp = String(node?.vpn_ip || '').trim() || String(node?.host || '').trim();
+    }
+    if (!existing.operator) existing.operator = String(node?.operator || '').trim();
+    if (!existing.device) existing.device = String(node?.device || '').trim();
+
+    existing.slots.push({
+      nodeSlotId,
+      role: String(node?.role || '').trim(),
+      role_group: String(node?.role_group || '').trim(),
+      node_type: String(node?.node_type || '').trim(),
+      operator: String(node?.operator || '').trim(),
+      device: String(node?.device || '').trim(),
+      rpc_url: String(node?.rpc_url || '').trim(),
+      physical_machine_id: machineId,
+    });
+
+    grouped.set(machineId, existing);
+  });
+
+  return sortMachineIds([...grouped.keys()]).map((machineId) => {
+    const entry = grouped.get(machineId);
+    entry.slots = sortNodeSlotIds(entry.slots.map((slot) => slot.nodeSlotId))
+      .map((nodeSlotId) => entry.slots.find((slot) => slot.nodeSlotId === nodeSlotId))
+      .filter(Boolean);
+    return entry;
+  });
+}
+
 function truncate(value, max = 120) {
   if (!value) return '';
   if (value.length <= max) return value;
@@ -41,11 +114,14 @@ function formatLatency(value) {
 function NetworkMonitorDashboard() {
   const [snapshot, setSnapshot] = useState(null);
   const [agentSnapshot, setAgentSnapshot] = useState(null);
+  const [securityState, setSecurityState] = useState(null);
+  const [localIdentity, setLocalIdentity] = useState(null);
   const [refreshSeconds, setRefreshSeconds] = useState(5);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [placeholderSelections, setPlaceholderSelections] = useState({});
 
   // Global reset chain state
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
@@ -67,12 +143,16 @@ function NetworkMonitorDashboard() {
         await invoke('monitor_apply_devnet_topology');
         setWorkspaceReady(true);
       }
-      const [data, agentData] = await Promise.all([
+      const [data, agentData, securityData, identityData] = await Promise.all([
         invoke('get_monitor_snapshot'),
         invoke('get_monitor_agent_snapshot').catch(() => null),
+        invoke('get_monitor_security_state').catch(() => null),
+        invoke('monitor_detect_local_vpn_identity').catch(() => null),
       ]);
       setSnapshot(data);
       setAgentSnapshot(agentData);
+      setSecurityState(securityData);
+      setLocalIdentity(identityData);
       setError('');
     } catch (err) {
       console.error('Failed to fetch monitor snapshot:', err);
@@ -93,6 +173,214 @@ function NetworkMonitorDashboard() {
     }, refreshSeconds * 1000);
     return () => clearInterval(handle);
   }, [autoRefresh, refreshSeconds, workspaceReady]);
+
+  const nodes = snapshot?.nodes || [];
+  const machineTopologyRows = buildMachineTopology(nodes);
+  const machineTopologyMap = machineTopologyRows.reduce((acc, entry) => {
+    acc[entry.machineId] = entry;
+    return acc;
+  }, {});
+  const nodeStatusById = nodes.reduce((acc, entry) => {
+    const nodeSlotId = normalizeId(entry?.node?.node_slot_id);
+    if (nodeSlotId) {
+      acc[nodeSlotId] = entry;
+    }
+    return acc;
+  }, {});
+  const installedByMachine = {};
+  for (const agent of (agentSnapshot?.agents || [])) {
+    if (!agent?.reachable) continue;
+    const machineId = normalizeId(agent.physical_machine_id);
+    if (!machineId) continue;
+    installedByMachine[machineId] = (Array.isArray(agent.node_slot_ids) ? agent.node_slot_ids : [])
+      .map((nodeSlotId) => normalizeId(nodeSlotId))
+      .filter(Boolean);
+  }
+  const installedNodeIds = new Set(
+    Object.values(installedByMachine).flatMap((nodeSlotIds) => nodeSlotIds),
+  );
+  const availableNodeOptions = machineTopologyRows
+    .flatMap((entry) => entry.slots)
+    .filter((slot) => !installedNodeIds.has(slot.nodeSlotId));
+  const bootstrapValidatorNodeIds = machineTopologyRows
+    .flatMap((entry) => entry.slots)
+    .filter((slot) => isBootstrapConsensusValidator(slot))
+    .map((slot) => slot.nodeSlotId);
+  const installedBootstrapValidatorIds = bootstrapValidatorNodeIds.filter((nodeSlotId) =>
+    installedNodeIds.has(nodeSlotId),
+  );
+  const validatorQuorumReady = installedBootstrapValidatorIds.length >= 5;
+  const localMachineId = normalizeId(localIdentity?.physical_machine_id);
+  const localVpnIp = String(
+    localIdentity?.vpn_ip || machineTopologyMap[localMachineId]?.vpnIp || '',
+  ).trim();
+
+  const dashboardRows = machineTopologyRows.flatMap((machine) => {
+    const installedNodeSlots = installedByMachine[machine.machineId] || [];
+    const capacity = Math.max(machine.slots.length, installedNodeSlots.length, 1);
+
+    return Array.from({ length: capacity }, (_, index) => {
+      const installedNodeId = installedNodeSlots[index] || '';
+      return {
+        rowKey: `${machine.machineId}:${index}`,
+        rowIndex: index,
+        machine,
+        installedNodeId,
+        entry: installedNodeId ? nodeStatusById[installedNodeId] || null : null,
+      };
+    });
+  });
+
+  useEffect(() => {
+    if (!dashboardRows.length) return;
+
+    setPlaceholderSelections((prev) => {
+      const next = { ...prev };
+      let changed = false;
+
+      dashboardRows.forEach((row) => {
+        if (row.installedNodeId || row.machine.machineId !== localMachineId) return;
+
+        const rowKey = row.rowKey;
+        const otherSelections = new Set(
+          Object.entries(next)
+            .filter(([key]) => key !== rowKey)
+            .map(([, value]) => normalizeId(value))
+            .filter(Boolean),
+        );
+        const currentValue = normalizeId(next[rowKey]);
+        const currentStillAvailable = currentValue
+          && availableNodeOptions.some((slot) => slot.nodeSlotId === currentValue)
+          && !otherSelections.has(currentValue);
+
+        if (currentStillAvailable) {
+          return;
+        }
+
+        const fallback = availableNodeOptions
+          .map((slot) => slot.nodeSlotId)
+          .find((nodeSlotId) => !otherSelections.has(nodeSlotId));
+
+        if (fallback) {
+          if (next[rowKey] !== fallback) {
+            next[rowKey] = fallback;
+            changed = true;
+          }
+        } else {
+          if (rowKey in next) {
+            delete next[rowKey];
+            changed = true;
+          }
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [availableNodeOptions, dashboardRows, localMachineId]);
+
+  const resolveSetupProfileId = () => {
+    const bindings = Array.isArray(securityState?.ssh_bindings) ? securityState.ssh_bindings : [];
+    const matchingBinding = bindings.find(
+      (binding) => normalizeId(binding?.host_override) === normalizeId(localVpnIp),
+    );
+    if (matchingBinding?.profile_id) {
+      return matchingBinding.profile_id;
+    }
+
+    const profiles = Array.isArray(securityState?.ssh_profiles) ? securityState.ssh_profiles : [];
+    return profiles[0]?.profile_id || 'ops';
+  };
+
+  const maybeStartBootstrapValidators = async () => {
+    if (bootstrapValidatorNodeIds.length < 5) return;
+
+    const [freshSnapshot, freshAgentSnapshot] = await Promise.all([
+      invoke('get_monitor_snapshot'),
+      invoke('get_monitor_agent_snapshot').catch(() => null),
+    ]);
+    setSnapshot(freshSnapshot);
+    setAgentSnapshot(freshAgentSnapshot);
+
+    const installedNodeSet = new Set(
+      (freshAgentSnapshot?.agents || [])
+        .filter((agent) => agent?.reachable)
+        .flatMap((agent) => (Array.isArray(agent.node_slot_ids) ? agent.node_slot_ids : []))
+        .map((nodeSlotId) => normalizeId(nodeSlotId))
+        .filter(Boolean),
+    );
+    const installedValidators = bootstrapValidatorNodeIds.filter((nodeSlotId) =>
+      installedNodeSet.has(nodeSlotId),
+    );
+
+    if (installedValidators.length < 5) {
+      return;
+    }
+
+    const onlineNodeSet = new Set(
+      (freshSnapshot?.nodes || [])
+        .filter((entry) => entry?.online)
+        .map((entry) => normalizeId(entry?.node?.node_slot_id))
+        .filter(Boolean),
+    );
+    const nodesToStart = installedValidators.filter((nodeSlotId) => !onlineNodeSet.has(nodeSlotId));
+    if (!nodesToStart.length) {
+      return;
+    }
+    await invoke('monitor_bulk_node_control', {
+      action: 'start',
+      scope: nodesToStart.join(','),
+    });
+  };
+
+  const handlePlaceholderSelection = (rowKey, nodeSlotId) => {
+    setPlaceholderSelections((prev) => ({
+      ...prev,
+      [rowKey]: normalizeId(nodeSlotId),
+    }));
+  };
+
+  const handlePlaceholderSetup = async (row) => {
+    const targetNodeId = normalizeId(placeholderSelections[row.rowKey]);
+    if (!targetNodeId) {
+      setError('Select a node slot before running setup.');
+      return;
+    }
+    if (!localMachineId || row.machine.machineId !== localMachineId) {
+      setError('Node setup from the dashboard is only allowed on the local machine.');
+      return;
+    }
+    if (!localVpnIp) {
+      setError('Local VPN IP was not detected, so this machine cannot claim a node slot yet.');
+      return;
+    }
+
+    const actionKey = `${row.rowKey}:setup`;
+    setNodeActionKey(actionKey);
+    setError('');
+    try {
+      await invoke('monitor_assign_ssh_binding', {
+        input: {
+          node_slot_id: targetNodeId,
+          profile_id: resolveSetupProfileId(),
+          host_override: localVpnIp,
+          remote_dir_override: null,
+        },
+      });
+      await invoke('monitor_node_control', {
+        nodeSlotId: targetNodeId,
+        action: 'setup',
+      });
+      if (bootstrapValidatorNodeIds.includes(targetNodeId)) {
+        await maybeStartBootstrapValidators();
+      }
+      await fetchSnapshot(true);
+    } catch (err) {
+      console.error(`Failed to set up ${targetNodeId}:`, err);
+      setError(String(err));
+    } finally {
+      setNodeActionKey('');
+    }
+  };
 
   const handleGlobalResetChain = async () => {
     setResetBusy(true);
@@ -143,10 +431,19 @@ function NetworkMonitorDashboard() {
     setNodeActionKey(actionKey);
     setFleetResult(null);
     try {
-      await invoke('monitor_node_control', {
-        nodeSlotId,
-        action,
-      });
+      const normalizedNodeId = normalizeId(nodeSlotId);
+      const isBootstrapTarget = bootstrapValidatorNodeIds.includes(normalizedNodeId);
+      if (isBootstrapTarget && (action === 'start' || action === 'restart')) {
+        await invoke('monitor_bulk_node_control', {
+          action,
+          scope: installedBootstrapValidatorIds.join(','),
+        });
+      } else {
+        await invoke('monitor_node_control', {
+          nodeSlotId,
+          action,
+        });
+      }
       await fetchSnapshot(true);
       setError('');
     } catch (err) {
@@ -157,11 +454,8 @@ function NetworkMonitorDashboard() {
     }
   };
 
-  const nodes = snapshot?.nodes || [];
   const totalNodes = snapshot?.total_nodes ?? 0;
-  const totalMachines = new Set(
-    nodes.map((entry) => entry?.node?.physical_machine_id || entry?.node?.node_slot_id).filter(Boolean),
-  ).size;
+  const totalMachines = machineTopologyRows.length;
   const reachableAgentCount = (agentSnapshot?.agents || []).filter((agent) => agent?.reachable).length;
   const liveResponseSamples = nodes
     .filter((entry) => entry?.online && Number.isFinite(Number(entry?.response_ms)))
@@ -169,10 +463,16 @@ function NetworkMonitorDashboard() {
   const averageLatencyMs = liveResponseSamples.length
     ? liveResponseSamples.reduce((sum, value) => sum + value, 0) / liveResponseSamples.length
     : null;
+  const stagedBootstrapCount = installedBootstrapValidatorIds.filter((nodeSlotId) => {
+    const entry = nodeStatusById[nodeSlotId];
+    return entry && !entry.online;
+  }).length;
+  const displayOnlineCount = Number(snapshot?.online_nodes || 0) + stagedBootstrapCount;
+  const displayOfflineCount = Math.max(totalNodes - displayOnlineCount, 0);
   const summaryCards = [
     {
       label: 'Online',
-      value: formatCountRatio(snapshot?.online_nodes, totalNodes),
+      value: formatCountRatio(displayOnlineCount, totalNodes),
       note: 'Nodes responding',
       tone: 'lime',
     },
@@ -190,7 +490,7 @@ function NetworkMonitorDashboard() {
     },
     {
       label: 'Offline',
-      value: formatCountRatio(snapshot?.offline_nodes, totalNodes),
+      value: formatCountRatio(displayOfflineCount, totalNodes),
       note: 'Need attention',
       tone: 'lime',
     },
@@ -220,11 +520,9 @@ function NetworkMonitorDashboard() {
     },
   ];
 
-  // Build a per-machine agent lookup so the table can show agent reachability without
-  // an extra column fetch.  Keyed on physical_machine_id to match entry.node.physical_machine_id.
   const agentByMachine = {};
   for (const a of (agentSnapshot?.agents || [])) {
-    agentByMachine[a.physical_machine_id] = a;
+    agentByMachine[normalizeId(a?.physical_machine_id)] = a;
   }
 
   if (loading) {
@@ -293,7 +591,7 @@ function NetworkMonitorDashboard() {
               className="monitor-btn monitor-btn-warning"
               onClick={() => handleFleetConfirm('sync_node')}
               disabled={fleetBusy || resetBusy}
-              title="Download all missing blocks on every node without starting them. Use after a reset or for nodes that have been offline."
+              title="Catch up every installed non-validator node and auto-start it after sync completes."
             >
               {fleetBusy && fleetAction === 'sync_node' ? 'Syncing All...' : 'Sync All'}
             </button>
@@ -332,7 +630,8 @@ function NetworkMonitorDashboard() {
             </ul>
             <p className="monitor-confirm-warning">
               This action is irreversible. All chain data will be permanently deleted.
-              Nodes will <strong>not</strong> auto-restart — use <em>Sync All</em> then <em>Start All</em> when ready.
+              Nodes will <strong>not</strong> auto-restart. Re-stage validator quorum with <em>Start All</em>,
+              and use <em>Sync All</em> for late-joining non-validator nodes.
             </p>
             <div className="monitor-confirm-actions">
               <button
@@ -367,9 +666,9 @@ function NetworkMonitorDashboard() {
             {fleetAction === 'sync_node' ? (
               <p>
                 This will run <code>nodectl sync</code> on{' '}
-                <strong>all {snapshot?.total_nodes ?? 0} nodes</strong> in parallel. Each node will
-                download all missing blocks from peers <em>without starting</em>. This can take up
-                to 2 hours for cold nodes. Nodes should be stopped before syncing.
+                <strong>every installed non-validator node</strong> in parallel. Each node will
+                catch up from peers and <em>auto-start after sync completes</em>. Bootstrap validators
+                are excluded because they must enter service through validator quorum start.
               </p>
             ) : (
               <p>
@@ -483,68 +782,134 @@ function NetworkMonitorDashboard() {
             </tr>
           </thead>
           <tbody>
-            {nodes.map((entry) => (
-              <tr key={entry.node.node_slot_id}>
-                <td>{entry.node.physical_machine_id || entry.node.node_slot_id}</td>
-                <td>{entry.node.node_slot_id}</td>
-                <td>{entry.node.operator || 'Unassigned'}</td>
-                <td>{entry.node.device || 'Unknown device'}</td>
-                <td>{entry.node.role}</td>
-                <td>
-                  <code>{entry.node.rpc_url}</code>
-                </td>
-                <td>
-                  {(() => {
-                    const machineId = entry.node.physical_machine_id;
-                    const agent = machineId ? agentByMachine[machineId] : undefined;
-                    if (!agent) {
-                      return <span className="status-pill" style={{ color: 'var(--snrg-muted, #888)', borderColor: 'transparent' }}>—</span>;
-                    }
-                    return (
+            {dashboardRows.map((row) => {
+              const entry = row.entry;
+              const machineId = row.machine.machineId;
+              const agent = agentByMachine[machineId];
+              const isInstalled = Boolean(row.installedNodeId && entry);
+              const selectedPlaceholderNodeId = normalizeId(placeholderSelections[row.rowKey]);
+              const selectedPlaceholderNode = availableNodeOptions.find(
+                (slot) => slot.nodeSlotId === selectedPlaceholderNodeId,
+              );
+              const rowOptions = availableNodeOptions.filter((slot) => {
+                const duplicateSelection = Object.entries(placeholderSelections).some(
+                  ([key, value]) => key !== row.rowKey && normalizeId(value) === slot.nodeSlotId,
+                );
+                return !duplicateSelection || slot.nodeSlotId === selectedPlaceholderNodeId;
+              });
+              const isBootstrapRow = isInstalled && isBootstrapConsensusValidator(entry.node);
+              const isStagedBootstrap = isBootstrapRow
+                && installedBootstrapValidatorIds.includes(normalizeId(entry.node.node_slot_id))
+                && !validatorQuorumReady
+                && !entry.online;
+              const displayStatus = isInstalled
+                ? (isStagedBootstrap ? 'online' : entry.status)
+                : 'empty';
+              const statusTone = displayStatus === 'empty' ? '' : `status-${displayStatus}`;
+
+              return (
+                <tr key={row.rowKey}>
+                  <td>{machineId}</td>
+                  <td>
+                    {isInstalled ? (
+                      entry.node.node_slot_id
+                    ) : machineId === localMachineId ? (
+                      <select
+                        value={selectedPlaceholderNodeId}
+                        onChange={(event) => handlePlaceholderSelection(row.rowKey, event.target.value)}
+                      >
+                        <option value="" disabled>Pick node slot</option>
+                        {rowOptions.map((slot) => (
+                          <option key={slot.nodeSlotId} value={slot.nodeSlotId}>
+                            {slot.nodeSlotId}
+                            {' '}
+                            (
+                            {slot.role}
+                            )
+                          </option>
+                        ))}
+                      </select>
+                    ) : '—'}
+                  </td>
+                  <td>{isInstalled ? (entry.node.operator || 'Unassigned') : (row.machine.operator || 'Unassigned')}</td>
+                  <td>{isInstalled ? (entry.node.device || 'Unknown device') : (row.machine.device || 'Unknown device')}</td>
+                  <td>{isInstalled ? entry.node.role : (selectedPlaceholderNode?.role || 'Empty slot')}</td>
+                  <td>
+                    {isInstalled ? <code>{entry.node.rpc_url}</code> : '—'}
+                  </td>
+                  <td>
+                    {!agent ? (
+                      <span className="status-pill" style={{ color: 'var(--snrg-muted, #888)', borderColor: 'transparent' }}>—</span>
+                    ) : (
                       <span className={`status-pill status-${agent.reachable ? 'online' : 'offline'}`}>
                         {agent.reachable ? 'online' : 'offline'}
                       </span>
-                    );
-                  })()}
-                </td>
-                <td>
-                  <span className={`status-pill status-${entry.status}`}>{entry.status}</span>
-                </td>
-                <td>{entry.block_height ?? 'N/A'}</td>
-                <td>{entry.peer_count ?? 'N/A'}</td>
-                <td>{entry.syncing === null ? 'N/A' : String(entry.syncing)}</td>
-                <td>
-                  {entry.response_ms}
-                  {' '}
-                  ms
-                </td>
-                <td className="monitor-col-error">{truncate(entry.error || '', 88)}</td>
-                <td className="monitor-controls-cell">
-                  <div className="monitor-row-controls">
-                    <button
-                      className="monitor-row-btn monitor-action-start"
-                      onClick={() => handleNodeAction(entry.node.node_slot_id, 'start')}
-                      disabled={fleetBusy || resetBusy || !!nodeActionKey || entry.online}
-                    >
-                      {nodeActionKey === `${entry.node.node_slot_id}:start` ? 'Starting...' : 'Start'}
-                    </button>
-                    <button
-                      className="monitor-row-btn monitor-action-stop"
-                      onClick={() => handleNodeAction(entry.node.node_slot_id, 'stop')}
-                      disabled={fleetBusy || resetBusy || !!nodeActionKey || !entry.online}
-                    >
-                      {nodeActionKey === `${entry.node.node_slot_id}:stop` ? 'Stopping...' : 'Stop'}
-                    </button>
-                    <Link
-                      className="monitor-link-btn monitor-row-link-btn"
-                      to={`/node/${encodeURIComponent(entry.node.node_slot_id)}`}
-                    >
-                      Details
-                    </Link>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                    )}
+                  </td>
+                  <td>
+                    <span className={`status-pill ${statusTone}`.trim()}>
+                      {displayStatus === 'empty' ? 'awaiting install' : displayStatus}
+                    </span>
+                  </td>
+                  <td>{isInstalled ? (entry.block_height ?? 'N/A') : '—'}</td>
+                  <td>{isInstalled ? (entry.peer_count ?? 'N/A') : '—'}</td>
+                  <td>{isInstalled ? (entry.syncing === null ? 'N/A' : String(entry.syncing)) : '—'}</td>
+                  <td>
+                    {isInstalled ? `${entry.response_ms} ms` : '—'}
+                  </td>
+                  <td className="monitor-col-error">
+                    {isInstalled
+                      ? truncate(entry.error || (isStagedBootstrap ? 'Waiting for 5-validator quorum before block production starts.' : ''), 88)
+                      : '—'}
+                  </td>
+                  <td className="monitor-controls-cell">
+                    {isInstalled ? (
+                      <div className="monitor-row-controls">
+                        <button
+                          className="monitor-row-btn monitor-action-start"
+                          onClick={() => handleNodeAction(entry.node.node_slot_id, 'start')}
+                          disabled={fleetBusy || resetBusy || !!nodeActionKey || entry.online || (isBootstrapRow && !validatorQuorumReady)}
+                        >
+                          {nodeActionKey === `${entry.node.node_slot_id}:start` ? 'Starting...' : 'Start'}
+                        </button>
+                        <button
+                          className="monitor-row-btn monitor-action-stop"
+                          onClick={() => handleNodeAction(entry.node.node_slot_id, 'stop')}
+                          disabled={fleetBusy || resetBusy || !!nodeActionKey || !entry.online}
+                        >
+                          {nodeActionKey === `${entry.node.node_slot_id}:stop` ? 'Stopping...' : 'Stop'}
+                        </button>
+                        <button
+                          className="monitor-row-btn"
+                          onClick={() => handleNodeAction(entry.node.node_slot_id, 'sync_node')}
+                          disabled={fleetBusy || resetBusy || !!nodeActionKey || isBootstrapRow}
+                        >
+                          {nodeActionKey === `${entry.node.node_slot_id}:sync_node` ? 'Syncing...' : 'Sync'}
+                        </button>
+                        <Link
+                          className="monitor-link-btn monitor-row-link-btn"
+                          to={`/node/${encodeURIComponent(entry.node.node_slot_id)}`}
+                        >
+                          Details
+                        </Link>
+                      </div>
+                    ) : machineId === localMachineId ? (
+                      <div className="monitor-row-controls">
+                        <button
+                          className="monitor-row-btn monitor-action-start"
+                          onClick={() => handlePlaceholderSetup(row)}
+                          disabled={!selectedPlaceholderNodeId || fleetBusy || resetBusy || !!nodeActionKey}
+                        >
+                          {nodeActionKey === `${row.rowKey}:setup` ? 'Installing...' : 'Install'}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="status-pill">awaiting operator</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

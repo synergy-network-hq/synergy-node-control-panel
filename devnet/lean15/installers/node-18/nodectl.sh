@@ -48,11 +48,11 @@ start_node() {
 }
 
 setup_node() {
-  "$BASE_DIR/install_and_start.sh"
+  INSTALL_ONLY=true "$BASE_DIR/install_and_start.sh"
 }
 
 install_node() {
-  "$BASE_DIR/install_and_start.sh"
+  INSTALL_ONLY=true "$BASE_DIR/install_and_start.sh"
 }
 
 bootstrap_node() {
@@ -65,6 +65,7 @@ bootstrap_node() {
 # (default: 7200 s = 2 hours for deep catch-up).
 sync_node() {
   SYNC_ONLY=true \
+  AUTO_START_AFTER_SYNC=true \
   PRESTART_SYNC_TIMEOUT_SECS="${PRESTART_SYNC_TIMEOUT_SECS:-7200}" \
   "$BASE_DIR/install_and_start.sh"
 }
@@ -214,9 +215,9 @@ case "${1:-}" in
 Usage: $0 <start|setup|install_node|bootstrap_node|stop|restart|sync|reset_chain|status|logs|export_logs|view_chain_data|export_chain_data|info>
 
   start    Start the node (includes pre-start sync check).
-  setup    Install and start the node locally.
+  setup    Install the node locally but leave it offline.
   install_node
-           Install and start the node locally.
+           Install the node locally but leave it offline.
   bootstrap_node
            Install and start the node locally.
   stop     Stop the node.

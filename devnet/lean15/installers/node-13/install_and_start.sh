@@ -14,6 +14,7 @@ LOG_DIR="$DATA_DIR/logs"
 PID_FILE="$DATA_DIR/node.pid"
 OUT_FILE="$LOG_DIR/node.out"
 ERR_FILE="$LOG_DIR/node.err"
+INSTALL_STAMP_FILE="$DATA_DIR/.installed_at"
 NETWORK_TRANSPORT="${NETWORK_TRANSPORT:-wireguard}"
 WIREGUARD_INTERFACE="${WIREGUARD_INTERFACE:-wg0}"
 VPN_CIDR="${VPN_CIDR:-10.50.0.0/24}"
@@ -267,14 +268,25 @@ run_prestart_sync() {
   return 1
 }
 
+mark_node_installed() {
+  if [[ ! -f "$INSTALL_STAMP_FILE" ]]; then
+    date -u +"%Y-%m-%dT%H:%M:%SZ" > "$INSTALL_STAMP_FILE"
+  fi
+}
+
+prepare_install_layout() {
+  mkdir -p "$CHAIN_DIR" "$LOG_DIR"
+  touch "$OUT_FILE" "$ERR_FILE"
+  mark_node_installed
+}
+
 start_node() {
   if is_running; then
     echo "$NODE_SLOT_ID already running (PID $(cat "$PID_FILE"))"
     return
   fi
 
-  mkdir -p "$CHAIN_DIR" "$LOG_DIR"
-  touch "$OUT_FILE" "$ERR_FILE"
+  prepare_install_layout
 
   local validator_address
   validator_address="${SYNERGY_VALIDATOR_ADDRESS:-${NODE_ADDRESS:-}}"
@@ -299,12 +311,14 @@ start_node() {
   # Keep relative storage/log paths in node.toml anchored to the installer directory.
   cd "$BASE_DIR"
 
-  if ! run_prestart_sync; then
-    if sync_required_before_start; then
-      echo "Pre-start sync failed for $NODE_SLOT_ID; refusing to start validator while unsynced." >&2
-      return 1
+  if [[ "${SKIP_PRESTART_SYNC:-false}" != "true" ]]; then
+    if ! run_prestart_sync; then
+      if sync_required_before_start; then
+        echo "Pre-start sync failed for $NODE_SLOT_ID; refusing to start validator while unsynced." >&2
+        return 1
+      fi
+      echo "Warning: pre-start sync did not complete for $NODE_SLOT_ID; continuing with node start." >&2
     fi
-    echo "Warning: pre-start sync did not complete for $NODE_SLOT_ID; continuing with node start." >&2
   fi
 
   nohup env \
@@ -328,12 +342,25 @@ select_binary
 apply_staged_binaries
 open_ports
 
+if [[ "${INSTALL_ONLY:-false}" == "true" ]]; then
+  prepare_install_layout
+  echo "[$NODE_SLOT_ID] Install complete. Node remains offline until sync/start."
+  exit 0
+fi
+
 # SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
 # Used by "nodectl.sh sync" to let an operator explicitly catch up a late-joining
-# node before starting it.
+# node before starting it. AUTO_START_AFTER_SYNC=true promotes sync into the
+# catch-up-and-start path for dashboard-driven node activation.
 if [[ "${SYNC_ONLY:-false}" == "true" ]]; then
+  prepare_install_layout
   if run_prestart_sync; then
-    echo "[$NODE_SLOT_ID] Sync complete. Node is ready for manual start."
+    if [[ "${AUTO_START_AFTER_SYNC:-false}" == "true" ]]; then
+      echo "[$NODE_SLOT_ID] Sync complete. Starting node automatically..."
+      SKIP_PRESTART_SYNC=true start_node
+    else
+      echo "[$NODE_SLOT_ID] Sync complete. Node is ready for manual start."
+    fi
     exit 0
   else
     echo "[$NODE_SLOT_ID] Sync did not complete within the timeout." >&2

@@ -1,3 +1,4 @@
+use crate::app_context::AppContext;
 use crate::devnet_agent_service::{
     DevnetAgentControlRequest, DevnetAgentControlResponse, DevnetAgentHealth, DEVNET_AGENT_PORT,
 };
@@ -14,7 +15,7 @@ use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorNode {
@@ -42,6 +43,10 @@ pub struct MonitorNodeStatus {
     pub node: MonitorNode,
     pub status: String,
     pub online: bool,
+    #[serde(default)]
+    pub active_physical_machine_id: Option<String>,
+    #[serde(default)]
+    pub active_vpn_ip: Option<String>,
     pub block_height: Option<u64>,
     pub average_block_time_secs: Option<f64>,
     pub throughput_tps: Option<f64>,
@@ -284,6 +289,8 @@ pub struct MonitorSetupStatus {
     pub completed_wizard_version: u32,
     pub completed_at_utc: Option<String>,
     pub physical_machine_id: Option<String>,
+    #[serde(default)]
+    pub claimed_node_slot_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,6 +385,8 @@ struct MonitorSetupState {
     completed_at_utc: Option<String>,
     #[serde(default)]
     physical_machine_id: Option<String>,
+    #[serde(default)]
+    claimed_node_slot_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -429,9 +438,19 @@ pub fn monitor_initialize_workspace(app_handle: AppHandle) -> Result<String, Str
     Ok(workspace.to_string_lossy().to_string())
 }
 
+pub fn monitor_initialize_workspace_from_context(app_context: &AppContext) -> Result<String, String> {
+    let workspace = ensure_monitor_workspace_with_context(app_context)?;
+    Ok(workspace.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn monitor_ensure_ssh_keypair(app_handle: AppHandle) -> Result<String, String> {
-    let workspace = ensure_monitor_workspace(&app_handle)?;
+    let app_context = AppContext::from_tauri(&app_handle);
+    monitor_ensure_ssh_keypair_from_context(&app_context)
+}
+
+pub fn monitor_ensure_ssh_keypair_from_context(app_context: &AppContext) -> Result<String, String> {
+    let workspace = ensure_monitor_workspace_with_context(app_context)?;
     let ssh_dir = workspace.join("keys/ssh");
     fs::create_dir_all(&ssh_dir).map_err(|error| {
         format!(
@@ -600,10 +619,22 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                         }
 
                         match response.json::<DevnetAgentHealth>().await {
-                            Ok(payload) => MonitorAgentReachability {
-                                physical_machine_id,
+                            Ok(payload) => {
+                                let mut installed_node_slot_ids = payload
+                                    .node_slot_ids
+                                    .into_iter()
+                                    .map(|value| value.trim().to_ascii_lowercase())
+                                    .filter(|value| !value.is_empty())
+                                    .collect::<Vec<_>>();
+                                installed_node_slot_ids.dedup();
+
+                                MonitorAgentReachability {
+                                physical_machine_id: payload
+                                    .physical_machine_id
+                                    .filter(|value| !value.trim().is_empty())
+                                    .unwrap_or(physical_machine_id),
                                 vpn_ip,
-                                node_slot_ids,
+                                node_slot_ids: installed_node_slot_ids,
                                 reachable: true,
                                 response_ms,
                                 version: Some(payload.version),
@@ -612,7 +643,8 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                                 supported_actions: payload.supported_actions,
                                 checked_at_utc,
                                 error: None,
-                            },
+                            }
+                            }
                             Err(error) => MonitorAgentReachability {
                                 physical_machine_id,
                                 vpn_ip,
@@ -658,6 +690,90 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
         unreachable_agents: total_agents.saturating_sub(reachable_agents),
         agents,
     })
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeNodePlacement {
+    physical_machine_id: String,
+    vpn_ip: String,
+}
+
+async fn load_runtime_node_placements() -> HashMap<String, RuntimeNodePlacement> {
+    let Ok(snapshot) = get_monitor_agent_snapshot().await else {
+        return HashMap::new();
+    };
+
+    let mut placements = HashMap::new();
+    for agent in snapshot.agents {
+        if !agent.reachable || agent.vpn_ip.trim().is_empty() {
+            continue;
+        }
+        for node_slot_id in agent.node_slot_ids {
+            placements.insert(
+                node_slot_id.to_ascii_lowercase(),
+                RuntimeNodePlacement {
+                    physical_machine_id: agent.physical_machine_id.clone(),
+                    vpn_ip: agent.vpn_ip.clone(),
+                },
+            );
+        }
+    }
+
+    placements
+}
+
+fn apply_runtime_probe_target(
+    mut node: MonitorNode,
+    placement: Option<&RuntimeNodePlacement>,
+) -> MonitorNode {
+    if let Some(runtime) = placement {
+        let vpn_ip = runtime.vpn_ip.trim();
+        if !vpn_ip.is_empty() {
+            node.host = vpn_ip.to_string();
+            node.vpn_ip = Some(vpn_ip.to_string());
+            node.rpc_url = build_rpc_url(vpn_ip, node.rpc_port);
+        }
+    }
+    node
+}
+
+fn stamp_runtime_host_override(
+    overrides: &mut HashMap<String, String>,
+    node_slot_id: &str,
+    vpn_ip: &str,
+) {
+    let node = node_slot_id.trim().to_ascii_lowercase();
+    if node.is_empty() || vpn_ip.trim().is_empty() {
+        return;
+    }
+
+    let node_snake = node.replace('-', "_");
+    let vpn = vpn_ip.trim().to_string();
+    overrides.insert(node.clone(), vpn.clone());
+    overrides.insert(node_snake.clone(), vpn.clone());
+    overrides.insert(format!("{node_snake}_host"), vpn.clone());
+    overrides.insert(format!("{node_snake}_vpn_ip"), vpn);
+}
+
+async fn augment_host_overrides_with_runtime_placements(
+    overrides: &mut HashMap<String, String>,
+) {
+    let placements = load_runtime_node_placements().await;
+    for (node_slot_id, placement) in placements {
+        stamp_runtime_host_override(overrides, &node_slot_id, &placement.vpn_ip);
+    }
+}
+
+fn effective_machine_id_for_node(
+    node: &MonitorNode,
+    host_overrides: &HashMap<String, String>,
+) -> String {
+    let fallback = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
+        .unwrap_or_else(|| node.host.clone());
+    let resolved_host =
+        resolve_vpn_override(host_overrides, &node.node_slot_id, &node.node_alias, fallback);
+
+    physical_machine_for_vpn_ip(&resolved_host).unwrap_or_else(|| node.physical_machine_id.clone())
 }
 
 #[tauri::command]
@@ -743,6 +859,7 @@ async fn local_agent_health_check() -> Result<DevnetAgentHealth, String> {
 #[tauri::command]
 pub async fn monitor_mark_setup_complete(
     physical_machine_id: String,
+    node_slot_ids: Option<Vec<String>>,
 ) -> Result<MonitorSetupStatus, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
@@ -780,9 +897,20 @@ pub async fn monitor_mark_setup_complete(
         );
     }
 
-    let logical_nodes = logical_nodes_for_physical_machine(&normalized_machine)?;
+    let mut claimed_node_slot_ids = node_slot_ids
+        .unwrap_or_default()
+        .into_iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    claimed_node_slot_ids.sort();
+    claimed_node_slot_ids.dedup();
 
-    let missing_bindings = logical_nodes
+    if claimed_node_slot_ids.is_empty() {
+        claimed_node_slot_ids = logical_nodes_for_physical_machine(&normalized_machine)?;
+    }
+
+    let missing_bindings = claimed_node_slot_ids
         .iter()
         .filter(|node_slot_id| {
             !config
@@ -804,13 +932,14 @@ pub async fn monitor_mark_setup_complete(
     config.setup.wizard_version = MONITOR_SETUP_WIZARD_VERSION;
     config.setup.completed_at_utc = Some(now.clone());
     config.setup.physical_machine_id = Some(normalized_machine.clone());
+    config.setup.claimed_node_slot_ids = claimed_node_slot_ids.clone();
     save_security_config(&config)?;
 
     append_audit_event(json!({
         "event_type": "setup.completed",
         "actor_operator_id": actor.operator_id,
         "physical_machine_id": normalized_machine,
-        "logical_nodes": logical_nodes.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
+        "logical_nodes": claimed_node_slot_ids.iter().map(|s| s.to_string()).collect::<Vec<String>>(),
         "wizard_version": MONITOR_SETUP_WIZARD_VERSION,
         "timestamp_utc": now,
     }))?;
@@ -1139,10 +1268,24 @@ pub fn monitor_remove_ssh_binding(node_slot_id: String) -> Result<MonitorSecurit
 pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
+    let runtime_placements = load_runtime_node_placements().await;
 
-    let probes = nodes.into_iter().map(probe_node).collect::<Vec<_>>();
+    let probes = nodes
+        .into_iter()
+        .map(|node| {
+            let placement = runtime_placements
+                .get(&node.node_slot_id.to_ascii_lowercase())
+                .cloned();
+            async move {
+                let mut status = probe_node(apply_runtime_probe_target(node, placement.as_ref())).await;
+                status.active_physical_machine_id =
+                    placement.as_ref().map(|entry| entry.physical_machine_id.clone());
+                status.active_vpn_ip = placement.as_ref().map(|entry| entry.vpn_ip.clone());
+                status
+            }
+        })
+        .collect::<Vec<_>>();
     let mut statuses = join_all(probes).await;
-    statuses.sort_by(|a, b| a.node.node_slot_id.cmp(&b.node.node_slot_id));
 
     let highest_block = statuses.iter().filter_map(|n| n.block_height).max();
     if let Some(network_head) = highest_block {
@@ -1199,9 +1342,23 @@ pub async fn monitor_bulk_node_control(
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
     let scope_value = scope.unwrap_or_else(|| "all".to_string());
-    let selected = select_nodes_for_scope(&nodes, &scope_value);
+    let mut selected = select_nodes_for_scope(&nodes, &scope_value);
+    if normalized_action == "sync_node" {
+        let bootstrap_validator_ids = nodes
+            .iter()
+            .filter(|node| is_bootstrap_consensus_validator(node))
+            .map(|node| node.node_slot_id.trim().to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        selected.retain(|node_slot_id| {
+            !bootstrap_validator_ids.contains(&node_slot_id.trim().to_ascii_lowercase())
+        });
+    }
     if selected.is_empty() {
-        return Err(format!("No nodes match scope '{scope_value}'"));
+        return Err(if normalized_action == "sync_node" {
+            format!("No sync-eligible non-validator nodes match scope '{scope_value}'")
+        } else {
+            format!("No nodes match scope '{scope_value}'")
+        });
     }
     let ordered = order_nodes_for_bulk_action(&nodes, selected, &normalized_action);
 
@@ -1232,12 +1389,23 @@ pub async fn monitor_bulk_node_control(
             )
         })
         .collect::<HashMap<_, _>>();
-    let mut previous_phase = None;
+    let mut grouped = Vec::<(u8, Vec<String>)>::new();
     for node_slot_id in ordered {
         let current_phase = phase_map
             .get(&node_slot_id.to_ascii_lowercase())
             .copied()
             .unwrap_or(2);
+        if let Some((phase, phase_nodes)) = grouped.last_mut() {
+            if *phase == current_phase {
+                phase_nodes.push(node_slot_id);
+                continue;
+            }
+        }
+        grouped.push((current_phase, vec![node_slot_id]));
+    }
+
+    let mut previous_phase = None;
+    for (current_phase, phase_nodes) in grouped {
         if let Some(previous) = previous_phase {
             if previous != current_phase {
                 if let Some(pause) = bulk_action_pause(&normalized_action, current_phase) {
@@ -1245,44 +1413,44 @@ pub async fn monitor_bulk_node_control(
                 }
             }
         }
-        let result = match execute_monitor_node_control(
-            &node_slot_id,
-            &normalized_action,
-            &operator,
-            "bulk",
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(error) => {
-                let executed_at_utc = Utc::now().to_rfc3339();
-                let failure = MonitorControlResult {
-                    node_slot_id: node_slot_id.clone(),
-                    action: normalized_action.clone(),
-                    success: false,
-                    exit_code: -1,
-                    command: "N/A".to_string(),
-                    stdout: String::new(),
-                    stderr: truncate_text(error.trim(), 6000),
-                    executed_at_utc: executed_at_utc.clone(),
-                };
-                let _ = append_audit_event(json!({
-                    "event_type": "control.node.failed",
-                    "mode": "bulk",
-                    "operator_id": operator.operator_id,
-                    "operator_role": operator.role,
-                    "node_slot_id": failure.node_slot_id,
-                    "action": failure.action,
-                    "success": false,
-                    "exit_code": failure.exit_code,
-                    "command": failure.command,
-                    "stderr": failure.stderr,
-                    "timestamp_utc": executed_at_utc,
-                }));
-                failure
+
+        let phase_results = join_all(phase_nodes.iter().map(|node_slot_id| async {
+            match execute_monitor_node_control(node_slot_id, &normalized_action, &operator, "bulk")
+                .await
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    let executed_at_utc = Utc::now().to_rfc3339();
+                    let failure = MonitorControlResult {
+                        node_slot_id: node_slot_id.clone(),
+                        action: normalized_action.clone(),
+                        success: false,
+                        exit_code: -1,
+                        command: "N/A".to_string(),
+                        stdout: String::new(),
+                        stderr: truncate_text(error.trim(), 6000),
+                        executed_at_utc: executed_at_utc.clone(),
+                    };
+                    let _ = append_audit_event(json!({
+                        "event_type": "control.node.failed",
+                        "mode": "bulk",
+                        "operator_id": operator.operator_id,
+                        "operator_role": operator.role,
+                        "node_slot_id": failure.node_slot_id,
+                        "action": failure.action,
+                        "success": false,
+                        "exit_code": failure.exit_code,
+                        "command": failure.command,
+                        "stderr": failure.stderr,
+                        "timestamp_utc": executed_at_utc,
+                    }));
+                    failure
+                }
             }
-        };
-        results.push(result);
+        }))
+        .await;
+
+        results.extend(phase_results);
         previous_phase = Some(current_phase);
     }
 
@@ -1480,6 +1648,7 @@ async fn reset_explorer_index() -> Result<(), String> {
 pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNodeDetails, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
+    let runtime_placements = load_runtime_node_placements().await;
 
     let node = nodes
         .iter()
@@ -1489,8 +1658,15 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
         })
         .cloned()
         .ok_or_else(|| format!("Node not found in inventory: {node_slot_id}"))?;
+    let runtime_placement = runtime_placements
+        .get(&node.node_slot_id.to_ascii_lowercase())
+        .cloned();
+    let probe_target = apply_runtime_probe_target(node.clone(), runtime_placement.as_ref());
 
-    let node_status = probe_node(node.clone()).await;
+    let mut node_status = probe_node(probe_target.clone()).await;
+    node_status.active_physical_machine_id =
+        runtime_placement.as_ref().map(|entry| entry.physical_machine_id.clone());
+    node_status.active_vpn_ip = runtime_placement.as_ref().map(|entry| entry.vpn_ip.clone());
 
     let client = Client::builder()
         .timeout(Duration::from_secs(2))
@@ -1498,7 +1674,7 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
         .build()
         .unwrap_or_else(|_| Client::new());
 
-    let rpc_url = node.rpc_url.clone();
+    let rpc_url = probe_target.rpc_url.clone();
     let (
         node_info_result,
         node_status_result,
@@ -1686,6 +1862,14 @@ pub async fn monitor_update_local_agent(
     node_slot_id: String,
     app_handle: AppHandle,
 ) -> Result<MonitorControlResult, String> {
+    let app_context = AppContext::from_tauri(&app_handle);
+    monitor_update_local_agent_from_context(node_slot_id, &app_context).await
+}
+
+pub async fn monitor_update_local_agent_from_context(
+    node_slot_id: String,
+    app_context: &AppContext,
+) -> Result<MonitorControlResult, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
     let node = nodes
@@ -1719,7 +1903,7 @@ pub async fn monitor_update_local_agent(
         ));
     }
 
-    let installed_binary = crate::agent::force_update_local_devnet_agent(app_handle).await?;
+    let installed_binary = crate::agent::force_update_local_devnet_agent_from_context(app_context).await?;
     Ok(MonitorControlResult {
         node_slot_id: node.node_slot_id.clone(),
         action: "update_agent".to_string(),
@@ -1983,7 +2167,17 @@ mod terminal_command_tests {
 
 #[tauri::command]
 pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, String> {
-    let workspace = ensure_monitor_workspace(&app_handle)?;
+    let app_context = AppContext::from_tauri(&app_handle);
+    let workspace = ensure_monitor_workspace_with_context(&app_context)?;
+    apply_monitor_devnet_topology(&workspace)
+}
+
+pub fn monitor_apply_devnet_topology_from_context(app_context: &AppContext) -> Result<String, String> {
+    let workspace = ensure_monitor_workspace_with_context(app_context)?;
+    apply_monitor_devnet_topology(&workspace)
+}
+
+fn apply_monitor_devnet_topology(workspace: &Path) -> Result<String, String> {
     let mapping = DEVNET_NODE_VPN_MAP
         .iter()
         .map(|(machine, vpn)| (machine.to_string(), vpn.to_string()))
@@ -3322,6 +3516,8 @@ async fn probe_node(node: MonitorNode) -> MonitorNodeStatus {
         node,
         status,
         online,
+        active_physical_machine_id: None,
+        active_vpn_ip: None,
         block_height,
         average_block_time_secs,
         throughput_tps,
@@ -6022,6 +6218,11 @@ struct MonitorWorkspaceManifest {
 }
 
 pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let app_context = AppContext::from_tauri(app_handle);
+    ensure_monitor_workspace_with_context(&app_context)
+}
+
+pub fn ensure_monitor_workspace_with_context(app_context: &AppContext) -> Result<PathBuf, String> {
     let workspace_root = preferred_workspace_root();
     fs::create_dir_all(&workspace_root).map_err(|error| {
         format!(
@@ -6036,8 +6237,8 @@ pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, Strin
         workspace_root.to_string_lossy().to_string(),
     );
 
-    migrate_legacy_workspace_if_needed(app_handle, &workspace_root)?;
-    extract_bundled_resources_to_workspace(app_handle, &workspace_root)?;
+    migrate_legacy_workspace_if_needed(app_context, &workspace_root)?;
+    extract_bundled_resources_to_workspace(app_context, &workspace_root)?;
     ensure_security_config_exists(&workspace_root)?;
     validate_monitor_workspace_assets(&workspace_root)?;
 
@@ -6060,7 +6261,7 @@ fn preferred_workspace_root() -> PathBuf {
         .join("monitor-workspace")
 }
 
-fn legacy_workspace_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
+fn legacy_workspace_roots(app_context: &AppContext) -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
     if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
@@ -6071,7 +6272,7 @@ fn legacy_workspace_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
         );
     }
 
-    if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+    if let Some(app_data_dir) = app_context.app_data_dir() {
         roots.push(app_data_dir.join("monitor-workspace"));
     }
 
@@ -6079,7 +6280,7 @@ fn legacy_workspace_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
 }
 
 fn migrate_legacy_workspace_if_needed(
-    app_handle: &AppHandle,
+    app_context: &AppContext,
     workspace_root: &Path,
 ) -> Result<(), String> {
     let target_inventory = workspace_root.join("devnet/lean15/node-inventory.csv");
@@ -6087,7 +6288,7 @@ fn migrate_legacy_workspace_if_needed(
         return Ok(());
     }
 
-    for legacy_root in legacy_workspace_roots(app_handle) {
+    for legacy_root in legacy_workspace_roots(app_context) {
         if legacy_root == workspace_root || !legacy_root.is_dir() {
             continue;
         }
@@ -6100,7 +6301,7 @@ fn migrate_legacy_workspace_if_needed(
 }
 
 fn extract_bundled_resources_to_workspace(
-    app_handle: &AppHandle,
+    app_context: &AppContext,
     workspace_root: &Path,
 ) -> Result<(), String> {
     let relative_paths = [
@@ -6117,7 +6318,7 @@ fn extract_bundled_resources_to_workspace(
         "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md",
     ];
 
-    let roots = discover_workspace_source_roots(app_handle);
+    let roots = discover_workspace_source_roots(app_context);
     for relative in relative_paths {
         if let Some(source) = roots
             .iter()
@@ -6289,30 +6490,8 @@ fn load_workspace_manifest(path: &Path) -> Result<MonitorWorkspaceManifest, Stri
     })
 }
 
-fn discover_workspace_source_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        roots.push(resource_dir.clone());
-        roots.push(resource_dir.join("_up_"));
-        roots.push(resource_dir.join("_up_/_up_/_up_"));
-    }
-
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(exe_dir) = executable.parent() {
-            roots.push(exe_dir.to_path_buf());
-            roots.push(exe_dir.join("../Resources"));
-            roots.push(exe_dir.join("../Resources/_up_/_up_/_up_"));
-        }
-    }
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        roots.push(current_dir.clone());
-        for ancestor in current_dir.ancestors().take(8) {
-            roots.push(ancestor.to_path_buf());
-        }
-    }
-
-    dedupe_paths(roots)
+fn discover_workspace_source_roots(app_context: &AppContext) -> Vec<PathBuf> {
+    dedupe_paths(app_context.resource_roots().to_vec())
 }
 
 fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
@@ -7474,6 +7653,7 @@ fn build_monitor_setup_status(config: &MonitorSecurityConfig) -> MonitorSetupSta
         completed_wizard_version: config.setup.wizard_version,
         completed_at_utc: config.setup.completed_at_utc.clone(),
         physical_machine_id: config.setup.physical_machine_id.clone(),
+        claimed_node_slot_ids: config.setup.claimed_node_slot_ids.clone(),
     }
 }
 
@@ -8075,6 +8255,24 @@ fn select_nodes_for_scope(nodes: &[MonitorNode], scope: &str) -> Vec<String> {
             .collect::<Vec<_>>();
     }
 
+    if normalized.contains(',') {
+        let mut seen = HashSet::<String>::new();
+        let mut selected = Vec::<String>::new();
+        for token in normalized.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+            for node in nodes.iter().filter(|node| {
+                node.node_slot_id.eq_ignore_ascii_case(token)
+                    || node.node_alias.eq_ignore_ascii_case(token)
+                    || node.physical_machine_id.eq_ignore_ascii_case(token)
+            }) {
+                let normalized_id = node.node_slot_id.trim().to_ascii_lowercase();
+                if seen.insert(normalized_id) {
+                    selected.push(node.node_slot_id.clone());
+                }
+            }
+        }
+        return selected;
+    }
+
     if let Some(group) = normalized.strip_prefix("role_group:") {
         let target = group.trim();
         return nodes
@@ -8118,6 +8316,32 @@ fn select_nodes_for_scope(nodes: &[MonitorNode], scope: &str) -> Vec<String> {
 
 fn is_bootnode_slot(node_slot_id: &str) -> bool {
     matches!(node_slot_id, "node-01" | "node-02")
+}
+
+fn is_bootstrap_consensus_validator(node: &MonitorNode) -> bool {
+    node.role_group.eq_ignore_ascii_case("consensus")
+        && (node.node_type.eq_ignore_ascii_case("validator")
+            || node.role.eq_ignore_ascii_case("validator"))
+}
+
+async fn installed_bootstrap_validator_slots(
+    nodes: &[MonitorNode],
+) -> Result<HashSet<String>, String> {
+    let snapshot = get_monitor_agent_snapshot().await?;
+    let installed = snapshot
+        .agents
+        .into_iter()
+        .filter(|agent| agent.reachable)
+        .flat_map(|agent| agent.node_slot_ids.into_iter())
+        .map(|node_slot_id| node_slot_id.trim().to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+
+    Ok(nodes
+        .iter()
+        .filter(|node| is_bootstrap_consensus_validator(node))
+        .filter(|node| installed.contains(&node.node_slot_id.to_ascii_lowercase()))
+        .map(|node| node.node_slot_id.to_ascii_lowercase())
+        .collect())
 }
 
 fn bulk_action_phase(action: &str, node: &MonitorNode) -> u8 {
@@ -8225,6 +8449,7 @@ fn try_execute_local_monitor_control(
     node: &MonitorNode,
     action: &str,
     inventory_path: &Path,
+    effective_machine_id: &str,
 ) -> Result<Option<MonitorControlResult>, String> {
     let Some(nodectl_action) = local_nodectl_action(action) else {
         return Ok(None);
@@ -8240,10 +8465,7 @@ fn try_execute_local_monitor_control(
     let Some(local_machine_id) = identity.physical_machine_id.as_deref() else {
         return Ok(None);
     };
-    if !node
-        .physical_machine_id
-        .eq_ignore_ascii_case(local_machine_id)
-    {
+    if !effective_machine_id.eq_ignore_ascii_case(local_machine_id) {
         return Ok(None);
     }
 
@@ -8300,7 +8522,8 @@ async fn execute_monitor_node_control(
         .cloned()
         .ok_or_else(|| format!("Node not found in inventory: {node_slot_id}"))?;
 
-    let host_overrides = load_hosts_overrides(&inventory_path);
+    let mut host_overrides = load_hosts_overrides(&inventory_path);
+    augment_host_overrides_with_runtime_placements(&mut host_overrides).await;
     let commands = resolve_control_commands(
         &host_overrides,
         &node.node_slot_id,
@@ -8308,6 +8531,34 @@ async fn execute_monitor_node_control(
         &node.physical_machine_id,
         &inventory_path,
     );
+    let effective_machine_id = effective_machine_id_for_node(&node, &host_overrides);
+
+    if normalized_action == "sync_node" && is_bootstrap_consensus_validator(&node) {
+        return Err(format!(
+            "{} is a bootstrap validator. Validator quorum uses install + start/restart; Sync Node is reserved for late-joining non-validator nodes.",
+            node.node_slot_id
+        ));
+    }
+
+    let installed_bootstrap_validators = if matches!(
+        normalized_action,
+        "start" | "restart"
+    ) && is_bootstrap_consensus_validator(&node)
+    {
+        Some(installed_bootstrap_validator_slots(&nodes).await?)
+    } else {
+        None
+    };
+
+    if let Some(installed_validators) = installed_bootstrap_validators.as_ref() {
+        if installed_validators.len() < 5 {
+            return Err(format!(
+                "Validator quorum is not ready for {}: {} of 5 bootstrap validators are installed. Install five validators before start/sync is allowed.",
+                node.node_slot_id,
+                installed_validators.len()
+            ));
+        }
+    }
 
     let outcome = if normalized_action.starts_with("rpc:") {
         let (method, params) = resolve_rpc_control_call(normalized_action).ok_or_else(|| {
@@ -8353,7 +8604,12 @@ async fn execute_monitor_node_control(
             AgentControlAttempt::Completed(result) => result,
             AgentControlAttempt::Unavailable => {
                 if let Some(local_result) =
-                    try_execute_local_monitor_control(&node, normalized_action, &inventory_path)?
+                    try_execute_local_monitor_control(
+                        &node,
+                        normalized_action,
+                        &inventory_path,
+                        &effective_machine_id,
+                    )?
                 {
                     local_result
                 } else {

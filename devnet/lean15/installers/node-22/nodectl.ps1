@@ -33,6 +33,7 @@ $PidFile = Join-Path $DataDir "node.pid"
 $OutFile = Join-Path $DataDir "logs/node.out"
 $LogsDir = Join-Path $DataDir "logs"
 $ChainDir = Join-Path $DataDir "chain"
+$InstallStampFile = Join-Path $DataDir ".installed_at"
 
 function Test-NodeRunning {
   if (-not (Test-Path $PidFile)) { return $false }
@@ -42,14 +43,22 @@ function Test-NodeRunning {
 }
 
 function Start-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
-function Setup-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
-function Install-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
+function Setup-Node {
+  $env:INSTALL_ONLY = "true"
+  & (Join-Path $BaseDir "install_and_start.ps1")
+}
+function Install-Node {
+  $env:INSTALL_ONLY = "true"
+  & (Join-Path $BaseDir "install_and_start.ps1")
+}
 function Bootstrap-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
 
-# Sync only — download all missing blocks from peers without starting the node.
-# Intended for late-joining nodes or nodes that have been offline for a long time.
+# Sync only — download all missing blocks from peers, then start the node when
+# catch-up completes. Intended for late-joining nodes or nodes that have been
+# offline for a long time.
 function Sync-Node {
   $env:SYNC_ONLY = "true"
+  $env:AUTO_START_AFTER_SYNC = "true"
   if (-not $env:PRESTART_SYNC_TIMEOUT_SECS) { $env:PRESTART_SYNC_TIMEOUT_SECS = "7200" }
   & (Join-Path $BaseDir "install_and_start.ps1")
 }

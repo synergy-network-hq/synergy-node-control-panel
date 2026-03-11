@@ -1,107 +1,53 @@
-name: Release Build
+name: Electron Release Build
 
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag (e.g. v2.3.1)'
-        required: true
-
-env:
-  RELEASES_REPO: synergy-network-hq/devnet-control-panel-releases
-
-permissions:
-  contents: read
 
 jobs:
-  # ── Build the Tauri desktop app for each distribution platform ───────────────
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            label: macos-arm64
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            label: linux-x64
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: windows-x64
+          - os: macos-latest
+            artifact_name: macos-dmg
+            build_cmd: npx electron-builder --config electron-builder.yml --mac dmg --publish never
+            artifact_glob: electron-dist/*.dmg
+          - os: ubuntu-22.04
+            artifact_name: linux-deb
+            build_cmd: npx electron-builder --config electron-builder.yml --linux deb --publish never
+            artifact_glob: electron-dist/*.deb
+          - os: windows-latest
+            artifact_name: windows-nsis
+            build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
+            artifact_glob: electron-dist/*.exe
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
-      - name: Validate updater signing secret
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY is required for signed updater bundles." >&2
-            exit 1
-          fi
-
-      - name: Install Rust stable
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          targets: ${{ matrix.target }}
+          node-version: 20
+          cache: npm
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          key: ${{ matrix.target }}
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Restore Unix executable bits
-        shell: bash
-        run: |
-          for binary_path in \
-            binaries/synergy-devnet-darwin-arm64 \
-            binaries/synergy-devnet-linux-amd64 \
-            binaries/synergy-devnet-agent-darwin-arm64 \
-            binaries/synergy-devnet-agent-linux-amd64
-          do
-            if [[ -f "$binary_path" ]]; then
-              chmod +x "$binary_path"
-            fi
-          done
-
-      - name: Verify bundled binaries present
-        shell: bash
-        run: |
-          echo "Using committed binaries from repo checkout."
-          echo "Node binaries available for bundling:"
-          ls -la binaries/synergy-devnet-* || true
-          echo "Agent binaries available for bundling:"
-          ls -la binaries/synergy-devnet-agent-* || true
-          # Require the three source-node binaries that feed installer generation.
-          ls binaries/synergy-devnet-darwin-arm64
-          ls binaries/synergy-devnet-linux-amd64
-          ls binaries/synergy-devnet-windows-amd64.exe
-          # Require the three agent binaries bundled with the app.
-          ls binaries/synergy-devnet-agent-darwin-arm64
-          ls binaries/synergy-devnet-agent-linux-amd64
-          ls binaries/synergy-devnet-agent-windows-amd64.exe
-
-      # env_config.rs embeds .env at compile time via include_str! — provide a placeholder
       - name: Create .env if missing
         shell: bash
         run: |
@@ -109,282 +55,23 @@ jobs:
             echo "# CI placeholder" > .env
           fi
 
-      - name: Install Linux dependencies
-        if: matrix.label == 'linux-x64'
+      - name: Install Linux packaging dependencies
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libssl-dev \
-            libgtk-3-dev \
-            libsoup-3.0-dev \
-            javascriptcoregtk-4.1-dev \
-            libfuse2
+          sudo apt-get install -y libarchive-tools fakeroot rpm
 
-      - name: Build Tauri app
+      - name: Build renderer assets and runtime bundle
+        run: npm run build:electron
+
+      - name: Build installer
         shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Required on ubuntu-22.04: linuxdeploy is itself an AppImage and needs
-          # this flag to extract+run rather than try to FUSE-mount itself in CI.
-          APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: npx tauri build --target ${{ matrix.target }}
-
-      # ── Collect artifacts ────────────────────────────────────────────────────
-
-      - name: Collect artifacts (macOS)
-        if: matrix.label == 'macos-arm64'
-        run: |
-          mkdir -p artifacts/installers artifacts/updater
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg          artifacts/installers/ 2>/dev/null || true
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz artifacts/updater/ 2>/dev/null || true
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig artifacts/updater/ 2>/dev/null || true
-          echo "== installers =="
-          ls -la artifacts/installers/
-          echo "== updater =="
-          ls -la artifacts/updater/
-
-      - name: Collect artifacts (Linux)
-        if: matrix.label == 'linux-x64'
-        run: |
-          mkdir -p artifacts/installers artifacts/updater
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb                  artifacts/installers/ 2>/dev/null || true
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage         artifacts/updater/ 2>/dev/null || true
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.sig     artifacts/updater/ 2>/dev/null || true
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz  artifacts/updater/ 2>/dev/null || true
-          cp src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz.sig artifacts/updater/ 2>/dev/null || true
-          echo "== installers =="
-          ls -la artifacts/installers/
-          echo "== updater =="
-          ls -la artifacts/updater/
-
-      - name: Collect artifacts (Windows)
-        if: matrix.label == 'windows-x64'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force artifacts\installers
-          New-Item -ItemType Directory -Force artifacts\updater
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.exe"  artifacts\installers\ -ErrorAction SilentlyContinue
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.exe.sig"  artifacts\updater\ -ErrorAction SilentlyContinue
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.nsis.zip"  artifacts\updater\ -ErrorAction SilentlyContinue
-          Copy-Item "src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.nsis.zip.sig"  artifacts\updater\ -ErrorAction SilentlyContinue
-          Write-Output "== installers =="
-          Get-ChildItem artifacts\installers\
-          Write-Output "== updater =="
-          Get-ChildItem artifacts\updater\
-
-      - name: Validate installer artifacts
-        shell: bash
-        run: |
-          case "${{ matrix.label }}" in
-            macos-arm64)
-              ls artifacts/installers/*.dmg >/dev/null
-              ;;
-            linux-x64)
-              ls artifacts/installers/*.deb >/dev/null
-              ;;
-            windows-x64)
-              ls artifacts/installers/*.exe >/dev/null
-              ;;
-          esac
-
-      - name: Validate updater artifacts
-        shell: bash
-        run: |
-          case "${{ matrix.label }}" in
-            macos-arm64)
-              ls artifacts/updater/*.app.tar.gz artifacts/updater/*.app.tar.gz.sig >/dev/null
-              ;;
-            linux-x64)
-              ls artifacts/updater/*.AppImage artifacts/updater/*.AppImage.sig >/dev/null 2>&1 || \
-                ls artifacts/updater/*.AppImage.tar.gz artifacts/updater/*.AppImage.tar.gz.sig >/dev/null
-              ;;
-            windows-x64)
-              ls artifacts/installers/*.exe artifacts/updater/*.exe.sig >/dev/null 2>&1 || \
-                ls artifacts/updater/*.nsis.zip artifacts/updater/*.nsis.zip.sig >/dev/null
-              ;;
-          esac
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: ${{ matrix.build_cmd }}
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: installers-${{ matrix.label }}
-          path: artifacts/installers/*
-
-      - name: Upload updater artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: updater-${{ matrix.label }}
-          path: artifacts/updater/*
-
-  # ── Publish: generate latest.json and create release on public releases repo ──
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
-
-      - name: Determine version tag
-        id: tag
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download installer artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: installers-*
-          path: release-assets/installers
-          merge-multiple: true
-
-      - name: Download updater artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: updater-*
-          path: release-assets/updater
-          merge-multiple: true
-
-      - name: Normalize release asset filenames
-        shell: bash
-        run: |
-          sanitize_filename() {
-            printf '%s' "$1" | sed -E \
-              -e 's/[[:space:]]+/\./g' \
-              -e 's/[^A-Za-z0-9._-]+/\./g' \
-              -e 's/\.+/\./g'
-          }
-
-          normalize_dir() {
-            local dir="$1"
-            while IFS= read -r -d '' path; do
-              local name normalized
-              name="$(basename "$path")"
-              normalized="$(sanitize_filename "$name")"
-
-              if [[ -z "$normalized" ]]; then
-                echo "Failed to normalize release asset filename: $name" >&2
-                exit 1
-              fi
-
-              if [[ "$normalized" == "$name" ]]; then
-                continue
-              fi
-
-              if [[ -e "$dir/$normalized" ]]; then
-                echo "Normalized release asset filename collision: $name -> $normalized" >&2
-                exit 1
-              fi
-
-              mv "$path" "$dir/$normalized"
-            done < <(find "$dir" -maxdepth 1 -type f -print0)
-          }
-
-          normalize_dir release-assets/installers
-          normalize_dir release-assets/updater
-
-      - name: Summarize release assets
-        run: |
-          echo "=== Installer assets ==="
-          ls -la release-assets/installers/
-          echo "=== Updater assets ==="
-          ls -la release-assets/updater/
-
-      - name: Generate asset manifests
-        run: |
-          {
-            echo "Manual installers:"
-            find release-assets/installers -maxdepth 1 -type f -printf '  %f\n' | sort
-          } > release-assets/INSTALLERS.txt
-          {
-            echo "Updater support assets:"
-            find release-assets/updater -maxdepth 1 -type f -printf '  %f\n' | sort
-          } > release-assets/UPDATER_ASSETS.txt
-
-      - name: Generate latest.json
-        run: |
-          VERSION="${{ steps.tag.outputs.version }}"
-          chmod +x scripts/release/generate-latest-json.sh
-          scripts/release/generate-latest-json.sh release-assets "$VERSION" "${{ env.RELEASES_REPO }}"
-          echo "=== latest.json ==="
-          cat release-assets/latest.json
-
-      - name: Validate latest.json asset references
-        shell: bash
-        run: |
-          while IFS= read -r url; do
-            asset_name="$(basename "$url")"
-            if [[ -f "release-assets/installers/$asset_name" || -f "release-assets/updater/$asset_name" ]]; then
-              continue
-            fi
-            echo "latest.json references a missing release asset: $asset_name" >&2
-            exit 1
-          done < <(jq -r '.platforms[].url' release-assets/latest.json)
-
-      - name: Create GitHub Release on releases repo
-        uses: softprops/action-gh-release@v2
-        with:
-          repository: ${{ env.RELEASES_REPO }}
-          tag_name: ${{ steps.tag.outputs.version }}
-          name: "Synergy Devnet Control Panel ${{ steps.tag.outputs.version }}"
-          body: |
-            ## Synergy Devnet Control Panel ${{ steps.tag.outputs.version }}
-
-            ### Installation
-            | Platform | Download |
-            |----------|----------|
-            | macOS (Apple Silicon) | `.dmg` |
-            | Linux (x86_64) | `.deb` |
-            | Windows (x86_64) | `.exe` (NSIS installer) |
-
-            ### Auto-Update
-            Machines with the control panel already installed will be notified via
-            the **Check for Updates** button in the app. Signed updater support
-            assets are published with the release and listed in `UPDATER_ASSETS.txt`.
-
-            ---
-            *Built from commit ${{ github.sha }}*
-          files: |
-            release-assets/installers/*
-            release-assets/updater/*
-            release-assets/latest.json
-            release-assets/INSTALLERS.txt
-            release-assets/UPDATER_ASSETS.txt
-          token: ${{ secrets.RELEASES_REPO_TOKEN }}
-          draft: false
-          prerelease: false
-
-      - name: Validate published updater URLs
-        shell: bash
-        run: |
-          check_url() {
-            local url="$1"
-            local attempt
-
-            for attempt in {1..10}; do
-              if curl --silent --show-error --fail --location --head "$url" >/dev/null; then
-                return 0
-              fi
-              echo "Waiting for published asset to become available (${attempt}/10): $url"
-              sleep 3
-            done
-
-            echo "Published asset is still unavailable: $url" >&2
-            return 1
-          }
-
-          check_url "https://github.com/${{ env.RELEASES_REPO }}/releases/download/${{ steps.tag.outputs.version }}/latest.json"
-          while IFS= read -r url; do
-            check_url "$url"
-          done < <(jq -r '.platforms[].url' release-assets/latest.json)
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_glob }}

@@ -39,6 +39,7 @@ $LogsDir = Join-Path $DataDir "logs"
 $PidFile = Join-Path $DataDir "node.pid"
 $OutFile = Join-Path $LogsDir "node.out"
 $ErrFile = Join-Path $LogsDir "node.err"
+$InstallStampFile = Join-Path $DataDir ".installed_at"
 $StagedBinPath = "$BinPath.pending"
 
 if (-not (Test-Path $BinPath)) {
@@ -165,6 +166,20 @@ function Invoke-PreStartSync {
   return $false
 }
 
+function Set-NodeInstalled {
+  if (-not (Test-Path $InstallStampFile)) {
+    Set-Content -Path $InstallStampFile -Value (Get-Date -AsUTC -Format "yyyy-MM-ddTHH:mm:ssZ")
+  }
+}
+
+function Initialize-InstallLayout {
+  New-Item -ItemType Directory -Path $ChainDir -Force | Out-Null
+  New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
+  New-Item -ItemType File -Path $OutFile -Force | Out-Null
+  New-Item -ItemType File -Path $ErrFile -Force | Out-Null
+  Set-NodeInstalled
+}
+
 function Start-Node {
   if (Test-NodeRunning) {
     $currentPid = Get-Content $PidFile | Select-Object -First 1
@@ -174,10 +189,7 @@ function Start-Node {
 
   Apply-StagedBinary
 
-  New-Item -ItemType Directory -Path $ChainDir -Force | Out-Null
-  New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
-  New-Item -ItemType File -Path $OutFile -Force | Out-Null
-  New-Item -ItemType File -Path $ErrFile -Force | Out-Null
+  Initialize-InstallLayout
 
   $validatorAddress = Get-NodeEnvValue "NODE_ADDRESS"
   if ([string]::IsNullOrWhiteSpace($validatorAddress)) {
@@ -223,11 +235,14 @@ function Start-Node {
   $env:SYNERGY_NETWORK_ID = $configuredNetworkId
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
 
-  if (-not (Invoke-PreStartSync)) {
-    if (Test-SyncRequired) {
-      throw "Pre-start sync failed for $($NodeEnv['NODE_SLOT_ID']); refusing to start validator while unsynced."
+  $skipPrestartSync = $env:SKIP_PRESTART_SYNC -eq "true"
+  if (-not $skipPrestartSync) {
+    if (-not (Invoke-PreStartSync)) {
+      if (Test-SyncRequired) {
+        throw "Pre-start sync failed for $($NodeEnv['NODE_SLOT_ID']); refusing to start validator while unsynced."
+      }
+      Write-Warning "Pre-start sync did not complete for $($NodeEnv['NODE_SLOT_ID']); continuing with node start."
     }
-    Write-Warning "Pre-start sync did not complete for $($NodeEnv['NODE_SLOT_ID']); continuing with node start."
   }
 
   $args = @("start", "--config", $ConfigPath)
@@ -245,12 +260,26 @@ if ($OpenPortsOnly) {
   exit 0
 }
 
+if ($env:INSTALL_ONLY -eq "true") {
+  Initialize-InstallLayout
+  Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Install complete. Node remains offline until sync/start."
+  exit 0
+}
+
 # SYNC_ONLY=true: run pre-start sync and exit without launching the node process.
 # Used by nodectl.ps1 sync to let an operator explicitly catch up a late-joining
-# node before starting it.
+# node before starting it. AUTO_START_AFTER_SYNC=true promotes sync into the
+# catch-up-and-start path for dashboard-driven node activation.
 if ($env:SYNC_ONLY -eq "true") {
+  Initialize-InstallLayout
   if (Invoke-PreStartSync) {
-    Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Node is ready for manual start."
+    if ($env:AUTO_START_AFTER_SYNC -eq "true") {
+      Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Starting node automatically..."
+      $env:SKIP_PRESTART_SYNC = "true"
+      Start-Node
+    } else {
+      Write-Host "[$($NodeEnv['NODE_SLOT_ID'])] Sync complete. Node is ready for manual start."
+    }
     exit 0
   } else {
     Write-Error "[$($NodeEnv['NODE_SLOT_ID'])] Sync did not complete within the timeout."

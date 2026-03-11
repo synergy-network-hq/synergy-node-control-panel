@@ -11,11 +11,9 @@ function updateButtonLabel(updateState) {
     case 'checking':
       return 'Checking...';
     case 'available':
-      return `Install ${updateState.version}`;
+      return `Open ${updateState.version}`;
     case 'installing':
-      return 'Installing...';
-    case 'installed':
-      return 'Restart Required';
+      return 'Opening...';
     default:
       return 'Check for Updates';
   }
@@ -36,7 +34,7 @@ function Layout({ children }) {
     version: '',
   });
   const footerStatusMessage =
-    updateState.status === 'available' ? `Update ${updateState.version} available` : updateState.message;
+    updateState.status === 'available' ? `Release ${updateState.version} available` : updateState.message;
 
   useEffect(() => {
     let disposed = false;
@@ -109,12 +107,6 @@ function Layout({ children }) {
       return;
     }
 
-    // When update is already installed, just restart.
-    if (updateState.status === 'installed') {
-      await relaunchApp();
-      return;
-    }
-
     let targetVersion = updateState.version;
 
     if (updateState.status !== 'available') {
@@ -140,41 +132,37 @@ function Layout({ children }) {
       targetVersion = result.version || '';
       setUpdateState({
         status: 'available',
-        message: `Update ${targetVersion} is ready to download and install.`,
+        message: `Release ${targetVersion} is ready to download.`,
         version: targetVersion,
       });
     }
 
-    if (!window.confirm(`Install Synergy Devnet Control Panel ${targetVersion}?`)) {
+    if (!window.confirm(`Open the release page for Synergy Devnet Control Panel ${targetVersion}?`)) {
       return;
     }
 
     setUpdateState((previous) => ({
       ...previous,
       status: 'installing',
-      message: `Downloading and installing ${previous.version}...`,
+      message: `Opening release ${previous.version}...`,
     }));
 
     const result = await downloadAndInstallUpdate();
-    if (result.status === 'installed') {
-      // Auto-restart to apply the update immediately.
-      await relaunchApp();
-      // If relaunch is delayed, update the status so the button shows "Restart Required"
-      // as a fallback in case the OS takes a moment to terminate the process.
-      setUpdateState((previous) => ({
-        ...previous,
-        status: 'installed',
-        message: result.message,
-      }));
-      return;
-    }
-
     if (result.status === 'up_to_date') {
       setUpdateState({
         status: 'up_to_date',
         message: result.message,
         version: '',
       });
+      return;
+    }
+
+    if (result.status === 'manual') {
+      setUpdateState((previous) => ({
+        ...previous,
+        status: 'available',
+        message: result.message,
+      }));
       return;
     }
 

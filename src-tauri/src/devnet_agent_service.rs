@@ -15,6 +15,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -450,9 +451,10 @@ fn execute_control(
             run_nodectl(&install, &normalized_action)
         }
         "sync_node" => {
-            // Run the pre-start sync without starting the node.  Intended for
-            // late-joining nodes or nodes that have been offline long enough to
-            // fall significantly behind the chain tip.
+            // Catch the node up from peers and let nodectl promote the node into
+            // service once sync completes. Intended for late-joining non-validator
+            // nodes or nodes that have been offline long enough to fall behind the
+            // chain tip.
             //
             // The HTTP timeout for this action is set to 7200 s in monitor.rs so
             // that the caller waits as long as the sync needs.  The sync itself
@@ -510,7 +512,12 @@ fn execute_control(
             let _ = run_nodectl(&install, "stop");
             force_kill_node_processes(&install);
             sync_workspace_installer(workspace_root, &install)?;
-            run_install_script(&install)
+            let nodectl_action = match normalized_action.as_str() {
+                "bootstrap_node" => "bootstrap_node",
+                "install_node" => "install_node",
+                _ => "setup",
+            };
+            run_nodectl(&install, nodectl_action)
         }
         "reset_chain" => {
             let install = resolve_node_install(workspace_root, &node_slot_id)?;
@@ -741,14 +748,23 @@ fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, Str
 }
 
 fn installed_node_slots(workspace_root: &Path, inventory: &[InventoryNode]) -> Vec<String> {
-    inventory
+    let mut installed = inventory
         .iter()
         .filter_map(|node| {
             resolve_node_install(workspace_root, node.node_slot_id.as_str())
                 .ok()
-                .map(|_| node.node_slot_id.clone())
+                .filter(|install| install_dir_has_runtime_state(&install.install_dir))
+                .map(|install| {
+                    (
+                        node.node_slot_id.clone(),
+                        install_dir_runtime_timestamp(&install.install_dir),
+                    )
+                })
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    installed.sort_by(|left, right| left.1.cmp(&right.1).then(left.0.cmp(&right.0)));
+    installed.into_iter().map(|entry| entry.0).collect()
 }
 
 fn legacy_workspace_roots() -> Vec<PathBuf> {
@@ -867,6 +883,47 @@ fn resolve_node_install(workspace_root: &Path, node_slot_id: &str) -> Result<Nod
         node_slot_id: node_slot_id.to_string(),
         install_dir,
     })
+}
+
+fn install_dir_has_runtime_state(install_dir: &Path) -> bool {
+    let data_dir = install_dir.join("data");
+    let runtime_markers = [
+        data_dir.join(".installed_at"),
+        data_dir.join("node.pid"),
+        data_dir.join("chain.json"),
+        data_dir.join("token_state.json"),
+        data_dir.join("validator_registry.json"),
+        data_dir.join("logs/node.out"),
+        data_dir.join("logs/node.err"),
+    ];
+
+    runtime_markers.iter().any(|path| path.exists()) || is_process_running_for_install_dir(install_dir)
+}
+
+fn install_dir_runtime_timestamp(install_dir: &Path) -> u64 {
+    let data_dir = install_dir.join("data");
+    let candidates = [
+        data_dir.join(".installed_at"),
+        data_dir.join("node.pid"),
+        data_dir.join("logs/node.out"),
+        data_dir.join("logs/node.err"),
+        data_dir.join("chain.json"),
+        data_dir.join("validator_registry.json"),
+    ];
+
+    candidates
+        .iter()
+        .filter_map(|path| fs::metadata(path).ok())
+        .filter_map(|meta| meta.modified().ok())
+        .filter_map(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+        .min()
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0)
+        })
 }
 
 fn parse_hosts_env(path: PathBuf) -> Result<HashMap<String, String>, String> {

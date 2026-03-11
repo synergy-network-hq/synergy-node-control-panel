@@ -1,4 +1,5 @@
 use crate::devnet_agent_service::DEVNET_AGENT_PORT;
+use crate::app_context::AppContext;
 use crate::node_manager::commands::{setup_node, NodeSetupOptions, SetupProgress};
 use crate::node_manager::multi_node::MultiNodeManager;
 use crate::node_manager::multi_node_process::ProcessManager;
@@ -105,6 +106,13 @@ pub fn agent_monitor_initialize_workspace(app_handle: AppHandle) -> Result<Strin
     Ok(workspace.to_string_lossy().to_string())
 }
 
+pub fn agent_monitor_initialize_workspace_from_context(
+    app_context: &AppContext,
+) -> Result<String, String> {
+    let workspace = crate::monitor::ensure_monitor_workspace_with_context(app_context)?;
+    Ok(workspace.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn agent_get_inventory_machines() -> Result<Vec<JarvisInventoryMachine>, String> {
     let inventory_path = PathBuf::from(crate::monitor::get_monitor_inventory_path()?);
@@ -116,7 +124,23 @@ pub fn agent_prepare_hosts_env(
     input: JarvisPrepareHostsEnvInput,
     app_handle: AppHandle,
 ) -> Result<String, String> {
-    let workspace = crate::monitor::ensure_monitor_workspace(&app_handle)?;
+    let app_context = AppContext::from_tauri(&app_handle);
+    let workspace = crate::monitor::ensure_monitor_workspace_with_context(&app_context)?;
+    prepare_hosts_env_in_workspace(&workspace, input)
+}
+
+pub fn agent_prepare_hosts_env_from_context(
+    input: JarvisPrepareHostsEnvInput,
+    app_context: &AppContext,
+) -> Result<String, String> {
+    let workspace = crate::monitor::ensure_monitor_workspace_with_context(app_context)?;
+    prepare_hosts_env_in_workspace(&workspace, input)
+}
+
+fn prepare_hosts_env_in_workspace(
+    workspace: &Path,
+    input: JarvisPrepareHostsEnvInput,
+) -> Result<String, String> {
     let hosts_env_path = workspace.join("devnet/lean15/hosts.env");
     ensure_hosts_env_exists(&workspace, &hosts_env_path)?;
 
@@ -384,6 +408,15 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
 
 pub async fn ensure_local_devnet_agent(app_handle: AppHandle) -> Result<(), String> {
     let workspace_root = crate::monitor::ensure_monitor_workspace(&app_handle)?;
+    ensure_local_devnet_agent_in_workspace(&workspace_root).await
+}
+
+pub async fn ensure_local_devnet_agent_from_context(app_context: &AppContext) -> Result<(), String> {
+    let workspace_root = crate::monitor::ensure_monitor_workspace_with_context(app_context)?;
+    ensure_local_devnet_agent_in_workspace(&workspace_root).await
+}
+
+pub async fn ensure_local_devnet_agent_in_workspace(workspace_root: &Path) -> Result<(), String> {
     if local_agent_running().await {
         return Ok(());
     }
@@ -430,6 +463,19 @@ pub async fn ensure_local_devnet_agent(app_handle: AppHandle) -> Result<(), Stri
 
 pub async fn force_update_local_devnet_agent(app_handle: AppHandle) -> Result<PathBuf, String> {
     let workspace_root = crate::monitor::ensure_monitor_workspace(&app_handle)?;
+    force_update_local_devnet_agent_in_workspace(&workspace_root).await
+}
+
+pub async fn force_update_local_devnet_agent_from_context(
+    app_context: &AppContext,
+) -> Result<PathBuf, String> {
+    let workspace_root = crate::monitor::ensure_monitor_workspace_with_context(app_context)?;
+    force_update_local_devnet_agent_in_workspace(&workspace_root).await
+}
+
+pub async fn force_update_local_devnet_agent_in_workspace(
+    workspace_root: &Path,
+) -> Result<PathBuf, String> {
     let binary_source = resolve_agent_resource_binary(&workspace_root)?;
     let installed_binary = install_agent_binary(&workspace_root, &binary_source)?;
 

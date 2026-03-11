@@ -172,6 +172,11 @@ function compactLines(values = []) {
   return values.filter(Boolean).join(' | ') || 'N/A';
 }
 
+function isBootstrapConsensusValidator(node) {
+  return normalize(node?.role_group) === 'consensus'
+    && normalize(node?.node_type || node?.role) === 'validator';
+}
+
 function NetworkMonitorNodePage() {
   const { nodeSlotId } = useParams();
   const [nodeDetails, setNodeDetails] = useState(null);
@@ -179,6 +184,7 @@ function NetworkMonitorNodePage() {
   const [detailsError, setDetailsError] = useState('');
 
   const [snapshot, setSnapshot] = useState(null);
+  const [agentSnapshot, setAgentSnapshot] = useState(null);
   const [localVpnIdentity, setLocalVpnIdentity] = useState(null);
 
   const [refreshSeconds, setRefreshSeconds] = useState(5);
@@ -191,8 +197,12 @@ function NetworkMonitorNodePage() {
 
   const fetchSnapshot = async () => {
     try {
-      const data = await invoke('get_monitor_snapshot');
+      const [data, agentData] = await Promise.all([
+        invoke('get_monitor_snapshot'),
+        invoke('get_monitor_agent_snapshot').catch(() => null),
+      ]);
       setSnapshot(data);
+      setAgentSnapshot(agentData);
     } catch (err) {
       console.error('Failed to fetch monitor snapshot for routing context:', err);
     }
@@ -273,16 +283,42 @@ function NetworkMonitorNodePage() {
       : null;
   const nodeStatus = nodeDetails?.status?.status || 'unknown';
   const syncing = nodeDetails?.status?.syncing;
+  const installedBootstrapValidatorIds = useMemo(() => {
+    const installedSet = new Set(
+      (agentSnapshot?.agents || [])
+        .filter((agent) => agent?.reachable)
+        .flatMap((agent) => (Array.isArray(agent.node_slot_ids) ? agent.node_slot_ids : []))
+        .map((value) => normalize(value))
+        .filter(Boolean),
+    );
+
+    return (snapshot?.nodes || [])
+      .filter((entry) => isBootstrapConsensusValidator(entry?.node))
+      .map((entry) => normalize(entry?.node?.node_slot_id))
+      .filter((value) => installedSet.has(value));
+  }, [agentSnapshot, snapshot]);
+  const validatorQuorumReady = installedBootstrapValidatorIds.length >= 5;
+  const isBootstrapNode = isBootstrapConsensusValidator(nodeDetails?.status?.node);
+  const isStagedBootstrap = Boolean(
+    nodeDetails?.status?.node
+      && isBootstrapNode
+      && installedBootstrapValidatorIds.includes(normalize(nodeDetails.status.node.node_slot_id))
+      && !validatorQuorumReady
+      && !nodeDetails?.status?.online,
+  );
+  const displayNodeStatus = isStagedBootstrap ? 'online' : nodeStatus;
   const heroTone =
-    nodeStatus === 'online'
+    displayNodeStatus === 'online'
       ? 'healthy'
-      : nodeStatus === 'syncing'
+      : displayNodeStatus === 'syncing'
         ? 'degraded'
-        : nodeStatus === 'offline'
+        : displayNodeStatus === 'offline'
           ? 'critical'
           : 'unknown';
   const statusSummary =
-    syncing === true
+    isStagedBootstrap
+      ? `Installed and waiting for validator quorum. ${installedBootstrapValidatorIds.length}/5 bootstrap validators are installed.`
+      : syncing === true
       ? 'Syncing toward chain head.'
       : syncing === false
         ? 'Tracking chain head normally.'
@@ -294,11 +330,32 @@ function NetworkMonitorNodePage() {
     setControlResult(null);
 
     try {
-      const result = await invoke('monitor_node_control', {
-        nodeSlotId,
-        action,
-      });
-      setControlResult(result);
+      if (isBootstrapNode && (action === 'start' || action === 'restart')) {
+        const bulkResult = await invoke('monitor_bulk_node_control', {
+          action,
+          scope: installedBootstrapValidatorIds.join(','),
+        });
+        const failures = Array.isArray(bulkResult?.results)
+          ? bulkResult.results.filter((entry) => !entry?.success)
+          : [];
+        setControlResult({
+          success: Number(bulkResult?.failed || 0) === 0,
+          action,
+          exit_code: Number(bulkResult?.failed || 0) === 0 ? 0 : 1,
+          stdout: `${bulkResult?.succeeded || 0} succeeded, ${bulkResult?.failed || 0} failed across ${bulkResult?.requested_nodes || 0} bootstrap validators.`,
+          stderr: failures
+            .map((entry) => `${entry.node_slot_id}: ${entry.stderr || 'unknown failure'}`)
+            .join('\n'),
+          command: `bulk:${action} ${installedBootstrapValidatorIds.join(',')}`,
+          executed_at_utc: bulkResult?.executed_at_utc || new Date().toISOString(),
+        });
+      } else {
+        const result = await invoke('monitor_node_control', {
+          nodeSlotId,
+          action,
+        });
+        setControlResult(result);
+      }
       await fetchNodeDetails(true);
       await fetchSnapshot();
     } catch (err) {
@@ -699,7 +756,7 @@ function NetworkMonitorNodePage() {
       <div className="monitor-control-buttons">
         <button
           className="monitor-btn"
-          disabled={!control?.start_configured || !!controlBusyAction}
+          disabled={!control?.start_configured || !!controlBusyAction || (isBootstrapNode && !validatorQuorumReady)}
           onClick={() => handleControlAction('start')}
         >
           {controlBusyAction === 'start' ? 'Starting...' : 'Start'}
@@ -713,7 +770,7 @@ function NetworkMonitorNodePage() {
         </button>
         <button
           className="monitor-btn"
-          disabled={!control?.restart_configured || !!controlBusyAction}
+          disabled={!control?.restart_configured || !!controlBusyAction || (isBootstrapNode && !validatorQuorumReady)}
           onClick={() => handleControlAction('restart')}
         >
           {controlBusyAction === 'restart' ? 'Restarting...' : 'Restart'}
@@ -730,7 +787,7 @@ function NetworkMonitorNodePage() {
           disabled={!control?.setup_configured || !!controlBusyAction}
           onClick={() => handleControlAction('setup')}
         >
-          {controlBusyAction === 'setup' ? 'Setting Up...' : 'Setup'}
+          {controlBusyAction === 'setup' ? 'Installing...' : 'Install'}
         </button>
         <button
           className="monitor-btn"
@@ -762,16 +819,16 @@ function NetworkMonitorNodePage() {
         </button>
         <button
           className="monitor-btn monitor-btn-warning"
-          disabled={!control?.sync_node_configured || !!controlBusyAction}
+          disabled={!control?.sync_node_configured || !!controlBusyAction || isBootstrapNode}
           onClick={() => {
             const approved = window.confirm(
-              'Sync node from peers?\n\nThis runs "nodectl sync" which downloads all missing blocks without starting the node. The operation can take up to 2 hours for a node that is far behind.\n\nThe node must be stopped before syncing.',
+              'Sync node from peers?\n\nThis runs "nodectl sync" to catch the node up from peers and then auto-start it after sync completes. The operation can take up to 2 hours for a node that is far behind.\n\nThe node must be stopped before syncing.',
             );
             if (approved) {
               handleControlAction('sync_node');
             }
           }}
-          title="Download all missing blocks from peers without starting the node. Use for late-joining or long-offline nodes."
+          title="Catch the node up from peers and auto-start it after sync completes. Use for late-joining or long-offline non-validator nodes."
         >
           {controlBusyAction === 'sync_node' ? 'Syncing...' : 'Sync Node'}
         </button>
@@ -913,7 +970,7 @@ function NetworkMonitorNodePage() {
           </p>
           <div className="monitor-inline-pills">
             <span className={`monitor-inline-pill monitor-inline-pill-${heroTone}`}>
-              {nodeStatus}
+              {displayNodeStatus}
             </span>
             <span className="monitor-inline-pill">
               Physical

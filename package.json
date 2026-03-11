@@ -2,10 +2,18 @@
   "name": "synergy-devnet-control-panel",
   "version": "4.0.20",
   "description": "Synergy Devnet Control Panel",
+  "author": "Synergy Network",
   "type": "module",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on tcp:1420 && cross-env ELECTRON_START_URL=http://127.0.0.1:1420 electron .",
+    "dev:desktop": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "build": "vite build",
+    "build:control-service": "cargo build --manifest-path src-tauri/Cargo.toml --bin control-service --release",
+    "build:electron": "npm run build:bundle-prep && npm run build:control-service && node scripts/electron/prepare-runtime.mjs",
+    "dist:electron": "npm run build:electron && electron-builder --config electron-builder.yml",
     "build:sidecars": "bash scripts/build-sidecars.sh",
     "build:bundle-prep": "bash scripts/release/build-bundle-prep.sh",
     "preview": "vite preview",
@@ -25,6 +33,11 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^35.0.2",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.3",
     "vite": "^7.3.0"
   }
 }

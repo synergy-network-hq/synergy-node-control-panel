@@ -1,10 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod agent;
+mod app_context;
 mod blockchain;
+mod control_service;
 #[allow(dead_code)]
 mod devnet_agent_service;
 mod env_config;
+mod event_bus;
 mod monitor;
 mod node_manager;
 mod recipe;
