@@ -39,7 +39,9 @@ Operational requirement:
 ## Project Layout
 
 - `src/`: React frontend
+- `electron/`: Electron main-process and preload bridge
 - `src-tauri/`: Rust/Tauri backend
+- `src-tauri/src/bin/control-service.rs`: local Rust control-service used by Electron
 - `devnet/lean15/`: inventory, rendered configs, installers, reports, WireGuard assets
 - `guides/`: bundled operator manuals used by the app Help window
 - `docs/`: current project/reference docs not bundled into the app
@@ -49,14 +51,17 @@ Operational requirement:
 
 ```bash
 npm install
-npm run tauri:dev
+npm run build:control-service
+npm run dev:desktop
 ```
 
 ## Build App Bundle
 
 ```bash
-npm run tauri:build
+npm run dist:electron
 ```
+
+Tauri sources remain in `src-tauri/` as reference during the migration, but the active desktop runtime is now Electron plus the local Rust `control-service`.
 
 ## Inventory Resolution
 
