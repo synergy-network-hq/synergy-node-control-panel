@@ -17,7 +17,14 @@ do
   fi
 done
 
-./scripts/build-sidecars.sh
+if [[ ! -f "$ROOT_DIR/binaries/synergy-devnet-agent-darwin-arm64" || \
+      ! -f "$ROOT_DIR/binaries/synergy-devnet-agent-linux-amd64" || \
+      ! -f "$ROOT_DIR/binaries/synergy-devnet-agent-windows-amd64.exe" ]]; then
+  ./scripts/build-sidecars.sh
+else
+  echo "Using prebuilt agent binaries from binaries/"
+fi
+
 ./scripts/devnet15/generate-node-keys.sh
 ./scripts/devnet15/generate-devnet-genesis.sh
 ./scripts/devnet15/render-configs.sh
