@@ -1,6 +1,6 @@
 {
   "name": "synergy-devnet-control-panel",
-  "version": "4.0.0",
+  "version": "4.0.2",
   "description": "Synergy Devnet Control Panel",
   "type": "module",
   "scripts": {
