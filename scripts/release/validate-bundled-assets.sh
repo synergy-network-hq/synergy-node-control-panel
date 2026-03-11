@@ -10,8 +10,6 @@ required_paths=(
   "devnet/lean15/configs"
   "devnet/lean15/installers"
   "devnet/lean15/wireguard"
-  "devnet/lean15/wireguard/configs"
-  "devnet/lean15/wireguard/keys"
   "devnet/lean15/workspace-manifest.json"
   "binaries"
 )
@@ -22,16 +20,6 @@ for required_path in "${required_paths[@]}"; do
     exit 1
   fi
 done
-
-if ! find devnet/lean15/wireguard/configs -type f | grep -q .; then
-  echo "WireGuard configs are missing from devnet/lean15/wireguard/configs" >&2
-  exit 1
-fi
-
-if ! find devnet/lean15/wireguard/keys -type f | grep -q .; then
-  echo "WireGuard keys are missing from devnet/lean15/wireguard/keys" >&2
-  exit 1
-fi
 
 for node_dir in devnet/lean15/installers/node-*; do
   [[ -d "$node_dir" ]] || continue

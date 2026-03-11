@@ -6272,8 +6272,7 @@ fn validate_monitor_workspace_assets(workspace_root: &Path) -> Result<(), String
     let required_dirs = [
         "devnet/lean15/configs",
         "devnet/lean15/installers",
-        "devnet/lean15/wireguard/configs",
-        "devnet/lean15/wireguard/keys",
+        "devnet/lean15/wireguard",
         "binaries",
     ];
     for relative in required_dirs {

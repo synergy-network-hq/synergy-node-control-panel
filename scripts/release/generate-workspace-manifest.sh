@@ -22,8 +22,6 @@ required_paths = [
     "devnet/lean15/configs",
     "devnet/lean15/installers",
     "devnet/lean15/wireguard",
-    "devnet/lean15/wireguard/configs",
-    "devnet/lean15/wireguard/keys",
     "binaries",
     "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md",
 ]
