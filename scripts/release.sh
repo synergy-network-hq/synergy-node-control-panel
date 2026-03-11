@@ -76,6 +76,12 @@ echo ""
 echo "Version bumped to $VERSION in all files."
 echo ""
 
+echo "Regenerating bundled release assets for $VERSION..."
+ALLOW_DIRTY_BUNDLE_PREP=1 npm run build:bundle-prep
+echo ""
+echo "Bundled release assets refreshed."
+echo ""
+
 echo "Running release preflight..."
 chmod +x scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/verify-signing-key.sh
 ./scripts/release/preflight.sh
@@ -86,6 +92,7 @@ echo ""
 # ── Commit and tag ──
 git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
 git add src-tauri/Cargo.lock 2>/dev/null || true
+git add devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json
 git add scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/verify-signing-key.sh .github/workflows/release.yml 2>/dev/null || true
 git commit -m "chore: bump version to $VERSION"
 git tag -a "$TAG" -m "Release $TAG"
