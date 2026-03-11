@@ -8,7 +8,9 @@ FORCE="false"
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"
 BINARY_OVERRIDE="${SYNERGY_DEVNET_BINARY:-}"
+SOURCE_REPO_ROOT="${SYNERGY_DEVNET_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/../.." && pwd)}"
 BINARY=""
+BINARY_SOURCE=""
 
 if [[ "${1:-}" == "--force" ]]; then
   FORCE="true"
@@ -31,16 +33,40 @@ resolve_binary() {
 
   case "${HOST_OS}:${HOST_ARCH}" in
     Darwin:arm64)
-      BINARY="$ROOT_DIR/binaries/synergy-devnet-darwin-arm64"
+      if [[ -x "$SOURCE_REPO_ROOT/target/release/synergy-devnet" ]]; then
+        BINARY="$SOURCE_REPO_ROOT/target/release/synergy-devnet"
+        BINARY_SOURCE="source-repo(target/release/synergy-devnet)"
+      else
+        BINARY="$ROOT_DIR/binaries/synergy-devnet-darwin-arm64"
+        BINARY_SOURCE="bundled(binaries/synergy-devnet-darwin-arm64)"
+      fi
       ;;
     Linux:x86_64)
-      BINARY="$ROOT_DIR/binaries/synergy-devnet-linux-amd64"
+      if [[ -x "$SOURCE_REPO_ROOT/target/release/synergy-devnet" ]]; then
+        BINARY="$SOURCE_REPO_ROOT/target/release/synergy-devnet"
+        BINARY_SOURCE="source-repo(target/release/synergy-devnet)"
+      else
+        BINARY="$ROOT_DIR/binaries/synergy-devnet-linux-amd64"
+        BINARY_SOURCE="bundled(binaries/synergy-devnet-linux-amd64)"
+      fi
       ;;
     Linux:aarch64|Linux:arm64)
-      BINARY="$ROOT_DIR/binaries/synergy-devnet-linux-arm64"
+      if [[ -x "$SOURCE_REPO_ROOT/target/release/synergy-devnet" ]]; then
+        BINARY="$SOURCE_REPO_ROOT/target/release/synergy-devnet"
+        BINARY_SOURCE="source-repo(target/release/synergy-devnet)"
+      else
+        BINARY="$ROOT_DIR/binaries/synergy-devnet-linux-arm64"
+        BINARY_SOURCE="bundled(binaries/synergy-devnet-linux-arm64)"
+      fi
       ;;
     MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64)
-      BINARY="$ROOT_DIR/binaries/synergy-devnet-windows-amd64.exe"
+      if [[ -x "$SOURCE_REPO_ROOT/target/release/synergy-devnet.exe" ]]; then
+        BINARY="$SOURCE_REPO_ROOT/target/release/synergy-devnet.exe"
+        BINARY_SOURCE="source-repo(target/release/synergy-devnet.exe)"
+      else
+        BINARY="$ROOT_DIR/binaries/synergy-devnet-windows-amd64.exe"
+        BINARY_SOURCE="bundled(binaries/synergy-devnet-windows-amd64.exe)"
+      fi
       ;;
     *)
       echo "Unsupported host platform for node key generation: ${HOST_OS}/${HOST_ARCH}" >&2
@@ -50,6 +76,9 @@ resolve_binary() {
 
   if [[ ! -x "$BINARY" ]]; then
     echo "synergy-devnet binary not found or not executable at $BINARY" >&2
+    if [[ -n "$BINARY_SOURCE" ]]; then
+      echo "Resolved source: $BINARY_SOURCE" >&2
+    fi
     echo "Set SYNERGY_DEVNET_BINARY to a valid platform binary if needed." >&2
     exit 1
   fi

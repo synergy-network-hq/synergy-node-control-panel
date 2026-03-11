@@ -48,13 +48,32 @@ for node_dir in devnet/lean15/installers/node-*; do
   fi
 done
 
-for binary_path in binaries/synergy-devnet-darwin-arm64 binaries/synergy-devnet-linux-amd64 binaries/synergy-devnet-agent-darwin-arm64 binaries/synergy-devnet-agent-linux-amd64; do
+unix_binary_paths=(
+  "binaries/synergy-devnet-darwin-arm64"
+  "binaries/synergy-devnet-linux-amd64"
+  "binaries/synergy-devnet-agent-darwin-arm64"
+  "binaries/synergy-devnet-agent-linux-amd64"
+)
+
+windows_binary_paths=(
+  "binaries/synergy-devnet-windows-amd64.exe"
+  "binaries/synergy-devnet-agent-windows-amd64.exe"
+)
+
+for binary_path in "${unix_binary_paths[@]}"; do
   if [[ ! -f "$binary_path" ]]; then
     echo "Missing binary: $binary_path" >&2
     exit 1
   fi
   if [[ ! -x "$binary_path" ]]; then
     echo "Unix binary is not executable: $binary_path" >&2
+    exit 1
+  fi
+done
+
+for binary_path in "${windows_binary_paths[@]}"; do
+  if [[ ! -f "$binary_path" ]]; then
+    echo "Missing binary: $binary_path" >&2
     exit 1
   fi
 done

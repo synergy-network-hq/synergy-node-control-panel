@@ -9,12 +9,19 @@ KEYS_DIR="$ROOT_DIR/devnet/lean15/keys"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/devnet/lean15/installers}"
 DEVNET_CHAIN_ID="${DEVNET_CHAIN_ID:-338638}"
 DEVNET_NETWORK_ID="${DEVNET_NETWORK_ID:-338638}"
+SOURCE_REPO_ROOT="${SYNERGY_DEVNET_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/../.." && pwd)}"
 
 FRESH_HOST_BINARY="$ROOT_DIR/target/release/synergy-devnet"
 FRESH_DARWIN_BINARY="$ROOT_DIR/target/aarch64-apple-darwin/release/synergy-devnet"
 FRESH_LINUX_BINARY="$ROOT_DIR/target/x86_64-unknown-linux-gnu/release/synergy-devnet"
 FRESH_WINDOWS_BINARY_MSVC="$ROOT_DIR/target/x86_64-pc-windows-msvc/release/synergy-devnet.exe"
 FRESH_WINDOWS_BINARY_GNU="$ROOT_DIR/target/x86_64-pc-windows-gnu/release/synergy-devnet.exe"
+
+SOURCE_HOST_BINARY="$SOURCE_REPO_ROOT/target/release/synergy-devnet"
+SOURCE_DARWIN_BINARY="$SOURCE_REPO_ROOT/target/aarch64-apple-darwin/release/synergy-devnet"
+SOURCE_LINUX_BINARY="$SOURCE_REPO_ROOT/target/x86_64-unknown-linux-gnu/release/synergy-devnet"
+SOURCE_WINDOWS_BINARY_MSVC="$SOURCE_REPO_ROOT/target/x86_64-pc-windows-msvc/release/synergy-devnet.exe"
+SOURCE_WINDOWS_BINARY_GNU="$SOURCE_REPO_ROOT/target/x86_64-pc-windows-gnu/release/synergy-devnet.exe"
 
 FALLBACK_DARWIN_BINARY="$ROOT_DIR/binaries/synergy-devnet-darwin-arm64"
 FALLBACK_LINUX_BINARY="$ROOT_DIR/binaries/synergy-devnet-linux-amd64"
@@ -94,13 +101,22 @@ collect_allowlisted_validators_csv() {
 print_binary_requirements() {
   cat <<REQ
 Required binary locations:
+  source repo root:
+    - preferred override root: ${SOURCE_REPO_ROOT}
   macOS arm64:
+    - preferred (source repo native): $SOURCE_HOST_BINARY
+    - preferred (source repo target): $SOURCE_DARWIN_BINARY
     - preferred: $FRESH_DARWIN_BINARY
     - fallback:  $FALLBACK_DARWIN_BINARY
   Linux x86_64:
+    - preferred (source repo native): $SOURCE_HOST_BINARY
+    - preferred (source repo target): $SOURCE_LINUX_BINARY
     - preferred: $FRESH_LINUX_BINARY
     - fallback:  $FALLBACK_LINUX_BINARY
   Windows x86_64:
+    - preferred (source repo native): $SOURCE_REPO_ROOT/target/release/synergy-devnet.exe
+    - preferred (source repo target MSVC): $SOURCE_WINDOWS_BINARY_MSVC
+    - preferred (source repo target GNU):  $SOURCE_WINDOWS_BINARY_GNU
     - preferred (MSVC): $FRESH_WINDOWS_BINARY_MSVC
     - preferred (GNU):  $FRESH_WINDOWS_BINARY_GNU
     - fallback:         $FALLBACK_WINDOWS_BINARY
@@ -115,6 +131,12 @@ resolve_binaries() {
   if [[ "$host_os" == "Darwin" && "$host_arch" == "arm64" && -f "$FRESH_HOST_BINARY" ]]; then
     DARWIN_BINARY="$FRESH_HOST_BINARY"
     DARWIN_BINARY_SOURCE="fresh-local-build(target/release/synergy-devnet)"
+  elif [[ "$host_os" == "Darwin" && "$host_arch" == "arm64" && -f "$SOURCE_HOST_BINARY" ]]; then
+    DARWIN_BINARY="$SOURCE_HOST_BINARY"
+    DARWIN_BINARY_SOURCE="source-repo-native-build(${SOURCE_HOST_BINARY#$SOURCE_REPO_ROOT/})"
+  elif [[ -f "$SOURCE_DARWIN_BINARY" ]]; then
+    DARWIN_BINARY="$SOURCE_DARWIN_BINARY"
+    DARWIN_BINARY_SOURCE="source-repo-target-build(${SOURCE_DARWIN_BINARY#$SOURCE_REPO_ROOT/})"
   elif [[ -f "$FRESH_DARWIN_BINARY" ]]; then
     DARWIN_BINARY="$FRESH_DARWIN_BINARY"
     DARWIN_BINARY_SOURCE="fresh-target-build(target/aarch64-apple-darwin/release/synergy-devnet)"
@@ -123,7 +145,13 @@ resolve_binaries() {
     DARWIN_BINARY_SOURCE="fallback-prebuilt(binaries/synergy-devnet-darwin-arm64)"
   fi
 
-  if [[ -f "$FRESH_LINUX_BINARY" ]]; then
+  if [[ "$host_os" == "Linux" && "$host_arch" == "x86_64" && -f "$SOURCE_HOST_BINARY" ]]; then
+    LINUX_BINARY="$SOURCE_HOST_BINARY"
+    LINUX_BINARY_SOURCE="source-repo-native-build(${SOURCE_HOST_BINARY#$SOURCE_REPO_ROOT/})"
+  elif [[ -f "$SOURCE_LINUX_BINARY" ]]; then
+    LINUX_BINARY="$SOURCE_LINUX_BINARY"
+    LINUX_BINARY_SOURCE="source-repo-target-build(${SOURCE_LINUX_BINARY#$SOURCE_REPO_ROOT/})"
+  elif [[ -f "$FRESH_LINUX_BINARY" ]]; then
     LINUX_BINARY="$FRESH_LINUX_BINARY"
     LINUX_BINARY_SOURCE="fresh-cross-build(target/x86_64-unknown-linux-gnu/release/synergy-devnet)"
   elif [[ -f "$FALLBACK_LINUX_BINARY" ]]; then
@@ -131,7 +159,16 @@ resolve_binaries() {
     LINUX_BINARY_SOURCE="fallback-prebuilt(binaries/synergy-devnet-linux-amd64)"
   fi
 
-  if [[ -f "$FRESH_WINDOWS_BINARY_MSVC" ]]; then
+  if [[ "$host_os" =~ ^(MINGW|MSYS|CYGWIN) && "$host_arch" == "x86_64" && -f "$SOURCE_REPO_ROOT/target/release/synergy-devnet.exe" ]]; then
+    WINDOWS_BINARY="$SOURCE_REPO_ROOT/target/release/synergy-devnet.exe"
+    WINDOWS_BINARY_SOURCE="source-repo-native-build(target/release/synergy-devnet.exe)"
+  elif [[ -f "$SOURCE_WINDOWS_BINARY_MSVC" ]]; then
+    WINDOWS_BINARY="$SOURCE_WINDOWS_BINARY_MSVC"
+    WINDOWS_BINARY_SOURCE="source-repo-target-build(${SOURCE_WINDOWS_BINARY_MSVC#$SOURCE_REPO_ROOT/})"
+  elif [[ -f "$SOURCE_WINDOWS_BINARY_GNU" ]]; then
+    WINDOWS_BINARY="$SOURCE_WINDOWS_BINARY_GNU"
+    WINDOWS_BINARY_SOURCE="source-repo-target-build(${SOURCE_WINDOWS_BINARY_GNU#$SOURCE_REPO_ROOT/})"
+  elif [[ -f "$FRESH_WINDOWS_BINARY_MSVC" ]]; then
     WINDOWS_BINARY="$FRESH_WINDOWS_BINARY_MSVC"
     WINDOWS_BINARY_SOURCE="fresh-cross-build(target/x86_64-pc-windows-msvc/release/synergy-devnet.exe)"
   elif [[ -f "$FRESH_WINDOWS_BINARY_GNU" ]]; then

@@ -17,6 +17,56 @@ permissions:
   contents: read
 
 jobs:
+  build-node-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            suffix: linux-amd64
+            binary_ext: ""
+          - runner: macos-latest
+            suffix: darwin-arm64
+            binary_ext: ""
+          - runner: windows-latest
+            suffix: windows-amd64
+            binary_ext: ".exe"
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout synergy-devnet source repo
+        uses: actions/checkout@v4
+        with:
+          repository: synergy-network-hq/synergy-devnet
+          path: synergy-devnet-src
+          token: ${{ secrets.SYNERGY_SOURCE_REPO_TOKEN || github.token }}
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: synergy-devnet-src -> target
+          key: node-${{ matrix.runner }}
+
+      - name: Build synergy-devnet binary
+        shell: bash
+        run: |
+          cd synergy-devnet-src
+          cargo build --release -p synergy-devnet --bin synergy-devnet
+          mkdir -p ../node-binaries
+          cp "target/release/synergy-devnet${{ matrix.binary_ext }}" "../node-binaries/synergy-devnet-${{ matrix.suffix }}${{ matrix.binary_ext }}"
+          ls -la ../node-binaries/
+
+      - name: Upload node binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-binary-${{ matrix.suffix }}
+          path: node-binaries/synergy-devnet-${{ matrix.suffix }}${{ matrix.binary_ext }}
+          if-no-files-found: error
+
   # ── Build the devnet-agent sidecar for every remote-deployment target ──────────
   # These binaries end up in binaries/ and are bundled into the Tauri app as
   # resources (see tauri.conf.json "resources": ["../binaries"]).  Each platform
@@ -75,7 +125,7 @@ jobs:
 
   # ── Build the Tauri desktop app for each distribution platform ───────────────
   build:
-    needs: build-agents
+    needs: [build-agents, build-node-binaries]
     strategy:
       fail-fast: false
       matrix:
@@ -138,13 +188,28 @@ jobs:
           path: binaries
           merge-multiple: true
 
-      - name: Verify agent binaries present
+      - name: Download all node binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: node-binary-*
+          path: binaries
+          merge-multiple: true
+
+      - name: Verify bundled binaries present
         shell: bash
         run: |
+          echo "Node binaries available for bundling:"
+          ls -la binaries/synergy-devnet-* || true
           echo "Agent binaries available for bundling:"
           ls -la binaries/synergy-devnet-agent-* || true
-          # Require at minimum the linux-amd64 binary since all devnet nodes run Linux.
+          # Require the three source-node binaries that feed installer generation.
+          ls binaries/synergy-devnet-darwin-arm64
+          ls binaries/synergy-devnet-linux-amd64
+          ls binaries/synergy-devnet-windows-amd64.exe
+          # Require the three agent binaries bundled with the app.
+          ls binaries/synergy-devnet-agent-darwin-arm64
           ls binaries/synergy-devnet-agent-linux-amd64
+          ls binaries/synergy-devnet-agent-windows-amd64.exe
 
       # env_config.rs embeds .env at compile time via include_str! — provide a placeholder
       - name: Create .env if missing
