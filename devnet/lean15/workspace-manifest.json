@@ -1,0 +1,25 @@
+{
+  "workspace_resource_version": "3.0.1+44c3bf540252",
+  "app_version": "3.0.1",
+  "source_revision": "44c3bf540252fc9f6a44c83a0970634aace8eee6",
+  "generated_at_utc": "2026-03-11T00:36:30Z",
+  "required_paths": [
+    "devnet/lean15/node-inventory.csv",
+    "devnet/lean15/hosts.env.example",
+    "devnet/lean15/configs",
+    "devnet/lean15/installers",
+    "devnet/lean15/wireguard",
+    "devnet/lean15/wireguard/configs",
+    "devnet/lean15/wireguard/keys",
+    "binaries",
+    "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md"
+  ],
+  "checksums": {
+    "binaries/synergy-devnet-agent-darwin-arm64": "6576adf37c898f17cfb9ca7146e7fd14f945ae52cdb1e825736e41976fd63b2a",
+    "binaries/synergy-devnet-agent-linux-amd64": "d6a2affafe4ee3214ef27da10fe9d6819dba4c00f81da02f657d54b8d1d70e5e",
+    "binaries/synergy-devnet-agent-windows-amd64.exe": "5bb40d2f5e15089758f9714c65832377596e53469286a8942e3296296ca68a91",
+    "binaries/synergy-devnet-darwin-arm64": "b63f31cb8299773866631d023de7254f61fb64755710283927a1369318f064a3",
+    "binaries/synergy-devnet-linux-amd64": "b634227e3516dfc76d6f967d3f247e6d0b8eb0e2133cc2eaef30e68695415eaa",
+    "binaries/synergy-devnet-windows-amd64.exe": "8a21e2aef5dfbb0770fe14e774424381cc35a7ca0e6ca3a5363510504d81722d"
+  }
+}

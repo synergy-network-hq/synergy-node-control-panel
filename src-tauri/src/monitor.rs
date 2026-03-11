@@ -430,6 +430,68 @@ pub fn monitor_initialize_workspace(app_handle: AppHandle) -> Result<String, Str
 }
 
 #[tauri::command]
+pub fn monitor_ensure_ssh_keypair(app_handle: AppHandle) -> Result<String, String> {
+    let workspace = ensure_monitor_workspace(&app_handle)?;
+    let ssh_dir = workspace.join("keys/ssh");
+    fs::create_dir_all(&ssh_dir).map_err(|error| {
+        format!(
+            "Failed to create SSH key directory {}: {error}",
+            ssh_dir.display()
+        )
+    })?;
+
+    let private_key = ssh_dir.join("ops_ed25519");
+    let public_key = ssh_dir.join("ops_ed25519.pub");
+    if private_key.is_file() && public_key.is_file() {
+        return Ok(private_key.to_string_lossy().to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    let candidate_commands = {
+        let default_path = PathBuf::from(r"C:\Windows\System32\OpenSSH\ssh-keygen.exe");
+        if default_path.is_file() {
+            vec![default_path]
+        } else {
+            vec![PathBuf::from("ssh-keygen")]
+        }
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let candidate_commands = vec![PathBuf::from("ssh-keygen")];
+
+    let private_key_arg = private_key.to_string_lossy().to_string();
+    for command_path in candidate_commands {
+        let output = ProcessCommand::new(&command_path)
+            .args([
+                "-t",
+                "ed25519",
+                "-a",
+                "64",
+                "-f",
+                &private_key_arg,
+                "-C",
+                "devnet-ops",
+                "-N",
+                "",
+            ])
+            .output();
+
+        match output {
+            Ok(output) if output.status.success() => {
+                return Ok(private_key.to_string_lossy().to_string());
+            }
+            Ok(_) => continue,
+            Err(_) => continue,
+        }
+    }
+
+    Err(
+        "Failed to generate the local SSH keypair. Ensure OpenSSH ssh-keygen is installed and available on this machine."
+            .to_string(),
+    )
+}
+
+#[tauri::command]
 pub fn get_monitor_security_state() -> Result<MonitorSecurityState, String> {
     load_monitor_security_state()
 }
@@ -606,6 +668,17 @@ pub fn monitor_get_setup_status() -> Result<MonitorSetupStatus, String> {
 
 #[tauri::command]
 pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, String> {
+    if let Some(machine_id) = detect_local_machine_id_override() {
+        let node_slot_ids = logical_nodes_for_physical_machine(&machine_id)?;
+        return Ok(MonitorLocalVpnIdentity {
+            detected: true,
+            vpn_ip: None,
+            physical_machine_id: Some(machine_id.clone()),
+            node_slot_ids,
+            message: format!("Detected local machine via SYNERGY_MACHINE_ID={machine_id}."),
+        });
+    }
+
     let maybe_vpn_ip = detect_local_vpn_ip();
     let Some(vpn_ip) = maybe_vpn_ip else {
         return Ok(MonitorLocalVpnIdentity {
@@ -613,7 +686,7 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
             vpn_ip: None,
             physical_machine_id: None,
             node_slot_ids: Vec::new(),
-            message: "No local 10.50.0.x WireGuard/VPN address was detected.".to_string(),
+            message: "No local machine identity was detected. Set SYNERGY_MACHINE_ID for public-endpoint/testnet deployments, or ensure a 10.50.0.x WireGuard/VPN address is present.".to_string(),
         });
     };
 
@@ -641,6 +714,43 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
     })
 }
 
+fn detect_local_machine_id_override() -> Option<String> {
+    std::env::var("SYNERGY_MACHINE_ID")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+}
+
+fn local_agent_health_check() -> Result<DevnetAgentHealth, String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| {
+            format!("Failed to build runtime for local agent health check: {error}")
+        })?;
+
+    runtime.block_on(async {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(2))
+            .connect_timeout(Duration::from_secs(1))
+            .build()
+            .unwrap_or_else(|_| Client::new());
+        let response = client
+            .get(format!("http://127.0.0.1:{DEVNET_AGENT_PORT}/health"))
+            .send()
+            .await
+            .map_err(|error| format!("Local devnet agent health request failed: {error}"))?
+            .error_for_status()
+            .map_err(|error| {
+                format!("Local devnet agent health endpoint returned an error: {error}")
+            })?;
+        response
+            .json::<DevnetAgentHealth>()
+            .await
+            .map_err(|error| format!("Failed to decode local devnet agent health payload: {error}"))
+    })
+}
+
 #[tauri::command]
 pub fn monitor_mark_setup_complete(
     physical_machine_id: String,
@@ -654,13 +764,34 @@ pub fn monitor_mark_setup_complete(
         return Err("physical_machine_id is required (machine-01..machine-13)".to_string());
     }
 
-    let logical_nodes = logical_nodes_for_physical_machine(&normalized_machine)?;
-    if config.ssh_profiles.is_empty() {
+    let workspace = resolve_monitor_workspace_path()?;
+    validate_monitor_workspace_assets(&workspace)?;
+
+    let identity = monitor_detect_local_vpn_identity()?;
+    if !identity.detected {
+        return Err(format!(
+            "Setup cannot be marked complete: local WireGuard identity was not detected. {}",
+            identity.message
+        ));
+    }
+    let detected_machine_id = identity.physical_machine_id.clone().ok_or_else(|| {
+        "Setup cannot be marked complete: local physical machine identity is unavailable."
+            .to_string()
+    })?;
+    if !detected_machine_id.eq_ignore_ascii_case(&normalized_machine) {
+        return Err(format!(
+            "Setup cannot be marked complete: local machine identity resolved to {}, not {}.",
+            detected_machine_id, normalized_machine
+        ));
+    }
+    let health = local_agent_health_check()?;
+    if health.status.trim().to_ascii_lowercase() != "ok" {
         return Err(
-            "Setup cannot be marked complete: no SSH profiles exist. Create an SSH profile first."
-                .to_string(),
+            "Setup cannot be marked complete: local devnet agent health is not OK.".to_string(),
         );
     }
+
+    let logical_nodes = logical_nodes_for_physical_machine(&normalized_machine)?;
 
     let missing_bindings = logical_nodes
         .iter()
@@ -1046,12 +1177,11 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     let online_nodes = statuses.iter().filter(|n| n.online).count();
     let offline_nodes = total_nodes.saturating_sub(online_nodes);
     let syncing_nodes = statuses.iter().filter(|n| n.syncing == Some(true)).count();
-    let average_block_time_secs = preferred_network_average(
-        &statuses,
-        highest_block,
-        |status| status.average_block_time_secs,
-    );
-    let throughput_tps = preferred_network_average(&statuses, highest_block, |status| status.throughput_tps);
+    let average_block_time_secs = preferred_network_average(&statuses, highest_block, |status| {
+        status.average_block_time_secs
+    });
+    let throughput_tps =
+        preferred_network_average(&statuses, highest_block, |status| status.throughput_tps);
 
     Ok(MonitorSnapshot {
         inventory_path: inventory_path.to_string_lossy().to_string(),
@@ -1772,8 +1902,8 @@ fn split_command_arguments(command: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod terminal_command_tests {
     use super::{
-        logical_nodes_for_physical_machine, physical_machine_for_binding_target,
-        split_command_arguments,
+        agent_error_requires_ssh_fallback, logical_nodes_for_physical_machine,
+        physical_machine_for_binding_target, split_command_arguments,
     };
 
     #[test]
@@ -1814,6 +1944,19 @@ mod terminal_command_tests {
                 "Get-ChildItem 'keys/ssh' -Force | Format-Table -AutoSize Name,Length,LastWriteTime",
             ]
         );
+    }
+
+    #[test]
+    fn stale_agent_action_errors_trigger_ssh_fallback() {
+        assert!(agent_error_requires_ssh_fallback(
+            r#"{"error":"Unsupported devnet agent action: sync_node"}"#
+        ));
+        assert!(agent_error_requires_ssh_fallback(
+            "Unsupported devnet agent action: sync_node"
+        ));
+        assert!(!agent_error_requires_ssh_fallback(
+            r#"{"error":"agent access restricted to WireGuard peers"}"#
+        ));
     }
 
     #[test]
@@ -2139,6 +2282,13 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         return Err("Inventory header missing required column 'host'".to_string());
     };
     let vpn_ip_idx = resolve_column(&["vpn_ip"]);
+    let rpc_target_idx = resolve_column(&[
+        "public_rpc_url",
+        "rpc_url",
+        "public_rpc_host",
+        "rpc_host",
+        "public_host",
+    ]);
     let physical_machine_idx = resolve_column(&["physical_machine_id", "physical_machine"]);
     let operator_idx = resolve_column(&["operator"]);
     let device_idx = resolve_column(&["device"]);
@@ -2186,7 +2336,14 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
         let grpc_port = parse_port(get(grpc_port_idx), "grpc_port")?;
         let discovery_port = parse_port(get(discovery_port_idx), "discovery_port")?;
 
-        let rpc_url = build_rpc_url(&host, rpc_port);
+        let rpc_target = rpc_target_idx
+            .map(&get)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let rpc_url = rpc_target
+            .as_deref()
+            .map(|target| build_rpc_url(target, rpc_port))
+            .unwrap_or_else(|| build_rpc_url(&host, rpc_port));
 
         let physical_machine_id = physical_machine_idx.map(&get).unwrap_or_default();
         let vpn_ip = vpn_ip_idx
@@ -2505,6 +2662,31 @@ fn resolve_host_override(
     ];
 
     for key in candidate_keys {
+        if let Some(value) = overrides.get(&key) {
+            return value.clone();
+        }
+    }
+
+    fallback
+}
+
+fn resolve_vpn_override(
+    overrides: &HashMap<String, String>,
+    node_slot_id: &str,
+    node_alias: &str,
+    fallback: String,
+) -> String {
+    let machine = node_slot_id.to_lowercase().replace('-', "_");
+    let node = node_alias.to_lowercase().replace('-', "_");
+
+    for key in [
+        format!("{machine}_vpn_ip"),
+        format!("{node}_vpn_ip"),
+        format!("{machine}_internal_host"),
+        format!("{node}_internal_host"),
+        format!("{machine}_p2p_host"),
+        format!("{node}_p2p_host"),
+    ] {
         if let Some(value) = overrides.get(&key) {
             return value.clone();
         }
@@ -3353,7 +3535,12 @@ fn extract_transaction_count(value: Option<&Value>) -> Option<u64> {
                 }
             }
 
-            let count_keys = ["transaction_count", "tx_count", "count", "total_transactions"];
+            let count_keys = [
+                "transaction_count",
+                "tx_count",
+                "count",
+                "total_transactions",
+            ];
             count_keys
                 .iter()
                 .find_map(|key| map.get(*key))
@@ -5310,7 +5497,7 @@ fn agent_endpoint_for_node(
 ) -> Option<String> {
     let fallback = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
         .unwrap_or_else(|| node.host.clone());
-    let host = resolve_host_override(
+    let host = resolve_vpn_override(
         host_overrides,
         &node.node_slot_id,
         &node.node_alias,
@@ -5329,14 +5516,29 @@ fn agent_endpoint_for_node(
 /// SSH fallback (which uses Rob-specific hardcoded paths and would fail on other machines).
 fn agent_request_timeout(action: &str) -> Duration {
     match action {
-        "reset_chain" | "install_node" | "bootstrap_node" | "setup_node" | "start" | "restart" => {
-            Duration::from_secs(300)
-        }
+        "reset_chain" | "install_node" | "bootstrap_node" | "setup_node" | "setup" | "start"
+        | "restart" => Duration::from_secs(7200),
         // sync_node downloads all missing blocks — can take hours for a cold node.
         // Set to 2 hours to match the default PRESTART_SYNC_TIMEOUT_SECS in nodectl.sh.
         "sync_node" => Duration::from_secs(7200),
         _ => Duration::from_secs(30),
     }
+}
+
+fn agent_phase_is_terminal(phase: Option<&str>) -> bool {
+    matches!(
+        phase.unwrap_or_default(),
+        "completed"
+            | "failed"
+            | "process_alive"
+            | "pid_written"
+            | "spawn_failed"
+            | "status_complete"
+            | "sync_complete"
+            | "sync_failed"
+            | "reset_complete"
+            | "reset_failed"
+    )
 }
 
 async fn try_execute_monitor_agent_control(
@@ -5379,14 +5581,58 @@ async fn try_execute_monitor_agent_control(
 
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
+    if agent_error_requires_ssh_fallback(&text) {
+        return AgentControlAttempt::Unavailable;
+    }
     let result = if let Ok(payload) = serde_json::from_str::<DevnetAgentControlResponse>(&text) {
+        let payload = if let Some(job_id) = payload.job_id.clone() {
+            if agent_phase_is_terminal(payload.phase.as_deref()) {
+                payload
+            } else {
+                match poll_monitor_agent_job(&client, &base_url, &job_id, action).await {
+                    Ok(polled) => polled,
+                    Err(error) => DevnetAgentControlResponse {
+                        node_slot_id: payload.node_slot_id.clone(),
+                        action: payload.action.clone(),
+                        success: false,
+                        exit_code: 1,
+                        stdout: String::new(),
+                        stderr: error,
+                        transport: payload.transport.clone(),
+                        executed_at_utc: Utc::now().to_rfc3339(),
+                        phase: Some("failed".to_string()),
+                        job_id: Some(job_id),
+                        process_alive: None,
+                    },
+                }
+            }
+        } else {
+            payload
+        };
+
+        let mut stdout = truncate_text(payload.stdout.trim(), 6000);
+        if let Some(phase) = payload.phase.as_deref() {
+            if !phase.is_empty() {
+                if !stdout.is_empty() {
+                    stdout.push('\n');
+                }
+                stdout.push_str(&format!("PHASE: {phase}"));
+            }
+        }
+        if let Some(process_alive) = payload.process_alive {
+            if !stdout.is_empty() {
+                stdout.push('\n');
+            }
+            stdout.push_str(&format!("PROCESS_ALIVE: {process_alive}"));
+        }
+
         MonitorControlResult {
             node_slot_id: payload.node_slot_id,
             action: payload.action,
             success: payload.success,
             exit_code: payload.exit_code,
             command: payload.transport,
-            stdout: truncate_text(payload.stdout.trim(), 6000),
+            stdout,
             stderr: truncate_text(payload.stderr.trim(), 6000),
             executed_at_utc: payload.executed_at_utc,
         }
@@ -5411,7 +5657,74 @@ async fn try_execute_monitor_agent_control(
         }
     };
 
+    if !result.success
+        && (agent_error_requires_ssh_fallback(&result.stderr)
+            || agent_error_requires_ssh_fallback(&result.stdout))
+    {
+        return AgentControlAttempt::Unavailable;
+    }
+
     AgentControlAttempt::Completed(result)
+}
+
+async fn poll_monitor_agent_job(
+    client: &Client,
+    base_url: &str,
+    job_id: &str,
+    action: &str,
+) -> Result<DevnetAgentControlResponse, String> {
+    let deadline = Instant::now() + agent_request_timeout(action);
+    loop {
+        if Instant::now() >= deadline {
+            return Err(format!("Timed out waiting for agent control job {job_id}"));
+        }
+
+        let response = client
+            .get(format!("{base_url}/v1/control/jobs/{job_id}"))
+            .send()
+            .await
+            .map_err(|error| format!("Failed to poll agent control job {job_id}: {error}"))?;
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(format!(
+                "Agent control job {job_id} returned HTTP {}: {}",
+                status,
+                truncate_text(text.trim(), 600)
+            ));
+        }
+
+        let payload =
+            serde_json::from_str::<DevnetAgentControlResponse>(&text).map_err(|error| {
+                format!("Failed to decode agent control job {job_id} payload: {error}")
+            })?;
+        if agent_phase_is_terminal(payload.phase.as_deref()) {
+            return Ok(payload);
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+fn agent_error_requires_ssh_fallback(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if trimmed.contains("Unsupported devnet agent action") {
+        return true;
+    }
+
+    serde_json::from_str::<Value>(trimmed)
+        .ok()
+        .and_then(|payload| {
+            payload
+                .get("error")
+                .and_then(Value::as_str)
+                .map(|error| error.contains("Unsupported devnet agent action"))
+        })
+        .unwrap_or(false)
 }
 
 fn resolve_rpc_control_call(action: &str) -> Option<(&'static str, Value)> {
@@ -5708,7 +6021,16 @@ const MONITOR_WORKSPACE_ENV: &str = "SYNERGY_MONITOR_WORKSPACE";
 const MONITOR_SECURITY_CONFIG_RELATIVE: &str = "config/security.json";
 const MONITOR_AUDIT_LOG_RELATIVE: &str = "audit/control-actions.jsonl";
 const MONITOR_USER_MANUAL_RELATIVE: &str = "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md";
-const MONITOR_SETUP_WIZARD_VERSION: u32 = 2;
+const MONITOR_WORKSPACE_MANIFEST_RELATIVE: &str = "devnet/lean15/workspace-manifest.json";
+const MONITOR_SETUP_WIZARD_VERSION: u32 = 3;
+const MONITOR_HOSTS_BACKUP_RETENTION: usize = 5;
+
+#[derive(Debug, Clone, Deserialize)]
+struct MonitorWorkspaceManifest {
+    workspace_resource_version: String,
+    #[serde(default)]
+    required_paths: Vec<String>,
+}
 
 pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let workspace_root = preferred_workspace_root();
@@ -5728,6 +6050,7 @@ pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, Strin
     migrate_legacy_workspace_if_needed(app_handle, &workspace_root)?;
     extract_bundled_resources_to_workspace(app_handle, &workspace_root)?;
     ensure_security_config_exists(&workspace_root)?;
+    validate_monitor_workspace_assets(&workspace_root)?;
 
     let inventory_path = workspace_root.join("devnet/lean15/node-inventory.csv");
     if inventory_path.is_file() {
@@ -5797,10 +6120,11 @@ fn extract_bundled_resources_to_workspace(
         "devnet/lean15/keys",
         "devnet/lean15/configs",
         "devnet/lean15/installers",
-        "devnet/lean15/wireguard/README.md",
-        "devnet/lean15/wireguard/deployed-topology.json",
+        "devnet/lean15/wireguard",
+        MONITOR_WORKSPACE_MANIFEST_RELATIVE,
         "binaries",
         "scripts/devnet15",
+        "scripts/cleanup",
         "scripts/reset-devnet.sh",
         "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md",
     ];
@@ -5835,6 +6159,7 @@ fn extract_bundled_resources_to_workspace(
         "scripts/devnet15/build-node-installers.sh",
         "scripts/devnet15/render-configs.sh",
         "scripts/devnet15/reset-devnet.sh",
+        MONITOR_WORKSPACE_MANIFEST_RELATIVE,
     ];
     for relative in always_refresh {
         if let Some(source) = roots
@@ -5847,7 +6172,13 @@ fn extract_bundled_resources_to_workspace(
         }
     }
 
-    let always_refresh_dirs = ["devnet/lean15/configs", "devnet/lean15/keys", "binaries"];
+    let always_refresh_dirs = [
+        "devnet/lean15/configs",
+        "devnet/lean15/keys",
+        "devnet/lean15/wireguard",
+        "binaries",
+        "scripts/cleanup",
+    ];
     for relative in always_refresh_dirs {
         if let Some(source) = roots
             .iter()
@@ -5907,7 +6238,70 @@ fn extract_bundled_resources_to_workspace(
         }
     }
 
+    validate_monitor_workspace_assets(workspace_root)?;
     Ok(())
+}
+
+fn validate_monitor_workspace_assets(workspace_root: &Path) -> Result<(), String> {
+    let manifest_path = workspace_root.join(MONITOR_WORKSPACE_MANIFEST_RELATIVE);
+    let manifest = load_workspace_manifest(&manifest_path)?;
+
+    for relative in &manifest.required_paths {
+        let path = workspace_root.join(relative);
+        if !path.exists() {
+            return Err(format!(
+                "Workspace is missing required bundled asset {} (resource version {}). Reinstall or refresh the control panel bundle.",
+                path.display(),
+                manifest.workspace_resource_version
+            ));
+        }
+    }
+
+    let required_files = [
+        "devnet/lean15/node-inventory.csv",
+        "devnet/lean15/hosts.env.example",
+        "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md",
+    ];
+    for relative in required_files {
+        let path = workspace_root.join(relative);
+        if !path.is_file() {
+            return Err(format!("Workspace file is missing: {}", path.display()));
+        }
+    }
+
+    let required_dirs = [
+        "devnet/lean15/configs",
+        "devnet/lean15/installers",
+        "devnet/lean15/wireguard/configs",
+        "devnet/lean15/wireguard/keys",
+        "binaries",
+    ];
+    for relative in required_dirs {
+        let path = workspace_root.join(relative);
+        if !path.is_dir() {
+            return Err(format!(
+                "Workspace directory is missing: {}",
+                path.display()
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn load_workspace_manifest(path: &Path) -> Result<MonitorWorkspaceManifest, String> {
+    let raw = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "Failed to read workspace manifest {}: {error}",
+            path.display()
+        )
+    })?;
+    serde_json::from_str(&raw).map_err(|error| {
+        format!(
+            "Failed to parse workspace manifest {}: {error}",
+            path.display()
+        )
+    })
 }
 
 fn discover_workspace_source_roots(app_handle: &AppHandle) -> Vec<PathBuf> {
@@ -5970,6 +6364,12 @@ fn copy_path_if_missing_or_directory(source: &Path, destination: &Path) -> Resul
         format!(
             "Failed to copy {} to {}: {error}",
             source.display(),
+            destination.display()
+        )
+    })?;
+    sync_unix_permissions_from_source(source, destination).map_err(|error| {
+        format!(
+            "Failed to preserve permissions on {}: {error}",
             destination.display()
         )
     })?;
@@ -6041,7 +6441,9 @@ fn copy_file_atomic(source: &Path, destination: &Path) -> Result<(), io::Error> 
         let _ = fs::remove_file(&temp_path);
     }
 
-    copy_result
+    copy_result?;
+    sync_unix_permissions_from_source(source, destination)?;
+    Ok(())
 }
 
 fn copy_directory_recursive(source: &Path, destination: &Path) -> Result<(), String> {
@@ -6079,6 +6481,14 @@ fn copy_directory_recursive(source: &Path, destination: &Path) -> Result<(), Str
                     destination_path.display()
                 )
             })?;
+            sync_unix_permissions_from_source(&source_path, &destination_path).map_err(
+                |error| {
+                    format!(
+                        "Failed to preserve permissions on {}: {error}",
+                        destination_path.display()
+                    )
+                },
+            )?;
         }
     }
 
@@ -6121,6 +6531,18 @@ fn copy_directory_force(source: &Path, destination: &Path) -> Result<(), String>
                 )
             })?;
         }
+    }
+
+    Ok(())
+}
+
+fn sync_unix_permissions_from_source(source: &Path, destination: &Path) -> Result<(), io::Error> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = fs::metadata(source)?.permissions().mode();
+        fs::set_permissions(destination, fs::Permissions::from_mode(mode))?;
     }
 
     Ok(())
@@ -6422,6 +6844,8 @@ struct MonitorHostsEnvEntry {
     node_type: String,
     host: String,
     vpn_ip: String,
+    public_ip: String,
+    local_ip: String,
 }
 
 fn generate_monitor_hosts_env(
@@ -6476,10 +6900,14 @@ fn generate_monitor_hosts_env(
 
     for entry in entries {
         let node_slot_key = entry.node_slot_id.to_ascii_uppercase().replace('-', "_");
-        let resolved_host = if entry.host.trim().is_empty() {
-            entry.vpn_ip.clone()
-        } else {
+        let resolved_host = if !entry.local_ip.trim().is_empty() {
+            entry.local_ip.clone()
+        } else if !entry.public_ip.trim().is_empty() {
+            entry.public_ip.clone()
+        } else if !entry.host.trim().is_empty() {
             entry.host.clone()
+        } else {
+            entry.vpn_ip.clone()
         };
 
         lines.push(
@@ -6548,6 +6976,8 @@ fn load_monitor_hosts_env_entries(
     let node_type_idx = resolve_index("node_type")?;
     let host_idx = resolve_index("host")?;
     let vpn_idx = resolve_index("vpn_ip")?;
+    let public_ip_idx = resolve_index("public_ip")?;
+    let local_ip_idx = resolve_index("local_ip")?;
 
     let mut entries = Vec::new();
     for row in lines {
@@ -6573,6 +7003,8 @@ fn load_monitor_hosts_env_entries(
             node_type: read(node_type_idx),
             host: read(host_idx),
             vpn_ip: read(vpn_idx),
+            public_ip: read(public_ip_idx),
+            local_ip: read(local_ip_idx),
         });
     }
 
@@ -6615,10 +7047,59 @@ fn write_file_with_backup_if_changed(path: &Path, content: &str) -> Result<(), S
                 backup.display()
             )
         })?;
+        prune_backup_files(path, MONITOR_HOSTS_BACKUP_RETENTION)?;
     }
 
     fs::write(path, content)
         .map_err(|error| format!("Failed to write {}: {error}", path.display()))?;
+    Ok(())
+}
+
+fn prune_backup_files(path: &Path, retention: usize) -> Result<(), String> {
+    if retention == 0 {
+        return Ok(());
+    }
+
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Ok(());
+    };
+    let prefix = format!("{file_name}.bak.");
+
+    let mut backups = fs::read_dir(parent)
+        .map_err(|error| {
+            format!(
+                "Failed to read backup directory {}: {error}",
+                parent.display()
+            )
+        })?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let entry_path = entry.path();
+            let entry_name = entry.file_name();
+            let entry_name = entry_name.to_string_lossy();
+            if entry_name.starts_with(&prefix) {
+                Some(entry_path)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    backups.sort();
+
+    if backups.len() <= retention {
+        return Ok(());
+    }
+
+    let remove_count = backups.len() - retention;
+    for backup in backups.into_iter().take(remove_count) {
+        fs::remove_file(&backup).map_err(|error| {
+            format!("Failed to remove old backup {}: {error}", backup.display())
+        })?;
+    }
+
     Ok(())
 }
 
@@ -7736,6 +8217,86 @@ fn order_nodes_for_bulk_action(
         .collect()
 }
 
+fn local_nodectl_action(action: &str) -> Option<&'static str> {
+    match action {
+        "start" => Some("start"),
+        "stop" => Some("stop"),
+        "restart" => Some("restart"),
+        "status" => Some("status"),
+        "sync_node" => Some("sync"),
+        "setup" | "setup_node" => Some("setup"),
+        "install_node" => Some("install_node"),
+        "bootstrap_node" => Some("bootstrap_node"),
+        "reset_chain" => Some("reset_chain"),
+        "export_logs" => Some("export_logs"),
+        "view_chain_data" => Some("view_chain_data"),
+        "export_chain_data" => Some("export_chain_data"),
+        "logs" | "node_logs" => Some("logs"),
+        _ => None,
+    }
+}
+
+fn try_execute_local_monitor_control(
+    node: &MonitorNode,
+    action: &str,
+    inventory_path: &Path,
+) -> Result<Option<MonitorControlResult>, String> {
+    let Some(nodectl_action) = local_nodectl_action(action) else {
+        return Ok(None);
+    };
+
+    let Ok(identity) = monitor_detect_local_vpn_identity() else {
+        return Ok(None);
+    };
+    if !identity.detected {
+        return Ok(None);
+    }
+
+    let Some(local_machine_id) = identity.physical_machine_id.as_deref() else {
+        return Ok(None);
+    };
+    if !node
+        .physical_machine_id
+        .eq_ignore_ascii_case(local_machine_id)
+    {
+        return Ok(None);
+    }
+
+    let installers_root = inventory_path
+        .parent()
+        .ok_or_else(|| format!("Inventory path has no parent: {}", inventory_path.display()))?
+        .join("installers");
+    let install_dir = installers_root.join(&node.node_slot_id);
+
+    #[cfg(target_os = "windows")]
+    let command = {
+        let script_path = install_dir.join("nodectl.ps1");
+        format!(
+            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "{}" {}"#,
+            script_path.display(),
+            nodectl_action
+        )
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let command = {
+        let script_path = install_dir.join("nodectl.sh");
+        format!(r#"bash "{}" {}"#, script_path.display(), nodectl_action)
+    };
+
+    let (exit_code, stdout, stderr) = run_shell_command(&command)?;
+    Ok(Some(MonitorControlResult {
+        node_slot_id: node.node_slot_id.clone(),
+        action: action.to_string(),
+        success: exit_code == 0,
+        exit_code,
+        command: format!("local-nodectl {nodectl_action}"),
+        stdout: truncate_text(stdout.trim(), 6000),
+        stderr: truncate_text(stderr.trim(), 6000),
+        executed_at_utc: Utc::now().to_rfc3339(),
+    }))
+}
+
 async fn execute_monitor_node_control(
     node_slot_id: &str,
     normalized_action: &str,
@@ -7806,28 +8367,24 @@ async fn execute_monitor_node_control(
         match try_execute_monitor_agent_control(&node, normalized_action, &host_overrides).await {
             AgentControlAttempt::Completed(result) => result,
             AgentControlAttempt::Unavailable => {
-                let selected_command = resolve_control_action_command(&commands, normalized_action).ok_or_else(
-                    || {
-                        format!(
-                            "No '{normalized_action}' control command configured for {}. Configure MACHINE_XX_{ACTION}_CMD or MACHINE_XX_ACTION_<name>_CMD in hosts.env.",
-                            node.node_slot_id,
-                            ACTION = normalized_action.to_ascii_uppercase(),
-                        )
-                    },
-                )?;
-
-                let (exit_code, stdout, stderr) = run_shell_command(&selected_command)?;
-                let success = exit_code == 0;
-
-                MonitorControlResult {
-                    node_slot_id: node.node_slot_id.clone(),
-                    action: normalized_action.to_string(),
-                    success,
-                    exit_code,
-                    command: truncate_text(&selected_command, 180),
-                    stdout: truncate_text(stdout.trim(), 6000),
-                    stderr: truncate_text(stderr.trim(), 6000),
-                    executed_at_utc: Utc::now().to_rfc3339(),
+                if let Some(local_result) =
+                    try_execute_local_monitor_control(&node, normalized_action, &inventory_path)?
+                {
+                    local_result
+                } else {
+                    MonitorControlResult {
+                        node_slot_id: node.node_slot_id.clone(),
+                        action: normalized_action.to_string(),
+                        success: false,
+                        exit_code: 1,
+                        command: "wireguard-agent".to_string(),
+                        stdout: String::new(),
+                        stderr: format!(
+                            "The devnet agent is unavailable for {}. Normal '{}' operations require the local control panel on the target machine or a healthy remote wireguard-agent; SSH fallback is disabled for this action.",
+                            node.node_slot_id, normalized_action
+                        ),
+                        executed_at_utc: Utc::now().to_rfc3339(),
+                    }
                 }
             }
         }

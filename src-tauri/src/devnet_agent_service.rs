@@ -1,5 +1,5 @@
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, Path as AxumPath, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -14,7 +14,10 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::task::JoinSet;
+use uuid::Uuid;
 
 pub const DEVNET_AGENT_PORT: u16 = 47_990;
 const DEFAULT_REMOTE_ROOT_UNIX: &str = "/opt/synergy";
@@ -51,11 +54,18 @@ pub struct DevnetAgentControlResponse {
     pub stderr: String,
     pub transport: String,
     pub executed_at_utc: String,
+    #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub job_id: Option<String>,
+    #[serde(default)]
+    pub process_alive: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
 struct AgentState {
     workspace_root: PathBuf,
+    jobs: Arc<Mutex<HashMap<String, DevnetAgentControlResponse>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,17 +83,36 @@ struct NodeInstall {
 }
 
 pub async fn serve(workspace_root: PathBuf, port: u16) -> Result<(), String> {
-    let state = AgentState { workspace_root };
+    serve_with_host(workspace_root, port, None).await
+}
+
+pub async fn serve_with_host(
+    workspace_root: PathBuf,
+    port: u16,
+    host: Option<String>,
+) -> Result<(), String> {
+    eprintln!(
+        "[{}] devnet-agent starting workspace={} port={} host={}",
+        Utc::now().to_rfc3339(),
+        workspace_root.display(),
+        port,
+        host.as_deref().unwrap_or("0.0.0.0")
+    );
+    let state = AgentState {
+        workspace_root,
+        jobs: Arc::new(Mutex::new(HashMap::new())),
+    };
     let router = Router::new()
         .route("/health", get(health_handler))
         .route("/v1/control", post(control_handler))
+        .route("/v1/control/jobs/{job_id}", get(control_job_handler))
         .with_state(state);
 
     let mut listeners = Vec::new();
-    for bind_addr in bind_addresses(port) {
+    for bind_addr in bind_addresses_for_host(host.as_deref(), port) {
         match tokio::net::TcpListener::bind(bind_addr).await {
             Ok(listener) => listeners.push((bind_addr, listener)),
-            Err(error) if bind_addr.ip().is_loopback() => {
+            Err(error) if bind_addr.ip().is_loopback() || bind_addr.ip().is_unspecified() => {
                 return Err(format!(
                     "Failed to bind devnet agent on {bind_addr}: {error}"
                 ));
@@ -122,14 +151,22 @@ pub async fn serve(workspace_root: PathBuf, port: u16) -> Result<(), String> {
 }
 
 fn bind_addresses(port: u16) -> Vec<SocketAddr> {
-    let mut bind_addrs = vec![SocketAddr::from(([127, 0, 0, 1], port))];
-    if let Some(vpn_ip) = detect_local_vpn_ip().and_then(|value| value.parse::<Ipv4Addr>().ok()) {
-        let vpn_addr = SocketAddr::from((vpn_ip, port));
-        if !bind_addrs.contains(&vpn_addr) {
-            bind_addrs.push(vpn_addr);
+    bind_addresses_for_host(None, port)
+}
+
+fn bind_addresses_for_host(host: Option<&str>, port: u16) -> Vec<SocketAddr> {
+    if let Some(host) = host {
+        // Explicit host override via --host flag
+        if let Ok(ip) = host.parse::<Ipv4Addr>() {
+            return vec![SocketAddr::from((ip, port))];
         }
+        eprintln!("devnet agent: invalid --host value '{host}', falling back to 0.0.0.0");
     }
-    bind_addrs
+    // Default: bind on all interfaces so the agent is reachable via VPN, localhost, and
+    // any other network interface. Previously used loopback + runtime VPN detection, but
+    // that was unreliable under macOS launchd where ip/ifconfig may not surface the
+    // WireGuard interface at agent startup time.
+    vec![SocketAddr::from(([0, 0, 0, 0], port))]
 }
 
 fn supported_agent_actions() -> Vec<String> {
@@ -151,6 +188,22 @@ fn supported_agent_actions() -> Vec<String> {
     .iter()
     .map(|entry| entry.to_string())
     .collect()
+}
+
+fn should_run_as_job(action: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        matches!(
+            action,
+            "start" | "restart" | "setup" | "setup_node" | "install_node" | "bootstrap_node"
+        )
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = action;
+        false
+    }
 }
 
 async fn health_handler(
@@ -192,8 +245,95 @@ async fn control_handler(
             .into_response();
     }
 
-    // `execute_control` can block for several minutes (reset_chain runs stop + rm + start).
-    // Offload to a blocking thread pool so the async executor stays responsive.
+    let normalized_action = normalize_action(&input.action);
+    eprintln!(
+        "[{}] devnet-agent control node={} action={} remote={}",
+        Utc::now().to_rfc3339(),
+        input.node_slot_id.trim(),
+        normalized_action,
+        remote_addr
+    );
+    if should_run_as_job(&normalized_action) {
+        let job_id = Uuid::new_v4().to_string();
+        let queued = DevnetAgentControlResponse {
+            node_slot_id: input.node_slot_id.trim().to_string(),
+            action: normalized_action.clone(),
+            success: false,
+            exit_code: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+            transport: "wireguard-agent".to_string(),
+            executed_at_utc: Utc::now().to_rfc3339(),
+            phase: Some("queued".to_string()),
+            job_id: Some(job_id.clone()),
+            process_alive: None,
+        };
+
+        {
+            let mut jobs = state.jobs.lock().await;
+            jobs.insert(job_id.clone(), queued.clone());
+        }
+
+        let workspace_root = state.workspace_root.clone();
+        let jobs = state.jobs.clone();
+        let queued_for_job = queued.clone();
+        let job_id_for_task = job_id.clone();
+        tokio::spawn(async move {
+            {
+                let mut map = jobs.lock().await;
+                if let Some(entry) = map.get_mut(&job_id_for_task) {
+                    entry.phase = Some("running".to_string());
+                }
+            }
+
+            let job_result =
+                tokio::task::spawn_blocking(move || execute_control(&workspace_root, input)).await;
+            let final_response = match job_result {
+                Ok(Ok(mut outcome)) => {
+                    outcome.job_id = Some(job_id_for_task.clone());
+                    outcome
+                }
+                Ok(Err(error)) => DevnetAgentControlResponse {
+                    node_slot_id: queued_for_job.node_slot_id.clone(),
+                    action: queued_for_job.action.clone(),
+                    success: false,
+                    exit_code: 1,
+                    stdout: String::new(),
+                    stderr: error,
+                    transport: "wireguard-agent".to_string(),
+                    executed_at_utc: Utc::now().to_rfc3339(),
+                    phase: Some("failed".to_string()),
+                    job_id: Some(job_id_for_task.clone()),
+                    process_alive: None,
+                },
+                Err(join_error) => DevnetAgentControlResponse {
+                    node_slot_id: queued_for_job.node_slot_id.clone(),
+                    action: queued_for_job.action.clone(),
+                    success: false,
+                    exit_code: 1,
+                    stdout: String::new(),
+                    stderr: format!("agent task panicked: {join_error}"),
+                    transport: "wireguard-agent".to_string(),
+                    executed_at_utc: Utc::now().to_rfc3339(),
+                    phase: Some("failed".to_string()),
+                    job_id: Some(job_id_for_task.clone()),
+                    process_alive: None,
+                },
+            };
+
+            let mut map = jobs.lock().await;
+            map.insert(job_id_for_task, final_response);
+        });
+
+        return (
+            StatusCode::ACCEPTED,
+            Json(serde_json::to_value(queued).unwrap_or_default()),
+        )
+            .into_response();
+    }
+
+    // `execute_control` can block for several minutes. Offload to a blocking
+    // thread pool so the async executor stays responsive.
     let workspace_root = state.workspace_root.clone();
     let result = tokio::task::spawn_blocking(move || execute_control(&workspace_root, input)).await;
 
@@ -218,6 +358,35 @@ async fn control_handler(
         )
             .into_response(),
     }
+}
+
+async fn control_job_handler(
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
+    State(state): State<AgentState>,
+    AxumPath(job_id): AxumPath<String>,
+) -> impl IntoResponse {
+    if !is_allowed_remote(remote_addr.ip()) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "agent access restricted to WireGuard peers" })),
+        )
+            .into_response();
+    }
+
+    let jobs = state.jobs.lock().await;
+    if let Some(result) = jobs.get(job_id.trim()) {
+        return (
+            StatusCode::OK,
+            Json(serde_json::to_value(result).unwrap_or_default()),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({ "error": format!("control job not found: {}", job_id.trim()) })),
+    )
+        .into_response()
 }
 
 fn build_health(workspace_root: &Path) -> Result<DevnetAgentHealth, String> {
@@ -350,6 +519,37 @@ fn execute_control(
         other => Err(format!("Unsupported devnet agent action: {other}")),
     }?;
 
+    let process_alive = match normalized_action.as_str() {
+        "start" | "restart" | "status" | "setup" | "setup_node" | "install_node"
+        | "bootstrap_node" => resolve_node_install(workspace_root, &node_slot_id)
+            .ok()
+            .map(|install| is_node_process_running(&install)),
+        _ => None,
+    };
+    let phase = match normalized_action.as_str() {
+        "start" | "restart" | "setup" | "setup_node" | "install_node" | "bootstrap_node" => {
+            if result.success && process_alive == Some(true) {
+                Some("process_alive".to_string())
+            } else if result.success {
+                Some("pid_written".to_string())
+            } else {
+                Some("spawn_failed".to_string())
+            }
+        }
+        "status" => Some("status_complete".to_string()),
+        "sync_node" => Some(if result.success {
+            "sync_complete".to_string()
+        } else {
+            "sync_failed".to_string()
+        }),
+        "reset_chain" => Some(if result.success {
+            "reset_complete".to_string()
+        } else {
+            "reset_failed".to_string()
+        }),
+        _ => Some("completed".to_string()),
+    };
+
     Ok(DevnetAgentControlResponse {
         node_slot_id,
         action: normalized_action,
@@ -359,6 +559,9 @@ fn execute_control(
         stderr: result.stderr,
         transport: "wireguard-agent".to_string(),
         executed_at_utc: Utc::now().to_rfc3339(),
+        phase,
+        job_id: None,
+        process_alive,
     })
 }
 

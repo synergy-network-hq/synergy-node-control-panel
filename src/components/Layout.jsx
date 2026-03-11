@@ -35,6 +35,8 @@ function Layout({ children }) {
     message: 'No update check has been run yet.',
     version: '',
   });
+  const footerStatusMessage =
+    updateState.status === 'available' ? `Update ${updateState.version} available` : updateState.message;
 
   useEffect(() => {
     let disposed = false;
@@ -187,20 +189,6 @@ function Layout({ children }) {
     <div className="app-container">
       <header className="app-header">
         <div className="header-content">
-          <div className="header-left-status">
-            <span className={`header-status-pill header-status-${updateState.status}`}>
-              {updateState.status === 'available' ? `Update ${updateState.version} available` : updateState.message}
-            </span>
-            <button
-              className={`btn-header btn-update btn-update-${updateState.status}`}
-              onClick={handleUpdateAction}
-              disabled={updateState.status === 'checking' || updateState.status === 'installing'}
-              title={updateState.message}
-            >
-              {updateButtonLabel(updateState)}
-            </button>
-          </div>
-
           <div className="header-brand">
             <div className="logo-container">
               <img
@@ -224,6 +212,14 @@ function Layout({ children }) {
             <Link className={`btn-header btn-header-nav ${onSXCPRoute ? 'btn-header-active' : ''}`} to={onSXCPRoute ? '/' : '/sxcp'}>
               {onSXCPRoute ? 'Monitor' : 'SXCP'}
             </Link>
+            <button
+              className={`btn-header btn-header-nav btn-update btn-update-${updateState.status}`}
+              onClick={handleUpdateAction}
+              disabled={updateState.status === 'checking' || updateState.status === 'installing'}
+              title={updateState.message}
+            >
+              {updateButtonLabel(updateState)}
+            </button>
             <Link className={`btn-header btn-header-nav ${onSettingsRoute ? 'btn-header-active' : ''}`} to={onSettingsRoute ? '/' : '/settings'}>
               {onSettingsRoute ? 'Dashboard' : 'Operator Settings'}
             </Link>
@@ -236,6 +232,7 @@ function Layout({ children }) {
       <main className="app-main">{children}</main>
       <footer className="app-footer">
         <span className="footer-copyright">&copy; 2026 Synergy Blockchain Labs Inc. All rights reserved.</span>
+        <span className={`footer-status footer-status-${updateState.status}`}>{footerStatusMessage}</span>
         <span className="footer-version">Synergy Devnet Control Panel v{appVersion || '...'}</span>
       </footer>
     </div>

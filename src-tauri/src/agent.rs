@@ -1,14 +1,15 @@
 use crate::devnet_agent_service::DEVNET_AGENT_PORT;
 use crate::node_manager::commands::{setup_node, NodeSetupOptions, SetupProgress};
-use chrono::Utc;
 use crate::node_manager::multi_node::MultiNodeManager;
 use crate::node_manager::multi_node_process::ProcessManager;
 use crate::recipe::load_and_validate;
+use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::fs::OpenOptions;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Arc;
@@ -390,16 +391,38 @@ pub async fn ensure_local_devnet_agent(app_handle: AppHandle) -> Result<(), Stri
     let binary_source = resolve_agent_resource_binary(&workspace_root)?;
     let installed_binary = install_agent_binary(&workspace_root, &binary_source)?;
 
-    if let Err(error) = install_agent_autostart(&workspace_root, &installed_binary) {
-        eprintln!("devnet agent autostart warning: {error}");
+    if !local_agent_port_available() {
+        kill_local_agent_processes(&workspace_root);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if !local_agent_port_available() && !local_agent_running().await {
+            return Err(format!(
+                "Port {DEVNET_AGENT_PORT} is already occupied by a non-agent process. Free the port before starting the local devnet agent."
+            ));
+        }
     }
 
-    spawn_local_agent(&workspace_root, &installed_binary)?;
-    for _ in 0..8 {
-        sleep(Duration::from_millis(250)).await;
-        if local_agent_running().await {
-            return Ok(());
+    let autostart_ok = match install_agent_autostart(&workspace_root, &installed_binary) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("devnet agent autostart warning: {error}");
+            false
         }
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        spawn_local_agent(&workspace_root, &installed_binary)?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if !autostart_ok {
+            spawn_local_agent(&workspace_root, &installed_binary)?;
+        }
+    }
+
+    if wait_for_local_agent(20, 250).await {
+        return Ok(());
     }
 
     Err("Local devnet agent did not become healthy after startup".to_string())
@@ -440,6 +463,20 @@ async fn local_agent_running() -> bool {
         .await
         .map(|response| response.status().is_success())
         .unwrap_or(false)
+}
+
+async fn wait_for_local_agent(attempts: usize, delay_ms: u64) -> bool {
+    for _ in 0..attempts {
+        if local_agent_running().await {
+            return true;
+        }
+        sleep(Duration::from_millis(delay_ms)).await;
+    }
+    false
+}
+
+fn local_agent_port_available() -> bool {
+    TcpListener::bind(("127.0.0.1", DEVNET_AGENT_PORT)).is_ok()
 }
 
 fn resolve_agent_resource_binary(workspace_root: &Path) -> Result<PathBuf, String> {
@@ -537,7 +574,9 @@ fn copy_file_atomic(source: &Path, destination: &Path) -> Result<(), std::io::Er
         let _ = fs::remove_file(&temp_path);
     }
 
-    copy_result
+    copy_result?;
+    sync_unix_permissions_from_source(source, destination)?;
+    Ok(())
 }
 
 fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), String> {
@@ -560,6 +599,15 @@ fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), St
         .open(log_dir.join("agent.err.log"))
         .map_err(|error| format!("Failed to open devnet agent stderr log: {error}"))?;
 
+    let started_at = Utc::now().to_rfc3339();
+    let startup_line = format!(
+        "[{started_at}] local-agent-start workspace={} binary={} port={}\n",
+        workspace_root.display(),
+        binary_path.display(),
+        DEVNET_AGENT_PORT
+    );
+    let _ = fs::write(log_dir.join("last-startup.txt"), startup_line.as_bytes());
+
     let mut command = ProcessCommand::new(binary_path);
     command
         .arg("serve")
@@ -581,6 +629,21 @@ fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), St
     command
         .spawn()
         .map_err(|error| format!("Failed to spawn local devnet agent: {error}"))?;
+
+    Ok(())
+}
+
+fn sync_unix_permissions_from_source(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), std::io::Error> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mode = fs::metadata(source)?.permissions().mode();
+        fs::set_permissions(destination, fs::Permissions::from_mode(mode))?;
+    }
 
     Ok(())
 }
@@ -787,11 +850,20 @@ fn install_agent_windows_startup(workspace_root: &Path, binary_path: &Path) -> R
     })?;
 
     let startup_cmd = startup_dir.join("Synergy Devnet Agent.cmd");
+    let log_dir = workspace_root.join("agent").join("logs");
+    fs::create_dir_all(&log_dir).map_err(|error| {
+        format!(
+            "Failed to create Windows agent log directory {}: {error}",
+            log_dir.display()
+        )
+    })?;
     let command = format!(
-        "@echo off\r\nstart \"\" /B \"{}\" serve --workspace \"{}\" --port {}\r\n",
+        "@echo off\r\nstart \"\" /B \"{}\" serve --workspace \"{}\" --port {} 1>>\"{}\" 2>>\"{}\"\r\n",
         binary_path.display(),
         workspace_root.display(),
-        DEVNET_AGENT_PORT
+        DEVNET_AGENT_PORT,
+        log_dir.join("startup.out.log").display(),
+        log_dir.join("startup.err.log").display()
     );
     fs::write(&startup_cmd, command).map_err(|error| {
         format!(

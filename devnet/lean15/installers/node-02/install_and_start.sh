@@ -242,7 +242,10 @@ run_prestart_sync() {
     attempt=$(( attempt + 1 ))
     local remaining=$(( deadline - $(date +%s) ))
     echo "Pre-start sync attempt ${attempt} for $NODE_SLOT_ID (${remaining}s remaining of ${timeout_secs}s)..."
-    if env \
+    # Cap each individual sync attempt so a hanging binary doesn't stall the
+    # installer indefinitely.  Default: 120 s per attempt; override via
+    # PRESTART_SYNC_ATTEMPT_TIMEOUT.  The outer deadline loop still applies.
+    if timeout "${PRESTART_SYNC_ATTEMPT_TIMEOUT:-120}" env \
       SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
       NODE_ADDRESS="$validator_address" \
       SYNERGY_AUTO_REGISTER_VALIDATOR="$auto_register_validator" \

@@ -1,8 +1,7 @@
 use super::NodeManager;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
-use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::fs;
 use tokio::sync::Mutex;
 
 #[tauri::command]
@@ -14,21 +13,10 @@ pub async fn read_log_file(
     let log_path = manager.node_info.logs_path.clone();
     drop(manager);
 
-    let file = File::open(&log_path)
+    let bytes = fs::read(&log_path)
         .await
         .map_err(|e| format!("Failed to open log file: {}", e))?;
-
-    let reader = BufReader::new(file);
-    let mut log_lines = Vec::new();
-    let mut lines_reader = reader.lines();
-
-    while let Some(line) = lines_reader
-        .next_line()
-        .await
-        .map_err(|e| format!("Failed to read line: {}", e))?
-    {
-        log_lines.push(line);
-    }
+    let log_lines = decode_log_bytes(&bytes);
 
     // Return last N lines if specified
     if let Some(n) = lines {
@@ -49,16 +37,35 @@ pub async fn stream_logs(
     drop(manager);
 
     tokio::spawn(async move {
-        if let Ok(file) = File::open(&log_path).await {
-            let reader = BufReader::new(file);
-            let mut lines = reader.lines();
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = app.emit("log-line", line);
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let mut emitted = 0usize;
+        loop {
+            if let Ok(bytes) = fs::read(&log_path).await {
+                let lines = decode_log_bytes(&bytes);
+                for line in lines.iter().skip(emitted) {
+                    let _ = app.emit("log-line", line);
+                }
+                emitted = lines.len();
             }
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
     });
 
     Ok(())
+}
+
+fn decode_log_bytes(bytes: &[u8]) -> Vec<String> {
+    let text = if bytes.starts_with(&[0xFF, 0xFE]) {
+        let utf16 = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        String::from_utf16_lossy(&utf16)
+    } else {
+        String::from_utf8_lossy(bytes).to_string()
+    };
+
+    text.replace('\r', "")
+        .lines()
+        .map(|line| line.to_string())
+        .collect()
 }

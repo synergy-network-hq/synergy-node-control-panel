@@ -841,11 +841,11 @@ function InitialSetupWizard({ onComplete }) {
       });
 
       await runStep('sshkey', 'Generate SSH key if missing', async () => {
-        await runStrictCommand(buildSshKeySetupCommand(), resolvedWorkspace || null);
+        const sshKeyPath = await invoke('monitor_ensure_ssh_keypair');
 
         setSshProfileForm((prev) => ({
           ...prev,
-          ssh_key_path: prev.ssh_key_path || desiredKeyPath,
+          ssh_key_path: String(sshKeyPath || '').trim() || prev.ssh_key_path || desiredKeyPath,
         }));
       });
 

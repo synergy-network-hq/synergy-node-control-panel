@@ -534,6 +534,14 @@ BIN_DARWIN="$BASE_DIR/bin/synergy-devnet-darwin-arm64"
 DATA_DIR="$BASE_DIR/data"
 PID_FILE="$DATA_DIR/node.pid"
 OUT_FILE="$DATA_DIR/logs/node.out"
+CHAIN_DIR="$DATA_DIR/chain"
+LOG_DIR="$DATA_DIR/logs"
+
+ensure_export_dir() {
+  local export_dir="$BASE_DIR/exports"
+  mkdir -p "$export_dir"
+  echo "$export_dir"
+}
 
 select_binary() {
   local os arch
@@ -560,6 +568,18 @@ is_running() {
 }
 
 start_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
+
+setup_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
+
+install_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
+
+bootstrap_node() {
   "$BASE_DIR/install_and_start.sh"
 }
 
@@ -599,6 +619,14 @@ stop_node() {
   echo "Stopped $NODE_SLOT_ID"
 }
 
+reset_chain() {
+  stop_node || true
+  rm -rf "$CHAIN_DIR" "$DATA_DIR/devnet15/$NODE_SLOT_ID/chain" "$DATA_DIR/devnet15/$NODE_SLOT_ID/logs"
+  rm -f "$DATA_DIR/chain.json" "$DATA_DIR/token_state.json" "$DATA_DIR/validator_registry.json" "$DATA_DIR/synergy-devnet.pid" "$DATA_DIR/.reset_flag" "$PID_FILE"
+  mkdir -p "$CHAIN_DIR" "$LOG_DIR" "$DATA_DIR/devnet15/$NODE_SLOT_ID/chain" "$DATA_DIR/devnet15/$NODE_SLOT_ID/logs"
+  echo "Reset chain state for $NODE_SLOT_ID. Node remains stopped."
+}
+
 status_node() {
   if is_running; then
     echo "$NODE_SLOT_ID is running (PID $(cat "$PID_FILE"))"
@@ -617,6 +645,27 @@ show_logs() {
   else
     tail -n 120 "$OUT_FILE"
   fi
+}
+
+export_logs() {
+  local export_dir archive
+  export_dir="$(ensure_export_dir)"
+  archive="$export_dir/${NODE_SLOT_ID}-logs-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+  tar -czf "$archive" -C "$DATA_DIR" logs >/dev/null 2>&1
+  echo "Exported logs to $archive"
+}
+
+view_chain_data() {
+  du -sh "$CHAIN_DIR" 2>/dev/null || echo "Chain directory not found: $CHAIN_DIR"
+  find "$CHAIN_DIR" -maxdepth 2 -type f -print 2>/dev/null | head -n 20 || true
+}
+
+export_chain_data() {
+  local export_dir archive
+  export_dir="$(ensure_export_dir)"
+  archive="$export_dir/${NODE_SLOT_ID}-chain-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+  tar -czf "$archive" -C "$DATA_DIR" chain >/dev/null 2>&1
+  echo "Exported chain data to $archive"
 }
 
 show_info() {
@@ -644,6 +693,15 @@ case "${1:-}" in
   start)
     start_node
     ;;
+  setup)
+    setup_node
+    ;;
+  install_node)
+    install_node
+    ;;
+  bootstrap_node)
+    bootstrap_node
+    ;;
   stop)
     stop_node
     ;;
@@ -654,27 +712,52 @@ case "${1:-}" in
   sync)
     sync_node
     ;;
+  reset_chain)
+    reset_chain
+    ;;
   status)
     status_node
     ;;
   logs)
     show_logs "${2:-}"
     ;;
+  export_logs)
+    export_logs
+    ;;
+  view_chain_data)
+    view_chain_data
+    ;;
+  export_chain_data)
+    export_chain_data
+    ;;
   info)
     show_info
     ;;
   *)
     cat <<USAGE
-Usage: $0 <start|stop|restart|sync|status|logs|info>
+Usage: $0 <start|setup|install_node|bootstrap_node|stop|restart|sync|reset_chain|status|logs|export_logs|view_chain_data|export_chain_data|info>
 
   start    Start the node (includes pre-start sync check).
+  setup    Install and start the node locally.
+  install_node
+           Install and start the node locally.
+  bootstrap_node
+           Install and start the node locally.
   stop     Stop the node.
   restart  Stop then start the node.
   sync     Sync all missing blocks from peers WITHOUT starting the node.
            Use for late-joining nodes or nodes offline for a long time.
            Override timeout: PRESTART_SYNC_TIMEOUT_SECS=3600 $0 sync
+  reset_chain
+           Remove runtime chain state and leave the node stopped.
   status   Show whether the node process is running.
   logs     Tail node logs. Pass --follow to stream.
+  export_logs
+           Archive local logs under exports/.
+  view_chain_data
+           Show local chain data size and sample files.
+  export_chain_data
+           Archive local chain data under exports/.
   info     Print node configuration details.
 
 Examples:
@@ -964,7 +1047,7 @@ write_nodectl_ps1() {
   cat > "$node_dir/nodectl.ps1" <<'SCRIPT'
 param(
   [Parameter(Position = 0)]
-  [ValidateSet("start", "stop", "restart", "sync", "status", "logs", "info")]
+  [ValidateSet("start", "stop", "restart", "sync", "status", "logs", "info", "setup", "install_node", "bootstrap_node", "reset_chain", "export_logs", "view_chain_data", "export_chain_data")]
   [string]$Action = "status",
   [switch]$Follow
 )
@@ -995,6 +1078,8 @@ function Get-NodeEnvValue([string]$Name) {
 $DataDir = Join-Path $BaseDir "data"
 $PidFile = Join-Path $DataDir "node.pid"
 $OutFile = Join-Path $DataDir "logs/node.out"
+$LogsDir = Join-Path $DataDir "logs"
+$ChainDir = Join-Path $DataDir "chain"
 
 function Test-NodeRunning {
   if (-not (Test-Path $PidFile)) { return $false }
@@ -1004,6 +1089,9 @@ function Test-NodeRunning {
 }
 
 function Start-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
+function Setup-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
+function Install-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
+function Bootstrap-Node { & (Join-Path $BaseDir "install_and_start.ps1") }
 
 # Sync only — download all missing blocks from peers without starting the node.
 # Intended for late-joining nodes or nodes that have been offline for a long time.
@@ -1030,6 +1118,29 @@ function Stop-Node {
   Write-Host "Stopped $($NodeEnv['NODE_SLOT_ID'])"
 }
 
+function Reset-Chain {
+  Stop-Node
+  foreach ($target in @(
+    $ChainDir,
+    (Join-Path $DataDir "devnet15\$($NodeEnv['NODE_SLOT_ID'])\chain"),
+    (Join-Path $DataDir "devnet15\$($NodeEnv['NODE_SLOT_ID'])\logs"),
+    (Join-Path $DataDir "chain.json"),
+    (Join-Path $DataDir "token_state.json"),
+    (Join-Path $DataDir "validator_registry.json"),
+    (Join-Path $DataDir "synergy-devnet.pid"),
+    (Join-Path $DataDir ".reset_flag"),
+    $PidFile
+  )) {
+    if (Test-Path $target) {
+      Remove-Item $target -Recurse -Force
+    }
+  }
+  New-Item -ItemType Directory -Force -Path $ChainDir, $LogsDir | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "devnet15\$($NodeEnv['NODE_SLOT_ID'])\chain") | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $DataDir "devnet15\$($NodeEnv['NODE_SLOT_ID'])\logs") | Out-Null
+  Write-Host "Reset chain state for $($NodeEnv['NODE_SLOT_ID']). Node remains stopped."
+}
+
 function Status-Node {
   if (Test-NodeRunning) {
     $pidValue = Get-Content $PidFile | Select-Object -First 1
@@ -1051,7 +1162,41 @@ function Logs-Node {
   }
 }
 
+function New-ExportDirectory {
+  $exportDir = Join-Path $BaseDir "exports"
+  New-Item -ItemType Directory -Force -Path $exportDir | Out-Null
+  return $exportDir
+}
+
+function Export-Logs {
+  $exportDir = New-ExportDirectory
+  $archive = Join-Path $exportDir "$($NodeEnv['NODE_SLOT_ID'])-logs-$(Get-Date -AsUTC -Format 'yyyyMMddTHHmmssZ').zip"
+  Compress-Archive -Path $LogsDir -DestinationPath $archive -Force
+  Write-Host "Exported logs to $archive"
+}
+
+function View-ChainData {
+  if (-not (Test-Path $ChainDir)) {
+    Write-Host "Chain directory not found: $ChainDir"
+    return
+  }
+  Get-ChildItem $ChainDir -Recurse -File -ErrorAction SilentlyContinue |
+    Sort-Object Length -Descending |
+    Select-Object -First 20 FullName,Length,LastWriteTime |
+    Format-Table -AutoSize
+}
+
+function Export-ChainData {
+  $exportDir = New-ExportDirectory
+  $archive = Join-Path $exportDir "$($NodeEnv['NODE_SLOT_ID'])-chain-$(Get-Date -AsUTC -Format 'yyyyMMddTHHmmssZ').zip"
+  Compress-Archive -Path $ChainDir -DestinationPath $archive -Force
+  Write-Host "Exported chain data to $archive"
+}
+
 function Info-Node {
+  $binary = Get-ChildItem (Join-Path $BaseDir "bin") -Filter "synergy-devnet*" -File -ErrorAction SilentlyContinue |
+    Sort-Object Name |
+    Select-Object -First 1 -ExpandProperty FullName
   Write-Host "Node Slot ID: $(Get-NodeEnvValue 'NODE_SLOT_ID')"
   Write-Host "Node ID: $(Get-NodeEnvValue 'NODE_ALIAS')"
   Write-Host "Role: $(Get-NodeEnvValue 'ROLE')"
@@ -1066,17 +1211,24 @@ function Info-Node {
   Write-Host "WS: $(Get-NodeEnvValue 'WS_PORT')"
   Write-Host "gRPC: $(Get-NodeEnvValue 'GRPC_PORT')"
   Write-Host "Discovery: $(Get-NodeEnvValue 'DISCOVERY_PORT')"
-  Write-Host "Binary: $(Join-Path $BaseDir 'bin/synergy-devnet-windows-amd64.exe')"
+  Write-Host "Binary: $binary"
   Write-Host "Config: $(Join-Path $BaseDir 'config/node.toml')"
 }
 
 switch ($Action) {
   "start"   { Start-Node }
+  "setup"   { Setup-Node }
+  "install_node" { Install-Node }
+  "bootstrap_node" { Bootstrap-Node }
   "stop"    { Stop-Node }
   "restart" { Stop-Node; Start-Node }
   "sync"    { Sync-Node }
+  "reset_chain" { Reset-Chain }
   "status"  { Status-Node }
   "logs"    { Logs-Node }
+  "export_logs" { Export-Logs }
+  "view_chain_data" { View-ChainData }
+  "export_chain_data" { Export-ChainData }
   "info"    { Info-Node }
 }
 SCRIPT

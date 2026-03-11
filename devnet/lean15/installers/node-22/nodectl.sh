@@ -10,6 +10,14 @@ BIN_DARWIN="$BASE_DIR/bin/synergy-devnet-darwin-arm64"
 DATA_DIR="$BASE_DIR/data"
 PID_FILE="$DATA_DIR/node.pid"
 OUT_FILE="$DATA_DIR/logs/node.out"
+CHAIN_DIR="$DATA_DIR/chain"
+LOG_DIR="$DATA_DIR/logs"
+
+ensure_export_dir() {
+  local export_dir="$BASE_DIR/exports"
+  mkdir -p "$export_dir"
+  echo "$export_dir"
+}
 
 select_binary() {
   local os arch
@@ -35,6 +43,21 @@ is_running() {
   return 1
 }
 
+start_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
+
+setup_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
+
+install_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
+
+bootstrap_node() {
+  "$BASE_DIR/install_and_start.sh"
+}
 
 # Sync only — download all missing blocks from peers without starting the node.
 # Intended for late-joining nodes or nodes that have been offline for a long time.
@@ -72,6 +95,14 @@ stop_node() {
   echo "Stopped $NODE_SLOT_ID"
 }
 
+reset_chain() {
+  stop_node || true
+  rm -rf "$CHAIN_DIR" "$DATA_DIR/devnet15/$NODE_SLOT_ID/chain" "$DATA_DIR/devnet15/$NODE_SLOT_ID/logs"
+  rm -f "$DATA_DIR/chain.json" "$DATA_DIR/token_state.json" "$DATA_DIR/validator_registry.json" "$DATA_DIR/synergy-devnet.pid" "$DATA_DIR/.reset_flag" "$PID_FILE"
+  mkdir -p "$CHAIN_DIR" "$LOG_DIR" "$DATA_DIR/devnet15/$NODE_SLOT_ID/chain" "$DATA_DIR/devnet15/$NODE_SLOT_ID/logs"
+  echo "Reset chain state for $NODE_SLOT_ID. Node remains stopped."
+}
+
 status_node() {
   if is_running; then
     echo "$NODE_SLOT_ID is running (PID $(cat "$PID_FILE"))"
@@ -90,6 +121,27 @@ show_logs() {
   else
     tail -n 120 "$OUT_FILE"
   fi
+}
+
+export_logs() {
+  local export_dir archive
+  export_dir="$(ensure_export_dir)"
+  archive="$export_dir/${NODE_SLOT_ID}-logs-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+  tar -czf "$archive" -C "$DATA_DIR" logs >/dev/null 2>&1
+  echo "Exported logs to $archive"
+}
+
+view_chain_data() {
+  du -sh "$CHAIN_DIR" 2>/dev/null || echo "Chain directory not found: $CHAIN_DIR"
+  find "$CHAIN_DIR" -maxdepth 2 -type f -print 2>/dev/null | head -n 20 || true
+}
+
+export_chain_data() {
+  local export_dir archive
+  export_dir="$(ensure_export_dir)"
+  archive="$export_dir/${NODE_SLOT_ID}-chain-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
+  tar -czf "$archive" -C "$DATA_DIR" chain >/dev/null 2>&1
+  echo "Exported chain data to $archive"
 }
 
 show_info() {
@@ -117,6 +169,15 @@ case "${1:-}" in
   start)
     start_node
     ;;
+  setup)
+    setup_node
+    ;;
+  install_node)
+    install_node
+    ;;
+  bootstrap_node)
+    bootstrap_node
+    ;;
   stop)
     stop_node
     ;;
@@ -127,27 +188,52 @@ case "${1:-}" in
   sync)
     sync_node
     ;;
+  reset_chain)
+    reset_chain
+    ;;
   status)
     status_node
     ;;
   logs)
     show_logs "${2:-}"
     ;;
+  export_logs)
+    export_logs
+    ;;
+  view_chain_data)
+    view_chain_data
+    ;;
+  export_chain_data)
+    export_chain_data
+    ;;
   info)
     show_info
     ;;
   *)
     cat <<USAGE
-Usage: $0 <start|stop|restart|sync|status|logs|info>
+Usage: $0 <start|setup|install_node|bootstrap_node|stop|restart|sync|reset_chain|status|logs|export_logs|view_chain_data|export_chain_data|info>
 
   start    Start the node (includes pre-start sync check).
+  setup    Install and start the node locally.
+  install_node
+           Install and start the node locally.
+  bootstrap_node
+           Install and start the node locally.
   stop     Stop the node.
   restart  Stop then start the node.
   sync     Sync all missing blocks from peers WITHOUT starting the node.
            Use for late-joining nodes or nodes offline for a long time.
            Override timeout: PRESTART_SYNC_TIMEOUT_SECS=3600 $0 sync
+  reset_chain
+           Remove runtime chain state and leave the node stopped.
   status   Show whether the node process is running.
   logs     Tail node logs. Pass --follow to stream.
+  export_logs
+           Archive local logs under exports/.
+  view_chain_data
+           Show local chain data size and sample files.
+  export_chain_data
+           Archive local chain data under exports/.
   info     Print node configuration details.
 
 Examples:

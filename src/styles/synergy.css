@@ -4,7 +4,7 @@
 /* ============================================
     IMPORTS & FONTS
    ============================================ */
-@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@400;500;700&family=Quantico:wght@400;700&family=Shantell+Sans:wght@400;500;600;700&family=Montserrat+Alternates:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Quantico:wght@400;700&family=Shantell+Sans:wght@400;500;600;700&family=Montserrat+Alternates:wght@400;500;600;700&display=swap");
 @import url("https://fonts.googleapis.com/icon?family=Material+Icons");
 
 /* ============================================
@@ -354,10 +354,10 @@
 }
 
   /* Typography */
-  --snrg-font-primary: "Orbitron", sans-serif;
-  --snrg-font-secondary: "Quantico", sans-serif;
-  --snrg-font-body: "Inter", sans-serif;
-  --snrg-font-display: "Shantell Sans", sans-serif;
+  --snrg-font-primary: "Sora", sans-serif;
+  --snrg-font-secondary: "Sora", sans-serif;
+  --snrg-font-body: "Sora", sans-serif;
+  --snrg-font-display: "Sora", sans-serif;
 
   /* Font Sizes */
   --snrg-text-xs: 0.75rem;
@@ -2206,7 +2206,7 @@ h6 {
 }
 
 .snrg-brand-text {
-  font-family: "Orbitron", sans-serif;
+  font-family: var(--snrg-font-primary);
   font-size: 2rem;
   font-weight: 700;
   position: relative;
@@ -3685,7 +3685,7 @@ h6 {
   }
 
   .snrg-nav .snrg-mobile-brand-text {
-    font-family: "Orbitron", sans-serif;
+    font-family: var(--snrg-font-primary);
     font-size: 1.8rem;
     font-weight: 600;
     z-index: 3;
@@ -4452,7 +4452,7 @@ h6 {
   }
 
   .snrg-nav .snrg-mobile-brand-text {
-    font-family: "Orbitron", sans-serif;
+    font-family: var(--snrg-font-primary);
     font-size: 1.1rem;
     font-weight: 600;
     z-index: 3;
@@ -4710,7 +4710,7 @@ h6 {
 
   /* Brand Text */
   .snrg-mobile-brand-text {
-    font-family: "Orbitron", sans-serif;
+    font-family: var(--snrg-font-primary);
     font-size: 1rem;
     font-weight: 600;
   }

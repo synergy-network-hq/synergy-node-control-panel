@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WORKSPACE_ROOT="${HOME}/.synergy-devnet-control-panel/monitor-workspace"
+LEGACY_ROOT="${HOME}/.synergy-node-monitor/monitor-workspace"
+SYSTEMD_SERVICE="${HOME}/.config/systemd/user/synergy-devnet-agent.service"
+
+echo "Cleaning Synergy Devnet Control Panel artifacts on Linux..."
+
+systemctl --user stop synergy-devnet-agent.service >/dev/null 2>&1 || true
+systemctl --user disable synergy-devnet-agent.service >/dev/null 2>&1 || true
+rm -f "$SYSTEMD_SERVICE"
+systemctl --user daemon-reload >/dev/null 2>&1 || true
+rm -rf "$WORKSPACE_ROOT" "$LEGACY_ROOT"
+
+echo "Removed local control-panel workspace and systemd user service."
+echo "WireGuard system state was not touched."
+

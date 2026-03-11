@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/devnet/lean15/node-inventory.csv"
-HOSTS_FILE="${1:-$ROOT_DIR/devnet/lean15/hosts.env}"
+HOSTS_FILE="${1:-${HOSTS_FILE:-}}"
 OUT_DIR="$ROOT_DIR/devnet/lean15/configs"
 NODE_ADDRESSES_FILE="$ROOT_DIR/devnet/lean15/keys/node-addresses.csv"
 USE_HOST_OVERRIDES="false"
@@ -39,12 +39,16 @@ if [[ ! -f "$NODE_ADDRESSES_FILE" ]]; then
   exit 1
 fi
 
-if [[ -s "$HOSTS_FILE" ]]; then
+if [[ -n "${HOSTS_FILE:-}" && -s "$HOSTS_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$HOSTS_FILE"
   USE_HOST_OVERRIDES="true"
 else
-  echo "Hosts override file not found or empty at $HOSTS_FILE; using values from inventory." >&2
+  if [[ -n "${HOSTS_FILE:-}" ]]; then
+    echo "Hosts override file not found or empty at $HOSTS_FILE; using values from inventory." >&2
+  else
+    echo "No hosts override file provided; using values from inventory." >&2
+  fi
 fi
 
 mkdir -p "$OUT_DIR"
@@ -301,7 +305,7 @@ collaboration = 0.2
 
 [logging]
 log_level = "debug"
-log_file = "data/devnet15/${node_slot_id}/logs/${node_alias}.log"
+log_file = "data/logs/${node_alias}.log"
 enable_console = true
 max_file_size = 10485760
 max_files = 5
@@ -327,7 +331,7 @@ heartbeat_interval = 30
 
 [storage]
 database = "rocksdb"
-path = "data/devnet15/${node_slot_id}/chain"
+path = "data/chain"
 enable_pruning = ${enable_pruning}
 pruning_interval = 86400
 

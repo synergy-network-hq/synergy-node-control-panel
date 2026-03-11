@@ -33,6 +33,11 @@ function formatThroughput(value) {
   return `${numeric.toFixed(digits)} tx/s`;
 }
 
+function formatLatency(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+  return `${Math.round(Number(value))} ms`;
+}
+
 function NetworkMonitorDashboard() {
   const [snapshot, setSnapshot] = useState(null);
   const [agentSnapshot, setAgentSnapshot] = useState(null);
@@ -154,18 +159,28 @@ function NetworkMonitorDashboard() {
 
   const nodes = snapshot?.nodes || [];
   const totalNodes = snapshot?.total_nodes ?? 0;
+  const totalMachines = new Set(
+    nodes.map((entry) => entry?.node?.physical_machine_id || entry?.node?.node_slot_id).filter(Boolean),
+  ).size;
+  const reachableAgentCount = (agentSnapshot?.agents || []).filter((agent) => agent?.reachable).length;
+  const liveResponseSamples = nodes
+    .filter((entry) => entry?.online && Number.isFinite(Number(entry?.response_ms)))
+    .map((entry) => Number(entry.response_ms));
+  const averageLatencyMs = liveResponseSamples.length
+    ? liveResponseSamples.reduce((sum, value) => sum + value, 0) / liveResponseSamples.length
+    : null;
   const summaryCards = [
     {
       label: 'Online',
       value: formatCountRatio(snapshot?.online_nodes, totalNodes),
       note: 'Nodes responding',
-      tone: 'cyan',
+      tone: 'lime',
     },
     {
       label: 'Syncing',
       value: formatCountRatio(snapshot?.syncing_nodes, totalNodes),
       note: 'Catching up',
-      tone: 'blue',
+      tone: 'cyan',
     },
     {
       label: 'Average Block Time',
@@ -177,19 +192,31 @@ function NetworkMonitorDashboard() {
       label: 'Offline',
       value: formatCountRatio(snapshot?.offline_nodes, totalNodes),
       note: 'Need attention',
-      tone: 'crimson',
+      tone: 'lime',
     },
     {
       label: 'Highest Block',
       value: formatWholeNumber(snapshot?.highest_block),
       note: 'Network head',
-      tone: 'lime',
+      tone: 'cyan',
     },
     {
       label: 'Throughput',
       value: formatThroughput(snapshot?.throughput_tps),
       note: 'Block emission velocity',
-      tone: 'amber',
+      tone: 'violet',
+    },
+    {
+      label: 'Agent Reachability',
+      value: formatCountRatio(reachableAgentCount, totalMachines),
+      note: 'Machines with agent',
+      tone: 'blue',
+    },
+    {
+      label: 'Average RPC Latency',
+      value: formatLatency(averageLatencyMs),
+      note: 'Operator responsiveness',
+      tone: 'blue',
     },
   ];
 
@@ -235,11 +262,8 @@ function NetworkMonitorDashboard() {
         </div>
         <div className="monitor-toolbar-right">
           <div className="monitor-toolbar-actions">
-            <button className="monitor-btn monitor-btn-primary" onClick={() => fetchSnapshot()}>
-              Refresh Now
-            </button>
             <button
-              className="monitor-btn monitor-btn-success"
+              className="monitor-btn monitor-action-start"
               onClick={() => handleFleetConfirm('start')}
               disabled={fleetBusy || resetBusy}
               title="Start all nodes across all machines"
@@ -247,12 +271,15 @@ function NetworkMonitorDashboard() {
               {fleetBusy && fleetAction === 'start' ? 'Starting...' : 'Start All'}
             </button>
             <button
-              className="monitor-btn"
+              className="monitor-btn monitor-action-stop"
               onClick={() => handleFleetConfirm('stop')}
               disabled={fleetBusy || resetBusy}
               title="Stop all nodes across all machines"
             >
               {fleetBusy && fleetAction === 'stop' ? 'Stopping...' : 'Stop All'}
+            </button>
+            <button className="monitor-btn monitor-btn-primary" onClick={() => fetchSnapshot()}>
+              Refresh Now
             </button>
             <button
               className="monitor-btn monitor-btn-primary"
@@ -495,14 +522,14 @@ function NetworkMonitorDashboard() {
                 <td className="monitor-controls-cell">
                   <div className="monitor-row-controls">
                     <button
-                      className="monitor-row-btn monitor-row-btn-success"
+                      className="monitor-row-btn monitor-action-start"
                       onClick={() => handleNodeAction(entry.node.node_slot_id, 'start')}
                       disabled={fleetBusy || resetBusy || !!nodeActionKey || entry.online}
                     >
                       {nodeActionKey === `${entry.node.node_slot_id}:start` ? 'Starting...' : 'Start'}
                     </button>
                     <button
-                      className="monitor-row-btn monitor-row-btn-danger"
+                      className="monitor-row-btn monitor-action-stop"
                       onClick={() => handleNodeAction(entry.node.node_slot_id, 'stop')}
                       disabled={fleetBusy || resetBusy || !!nodeActionKey || !entry.online}
                     >

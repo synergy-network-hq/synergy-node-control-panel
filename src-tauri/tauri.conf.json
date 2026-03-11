@@ -55,8 +55,10 @@
       "../devnet/lean15/configs",
       "../devnet/lean15/installers",
       "../devnet/lean15/wireguard",
+      "../devnet/lean15/workspace-manifest.json",
       "../binaries",
       "../scripts/devnet15",
+      "../scripts/cleanup",
       "../scripts/reset-devnet.sh",
       "../guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md"
     ]

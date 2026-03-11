@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:sidecars": "bash scripts/build-sidecars.sh",
-    "build:bundle-prep": "npm run build:sidecars && vite build",
+    "build:bundle-prep": "bash scripts/release/build-bundle-prep.sh",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

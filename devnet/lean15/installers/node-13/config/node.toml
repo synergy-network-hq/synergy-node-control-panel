@@ -37,7 +37,7 @@ collaboration = 0.2
 
 [logging]
 log_level = "debug"
-log_file = "data/devnet15/node-13/logs/service-02.log"
+log_file = "data/logs/service-02.log"
 enable_console = true
 max_file_size = 10485760
 max_files = 5
@@ -63,7 +63,7 @@ heartbeat_interval = 30
 
 [storage]
 database = "rocksdb"
-path = "data/devnet15/node-13/chain"
+path = "data/chain"
 enable_pruning = true
 pruning_interval = 86400
 
