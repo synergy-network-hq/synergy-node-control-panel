@@ -1,8 +1,8 @@
 {
-  "workspace_resource_version": "3.0.1+44c3bf540252",
-  "app_version": "3.0.1",
-  "source_revision": "44c3bf540252fc9f6a44c83a0970634aace8eee6",
-  "generated_at_utc": "2026-03-11T00:36:30Z",
+  "workspace_resource_version": "4.0.0+41c065421b3f",
+  "app_version": "4.0.0",
+  "source_revision": "41c065421b3fc7316ceb97d435d6899f7426a689",
+  "generated_at_utc": "2026-03-11T01:03:36Z",
   "required_paths": [
     "devnet/lean15/node-inventory.csv",
     "devnet/lean15/hosts.env.example",
