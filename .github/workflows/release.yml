@@ -41,6 +41,13 @@ jobs:
           repository: synergy-network-hq/synergy-devnet
           path: synergy-devnet-src
           token: ${{ secrets.SYNERGY_SOURCE_REPO_TOKEN || github.token }}
+          sparse-checkout: |
+            Cargo.toml
+            Cargo.lock
+            src
+            aegis-pqvm
+            vendor
+          sparse-checkout-cone-mode: true
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
