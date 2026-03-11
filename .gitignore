@@ -50,6 +50,9 @@ Thumbs.db
 *~
 .tmp-release-assets-*
 binaries/synergy-devnet-agent-*
+!binaries/synergy-devnet-agent-darwin-arm64
+!binaries/synergy-devnet-agent-linux-amd64
+!binaries/synergy-devnet-agent-windows-amd64.exe
 
 # IDE
 .vscode/
