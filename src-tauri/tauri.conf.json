@@ -68,7 +68,7 @@
       "endpoints": [
         "https://github.com/synergy-network-hq/devnet-control-panel-releases/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhDNEZDRjlBMUY1RDE2RTkKUldUcEZsMGZtczlQak9uVU1nUi9wMTlUaUQzS0xYbU1ZRDEwcktJRGpmSU8rNUxYekRVQVE2NVAK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwNjBCREMzRTdGRTk2ODcKUldTSGx2N253NzFnNEJlanZJeUFib3FiSUpXaEdiQU56RjhuT1lhR2V0dm11dHh6ZnZpR2MxRVIK"
     }
   }
 }
