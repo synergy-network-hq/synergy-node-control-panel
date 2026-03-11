@@ -5,7 +5,7 @@ Linux Binary
 ------------
 Path: ./bin/synergy-devnet-linux-amd64
 Source: fallback-prebuilt(binaries/synergy-devnet-linux-amd64)
-SHA-256: b634227e3516dfc76d6f967d3f247e6d0b8eb0e2133cc2eaef30e68695415eaa
+SHA-256: 3ff6fbdb328eb3d96a50527cba7b500abcb2678c365b9c8118a29c45f79363fa
 
 Darwin Binary
 -------------
@@ -17,7 +17,7 @@ Windows Binary
 --------------
 Path: ./bin/synergy-devnet-windows-amd64.exe
 Source: fallback-prebuilt(binaries/synergy-devnet-windows-amd64.exe)
-SHA-256: 8a21e2aef5dfbb0770fe14e774424381cc35a7ca0e6ca3a5363510504d81722d
+SHA-256: 2b34eb89e7cc05eb34bfb958f26e074ca7798c9c67f247bff9b85492cdf72b52
 
 Interpretation
 --------------
