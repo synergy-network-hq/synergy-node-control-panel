@@ -721,38 +721,29 @@ fn detect_local_machine_id_override() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn local_agent_health_check() -> Result<DevnetAgentHealth, String> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
+async fn local_agent_health_check() -> Result<DevnetAgentHealth, String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(2))
+        .connect_timeout(Duration::from_secs(1))
         .build()
+        .unwrap_or_else(|_| Client::new());
+    let response = client
+        .get(format!("http://127.0.0.1:{DEVNET_AGENT_PORT}/health"))
+        .send()
+        .await
+        .map_err(|error| format!("Local devnet agent health request failed: {error}"))?
+        .error_for_status()
         .map_err(|error| {
-            format!("Failed to build runtime for local agent health check: {error}")
+            format!("Local devnet agent health endpoint returned an error: {error}")
         })?;
-
-    runtime.block_on(async {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(2))
-            .connect_timeout(Duration::from_secs(1))
-            .build()
-            .unwrap_or_else(|_| Client::new());
-        let response = client
-            .get(format!("http://127.0.0.1:{DEVNET_AGENT_PORT}/health"))
-            .send()
-            .await
-            .map_err(|error| format!("Local devnet agent health request failed: {error}"))?
-            .error_for_status()
-            .map_err(|error| {
-                format!("Local devnet agent health endpoint returned an error: {error}")
-            })?;
-        response
-            .json::<DevnetAgentHealth>()
-            .await
-            .map_err(|error| format!("Failed to decode local devnet agent health payload: {error}"))
-    })
+    response
+        .json::<DevnetAgentHealth>()
+        .await
+        .map_err(|error| format!("Failed to decode local devnet agent health payload: {error}"))
 }
 
 #[tauri::command]
-pub fn monitor_mark_setup_complete(
+pub async fn monitor_mark_setup_complete(
     physical_machine_id: String,
 ) -> Result<MonitorSetupStatus, String> {
     let mut config = load_security_config()?;
@@ -784,7 +775,7 @@ pub fn monitor_mark_setup_complete(
             detected_machine_id, normalized_machine
         ));
     }
-    let health = local_agent_health_check()?;
+    let health = local_agent_health_check().await?;
     if health.status.trim().to_ascii_lowercase() != "ok" {
         return Err(
             "Setup cannot be marked complete: local devnet agent health is not OK.".to_string(),
