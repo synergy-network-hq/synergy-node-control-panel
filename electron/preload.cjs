@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('synergyDesktop', {
   mode: 'electron',
@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('synergyDesktop', {
   openHelpWindow: () => ipcRenderer.invoke('desktop:open-help-window'),
   openExternal: (url) => ipcRenderer.invoke('desktop:open-external', url),
   showSaveDialog: (options) => ipcRenderer.invoke('desktop:show-save-dialog', options),
-  writeTextFile: (path, contents) => ipcRenderer.invoke('desktop:write-text-file', { path, contents }),
+  writeTextFile: (path, contents) =>
+    ipcRenderer.invoke('desktop:write-text-file', { path, contents }),
   relaunch: () => ipcRenderer.invoke('desktop:relaunch'),
 });

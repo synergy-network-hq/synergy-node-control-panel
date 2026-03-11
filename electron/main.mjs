@@ -21,11 +21,11 @@ function getRendererEntry(hash = '/') {
     url.hash = hash;
     return url.toString();
   }
+  return null;
+}
 
-  const indexPath = path.join(repoRoot, 'dist', 'index.html');
-  const url = new URL(`file://${indexPath}`);
-  url.hash = hash;
-  return url.toString();
+function getRendererIndexPath() {
+  return path.join(repoRoot, 'dist', 'index.html');
 }
 
 async function findAvailablePort(startPort = 47891, attempts = 20) {
@@ -167,7 +167,7 @@ async function createWindow(hash = '/') {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -175,7 +175,16 @@ async function createWindow(hash = '/') {
     window.show();
   });
 
-  await window.loadURL(getRendererEntry(hash));
+  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`renderer failed to load (${errorCode}): ${errorDescription} -> ${validatedURL}`);
+  });
+
+  const rendererEntry = getRendererEntry(hash);
+  if (rendererEntry) {
+    await window.loadURL(rendererEntry);
+  } else {
+    await window.loadFile(getRendererIndexPath(), { hash });
+  }
   return window;
 }
 
