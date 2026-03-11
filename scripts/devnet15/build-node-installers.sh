@@ -10,6 +10,7 @@ OUT_DIR="${OUT_DIR:-$ROOT_DIR/devnet/lean15/installers}"
 DEVNET_CHAIN_ID="${DEVNET_CHAIN_ID:-338638}"
 DEVNET_NETWORK_ID="${DEVNET_NETWORK_ID:-338638}"
 SOURCE_REPO_ROOT="${SYNERGY_DEVNET_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/../.." && pwd)}"
+PREFER_BUNDLED_BINARIES="${PREFER_BUNDLED_BINARIES:-1}"
 
 FRESH_HOST_BINARY="$ROOT_DIR/target/release/synergy-devnet"
 FRESH_DARWIN_BINARY="$ROOT_DIR/target/aarch64-apple-darwin/release/synergy-devnet"
@@ -127,6 +128,27 @@ resolve_binaries() {
   local host_os host_arch
   host_os="$(uname -s)"
   host_arch="$(uname -m)"
+
+  if [[ "$PREFER_BUNDLED_BINARIES" == "1" ]]; then
+    if [[ -f "$FALLBACK_DARWIN_BINARY" ]]; then
+      DARWIN_BINARY="$FALLBACK_DARWIN_BINARY"
+      DARWIN_BINARY_SOURCE="bundled-release-binary(binaries/synergy-devnet-darwin-arm64)"
+    fi
+
+    if [[ -f "$FALLBACK_LINUX_BINARY" ]]; then
+      LINUX_BINARY="$FALLBACK_LINUX_BINARY"
+      LINUX_BINARY_SOURCE="bundled-release-binary(binaries/synergy-devnet-linux-amd64)"
+    fi
+
+    if [[ -f "$FALLBACK_WINDOWS_BINARY" ]]; then
+      WINDOWS_BINARY="$FALLBACK_WINDOWS_BINARY"
+      WINDOWS_BINARY_SOURCE="bundled-release-binary(binaries/synergy-devnet-windows-amd64.exe)"
+    fi
+
+    if [[ -n "$DARWIN_BINARY" && -n "$LINUX_BINARY" && -n "$WINDOWS_BINARY" ]]; then
+      return
+    fi
+  fi
 
   if [[ "$host_os" == "Darwin" && "$host_arch" == "arm64" && -f "$FRESH_HOST_BINARY" ]]; then
     DARWIN_BINARY="$FRESH_HOST_BINARY"
@@ -1408,11 +1430,7 @@ Notes
 - Windows firewall automation prompts for elevation when needed and otherwise prints the required TCP ports.
 - This folder is self-contained for this node instance.
 - Public DNS should resolve to public hosts only; never point public DNS at private VPN IPs.
-- Binary provenance:
-  - Linux: $linux_source
-  - macOS: $darwin_source
-  - Windows: $windows_source
-- See BINARY_STATUS.txt for SHA-256 checksums and build-source details.
+- See BINARY_STATUS.txt for bundled binary paths and SHA-256 checksums.
 TXT
 }
 
@@ -1432,26 +1450,21 @@ Synergy Devnet Binary Status
 Linux Binary
 ------------
 Path: ./bin/synergy-devnet-linux-amd64
-Source: $linux_source
 SHA-256: $linux_sha
 
 Darwin Binary
 -------------
 Path: ./bin/synergy-devnet-darwin-arm64
-Source: $darwin_source
 SHA-256: $darwin_sha
 
 Windows Binary
 --------------
 Path: ./bin/synergy-devnet-windows-amd64.exe
-Source: $windows_source
 SHA-256: $windows_sha
 
 Interpretation
 --------------
-- Source containing "fresh" indicates locally built binaries from this workspace.
-- Source containing "fallback-prebuilt" indicates prebuilt artifacts copied from /binaries.
-- For production-grade deployment, prefer fresh builds for all target platforms.
+- These checksums reflect the exact bundled binaries shipped in this installer.
 TXT
 }
 
