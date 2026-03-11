@@ -5,13 +5,33 @@
   "author": "Synergy Network <support@synergy-network.io>",
   "type": "module",
   "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on tcp:1420 && cross-env ELECTRON_START_URL=http://127.0.0.1:1420 electron .",
+    "dev:desktop": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "build": "vite build",
+    "build:control-service": "cargo build --manifest-path src-tauri/Cargo.toml --bin control-service --release --no-default-features",
+    "build:electron": "npm run build:bundle-prep && npm run build:control-service && node scripts/electron/prepare-runtime.mjs",
+    "dist:electron": "npm run build:electron && electron-builder --config electron-builder.yml",
+    "build:sidecars": "bash scripts/build-sidecars.sh",
+    "build:bundle-prep": "bash scripts/release/build-bundle-prep.sh",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-updater": "^2.10.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.30.3",
     "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^35.0.2",
+    "electron-builder": "^25.1.8",
+    "vite": "^7.3.0",
+    "wait-on": "^8.0.3"
   }
 }

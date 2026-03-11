@@ -732,7 +732,7 @@ echo 'Reindex initiated from block 0.'
 
 deploy_agent() {
   if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
-    echo "Node $NODE_SLOT_ID is on the local machine — the devnet agent runs as a Tauri app sidecar here."
+    echo "Node $NODE_SLOT_ID is on the local machine — the devnet agent is managed by the Electron app and local control-service here."
     echo "Rebuild and relaunch the control panel app to update the local agent."
     exit 0
   fi

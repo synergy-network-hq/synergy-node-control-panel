@@ -9,7 +9,7 @@ It ships the active node-slot inventory in `devnet/lean15/node-inventory.csv`, r
 - monitor node-slot health and sync state
 - bootstrap and operate the closed devnet from one control surface
 - manage SSH/RBAC/operator bindings for the fleet
-- check for signed app updates and install published releases
+- check published releases and open installer downloads
 
 ## WireGuard Control Agent
 
@@ -40,7 +40,7 @@ Operational requirement:
 
 - `src/`: React frontend
 - `electron/`: Electron main-process and preload bridge
-- `src-tauri/`: Rust/Tauri backend
+- `src-tauri/`: Rust control-service and shared native orchestration code
 - `src-tauri/src/bin/control-service.rs`: local Rust control-service used by Electron
 - `devnet/lean15/`: inventory, rendered configs, installers, reports, WireGuard assets
 - `guides/`: bundled operator manuals used by the app Help window
@@ -61,7 +61,7 @@ npm run dev:desktop
 npm run dist:electron
 ```
 
-Tauri sources remain in `src-tauri/` as reference during the migration, but the active desktop runtime is now Electron plus the local Rust `control-service`.
+The shipped desktop runtime is Electron plus the local Rust `control-service`.
 
 ## Inventory Resolution
 

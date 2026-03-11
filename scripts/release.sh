@@ -10,9 +10,8 @@
 #
 # This script will:
 #   1. Validate the version string
-#   2. Bump the version in all config files (package.json, Cargo.toml,
-#      tauri.conf.json)
-#   3. Run local release preflight checks, including a signed local bundle build
+#   2. Bump the version in package.json and src-tauri/Cargo.toml
+#   3. Run local release preflight checks, including an Electron runtime build
 #   4. Commit the version bump
 #   5. Create a git tag (v2.0.2)
 #   6. Push the tag to origin, which triggers the GitHub Actions release build
@@ -62,10 +61,6 @@ echo "Bumping version in src-tauri/Cargo.toml..."
 sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
 rm -f src-tauri/Cargo.toml.bak
 
-echo "Bumping version in src-tauri/tauri.conf.json..."
-sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-rm -f src-tauri/tauri.conf.json.bak
-
 # Update Cargo.lock if it exists
 if [[ -f src-tauri/Cargo.lock ]]; then
   echo "Updating Cargo.lock..."
@@ -83,17 +78,17 @@ echo "Bundled release assets refreshed."
 echo ""
 
 echo "Running release preflight..."
-chmod +x scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/verify-signing-key.sh
+chmod +x scripts/release/preflight.sh scripts/release/generate-latest-json.sh
 ./scripts/release/preflight.sh
 echo ""
 echo "Preflight passed."
 echo ""
 
 # ── Commit and tag ──
-git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
+git add package.json src-tauri/Cargo.toml
 git add src-tauri/Cargo.lock 2>/dev/null || true
 git add devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json
-git add scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/verify-signing-key.sh .github/workflows/release.yml 2>/dev/null || true
+git add scripts/release/preflight.sh scripts/release/generate-latest-json.sh .github/workflows/release.yml 2>/dev/null || true
 git commit -m "chore: bump version to $VERSION"
 git tag -a "$TAG" -m "Release $TAG"
 
@@ -110,8 +105,8 @@ if [[ "$confirm" =~ ^[Yy]$ ]]; then
   echo "Pushed! The GitHub Actions release build is now running."
   echo "Monitor progress at: https://github.com/synergy-network-hq/devnet-control-panel/actions"
   echo ""
-  echo "Once complete, installers will be available at:"
-  echo "  https://github.com/synergy-network-hq/devnet-control-panel-releases/releases/tag/$TAG"
+  echo "Once complete, download the generated installers from the workflow artifacts"
+  echo "or publish them to the releases repo for distribution."
 else
   echo ""
   echo "Tag created locally but not pushed. Push manually with:"

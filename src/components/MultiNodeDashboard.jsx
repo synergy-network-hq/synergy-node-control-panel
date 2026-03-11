@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { invoke, listen } from '../lib/desktopClient';
 
 /**
  * MultiNodeDashboard component provides a comprehensive dashboard for managing

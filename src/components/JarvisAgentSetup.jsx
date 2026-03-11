@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../lib/desktopClient';
 
 const PROVISION_SEQUENCE = ['setup', 'start', 'status'];
 const DEVNET_NODE_LAYOUT = [

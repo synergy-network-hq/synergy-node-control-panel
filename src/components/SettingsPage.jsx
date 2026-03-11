@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import "../styles.css";
-import { invoke } from "@tauri-apps/api/tauri";
-import { save } from "@tauri-apps/api/dialog";
-import { writeTextFile } from "@tauri-apps/api/fs";
+import { invoke, showSaveDialog as save, writeTextFile } from "../lib/desktopClient";
 
 function formatMonitorTimestamp(value) {
   if (!value) return "N/A";

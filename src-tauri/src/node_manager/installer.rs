@@ -38,7 +38,7 @@ pub async fn install_node_binaries(
         },
     );
 
-    // Get the bundled binary from Tauri's resource directory
+    // Get the bundled binary from the packaged desktop app resources
     let resource_path = app
         .path()
         .resource_dir()

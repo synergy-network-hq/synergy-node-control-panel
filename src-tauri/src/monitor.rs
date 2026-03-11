@@ -1966,7 +1966,7 @@ pub async fn monitor_run_terminal_command(
     // Spawn the blocking `.output()` call onto a dedicated thread so that the
     // async runtime is not stalled, then race it against a timeout. This also
     // means a hung process will be killed (via the JoinHandle being dropped)
-    // rather than keeping a Tauri thread-pool thread permanently occupied.
+    // rather than keeping a desktop worker thread permanently occupied.
     let output_result = tokio::time::timeout(
         tokio::time::Duration::from_secs(TERMINAL_COMMAND_TIMEOUT_SECS),
         tokio::task::spawn_blocking(move || {

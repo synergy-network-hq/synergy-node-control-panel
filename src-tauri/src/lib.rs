@@ -4,11 +4,3 @@ pub mod control_service;
 pub mod devnet_agent_service;
 pub mod event_bus;
 pub mod monitor;
-#[cfg(feature = "desktop-tauri")]
-pub mod blockchain;
-#[cfg(feature = "desktop-tauri")]
-pub mod env_config;
-#[cfg(feature = "desktop-tauri")]
-pub mod node_manager;
-#[cfg(feature = "desktop-tauri")]
-pub mod recipe;

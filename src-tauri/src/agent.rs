@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 
-/// Tauri command implementing deterministic, recipe-driven node setup.
+/// Legacy desktop command implementing deterministic, recipe-driven node setup.
 /// Parses and validates the provided YAML recipe and delegates to the
 /// existing node setup logic while emitting real progress events.
 #[cfg(feature = "desktop-tauri")]

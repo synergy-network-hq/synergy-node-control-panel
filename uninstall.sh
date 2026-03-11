@@ -75,7 +75,7 @@ fi
 echo ""
 echo "Removing application data..."
 
-# Tauri standard directories
+# Legacy desktop-app directories
 if [[ -d "$HOME/.config/com.synergy.node-monitor" ]]; then
     rm -rf "$HOME/.config/com.synergy.node-monitor"
     echo "✓ Removed ~/.config/com.synergy.node-monitor"

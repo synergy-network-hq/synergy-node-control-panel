@@ -1506,7 +1506,7 @@ fn copy_template_for_node(
 
     // 1. Try resource directory (for bundled app)
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        // Tauri bundles ../templates as _up_/templates
+        // Packaged desktop builds bundle ../templates as _up_/templates
         template_paths.push(
             resource_dir
                 .join("_up_")

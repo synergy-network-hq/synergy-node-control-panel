@@ -4,25 +4,29 @@ All paths are relative to the repo root unless stated otherwise.
 
 ---
 
-## 1. Control Panel (Tauri App)
+## 1. Control Panel (Electron App)
 
 These commands are for developing, building, and running the desktop control panel application itself.
 
-### `npm run tauri:dev`
+### `npm run dev:desktop`
 **Run from:** repo root
-**What it does:** Starts the control panel in development mode — hot-reloads the React frontend and compiles the Rust backend on changes. Use this during active development. Recompiles all Rust source (including any recent monitor.rs / orchestrator fixes) so changes take effect immediately.
+**What it does:** Starts the Vite renderer and launches the Electron shell against it. The Electron main process starts the local Rust `control-service` on demand.
 
-### `npm run tauri:build`
+### `npm run build:control-service`
 **Run from:** repo root
-**What it does:** Compiles a production-signed installer bundle for the current platform only (macOS → `.dmg`, Linux → `.AppImage` / `.deb`, Windows → `.msi` / `.exe`). Requires the updater signing key to be present (`TAURI_SIGNING_PRIVATE_KEY`). For full multi-platform releases, use the release workflow instead.
+**What it does:** Compiles the local Rust `control-service` binary used by Electron.
+
+### `npm run dist:electron`
+**Run from:** repo root
+**What it does:** Builds the renderer, stages the `control-service` runtime, and packages a production Electron installer for the current platform only (macOS → `.dmg`, Linux → `.deb`, Windows → `.exe`).
 
 ### `npm run dev`
 **Run from:** repo root
-**What it does:** Starts the Vite frontend dev server only (no Tauri/Rust). Useful for pure UI work in a browser. Tauri backend commands (invoke calls) will not work.
+**What it does:** Starts the Vite frontend dev server only. Useful for pure UI work in a browser. Desktop-only Electron bridge calls will not work there.
 
 ### `npm run build`
 **Run from:** repo root
-**What it does:** Compiles the React frontend to `dist/`. Called automatically as part of `tauri:build` and the release preflight. Rarely needed on its own.
+**What it does:** Compiles the React frontend to `dist/`. Called automatically as part of `dist:electron` and the release preflight. Rarely needed on its own.
 
 ### `npm install`
 **Run from:** repo root
@@ -62,7 +66,7 @@ rustup target add x86_64-pc-windows-gnu           # required for --windows / --a
 
 **CI variant (used in `release.yml`):** The workflow sets `CARGO_BUILD_TARGET=<triple>` and calls `bash scripts/build-sidecars.sh` with no flags. Each GitHub Actions runner builds its own platform natively, so `cargo-zigbuild` is not needed in CI.
 
-**Why these binaries matter:** `binaries/` is bundled as a Tauri resource (see `tauri.conf.json`). When you click **Update Agent** in the control panel, `deploy_agent()` copies the matching binary from this directory to the remote machine over SSH. If `synergy-devnet-agent-linux-amd64` is missing, all agent deployments to Linux machines will fail with "binary not found".
+**Why these binaries matter:** `binaries/` is bundled into the Electron app as extra resources. When you click **Update Agent** in the control panel, `deploy_agent()` copies the matching binary from this directory to the remote machine over SSH. If `synergy-devnet-agent-linux-amd64` is missing, all agent deployments to Linux machines will fail with "binary not found".
 
 ---
 
@@ -88,7 +92,7 @@ All remote node actions (both SSH-based and agent-based) go through a single scr
 
 ### `scripts/devnet15/remote-node-orchestrator.sh`
 **Run from:** repo root
-**What it does:** Executes a single operation on a single remote node. The control panel calls this script internally via Tauri's sidecar mechanism. You can also invoke it directly from the terminal.
+**What it does:** Executes a single operation on a single remote node. The control panel calls this script internally through the local Rust `control-service`. You can also invoke it directly from the terminal.
 
 ```bash
 bash scripts/devnet15/remote-node-orchestrator.sh <node-slot-id> <operation>
@@ -194,7 +198,7 @@ bash scripts/reset-devnet.sh
 
 ### `scripts/release.sh <version>`
 **Run from:** repo root
-**What it does:** The single command to cut and publish a new release. Bumps the version across all config files (`package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`), runs the release preflight checks, commits the version bump, creates a signed git tag, and pushes it to origin — which triggers the GitHub Actions release build.
+**What it does:** The single command to cut and publish a new release. Bumps the version in `package.json` and `src-tauri/Cargo.toml`, runs the release preflight checks, commits the version bump, creates a git tag, and pushes it to origin — which triggers the GitHub Actions release build.
 
 ```bash
 bash scripts/release.sh 2.11.0
@@ -203,7 +207,7 @@ bash scripts/release.sh 2.11.0
 **What it does step by step:**
 1. Validates the version string is valid semver (`major.minor.patch`)
 2. Checks there are no uncommitted changes (exits if there are)
-3. Bumps the version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`
+3. Bumps the version in `package.json` and `src-tauri/Cargo.toml`
 4. Runs `scripts/release/preflight.sh` (see below)
 5. Commits the version bump
 6. Creates an annotated git tag (`v2.11.0`)
@@ -222,34 +226,11 @@ bash scripts/release/preflight.sh
 ```
 
 **Checks it performs:**
-- Version strings in `package.json`, `Cargo.toml`, and `tauri.conf.json` all match
-- Updater endpoints and public key are configured in `tauri.conf.json`
-- Required GitHub Actions secrets exist (`RELEASES_REPO_TOKEN`, `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)
+- Version strings in `package.json` and `Cargo.toml` match
+- Electron packaging metadata exists in `electron-builder.yml`
 - Frontend builds cleanly (`npm run build`)
-- Rust compiles cleanly (`cargo check`)
-- If a local signing key is present: runs a full local signed bundle build and verifies the updater artifacts are produced
-
----
-
-### `scripts/verify-signing-key.sh`
-**Run from:** repo root
-**What it does:** Validates that the Tauri updater signing key is structurally correct and that its key ID matches the public key embedded in `tauri.conf.json`. Run this any time you rotate the signing key or set it up on a new machine.
-
-```bash
-# Using a key file:
-TAURI_SIGNING_PRIVATE_KEY="$HOME/.synergy-devnet-control-panel/updater.key" \
-  bash scripts/verify-signing-key.sh
-
-# Using the raw secret value:
-export TAURI_SIGNING_PRIVATE_KEY="<base64 secret from GitHub>"
-bash scripts/verify-signing-key.sh
-```
-
-**What it checks:**
-- The value base64-decodes cleanly
-- The decoded payload is a two-line minisign secret key format
-- The signature algorithm is Ed25519
-- The key ID from signing a test payload matches the public key in `tauri.conf.json`
+- The local Rust control-service compiles cleanly (`cargo check --bin control-service --no-default-features`)
+- The Electron runtime bundle can be staged for packaging
 
 ---
 
@@ -260,9 +241,8 @@ bash scripts/verify-signing-key.sh
 2.  bash scripts/build-sidecars.sh --all   # build all agent binaries locally (optional — CI does this too)
 3.  bash scripts/release.sh <version>       # bumps versions, runs preflight, tags, pushes
     └─ triggers GitHub Actions release.yml
-       ├─ build-agents: builds agent binary natively on ubuntu / macos / windows runners
-       └─ build: downloads agent binaries, runs `npx tauri build` on all 3 platforms
-          └─ uploads installers to synergy-network-hq/devnet-control-panel-releases
+       └─ build: runs Electron packaging on macOS / Linux / Windows
+          └─ uploads installers as GitHub Actions artifacts
 ```
 
 **Monitor the build:** `https://github.com/synergy-network-hq/devnet-control-panel/actions`
@@ -274,8 +254,9 @@ bash scripts/verify-signing-key.sh
 
 | Command | Run From | Purpose |
 |---|---|---|
-| `npm run tauri:dev` | repo root | Dev mode — live reload frontend + Rust |
-| `npm run tauri:build` | repo root | Build production installer for current platform |
+| `npm run dev:desktop` | repo root | Dev mode — Vite renderer + Electron shell |
+| `npm run build:control-service` | repo root | Build the local Rust control-service |
+| `npm run dist:electron` | repo root | Build production installer for current platform |
 | `npm install` | repo root | Install/update Node dependencies |
 | `bash scripts/build-sidecars.sh` | repo root | Build agent binary for current platform |
 | `bash scripts/build-sidecars.sh --linux` | repo root | Cross-compile agent for Linux (zigbuild) |
@@ -287,4 +268,3 @@ bash scripts/verify-signing-key.sh
 | `bash scripts/reset-devnet.sh` | repo root | Full devnet reset (stop + wipe + regenerate) |
 | `bash scripts/release.sh <version>` | repo root | Cut and publish a new release |
 | `bash scripts/release/preflight.sh` | repo root | Validate release readiness without publishing |
-| `bash scripts/verify-signing-key.sh` | repo root | Verify updater signing key matches tauri.conf.json |

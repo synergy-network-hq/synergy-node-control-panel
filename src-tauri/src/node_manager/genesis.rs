@@ -298,7 +298,7 @@ pub fn load_or_generate_genesis(
     Ok(config)
 }
 
-// ── Tauri command wrappers ──────────────────────────────────────────────
+// ── Legacy desktop command wrappers ─────────────────────────────────────
 
 fn resolve_workspace() -> Result<PathBuf, String> {
     let ws = crate::monitor::get_monitor_workspace_path()?;

@@ -51,7 +51,7 @@ If node ports or RPC endpoints are internet-reachable without explicit hardening
 
 ## 2. Architecture and Workspace Layout
 
-The Synergy Devnet Control Panel app is a Tauri desktop application (Rust backend + React frontend).
+The Synergy Devnet Control Panel app is an Electron desktop application backed by a local Rust control-service and a React frontend.
 
 ### 2.1 Workspace locations by OS
 
@@ -458,30 +458,30 @@ xattr -dr com.apple.quarantine "/Applications/Synergy Devnet Control Panel.app"
 ```bash
 cd tools/devnet-control-panel
 npm ci
-npm run tauri:build
+npm run dist:electron
 ```
 
-Then install generated package from `src-tauri/target/release/bundle/` (for example `.deb` or `.AppImage`).
+Then install the generated package from `electron-dist/` (for example `.deb`).
 
 ### 6.3 Windows install
 
 ```powershell
 cd tools\devnet-control-panel
 npm ci
-npm run tauri:build
+npm run dist:electron
 ```
 
-Install generated `.msi` or setup `.exe` from `src-tauri\target\release\bundle\`.
+Install the generated setup `.exe` from `electron-dist\`.
 
 ### 6.4 Update channel behavior
 
-`Check Updates` is wired to the published signed release metadata URL configured in `src-tauri/tauri.conf.json`.
+`Check Updates` compares the installed app version against the latest GitHub release and opens the release download page when a newer installer is available.
 
 Operator expectation:
 
 1. bump the app version before tagging a release
-2. publish a signed release so `latest.json` and updater signatures exist
-3. installed apps poll the release metadata and show an install prompt when a newer version is available
+2. publish the Electron installers to GitHub Releases
+3. installed apps open the latest release page when a newer version is available
 
 ---
 

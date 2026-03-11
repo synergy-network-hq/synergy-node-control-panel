@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 echo "== Bundle prep =="
 
 ensure_version_alignment() {
-  local package_version cargo_version tauri_version
+  local package_version cargo_version
 
   package_version="$(node -e 'const fs=require("fs"); const pkg=JSON.parse(fs.readFileSync("package.json","utf8")); process.stdout.write(pkg.version);')"
   cargo_version="$(python3 - <<'PY'
@@ -21,15 +21,13 @@ if not match:
 print(match.group(1), end="")
 PY
 )"
-  tauri_version="$(node -e 'const fs=require("fs"); const cfg=JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json","utf8")); process.stdout.write(cfg.version);')"
 
-  if [[ "$package_version" != "$cargo_version" || "$package_version" != "$tauri_version" ]]; then
+  if [[ "$package_version" != "$cargo_version" ]]; then
     cat >&2 <<EOF
 Version mismatch detected:
   package.json:            $package_version
   src-tauri/Cargo.toml:    $cargo_version
-  src-tauri/tauri.conf.json: $tauri_version
-Keep all three release version sources aligned before tagging a release.
+Keep the desktop package version and control-service version aligned before tagging a release.
 EOF
     exit 1
   fi
@@ -119,4 +117,4 @@ fi
 ./scripts/release/generate-workspace-manifest.sh
 ./scripts/release/validate-bundled-assets.sh
 
-vite build
+npm run build
