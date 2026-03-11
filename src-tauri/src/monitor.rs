@@ -15,6 +15,7 @@ use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(feature = "desktop-tauri")]
 use tauri::AppHandle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -401,18 +402,18 @@ struct MonitorSecurityConfig {
     setup: MonitorSetupState,
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn get_monitor_inventory_path() -> Result<String, String> {
     resolve_inventory_path().map(|path| path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn get_monitor_workspace_path() -> Result<String, String> {
     let workspace = resolve_monitor_workspace_path()?;
     Ok(workspace.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn get_monitor_user_manual_markdown() -> Result<String, String> {
     let workspace = resolve_monitor_workspace_path()?;
     let manual_path = workspace.join(MONITOR_USER_MANUAL_RELATIVE);
@@ -432,6 +433,7 @@ pub fn get_monitor_user_manual_markdown() -> Result<String, String> {
     })
 }
 
+#[cfg(feature = "desktop-tauri")]
 #[tauri::command]
 pub fn monitor_initialize_workspace(app_handle: AppHandle) -> Result<String, String> {
     let workspace = ensure_monitor_workspace(&app_handle)?;
@@ -443,6 +445,7 @@ pub fn monitor_initialize_workspace_from_context(app_context: &AppContext) -> Re
     Ok(workspace.to_string_lossy().to_string())
 }
 
+#[cfg(feature = "desktop-tauri")]
 #[tauri::command]
 pub fn monitor_ensure_ssh_keypair(app_handle: AppHandle) -> Result<String, String> {
     let app_context = AppContext::from_tauri(&app_handle);
@@ -510,12 +513,12 @@ pub fn monitor_ensure_ssh_keypair_from_context(app_context: &AppContext) -> Resu
     )
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn get_monitor_security_state() -> Result<MonitorSecurityState, String> {
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
@@ -776,13 +779,13 @@ fn effective_machine_id_for_node(
     physical_machine_for_vpn_ip(&resolved_host).unwrap_or_else(|| node.physical_machine_id.clone())
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_get_setup_status() -> Result<MonitorSetupStatus, String> {
     let config = load_security_config()?;
     Ok(build_monitor_setup_status(&config))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, String> {
     if let Some(machine_id) = detect_local_machine_id_override() {
         let node_slot_ids = logical_nodes_for_physical_machine(&machine_id)?;
@@ -856,7 +859,7 @@ async fn local_agent_health_check() -> Result<DevnetAgentHealth, String> {
         .map_err(|error| format!("Failed to decode local devnet agent health payload: {error}"))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn monitor_mark_setup_complete(
     physical_machine_id: String,
     node_slot_ids: Option<Vec<String>>,
@@ -947,7 +950,7 @@ pub async fn monitor_mark_setup_complete(
     Ok(build_monitor_setup_status(&config))
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_set_active_operator(operator_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let requested = operator_id.trim();
@@ -973,7 +976,7 @@ pub fn monitor_set_active_operator(operator_id: String) -> Result<MonitorSecurit
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_upsert_operator(
     input: MonitorOperatorInput,
 ) -> Result<MonitorSecurityState, String> {
@@ -1031,7 +1034,7 @@ pub fn monitor_upsert_operator(
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_delete_operator(operator_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
@@ -1069,7 +1072,7 @@ pub fn monitor_delete_operator(operator_id: String) -> Result<MonitorSecuritySta
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_upsert_ssh_profile(
     input: MonitorSshProfileInput,
 ) -> Result<MonitorSecurityState, String> {
@@ -1140,7 +1143,7 @@ pub fn monitor_upsert_ssh_profile(
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_delete_ssh_profile(profile_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
@@ -1172,7 +1175,7 @@ pub fn monitor_delete_ssh_profile(profile_id: String) -> Result<MonitorSecurityS
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_assign_ssh_binding(
     input: MonitorSshBindingInput,
 ) -> Result<MonitorSecurityState, String> {
@@ -1235,7 +1238,7 @@ pub fn monitor_assign_ssh_binding(
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn monitor_remove_ssh_binding(node_slot_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
@@ -1264,7 +1267,7 @@ pub fn monitor_remove_ssh_binding(node_slot_id: String) -> Result<MonitorSecurit
     load_monitor_security_state()
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
@@ -1329,7 +1332,7 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn monitor_bulk_node_control(
     action: String,
     scope: Option<String>,
@@ -1644,7 +1647,7 @@ async fn reset_explorer_index() -> Result<(), String> {
     }
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNodeDetails, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
@@ -1827,7 +1830,7 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
     })
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn monitor_node_control(
     node_slot_id: String,
     action: String,
@@ -1857,6 +1860,7 @@ pub async fn monitor_node_control(
     execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "single").await
 }
 
+#[cfg(feature = "desktop-tauri")]
 #[tauri::command]
 pub async fn monitor_update_local_agent(
     node_slot_id: String,
@@ -1929,7 +1933,7 @@ pub async fn monitor_update_local_agent_from_context(
 /// failure rather than leaving the UI frozen.
 const TERMINAL_COMMAND_TIMEOUT_SECS: u64 = 300;
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn monitor_run_terminal_command(
     command: String,
     cwd: Option<String>,
@@ -2188,6 +2192,7 @@ mod terminal_command_tests {
     }
 }
 
+#[cfg(feature = "desktop-tauri")]
 #[tauri::command]
 pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, String> {
     let app_context = AppContext::from_tauri(&app_handle);
@@ -2314,7 +2319,7 @@ fn apply_monitor_devnet_topology(workspace: &Path) -> Result<String, String> {
     Ok(message)
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub async fn monitor_export_node_data(node_slot_id: String) -> Result<MonitorExportResult, String> {
     let details = get_monitor_node_details(node_slot_id.clone()).await?;
     let exported_at_utc = Utc::now().to_rfc3339();
@@ -6246,6 +6251,7 @@ struct MonitorWorkspaceManifest {
     required_paths: Vec<String>,
 }
 
+#[cfg(feature = "desktop-tauri")]
 pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let app_context = AppContext::from_tauri(app_handle);
     ensure_monitor_workspace_with_context(&app_context)

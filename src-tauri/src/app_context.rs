@@ -27,6 +27,7 @@ impl AppContext {
         }
     }
 
+    #[cfg(feature = "desktop-tauri")]
     pub fn from_tauri(app_handle: &tauri::AppHandle) -> Self {
         use tauri::Manager;
 

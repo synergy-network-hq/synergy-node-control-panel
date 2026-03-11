@@ -7,6 +7,16 @@ edition = "2021"
 default-run = "synergy-devnet-control-panel"
 autobins = false
 
+[features]
+default = ["desktop-tauri"]
+desktop-tauri = [
+  "dep:tauri",
+  "dep:tauri-plugin-shell",
+  "dep:tauri-plugin-dialog",
+  "dep:tauri-plugin-fs",
+  "dep:tauri-plugin-updater",
+]
+
 [[bin]]
 name = "synergy-devnet-control-panel"
 path = "src/main.rs"
@@ -19,11 +29,11 @@ path = "src/bin/control-service.rs"
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.0", features = [] }
-tauri-plugin-shell = "2.0"
-tauri-plugin-dialog = "2.0"
-tauri-plugin-fs = "2.0"
-tauri-plugin-updater = "2"
+tauri = { version = "2.0", features = [], optional = true }
+tauri-plugin-shell = { version = "2.0", optional = true }
+tauri-plugin-dialog = { version = "2.0", optional = true }
+tauri-plugin-fs = { version = "2.0", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.40", features = ["full"] }

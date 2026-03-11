@@ -75,8 +75,14 @@ jobs:
             patchelf \
             libfuse2
 
-      - name: Build renderer assets and runtime bundle
-        run: npm run build:electron
+      - name: Build renderer assets
+        run: npm run build
+
+      - name: Build headless control-service runtime
+        run: cargo build --manifest-path src-tauri/Cargo.toml --bin control-service --release --no-default-features
+
+      - name: Stage Electron runtime bundle
+        run: node scripts/electron/prepare-runtime.mjs
 
       - name: Build installer
         shell: bash

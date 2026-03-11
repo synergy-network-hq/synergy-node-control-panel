@@ -1,8 +1,12 @@
 use crate::devnet_agent_service::DEVNET_AGENT_PORT;
 use crate::app_context::AppContext;
+#[cfg(feature = "desktop-tauri")]
 use crate::node_manager::commands::{setup_node, NodeSetupOptions, SetupProgress};
+#[cfg(feature = "desktop-tauri")]
 use crate::node_manager::multi_node::MultiNodeManager;
+#[cfg(feature = "desktop-tauri")]
 use crate::node_manager::multi_node_process::ProcessManager;
+#[cfg(feature = "desktop-tauri")]
 use crate::recipe::load_and_validate;
 use chrono::Utc;
 use reqwest::Client;
@@ -13,14 +17,18 @@ use std::fs::OpenOptions;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
+#[cfg(feature = "desktop-tauri")]
 use std::sync::Arc;
+#[cfg(feature = "desktop-tauri")]
 use tauri::{AppHandle, Emitter, State};
+#[cfg(feature = "desktop-tauri")]
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 
 /// Tauri command implementing deterministic, recipe-driven node setup.
 /// Parses and validates the provided YAML recipe and delegates to the
 /// existing node setup logic while emitting real progress events.
+#[cfg(feature = "desktop-tauri")]
 #[tauri::command]
 pub async fn agent_setup_node(
     recipe_path: String,
@@ -100,6 +108,7 @@ pub struct JarvisPrepareHostsEnvInput {
     pub machines: Vec<JarvisMachineConnectionInput>,
 }
 
+#[cfg(feature = "desktop-tauri")]
 #[tauri::command]
 pub fn agent_monitor_initialize_workspace(app_handle: AppHandle) -> Result<String, String> {
     let workspace = crate::monitor::ensure_monitor_workspace(&app_handle)?;
@@ -113,12 +122,13 @@ pub fn agent_monitor_initialize_workspace_from_context(
     Ok(workspace.to_string_lossy().to_string())
 }
 
-#[tauri::command]
+#[cfg_attr(feature = "desktop-tauri", tauri::command)]
 pub fn agent_get_inventory_machines() -> Result<Vec<JarvisInventoryMachine>, String> {
     let inventory_path = PathBuf::from(crate::monitor::get_monitor_inventory_path()?);
     parse_inventory_machines(&inventory_path)
 }
 
+#[cfg(feature = "desktop-tauri")]
 #[tauri::command]
 pub fn agent_prepare_hosts_env(
     input: JarvisPrepareHostsEnvInput,
@@ -406,6 +416,7 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
     Ok(output)
 }
 
+#[cfg(feature = "desktop-tauri")]
 pub async fn ensure_local_devnet_agent(app_handle: AppHandle) -> Result<(), String> {
     let workspace_root = crate::monitor::ensure_monitor_workspace(&app_handle)?;
     ensure_local_devnet_agent_in_workspace(&workspace_root).await
@@ -461,6 +472,7 @@ pub async fn ensure_local_devnet_agent_in_workspace(workspace_root: &Path) -> Re
     Err("Local devnet agent did not become healthy after startup".to_string())
 }
 
+#[cfg(feature = "desktop-tauri")]
 pub async fn force_update_local_devnet_agent(app_handle: AppHandle) -> Result<PathBuf, String> {
     let workspace_root = crate::monitor::ensure_monitor_workspace(&app_handle)?;
     force_update_local_devnet_agent_in_workspace(&workspace_root).await
