@@ -1,8 +1,6 @@
 Synergy Devnet Binary Status
 ============================
 
-Generated At: 2026-03-11T01:57:41Z
-
 Linux Binary
 ------------
 Path: ./bin/synergy-devnet-linux-amd64

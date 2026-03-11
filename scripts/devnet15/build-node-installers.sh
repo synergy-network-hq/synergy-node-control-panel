@@ -1392,8 +1392,6 @@ write_binary_status_file() {
 Synergy Devnet Binary Status
 ============================
 
-Generated At: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
 Linux Binary
 ------------
 Path: ./bin/synergy-devnet-linux-amd64

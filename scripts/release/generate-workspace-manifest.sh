@@ -6,10 +6,7 @@ cd "$ROOT_DIR"
 
 MANIFEST_PATH="$ROOT_DIR/devnet/lean15/workspace-manifest.json"
 APP_VERSION="$(node -e 'const fs=require("fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));process.stdout.write(pkg.version);')"
-SOURCE_REVISION="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
-GENERATED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-python3 - <<'PY' "$ROOT_DIR" "$MANIFEST_PATH" "$APP_VERSION" "$SOURCE_REVISION" "$GENERATED_AT_UTC"
+python3 - <<'PY' "$ROOT_DIR" "$MANIFEST_PATH" "$APP_VERSION"
 import hashlib
 import json
 import pathlib
@@ -18,8 +15,6 @@ import sys
 root = pathlib.Path(sys.argv[1])
 manifest_path = pathlib.Path(sys.argv[2])
 app_version = sys.argv[3]
-source_revision = sys.argv[4]
-generated_at_utc = sys.argv[5]
 
 required_paths = [
     "devnet/lean15/node-inventory.csv",
@@ -55,11 +50,24 @@ for rel in checksum_targets:
     if path.is_file():
         checksums[rel] = sha256_file(path)
 
+bundle_hasher = hashlib.sha256()
+for rel in required_paths:
+    path = root / rel
+    bundle_hasher.update(rel.encode("utf-8"))
+    if path.is_file():
+        bundle_hasher.update(sha256_file(path).encode("utf-8"))
+        continue
+    if path.is_dir():
+        for child in sorted(p for p in path.rglob("*") if p.is_file()):
+            bundle_hasher.update(str(child.relative_to(root)).encode("utf-8"))
+            bundle_hasher.update(sha256_file(child).encode("utf-8"))
+
+bundle_digest = bundle_hasher.hexdigest()
+
 manifest = {
-    "workspace_resource_version": f"{app_version}+{source_revision[:12]}",
+    "workspace_resource_version": f"{app_version}+{bundle_digest[:12]}",
     "app_version": app_version,
-    "source_revision": source_revision,
-    "generated_at_utc": generated_at_utc,
+    "bundle_digest": bundle_digest,
     "required_paths": required_paths,
     "checksums": checksums,
 }
@@ -68,4 +76,3 @@ manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
 PY
 
 echo "Workspace manifest ready: $MANIFEST_PATH"
-
