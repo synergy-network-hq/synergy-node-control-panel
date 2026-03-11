@@ -103,7 +103,10 @@ if [[ "$HAS_LOCAL_SIGNING_KEY" == "true" ]]; then
   fi
 
   echo "Local signed bundle build (${HOST_TARGET})..."
-  TAURI_SIGNING_PRIVATE_KEY="$KEY_INPUT" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$KEY_PASSWORD" npx tauri build "${BUILD_ARGS[@]}"
+  ALLOW_DIRTY_BUNDLE_PREP=1 \
+  TAURI_SIGNING_PRIVATE_KEY="$KEY_INPUT" \
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$KEY_PASSWORD" \
+  npx tauri build "${BUILD_ARGS[@]}"
 
   MAC_UPDATER_BUNDLE="$(find "$ARTIFACT_ROOT/macos" -maxdepth 1 -type f -name '*.app.tar.gz' | head -n 1 || true)"
   MAC_UPDATER_SIG="$(find "$ARTIFACT_ROOT/macos" -maxdepth 1 -type f -name '*.app.tar.gz.sig' | head -n 1 || true)"
