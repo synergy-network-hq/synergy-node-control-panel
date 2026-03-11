@@ -58,7 +58,14 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libarchive-tools fakeroot rpm
+          sudo apt-get install -y \
+            libarchive-tools \
+            fakeroot \
+            rpm \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - name: Build renderer assets and runtime bundle
         run: npm run build:electron

@@ -2076,8 +2076,10 @@ fn split_command_arguments(command: &str) -> Result<Vec<String>, String> {
 mod terminal_command_tests {
     use super::{
         agent_error_requires_ssh_fallback, logical_nodes_for_physical_machine,
-        physical_machine_for_binding_target, split_command_arguments,
+        physical_machine_for_binding_target, preferred_control_plane_host, resolve_host_override,
+        split_command_arguments,
     };
+    use std::collections::HashMap;
 
     #[test]
     fn splits_powershell_file_command_with_windows_path() {
@@ -2161,6 +2163,27 @@ mod terminal_command_tests {
         assert_eq!(
             logical_nodes_for_physical_machine("machine-10").expect("machine-10 should resolve"),
             vec!["node-24", "node-25"]
+        );
+    }
+
+    #[test]
+    fn prefers_vpn_ip_for_generated_control_plane_host() {
+        assert_eq!(
+            preferred_control_plane_host("192.168.11.98", "10.50.0.7", "73.79.66.255", "192.168.11.98"),
+            "10.50.0.7"
+        );
+    }
+
+    #[test]
+    fn host_override_prefers_vpn_ip_over_stale_host() {
+        let overrides = HashMap::from([
+            ("node_12_host".to_string(), "192.168.11.98".to_string()),
+            ("node_12_vpn_ip".to_string(), "10.50.0.7".to_string()),
+        ]);
+
+        assert_eq!(
+            resolve_host_override(&overrides, "node-12", "interop-04", "10.50.0.7".to_string()),
+            "10.50.0.7"
         );
     }
 }
@@ -2835,6 +2858,12 @@ fn resolve_host_override(
     let fallback_key = fallback.to_lowercase();
 
     let candidate_keys = [
+        format!("{}_vpn_ip", machine_snake),
+        format!("{}_vpn_ip", node_snake),
+        format!("{}_internal_host", machine_snake),
+        format!("{}_internal_host", node_snake),
+        format!("{}_p2p_host", machine_snake),
+        format!("{}_p2p_host", node_snake),
         machine.clone(),
         machine_snake.clone(),
         format!("{}_host", machine_snake),
@@ -7012,6 +7041,18 @@ struct MonitorHostsEnvEntry {
     local_ip: String,
 }
 
+fn preferred_control_plane_host(host: &str, vpn_ip: &str, public_ip: &str, local_ip: &str) -> String {
+    if !vpn_ip.trim().is_empty() {
+        vpn_ip.trim().to_string()
+    } else if !host.trim().is_empty() {
+        host.trim().to_string()
+    } else if !public_ip.trim().is_empty() {
+        public_ip.trim().to_string()
+    } else {
+        local_ip.trim().to_string()
+    }
+}
+
 fn generate_monitor_hosts_env(
     workspace_root: &Path,
     inventory_path: &Path,
@@ -7064,15 +7105,12 @@ fn generate_monitor_hosts_env(
 
     for entry in entries {
         let node_slot_key = entry.node_slot_id.to_ascii_uppercase().replace('-', "_");
-        let resolved_host = if !entry.local_ip.trim().is_empty() {
-            entry.local_ip.clone()
-        } else if !entry.public_ip.trim().is_empty() {
-            entry.public_ip.clone()
-        } else if !entry.host.trim().is_empty() {
-            entry.host.clone()
-        } else {
-            entry.vpn_ip.clone()
-        };
+        let control_plane_host = preferred_control_plane_host(
+            &entry.host,
+            &entry.vpn_ip,
+            &entry.public_ip,
+            &entry.local_ip,
+        );
 
         lines.push(
             "# -----------------------------------------------------------------------------"
@@ -7082,7 +7120,7 @@ fn generate_monitor_hosts_env(
             "# {} ({} | {} | {} | {})",
             entry.node_slot_id, entry.node_alias, entry.role_group, entry.role, entry.node_type
         ));
-        lines.push(format!("{node_slot_key}_HOST={resolved_host}"));
+        lines.push(format!("{node_slot_key}_HOST={control_plane_host}"));
         lines.push(format!("{node_slot_key}_VPN_IP={}", entry.vpn_ip));
         lines.push(format!("{node_slot_key}_SSH_USER=ops"));
         lines.push(format!("{node_slot_key}_SSH_PORT=22"));

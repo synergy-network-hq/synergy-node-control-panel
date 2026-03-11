@@ -48,14 +48,12 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ _ _ _ _ 
 
   node_slot_key="$(printf '%s' "$node_slot_id" | tr '[:lower:]-' '[:upper:]_')"
 
-  if [[ -z "${host:-}" ]]; then
-    host="$vpn_ip"
-  fi
+  control_host="${vpn_ip:-${host:-}}"
 
   cat >> "$OUTPUT_FILE" <<ENTRY
 # -----------------------------------------------------------------------------
 # $node_slot_id ($node_alias | $role_group | $role | $node_type)
-${node_slot_key}_HOST=$host
+${node_slot_key}_HOST=$control_host
 ${node_slot_key}_VPN_IP=$vpn_ip
 ${node_slot_key}_SSH_USER=ops
 ${node_slot_key}_SSH_PORT=22

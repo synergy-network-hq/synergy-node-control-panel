@@ -103,13 +103,16 @@ SSH_PORT_VAR="${MACHINE_KEY_UPPER}_SSH_PORT"
 SSH_KEY_VAR="${MACHINE_KEY_UPPER}_SSH_KEY"
 REMOTE_DIR_VAR="${MACHINE_KEY_UPPER}_REMOTE_DIR"
 
-HOST="$(resolve_var "$HOST_VAR")"
-if [[ -z "$HOST" ]]; then
-  HOST="$(inventory_host)"
-fi
 VPN_IP="$(resolve_var "$VPN_VAR")"
 if [[ -z "$VPN_IP" ]]; then
   VPN_IP="$(inventory_vpn_ip)"
+fi
+HOST="$VPN_IP"
+if [[ -z "$HOST" ]]; then
+  HOST="$(resolve_var "$HOST_VAR")"
+fi
+if [[ -z "$HOST" ]]; then
+  HOST="$(inventory_host)"
 fi
 
 SSH_USER="$(resolve_var "$SSH_USER_VAR")"
