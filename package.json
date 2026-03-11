@@ -2,7 +2,7 @@
   "name": "synergy-devnet-control-panel",
   "version": "4.0.20",
   "description": "Synergy Devnet Control Panel",
-  "author": "Synergy Network",
+  "author": "Synergy Network <support@synergy-network.io>",
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
