@@ -22,6 +22,7 @@ chain_id = 338638
 algorithm = "Proof of Synergy"
 block_time_secs = 2
 epoch_length = 50
+min_validators = 5
 validator_cluster_size = 7
 max_validators = 15
 synergy_score_decay_rate = 0.05

@@ -53,6 +53,11 @@ for node_dir in devnet/lean15/installers/node-*; do
       exit 1
     fi
   done
+
+  if ! grep -q '^min_validators = 5$' "$node_dir/config/node.toml"; then
+    echo "Installer config is missing the enforced minimum validator count in $node_dir/config/node.toml" >&2
+    exit 1
+  fi
 done
 
 for binary_path in binaries/synergy-devnet-darwin-arm64 binaries/synergy-devnet-linux-amd64 binaries/synergy-devnet-agent-darwin-arm64 binaries/synergy-devnet-agent-linux-amd64; do
@@ -66,11 +71,12 @@ for binary_path in binaries/synergy-devnet-darwin-arm64 binaries/synergy-devnet-
   fi
 done
 
-if ! git diff --quiet -- devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json; then
-  echo "Generated configs/installers/manifest are stale. Re-run bundle prep and commit the outputs." >&2
-  git diff -- devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json >&2 || true
-  exit 1
+if [[ "${ALLOW_DIRTY_BUNDLE_PREP:-0}" != "1" ]]; then
+  if ! git diff --quiet -- devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json; then
+    echo "Generated configs/installers/manifest are stale. Re-run bundle prep and commit the outputs." >&2
+    git diff -- devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json >&2 || true
+    exit 1
+  fi
 fi
 
 echo "Bundled assets validated."
-

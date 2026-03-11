@@ -2610,6 +2610,52 @@
   color: var(--snrg-text-primary);
 }
 
+.wizard-node-selection {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.68rem;
+}
+
+.wizard-node-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.72rem 0.78rem;
+  border: 1px solid var(--snrg-border-neutral);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--snrg-bg-glass) 84%, transparent);
+  cursor: pointer;
+}
+
+.wizard-node-option input {
+  margin-top: 0.2rem;
+}
+
+.wizard-node-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.wizard-node-option strong {
+  color: var(--snrg-text-primary);
+  font-size: 0.88rem;
+}
+
+.wizard-node-option small {
+  color: var(--snrg-text-secondary);
+  font-size: 0.78rem;
+}
+
+.wizard-node-option.is-selected {
+  border-color: color-mix(in srgb, var(--snrg-accent) 60%, var(--snrg-border-neutral));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--snrg-accent) 28%, transparent);
+}
+
+.wizard-node-option.is-recommended {
+  background: color-mix(in srgb, var(--snrg-accent) 8%, var(--snrg-bg-glass));
+}
+
 .wizard-instruction-list {
   margin: 0.42rem 0 0;
   padding-left: 1.15rem;

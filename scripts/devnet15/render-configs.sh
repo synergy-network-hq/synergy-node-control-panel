@@ -11,6 +11,7 @@ DEVNET_CHAIN_ID="${DEVNET_CHAIN_ID:-338638}"
 DEVNET_NETWORK_ID="${DEVNET_NETWORK_ID:-338638}"
 DEVNET_BLOCK_TIME_SECS="${DEVNET_BLOCK_TIME_SECS:-2}"
 DEVNET_EPOCH_LENGTH="${DEVNET_EPOCH_LENGTH:-50}"
+DEVNET_MIN_VALIDATORS="${DEVNET_MIN_VALIDATORS:-5}"
 ALLOW_WILDCARD_LISTEN="${ALLOW_WILDCARD_LISTEN:-false}"
 
 normalize_bool() {
@@ -290,6 +291,7 @@ chain_id = ${DEVNET_CHAIN_ID}
 algorithm = "Proof of Synergy"
 block_time_secs = ${DEVNET_BLOCK_TIME_SECS}
 epoch_length = ${DEVNET_EPOCH_LENGTH}
+min_validators = ${DEVNET_MIN_VALIDATORS}
 validator_cluster_size = 7
 max_validators = 15
 synergy_score_decay_rate = 0.05

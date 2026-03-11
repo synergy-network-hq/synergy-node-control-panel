@@ -81,6 +81,25 @@ function formatLogicalNodeList(machineIds) {
     .join(', ');
 }
 
+function isBootstrapValidatorLogicalNode(logicalNode) {
+  return String(logicalNode?.roleGroup || '').trim().toLowerCase() === 'consensus'
+    && String(logicalNode?.nodeType || '').trim().toLowerCase() === 'validator';
+}
+
+function recommendedSetupNodeIdsForMachine(machineEntry) {
+  if (!machineEntry) return [];
+
+  const validatorNodeIds = (Array.isArray(machineEntry.logicalNodes) ? machineEntry.logicalNodes : [])
+    .filter((logicalNode) => isBootstrapValidatorLogicalNode(logicalNode))
+    .map((logicalNode) => logicalNode.machineId);
+
+  if (validatorNodeIds.length > 0) {
+    return sortNodeSlotIds(validatorNodeIds);
+  }
+
+  return sortNodeSlotIds(machineEntry.logicalNodeIds || []);
+}
+
 function toCanonicalMachineId(value, fallback = '') {
   const normalize = (candidate) => {
     const parsed = String(candidate || '').trim().toLowerCase();
@@ -301,6 +320,7 @@ function InitialSetupWizard({ onComplete }) {
     remote_dir_override: '',
   });
   const [selectedPhysicalMachine, setSelectedPhysicalMachine] = useState('');
+  const [selectedSetupNodeIds, setSelectedSetupNodeIds] = useState([]);
   const [nodeSetupBusy, setNodeSetupBusy] = useState(false);
   const [nodeSetupSummary, setNodeSetupSummary] = useState('');
 
@@ -308,7 +328,6 @@ function InitialSetupWizard({ onComplete }) {
   const [autopilotSteps, setAutopilotSteps] = useState(() => newAutopilotSteps());
   const [autopilotProgress, setAutopilotProgress] = useState(0);
   const [autopilotSummary, setAutopilotSummary] = useState('');
-  const [autoStartMachineId, setAutoStartMachineId] = useState('');
   const [vpnDetectionMessage, setVpnDetectionMessage] = useState('');
   const [autopilotCurrentStepLabel, setAutopilotCurrentStepLabel] = useState('');
   const [autopilotCurrentCommand, setAutopilotCurrentCommand] = useState('');
@@ -392,19 +411,20 @@ function InitialSetupWizard({ onComplete }) {
           const logicalNodes = Array.isArray(identity?.node_slot_ids) ? identity.node_slot_ids : [];
 
           setSelectedPhysicalMachine(detectedMachine);
+          setSelectedSetupNodeIds(recommendedSetupNodeIdsForMachine(topologyMap[detectedMachine]));
           setBindingForm((prev) => ({
             ...prev,
             node_slot_id: detectedMachine,
             host_override: detectedVpnIp || prev.host_override,
           }));
           setVpnDetectionMessage(
-            `Detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Logical nodes: ${formatLogicalNodeList(logicalNodes)}`,
+            `Detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Review the selected node slots before running setup. Assigned nodes: ${formatLogicalNodeList(logicalNodes)}`,
           );
-          setAutoStartMachineId(detectedMachine);
           addTerminalLine(
             'success',
-            `Auto-detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Queueing autonomous setup...`,
+            `Auto-detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Select the node slots to bootstrap, then start setup.`,
           );
+          setStep(5);
         } else {
           const existingBindings = Array.isArray(state?.ssh_bindings) ? state.ssh_bindings : [];
           const inferredMachine = existingBindings.reduce((found, binding) => {
@@ -415,6 +435,7 @@ function InitialSetupWizard({ onComplete }) {
           if (inferredMachine) {
             const vpnIp = topologyMap[inferredMachine]?.vpnIp || '';
             setSelectedPhysicalMachine(inferredMachine);
+            setSelectedSetupNodeIds(recommendedSetupNodeIdsForMachine(topologyMap[inferredMachine]));
             setBindingForm((prev) => ({
               ...prev,
               node_slot_id: inferredMachine,
@@ -423,6 +444,7 @@ function InitialSetupWizard({ onComplete }) {
             const message = `VPN not detected. Inferred ${inferredMachine} from existing SSH bindings — ready to resume setup.`;
             setVpnDetectionMessage(message);
             addTerminalLine('info', message);
+            setStep(5);
           } else {
             const message = String(identity?.message || 'VPN machine auto-detection unavailable. Select machine manually.');
             setVpnDetectionMessage(message);
@@ -482,14 +504,26 @@ function InitialSetupWizard({ onComplete }) {
   const sshProfiles = securityState?.ssh_profiles || [];
   const machineBindings = securityState?.ssh_bindings || [];
   const recentSetupLines = useMemo(() => terminalLines.slice(-8), [terminalLines]);
-  const selectedLogicalNodes = useMemo(
+  const assignedLogicalNodes = useMemo(
     () => machineTopologyMap[selectedPhysicalMachine]?.logicalNodeIds || [],
     [machineTopologyMap, selectedPhysicalMachine],
   );
-  const selectedLogicalNodeSet = useMemo(
-    () => new Set(selectedLogicalNodes),
-    [selectedLogicalNodes],
+  const recommendedSetupNodeIds = useMemo(
+    () => recommendedSetupNodeIdsForMachine(machineTopologyMap[selectedPhysicalMachine]),
+    [machineTopologyMap, selectedPhysicalMachine],
   );
+  const selectedSetupNodeSet = useMemo(
+    () => new Set(selectedSetupNodeIds),
+    [selectedSetupNodeIds],
+  );
+  const selectedSetupNodes = useMemo(() => {
+    const logicalNodes = machineTopologyMap[selectedPhysicalMachine]?.logicalNodes || [];
+    return logicalNodes.filter((logicalNode) => selectedSetupNodeSet.has(logicalNode.machineId));
+  }, [machineTopologyMap, selectedPhysicalMachine, selectedSetupNodeSet]);
+  const skippedSetupNodes = useMemo(() => {
+    const logicalNodes = machineTopologyMap[selectedPhysicalMachine]?.logicalNodes || [];
+    return logicalNodes.filter((logicalNode) => !selectedSetupNodeSet.has(logicalNode.machineId));
+  }, [machineTopologyMap, selectedPhysicalMachine, selectedSetupNodeSet]);
   const overlayTopologyRows = useMemo(
     () =>
       machineTopologyRows.map((entry) => ({
@@ -497,11 +531,36 @@ function InitialSetupWizard({ onComplete }) {
         logicalNodes: entry.logicalNodes.map((logicalNode) => ({
           ...logicalNode,
           state: logicalNodeStates[logicalNode.machineId] || { status: 'idle', detail: 'not scheduled' },
-          isTarget: selectedLogicalNodeSet.has(logicalNode.machineId),
+          isTarget: selectedSetupNodeSet.has(logicalNode.machineId),
         })),
       })),
-    [logicalNodeStates, machineTopologyRows, selectedLogicalNodeSet],
+    [logicalNodeStates, machineTopologyRows, selectedSetupNodeSet],
   );
+
+  const syncSetupSelectionForMachine = (machineId) => {
+    const normalizedMachineId = toCanonicalMachineId(machineId);
+    const machineEntry = machineTopologyMap[normalizedMachineId];
+    const recommendedNodeIds = recommendedSetupNodeIdsForMachine(machineEntry);
+
+    setSelectedPhysicalMachine(normalizedMachineId);
+    setSelectedSetupNodeIds(recommendedNodeIds);
+    setBindingForm((prev) => ({
+      ...prev,
+      node_slot_id: normalizedMachineId,
+      host_override: machineEntry?.vpnIp || prev.host_override,
+    }));
+  };
+
+  const toggleSetupNodeSelection = (nodeSlotId) => {
+    setSelectedSetupNodeIds((prev) => {
+      const normalizedNodeId = toCanonicalMachineId(nodeSlotId);
+      if (!normalizedNodeId) return prev;
+      if (prev.includes(normalizedNodeId)) {
+        return prev.filter((entry) => entry !== normalizedNodeId);
+      }
+      return sortNodeSlotIds([...prev, normalizedNodeId]);
+    });
+  };
 
   useEffect(() => {
     if (!allLogicalNodeIds.length) return;
@@ -710,8 +769,12 @@ function InitialSetupWizard({ onComplete }) {
         throw new Error('Select the physical machine before running local node setup.');
       }
       const logicalNodes = machineTopologyMap[selectedMachine]?.logicalNodeIds || [];
+      const targetNodes = logicalNodes.filter((logicalNodeId) => selectedSetupNodeIds.includes(logicalNodeId));
       if (logicalNodes.length === 0) {
         throw new Error(`No logical node mapping found for ${selectedMachine}.`);
+      }
+      if (targetNodes.length === 0) {
+        throw new Error(`Select at least one node slot to set up for ${selectedMachine}.`);
       }
 
       const hostOverride = String(bindingForm.host_override || '').trim() || machineTopologyMap[selectedMachine]?.vpnIp || '';
@@ -727,14 +790,17 @@ function InitialSetupWizard({ onComplete }) {
       }
       await refreshSecurityState();
 
-      addTerminalLine('info', `Starting local node setup for ${selectedMachine}: ${formatLogicalNodeList(logicalNodes)}`);
+      addTerminalLine('info', `Starting local node setup for ${selectedMachine}: ${formatLogicalNodeList(targetNodes)}`);
 
       const installersRoot = joinWorkspacePath(workspacePath, 'devnet', 'lean15', 'installers');
-      for (const logicalMachineId of logicalNodes) {
+      for (const logicalMachineId of targetNodes) {
         await runStrictCommand(buildInstallerCommand(installersRoot, logicalMachineId), workspacePath || null);
       }
 
-      const summary = `Completed setup commands for ${selectedMachine} node slots: ${formatLogicalNodeList(logicalNodes)}`;
+      const skippedNodes = logicalNodes.filter((logicalNodeId) => !targetNodes.includes(logicalNodeId));
+      const summary = skippedNodes.length > 0
+        ? `Completed setup for ${selectedMachine}: ${formatLogicalNodeList(targetNodes)}. Skipped for now: ${formatLogicalNodeList(skippedNodes)}.`
+        : `Completed setup commands for ${selectedMachine} node slots: ${formatLogicalNodeList(targetNodes)}`;
       setNodeSetupSummary(summary);
       addTerminalLine('success', summary);
     } catch (setupError) {
@@ -786,11 +852,14 @@ function InitialSetupWizard({ onComplete }) {
         throw new Error('Select the physical machine (machine-01 through machine-13) before running autonomous setup.');
       }
       const logicalNodes = machineTopologyMap[selectedMachine]?.logicalNodeIds || [];
-      runLogicalNodes = logicalNodes;
+      const targetNodes = logicalNodes.filter((logicalNodeId) => selectedSetupNodeIds.includes(logicalNodeId));
       const vpnHost = machineTopologyMap[selectedMachine]?.vpnIp || String(bindingForm.host_override || '').trim();
 
       if (!logicalNodes.length) {
         throw new Error(`No logical node mapping found for ${selectedMachine}`);
+      }
+      if (!targetNodes.length) {
+        throw new Error(`Select at least one node slot to set up for ${selectedMachine}.`);
       }
       if (!vpnHost) {
         throw new Error(`No VPN IP mapping found for ${selectedMachine}`);
@@ -802,8 +871,9 @@ function InitialSetupWizard({ onComplete }) {
         node_slot_id: selectedMachine,
         host_override: vpnHost,
       }));
-      resetLogicalNodeStateForMachine(selectedMachine, logicalNodes);
-      addTerminalLine('info', `Autopilot trigger: ${triggerSource}. Target machine: ${selectedMachine}.`);
+      resetLogicalNodeStateForMachine(selectedMachine, targetNodes);
+      runLogicalNodes = targetNodes;
+      addTerminalLine('info', `Autopilot trigger: ${triggerSource}. Target machine: ${selectedMachine}. Selected nodes: ${formatLogicalNodeList(targetNodes)}.`);
 
       let resolvedWorkspace = workspacePath;
       let desiredKeyPath = joinWorkspacePath(workspacePath, 'keys', 'ssh', 'ops_ed25519');
@@ -929,11 +999,11 @@ function InitialSetupWizard({ onComplete }) {
 
       await runStep('installers', 'Run local installer scripts', async () => {
         const installersRoot = joinWorkspacePath(resolvedWorkspace, 'devnet', 'lean15', 'installers');
-        for (const [index, logicalMachineId] of logicalNodes.entries()) {
+        for (const [index, logicalMachineId] of targetNodes.entries()) {
           updateAutopilotStep(
             'installers',
             'running',
-            `Installing ${toLogicalNodeLabel(logicalMachineId)} (${index + 1}/${logicalNodes.length})`,
+            `Installing ${toLogicalNodeLabel(logicalMachineId)} (${index + 1}/${targetNodes.length})`,
           );
           setLogicalNodeState(logicalMachineId, 'running', 'running installer');
           try {
@@ -954,11 +1024,11 @@ function InitialSetupWizard({ onComplete }) {
         const statusFailures = [];
         const installersRoot = joinWorkspacePath(resolvedWorkspace, 'devnet', 'lean15', 'installers');
 
-        for (const [index, logicalMachineId] of logicalNodes.entries()) {
+        for (const [index, logicalMachineId] of targetNodes.entries()) {
           updateAutopilotStep(
             'validation',
             'running',
-            `Checking ${toLogicalNodeLabel(logicalMachineId)} (${index + 1}/${logicalNodes.length})`,
+            `Checking ${toLogicalNodeLabel(logicalMachineId)} (${index + 1}/${targetNodes.length})`,
           );
 
           let validated = false;
@@ -1033,7 +1103,7 @@ function InitialSetupWizard({ onComplete }) {
 
         const snapshot = await invoke('get_monitor_snapshot');
         const snapshotNodes = Array.isArray(snapshot?.nodes) ? snapshot.nodes : [];
-        const snapshotErrors = logicalNodes
+        const snapshotErrors = targetNodes
           .filter((machineId) =>
             !snapshotNodes.some((entry) => String(entry?.node?.node_slot_id || '').toLowerCase() === machineId.toLowerCase()),
           )
@@ -1045,7 +1115,7 @@ function InitialSetupWizard({ onComplete }) {
           throw new Error(statusFailures.join(' | '));
         }
 
-        addTerminalLine('success', `Validation passed for ${formatLogicalNodeList(logicalNodes)}`);
+        addTerminalLine('success', `Validation passed for ${formatLogicalNodeList(targetNodes)}`);
       });
 
       await runStep('complete', 'Mark setup complete', async () => {
@@ -1056,8 +1126,11 @@ function InitialSetupWizard({ onComplete }) {
 
       await refreshSecurityState();
       setStep(6);
+      const skippedNodes = logicalNodes.filter((logicalNodeId) => !targetNodes.includes(logicalNodeId));
       setAutopilotSummary(
-        `Autonomous setup finished for ${selectedMachine}. Logical nodes: ${formatLogicalNodeList(logicalNodes)}.`,
+        skippedNodes.length > 0
+          ? `Autonomous setup finished for ${selectedMachine}. Installed now: ${formatLogicalNodeList(targetNodes)}. Remaining for later: ${formatLogicalNodeList(skippedNodes)}.`
+          : `Autonomous setup finished for ${selectedMachine}. Logical nodes: ${formatLogicalNodeList(targetNodes)}.`,
       );
       setAutopilotCurrentStepLabel('Setup completed successfully');
       setAutopilotCurrentCommand('');
@@ -1085,19 +1158,6 @@ function InitialSetupWizard({ onComplete }) {
       setAutopilotBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (loading) return;
-    if (!autoStartMachineId) return;
-    if (autopilotBusy || nodeSetupBusy) return;
-
-    const machineId = toCanonicalMachineId(autoStartMachineId);
-    setAutoStartMachineId('');
-    if (!machineId) return;
-    setStep(5);
-    addTerminalLine('info', `Auto-starting autonomous setup for ${machineId} from detected VPN identity.`);
-    void runAutonomousSetup(machineId, 'vpn-auto-detect');
-  }, [autoStartMachineId, autopilotBusy, loading, nodeSetupBusy]);
 
   const manualSshKeySetupCommand = buildSshKeySetupCommand();
   const manualSshKeyListCommand = buildListSshKeysCommand();
@@ -1184,7 +1244,7 @@ function InitialSetupWizard({ onComplete }) {
                 onClick={() => {
                   void runAutonomousSetup();
                 }}
-                disabled={autopilotBusy || nodeSetupBusy || (!selectedPhysicalMachine && !autoStartMachineId)}
+                disabled={autopilotBusy || nodeSetupBusy || !selectedPhysicalMachine || selectedSetupNodeIds.length === 0}
               >
                 {autopilotBusy ? 'Autonomous Setup Running...' : 'Run Autonomous Setup'}
               </button>
@@ -1351,7 +1411,7 @@ function InitialSetupWizard({ onComplete }) {
                         host_override: machineTopologyMap[nextMachineId]?.vpnIp || prev.host_override,
                       }));
                       if (machineTopologyMap[nextMachineId]?.vpnIp) {
-                        setSelectedPhysicalMachine(nextMachineId);
+                        syncSetupSelectionForMachine(nextMachineId);
                       }
                     }}
                   >
@@ -1420,12 +1480,7 @@ function InitialSetupWizard({ onComplete }) {
                     value={selectedPhysicalMachine}
                     onChange={(event) => {
                       const nextMachineId = event.target.value;
-                      setSelectedPhysicalMachine(nextMachineId);
-                      setBindingForm((prev) => ({
-                        ...prev,
-                        node_slot_id: nextMachineId,
-                        host_override: machineTopologyMap[nextMachineId]?.vpnIp || prev.host_override,
-                      }));
+                      syncSetupSelectionForMachine(nextMachineId);
                     }}
                   >
                     <option value="" disabled>— Select this machine —</option>
@@ -1440,25 +1495,104 @@ function InitialSetupWizard({ onComplete }) {
                   </select>
                 </label>
                 <label>
-                  Logical Node Slots
+                  Assigned Logical Node Slots
                   <input
-                    value={formatLogicalNodeList(machineTopologyMap[selectedPhysicalMachine]?.logicalNodeIds || [])}
+                    value={formatLogicalNodeList(assignedLogicalNodes)}
+                    readOnly
+                  />
+                </label>
+                <label>
+                  Selected For This Setup Run
+                  <input
+                    value={formatLogicalNodeList(selectedSetupNodeIds)}
                     readOnly
                   />
                 </label>
               </div>
+              {selectedPhysicalMachine ? (
+                <div className="wizard-node-selection">
+                  {(machineTopologyMap[selectedPhysicalMachine]?.logicalNodes || []).map((logicalNode) => {
+                    const selected = selectedSetupNodeSet.has(logicalNode.machineId);
+                    const recommended = recommendedSetupNodeIds.includes(logicalNode.machineId);
+
+                    return (
+                      <label
+                        key={logicalNode.machineId}
+                        className={`wizard-node-option ${selected ? 'is-selected' : ''} ${recommended ? 'is-recommended' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleSetupNodeSelection(logicalNode.machineId)}
+                        />
+                        <span>
+                          <strong>{toLogicalNodeLabel(logicalNode.machineId)}</strong>
+                          <small>
+                            {logicalNode.role}
+                            {recommended ? ' • recommended for bootstrap' : ''}
+                          </small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <div className="wizard-action-row">
+                <button
+                  className="monitor-btn"
+                  onClick={() => setSelectedSetupNodeIds(recommendedSetupNodeIds)}
+                  disabled={nodeSetupBusy || autopilotBusy || !selectedPhysicalMachine || recommendedSetupNodeIds.length === 0}
+                >
+                  Select Recommended Nodes
+                </button>
+                <button
+                  className="monitor-btn"
+                  onClick={() => setSelectedSetupNodeIds(assignedLogicalNodes)}
+                  disabled={nodeSetupBusy || autopilotBusy || !selectedPhysicalMachine || assignedLogicalNodes.length === 0}
+                >
+                  Select All Assigned Nodes
+                </button>
+                <button
+                  className="monitor-btn"
+                  onClick={() => setSelectedSetupNodeIds([])}
+                  disabled={nodeSetupBusy || autopilotBusy || selectedSetupNodeIds.length === 0}
+                >
+                  Clear Selection
+                </button>
+              </div>
+              {selectedSetupNodes.length > 0 ? (
+                <p className="wizard-note">
+                  <strong>Selected now:</strong>
+                  {' '}
+                  {formatLogicalNodeList(selectedSetupNodeIds)}
+                  {skippedSetupNodes.length > 0 ? ` | Later: ${formatLogicalNodeList(skippedSetupNodes.map((entry) => entry.machineId))}` : ''}
+                </p>
+              ) : (
+                <p className="wizard-note">
+                  <strong>Select at least one node slot.</strong>
+                  {' '}
+                  On mixed-role machines, the recommended bootstrap path is validator-first.
+                </p>
+              )}
               {nodeSetupSummary ? (
                 <p className="wizard-note">
                   <strong>{nodeSetupSummary}</strong>
                 </p>
               ) : null}
+              <p className="wizard-note">
+                Skipped node slots can be set up later from the dashboard using the node&apos;s
+                {' '}
+                <strong>Setup</strong>
+                {' '}
+                action.
+              </p>
               <div className="wizard-action-row">
                 <button
                   className="monitor-btn monitor-btn-primary"
                   onClick={runLocalNodeSetup}
-                  disabled={nodeSetupBusy || autopilotBusy || !selectedPhysicalMachine}
+                  disabled={nodeSetupBusy || autopilotBusy || !selectedPhysicalMachine || selectedSetupNodeIds.length === 0}
                 >
-                  {nodeSetupBusy ? 'Running Setup...' : 'Run Local Node Setup'}
+                  {nodeSetupBusy ? 'Running Setup...' : 'Run Selected Node Setup'}
                 </button>
                 <button className="monitor-btn" onClick={() => setStep(6)} disabled={nodeSetupBusy || autopilotBusy}>
                   Continue
@@ -1474,6 +1608,15 @@ function InitialSetupWizard({ onComplete }) {
                 Entering the dashboard now requires setup completion to be marked in backend config.
                 If validation fails, this screen will show the exact blocking error.
               </p>
+              {selectedPhysicalMachine && skippedSetupNodes.length > 0 ? (
+                <p className="wizard-note">
+                  Setup completion is allowed even if you intentionally skipped
+                  {' '}
+                  {formatLogicalNodeList(skippedSetupNodes.map((entry) => entry.machineId))}
+                  {' '}
+                  for later install.
+                </p>
+              ) : null}
               <div className="wizard-action-row">
                 <button className="monitor-btn monitor-btn-primary" onClick={finalizeSetupAndEnter}>
                   Enter Control Panel
