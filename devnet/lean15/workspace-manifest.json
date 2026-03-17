@@ -1,7 +1,7 @@
 {
-  "workspace_resource_version": "4.0.20+0b0683d7bdb1",
-  "app_version": "4.0.20",
-  "bundle_digest": "0b0683d7bdb105f5515855cf4d17031680d11d6e79464edb33053ecf5964e9c9",
+  "workspace_resource_version": "5.0.0+ff922b4421b7",
+  "app_version": "5.0.0",
+  "bundle_digest": "ff922b4421b7851b969d08d8e79dcdd74777b5ecd5c449a23de07d717ecc6806",
   "required_paths": [
     "devnet/lean15/node-inventory.csv",
     "devnet/lean15/hosts.env.example",

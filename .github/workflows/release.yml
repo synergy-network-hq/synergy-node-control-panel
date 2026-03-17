@@ -95,3 +95,47 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
+
+  publish-releases-repo:
+    name: Publish installers to releases repo
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish GitHub Release (releases repo)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          repo="synergy-network-hq/synergy-node-control-panel-releases"
+          title="Synergy Node Control Panel ${tag#v}"
+          notes="Automated build from ${GITHUB_REPOSITORY}@${GITHUB_SHA}."
+
+          shopt -s globstar nullglob
+          files=(
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
+            artifacts/**/*.deb
+          )
+
+          if [[ "${#files[@]}" -eq 0 ]]; then
+            echo "No installer artifacts found under ./artifacts"
+            ls -R artifacts || true
+            exit 1
+          fi
+
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "Release already exists: $repo@$tag"
+          else
+            gh release create "$tag" --repo "$repo" --title "$title" --notes "$notes"
+          fi
+
+          gh release upload "$tag" "${files[@]}" --repo "$repo" --clobber
