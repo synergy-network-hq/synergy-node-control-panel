@@ -1503,6 +1503,7 @@ async fn register_node_with_seeds_async(
         .public_host
         .as_deref()
         .and_then(normalize_public_host_candidate)
+        .or_else(|| detect_public_host().and_then(|host| normalize_public_host_candidate(&host)))
         .ok_or_else(|| "Public host not available for seed registration.".to_string())?;
     let payload = build_seed_registration(node, &public_host);
 

@@ -9,6 +9,16 @@ const COMMON_TABS = [
   { id: 'files', label: 'Files' },
 ];
 const MAX_NODE_SLOTS = 4;
+const DEFAULT_EXPLORER_API_BASE = 'https://testnet-explorer-api.synergy-network.io/api/v1';
+
+async function fetchExplorerJson(baseUrl, path) {
+  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const response = await fetch(`${base}${path}`);
+  if (!response.ok) {
+    throw new Error(`Explorer request failed (${response.status})`);
+  }
+  return response.json();
+}
 
 function Icon({ children }) {
   return (
@@ -336,6 +346,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [selectedNodeId, setSelectedNodeId] = useState('');
   const [state, setState] = useState(null);
   const [liveStatus, setLiveStatus] = useState(null);
+  const [relayerHealth, setRelayerHealth] = useState(null);
+  const [sxcpStatus, setSxcpStatus] = useState(null);
+  const [sxcpError, setSxcpError] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copiedNotice, setCopiedNotice] = useState('');
@@ -364,6 +377,26 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       setLiveStatus(liveResult.value);
     } else {
       nextErrors.push(String(liveResult.reason));
+    }
+
+    const explorerBase = DEFAULT_EXPLORER_API_BASE;
+    const [relayerResult, sxcpResult] = await Promise.allSettled([
+      fetchExplorerJson(explorerBase, '/relayers/health'),
+      fetchExplorerJson(explorerBase, '/sxcp/status'),
+    ]);
+
+    if (relayerResult.status === 'fulfilled') {
+      setRelayerHealth(relayerResult.value?.health || null);
+    } else {
+      setRelayerHealth(null);
+    }
+
+    if (sxcpResult.status === 'fulfilled') {
+      setSxcpStatus(sxcpResult.value?.status || null);
+      setSxcpError('');
+    } else {
+      setSxcpStatus(null);
+      setSxcpError('SXCP status unavailable');
     }
 
     setError(nextErrors.join(' '));
@@ -526,6 +559,22 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       };
     });
   }, [liveStatus?.public_chain_height, nodeLiveById, nodes, roleById]);
+
+  const relayerSummary = useMemo(() => {
+    const relayers = relayerHealth?.relayers || [];
+    const online = relayers.filter((entry) => entry.online).length;
+    const eligible = relayers.filter((entry) => entry.eligible_for_quorum).length;
+    const total = relayers.length;
+    const quorum = sxcpStatus?.quorum ? `${sxcpStatus.quorum.t}/${sxcpStatus.quorum.n}` : 'Unknown';
+    return {
+      total,
+      online,
+      eligible,
+      quorum,
+      pending: sxcpStatus?.event_totals?.pending ?? null,
+      finalized: sxcpStatus?.event_totals?.finalized ?? null,
+    };
+  }, [relayerHealth, sxcpStatus]);
 
   const runNodeControl = async (action) => {
     if (!selectedNode) {
@@ -917,6 +966,56 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="nodecp-panel">
+        <div className="nodecp-panel-header">
+          <div>
+            <p className="nodecp-panel-kicker">Relayer status</p>
+            <h3>SXCP quorum + events</h3>
+          </div>
+          <span className={`nodecp-health-pill nodecp-health-${sxcpError ? 'bad' : 'good'}`}>
+            {sxcpError ? 'Unavailable' : 'Online'}
+          </span>
+        </div>
+        <div className="nodecp-summary-grid">
+          <div className="nodecp-stat-card">
+            <div className="nodecp-stat-icon">{ICONS.pulse}</div>
+            <div className="nodecp-stat-copy">
+              <span className="nodecp-stat-label">Quorum</span>
+              <span className="nodecp-stat-value">{relayerSummary.quorum}</span>
+              <span className="nodecp-stat-detail">Threshold required for SXCP finality.</span>
+            </div>
+          </div>
+          <div className="nodecp-stat-card">
+            <div className="nodecp-stat-icon">{ICONS.peers}</div>
+            <div className="nodecp-stat-copy">
+              <span className="nodecp-stat-label">Relayers online</span>
+              <span className="nodecp-stat-value">{formatNumber(relayerSummary.online)} / {formatNumber(relayerSummary.total)}</span>
+              <span className="nodecp-stat-detail">Eligible: {formatNumber(relayerSummary.eligible)}</span>
+            </div>
+          </div>
+          <div className="nodecp-stat-card">
+            <div className="nodecp-stat-icon">{ICONS.chain}</div>
+            <div className="nodecp-stat-copy">
+              <span className="nodecp-stat-label">Pending events</span>
+              <span className="nodecp-stat-value">
+                {relayerSummary.pending == null ? '—' : formatNumber(relayerSummary.pending)}
+              </span>
+              <span className="nodecp-stat-detail">Awaiting quorum attestations.</span>
+            </div>
+          </div>
+          <div className="nodecp-stat-card">
+            <div className="nodecp-stat-icon">{ICONS.shield}</div>
+            <div className="nodecp-stat-copy">
+              <span className="nodecp-stat-label">Finalized events</span>
+              <span className="nodecp-stat-value">
+                {relayerSummary.finalized == null ? '—' : formatNumber(relayerSummary.finalized)}
+              </span>
+              <span className="nodecp-stat-detail">Confirmed SXCP settlements.</span>
+            </div>
+          </div>
         </div>
       </section>
 
