@@ -145,8 +145,8 @@ function HelpArticlesPage() {
     <section className="monitor-shell help-shell">
       <div className="help-hero">
         <div>
-          <p className="help-eyebrow">Synergy Devnet Operator Manual</p>
-          <h2>Synergy Devnet Control Panel Help Center</h2>
+          <p className="help-eyebrow">Synergy Node Operator Manual</p>
+          <h2>Synergy Node Control Panel Help Center</h2>
           <p className="help-hero-copy">
             This view renders the bundled operator manual directly from the current workspace, so
             Help stays aligned with the shipped topology, control actions, and release/update flow.

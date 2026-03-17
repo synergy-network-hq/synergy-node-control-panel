@@ -1,39 +1,33 @@
-appId: com.synergy.node-monitor
-productName: Synergy Devnet Control Panel
+appId: io.synergy-network.devnet-control-panel
+productName: Synergy Node Control Panel
+
 directories:
   output: electron-dist
+  buildResources: src-tauri/icons
+
 files:
-  - dist/**
-  - electron/**
+  - dist/**/*
+  - electron/**/*
   - package.json
+
 extraResources:
   - from: build/electron-runtime/control-service
     to: control-service
   - from: binaries
     to: binaries
-  - from: devnet
-    to: devnet
-  - from: guides
-    to: guides
-  - from: scripts
-    to: scripts
+
 mac:
-  target:
-    - dmg
   category: public.app-category.developer-tools
   icon: src-tauri/icons/icon.icns
-linux:
   target:
-    - deb
-  category: Development
-  maintainer: "Synergy Network <support@synergy-network.io>"
-  synopsis: "Synergy Devnet Control Panel"
-  description: "Desktop control panel for provisioning, monitoring, and operating Synergy Devnet nodes."
-  icon: src-tauri/icons/icon.png
+    - dmg
+
 win:
+  icon: src-tauri/icons/icon.ico
   target:
     - nsis
-  icon: src-tauri/icons/icon.ico
-nsis:
-  oneClick: false
-  perMachine: false
+
+linux:
+  icon: src-tauri/icons
+  target:
+    - deb

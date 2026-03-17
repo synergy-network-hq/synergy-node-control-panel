@@ -1271,7 +1271,7 @@ function InitialSetupWizard({ onComplete }) {
       <div className="wizard-top">
         <article className="wizard-main-panel">
           <header className="wizard-title-block">
-            <h2>Synergy Devnet Control Panel Setup Wizard</h2>
+            <h2>Synergy Node Control Panel Setup Wizard</h2>
             <p>
               Autonomous setup is now the recommended path. It runs each setup task visibly,
               validates outcomes, and blocks dashboard access until setup is verified.

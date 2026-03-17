@@ -2,7 +2,7 @@
 
 ## Problem
 
-The Synergy Devnet Control Panel runs installer/orchestration steps that may need to configure firewall rules (`ufw`, `firewalld`, `iptables`). When those steps run from the desktop app, plain `sudo` cannot always prompt interactively.
+The Synergy Node Control Panel runs installer/orchestration steps that may need to configure firewall rules (`ufw`, `firewalld`, `iptables`). When those steps run from the desktop app, plain `sudo` cannot always prompt interactively.
 
 ## Solution
 

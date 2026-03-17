@@ -21,8 +21,13 @@ impl Default for NodeInfo {
 
         Self {
             sandbox_path: sandbox.clone(),
-            binary_path: sandbox.join("bin").join(get_binary_name()),
-            config_path: sandbox.join("config").join("node.json"),
+            // The remaining legacy single-node path is validator-only, so its default
+            // binary should resolve to the validator-specific artifact rather than a
+            // generic shared executable name.
+            binary_path: sandbox
+                .join("bin")
+                .join(NodeType::Validator.installed_binary_name()),
+            config_path: sandbox.join("config").join("node.toml"),
             logs_path: sandbox.join("logs").join("node.log"),
             is_initialized: false,
             is_running: false,
@@ -106,6 +111,72 @@ impl NodeType {
 
     pub fn template_file(&self) -> String {
         format!("{}.toml", self.as_str().replace("_", "-"))
+    }
+
+    pub fn compiled_profile(&self) -> &str {
+        match self {
+            NodeType::Validator => "validator_node",
+            NodeType::Committee => "committee_node",
+            NodeType::ArchiveValidator => "archive_validator_node",
+            NodeType::AuditValidator => "audit_validator_node",
+            NodeType::Relayer => "relayer_node",
+            NodeType::Witness => "witness_node",
+            NodeType::Oracle => "oracle_node",
+            NodeType::UmaCoordinator => "uma_coordinator_node",
+            NodeType::CrossChainVerifier => "cross_chain_verifier_node",
+            NodeType::Compute => "synq_execution_node",
+            NodeType::AiInference => "analytics_and_simulation_node",
+            NodeType::PqcCrypto => "aegis_cryptography_node",
+            NodeType::DataAvailability => "data_availability_node",
+            NodeType::GovernanceAuditor => "governance_auditor_node",
+            NodeType::TreasuryController => "treasury_controller_node",
+            NodeType::SecurityCouncil => "security_council_node",
+            NodeType::RpcGateway => "rpc_gateway_node",
+            NodeType::Indexer => "indexer_and_explorer_node",
+            NodeType::Observer => "observer_light_node",
+        }
+    }
+
+    pub fn binary_slug(&self) -> &str {
+        match self {
+            NodeType::Validator => "validator-node",
+            NodeType::Committee => "committee-node",
+            NodeType::ArchiveValidator => "archive-validator-node",
+            NodeType::AuditValidator => "audit-validator-node",
+            NodeType::Relayer => "relayer-node",
+            NodeType::Witness => "witness-node",
+            NodeType::Oracle => "oracle-node",
+            NodeType::UmaCoordinator => "uma-coordinator-node",
+            NodeType::CrossChainVerifier => "cross-chain-verifier-node",
+            NodeType::Compute => "synq-execution-node",
+            NodeType::AiInference => "analytics-and-simulation-node",
+            NodeType::PqcCrypto => "aegis-cryptography-node",
+            NodeType::DataAvailability => "data-availability-node",
+            NodeType::GovernanceAuditor => "governance-auditor-node",
+            NodeType::TreasuryController => "treasury-controller-node",
+            NodeType::SecurityCouncil => "security-council-node",
+            NodeType::RpcGateway => "rpc-gateway-node",
+            NodeType::Indexer => "indexer-and-explorer-node",
+            NodeType::Observer => "observer-light-node",
+        }
+    }
+
+    pub fn installed_binary_name(&self) -> String {
+        #[cfg(target_os = "windows")]
+        {
+            return format!("synergy-{}.exe", self.binary_slug());
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            format!("synergy-{}", self.binary_slug())
+        }
+    }
+
+    pub fn artifact_binary_name(&self, platform_key: &str) -> String {
+        let windows = platform_key.contains("windows");
+        let suffix = if windows { ".exe" } else { "" };
+        format!("synergy-{}-{}{}", self.binary_slug(), platform_key, suffix)
     }
 
     pub fn from_str(s: &str) -> Option<Self> {

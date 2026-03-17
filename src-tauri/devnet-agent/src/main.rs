@@ -8,7 +8,7 @@ fn default_workspace_root() -> PathBuf {
     dirs::home_dir()
         .or_else(dirs::data_dir)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".synergy-devnet-control-panel")
+        .join(".synergy-node-control-panel")
         .join("monitor-workspace")
 }
 

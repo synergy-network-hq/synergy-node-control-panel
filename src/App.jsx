@@ -1,20 +1,18 @@
 import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
-import NetworkMonitorDashboard from './components/NetworkMonitorDashboard';
 import NetworkMonitorNodePage from './components/NetworkMonitorNodePage';
 import HelpArticlesPage from './components/HelpArticlesPage';
-import OperatorConfigurationPage from './components/OperatorConfigurationPage';
-import SXCPDashboard from './components/SXCPDashboard';
-import InitialSetupWizard from './components/InitialSetupWizard';
+import SettingsPage from './components/SettingsPage';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
-import TestTransactionsPage from './components/TestTransactionsPage';
-import BreakStuffPage from './components/BreakStuffPage';
+import TestnetBetaJarvisSetup from './components/TestnetBetaJarvisSetup';
+import TestnetBetaDashboard from './components/TestnetBetaDashboard';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { invoke } from './lib/desktopClient';
 
-const SPLASH_DURATION_MS = 6000;
-const SPLASH_FADE_OUT_MS = 800;
-const POST_SPLASH_FADE_IN_DELAY_MS = 60;
+const SPLASH_DURATION_MS = 4800;
+const SPLASH_FADE_OUT_MS = 720;
+const POST_SPLASH_FADE_IN_DELAY_MS = 80;
+const SETUP_DEFERRED_SESSION_KEY = 'snrg.setup.deferred';
 
 function App() {
   const [progress, setProgress] = useState(0);
@@ -22,6 +20,13 @@ function App() {
   const [setupComplete, setSetupComplete] = useState(false);
   const [setupStateReady, setSetupStateReady] = useState(false);
   const [postSplashVisible, setPostSplashVisible] = useState(false);
+  const [manualSetupActive, setManualSetupActive] = useState(false);
+  const [setupDeferred, setSetupDeferred] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    return window.sessionStorage.getItem(SETUP_DEFERRED_SESSION_KEY) === '1';
+  });
 
   useEffect(() => {
     let raf = null;
@@ -57,10 +62,13 @@ function App() {
 
     const resolveSetupState = async () => {
       try {
-        await invoke('monitor_initialize_workspace');
-        await invoke('monitor_apply_devnet_topology');
-        const setupStatus = await invoke('monitor_get_setup_status');
-        setSetupComplete(Boolean(setupStatus?.completed));
+        const state = await invoke('testbeta_get_state');
+        const isComplete = Array.isArray(state?.nodes) && state.nodes.length > 0;
+        setSetupComplete(isComplete);
+        if (isComplete && typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
+          setSetupDeferred(false);
+        }
       } catch (error) {
         setSetupComplete(false);
       } finally {
@@ -70,6 +78,32 @@ function App() {
 
     resolveSetupState();
   }, [splashPhase]);
+
+  useEffect(() => {
+    if (splashPhase !== 'hidden' || !setupStateReady || setupComplete || manualSetupActive) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const state = await invoke('testbeta_get_state');
+        if (Array.isArray(state?.nodes) && state.nodes.length > 0) {
+          setSetupComplete(true);
+          setSetupStateReady(true);
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
+          }
+          setSetupDeferred(false);
+        }
+      } catch {
+        // Keep the user in setup until the status endpoint is reachable again.
+      }
+    }, 3000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [manualSetupActive, setupComplete, setupStateReady, splashPhase]);
 
   useEffect(() => {
     if (splashPhase !== 'hidden') {
@@ -86,8 +120,32 @@ function App() {
   }, [splashPhase]);
 
   const handleSetupComplete = () => {
+    setManualSetupActive(false);
     setSetupComplete(true);
     setSetupStateReady(true);
+    setSetupDeferred(false);
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
+    }
+  };
+
+  const handleSetupDeferred = () => {
+    setManualSetupActive(false);
+    setSetupDeferred(true);
+    setSetupStateReady(true);
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(SETUP_DEFERRED_SESSION_KEY, '1');
+    }
+  };
+
+  const handleLaunchSetup = () => {
+    setManualSetupActive(true);
+    setSetupComplete(false);
+    setSetupStateReady(true);
+    setSetupDeferred(false);
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
+    }
   };
 
   if (splashPhase !== 'hidden') {
@@ -105,17 +163,14 @@ function App() {
         </div>
       </section>
     );
-  } else if (!setupComplete) {
-    nextScreen = <InitialSetupWizard onComplete={handleSetupComplete} />;
+  } else if (manualSetupActive || (!setupComplete && !setupDeferred)) {
+    nextScreen = <TestnetBetaJarvisSetup onComplete={handleSetupComplete} onDefer={handleSetupDeferred} />;
   } else {
     nextScreen = (
       <Layout>
         <Routes>
-          <Route path="/" element={<NetworkMonitorDashboard />} />
-          <Route path="/sxcp" element={<SXCPDashboard />} />
-          <Route path="/test-transactions" element={<TestTransactionsPage />} />
-          <Route path="/break-stuff" element={<BreakStuffPage />} />
-          <Route path="/settings" element={<OperatorConfigurationPage />} />
+          <Route path="/" element={<TestnetBetaDashboard onLaunchSetup={handleLaunchSetup} />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/node/:nodeSlotId" element={<NetworkMonitorNodePage />} />
           <Route path="/help" element={<HelpArticlesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE_ROOT="${HOME}/.synergy-devnet-control-panel/monitor-workspace"
+WORKSPACE_ROOT="${HOME}/.synergy-node-control-panel/monitor-workspace"
 LEGACY_ROOT="${HOME}/.synergy-node-monitor/monitor-workspace"
 SYSTEMD_SERVICE="${HOME}/.config/systemd/user/synergy-devnet-agent.service"
 
-echo "Cleaning Synergy Devnet Control Panel artifacts on Linux..."
+echo "Cleaning Synergy Node Control Panel artifacts on Linux..."
 
 systemctl --user stop synergy-devnet-agent.service >/dev/null 2>&1 || true
 systemctl --user disable synergy-devnet-agent.service >/dev/null 2>&1 || true

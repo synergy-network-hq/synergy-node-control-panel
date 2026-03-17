@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { openHelpWindow } from '../lib/helpWindow';
-import { checkForUpdate, downloadAndInstallUpdate, relaunchApp } from '../lib/appUpdater';
+import { checkForUpdate, downloadAndInstallUpdate } from '../lib/appUpdater';
 import { getVersion } from '../lib/desktopClient';
 import { brandLogoSrc } from '../lib/runtimeAssets';
+import { SNRGButton } from '../styles/SNRGButton';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
 
@@ -22,11 +23,8 @@ function updateButtonLabel(updateState) {
 
 function Layout({ children }) {
   const location = useLocation();
-  const onHelpRoute = location.pathname === '/help';
   const onSettingsRoute = location.pathname === '/settings';
-  const onSXCPRoute = location.pathname === '/sxcp';
-  const onTransactionsRoute = location.pathname === '/test-transactions';
-  const onBreakStuffRoute = location.pathname === '/break-stuff';
+  const onDashboardRoute = location.pathname === '/';
 
   const [appVersion, setAppVersion] = useState('');
   const [updateState, setUpdateState] = useState({
@@ -138,7 +136,7 @@ function Layout({ children }) {
       });
     }
 
-    if (!window.confirm(`Open the release page for Synergy Devnet Control Panel ${targetVersion}?`)) {
+    if (!window.confirm(`Open the release page for Synergy Node Control Panel ${targetVersion}?`)) {
       return;
     }
 
@@ -192,29 +190,42 @@ function Layout({ children }) {
           </div>
 
           <div className="header-right-controls">
-            <Link className={`btn-header btn-header-nav ${onTransactionsRoute ? 'btn-header-active' : ''}`} to="/test-transactions">
-              Test Transactions
-            </Link>
-            <Link className={`btn-header btn-header-nav ${onBreakStuffRoute ? 'btn-header-active' : ''}`} to="/break-stuff">
-              Resilience Drills
-            </Link>
-            <Link className={`btn-header btn-header-nav ${onSXCPRoute ? 'btn-header-active' : ''}`} to={onSXCPRoute ? '/' : '/sxcp'}>
-              {onSXCPRoute ? 'Monitor' : 'SXCP'}
-            </Link>
-            <button
-              className={`btn-header btn-header-nav btn-update btn-update-${updateState.status}`}
+            <SNRGButton
+              as={Link}
+              to="/"
+              variant="blue"
+              size="sm"
+              className={`header-grid-btn ${onDashboardRoute ? 'header-grid-active' : ''}`}
+            >
+              Dashboard
+            </SNRGButton>
+            <SNRGButton
+              variant="cyan"
+              size="sm"
+              className="header-grid-btn header-grid-help"
+              onClick={openHelpWindow}
+            >
+              Help
+            </SNRGButton>
+            <SNRGButton
+              as={Link}
+              to="/settings"
+              variant="blue"
+              size="sm"
+              className={`header-grid-btn ${onSettingsRoute ? 'header-grid-active' : ''}`}
+            >
+              Settings
+            </SNRGButton>
+            <SNRGButton
+              variant="blue"
+              size="sm"
+              className={`header-grid-btn header-grid-update header-grid-update-${updateState.status}`}
               onClick={handleUpdateAction}
               disabled={updateState.status === 'checking' || updateState.status === 'installing'}
               title={updateState.message}
             >
               {updateButtonLabel(updateState)}
-            </button>
-            <Link className={`btn-header btn-header-nav ${onSettingsRoute ? 'btn-header-active' : ''}`} to={onSettingsRoute ? '/' : '/settings'}>
-              {onSettingsRoute ? 'Dashboard' : 'Operator Settings'}
-            </Link>
-            <button className="btn-header btn-header-nav btn-help" onClick={openHelpWindow}>
-              {onHelpRoute ? 'Help Window' : 'Help'}
-            </button>
+            </SNRGButton>
           </div>
         </div>
       </header>
@@ -222,7 +233,7 @@ function Layout({ children }) {
       <footer className="app-footer">
         <span className="footer-copyright">&copy; 2026 Synergy Blockchain Labs Inc. All rights reserved.</span>
         <span className={`footer-status footer-status-${updateState.status}`}>{footerStatusMessage}</span>
-        <span className="footer-version">Synergy Devnet Control Panel v{appVersion || '...'}</span>
+        <span className="footer-version">Synergy Node Control Panel v{appVersion || '...'}</span>
       </footer>
     </div>
   );

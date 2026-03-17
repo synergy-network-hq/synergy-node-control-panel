@@ -88,6 +88,25 @@ EOF
   fi
 }
 
+sync_role_bound_binaries() {
+  local source_dir="$ROOT_DIR/../../../synergy-testnet-beta/binaries"
+  local target_dir="$ROOT_DIR/binaries"
+
+  mkdir -p "$target_dir"
+
+  if [[ ! -d "$source_dir" ]]; then
+    echo "Role binary source directory not found at $source_dir; keeping existing control-panel binaries."
+    return
+  fi
+
+  shopt -s nullglob
+  for binary_path in "$source_dir"/synergy-*-node-* "$source_dir"/synergy-testbeta-*; do
+    cp "$binary_path" "$target_dir/$(basename "$binary_path")"
+    chmod +x "$target_dir/$(basename "$binary_path")" 2>/dev/null || true
+  done
+  shopt -u nullglob
+}
+
 for binary_path in \
   "$ROOT_DIR/binaries/synergy-devnet-darwin-arm64" \
   "$ROOT_DIR/binaries/synergy-devnet-linux-amd64" \
@@ -101,6 +120,7 @@ done
 
 ensure_version_alignment
 ensure_tracked_devnet_keys
+sync_role_bound_binaries
 
 if [[ ! -f "$ROOT_DIR/binaries/synergy-devnet-agent-darwin-arm64" || \
       ! -f "$ROOT_DIR/binaries/synergy-devnet-agent-linux-amd64" || \

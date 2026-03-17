@@ -15,7 +15,7 @@ use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-#[cfg(feature = "desktop-tauri")]
+#[cfg(feature = "desktop-native-shell")]
 use tauri::AppHandle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -402,18 +402,18 @@ struct MonitorSecurityConfig {
     setup: MonitorSetupState,
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn get_monitor_inventory_path() -> Result<String, String> {
     resolve_inventory_path().map(|path| path.to_string_lossy().to_string())
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn get_monitor_workspace_path() -> Result<String, String> {
     let workspace = resolve_monitor_workspace_path()?;
     Ok(workspace.to_string_lossy().to_string())
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn get_monitor_user_manual_markdown() -> Result<String, String> {
     let workspace = resolve_monitor_workspace_path()?;
     let manual_path = workspace.join(MONITOR_USER_MANUAL_RELATIVE);
@@ -433,22 +433,24 @@ pub fn get_monitor_user_manual_markdown() -> Result<String, String> {
     })
 }
 
-#[cfg(feature = "desktop-tauri")]
+#[cfg(feature = "desktop-native-shell")]
 #[tauri::command]
 pub fn monitor_initialize_workspace(app_handle: AppHandle) -> Result<String, String> {
     let workspace = ensure_monitor_workspace(&app_handle)?;
     Ok(workspace.to_string_lossy().to_string())
 }
 
-pub fn monitor_initialize_workspace_from_context(app_context: &AppContext) -> Result<String, String> {
+pub fn monitor_initialize_workspace_from_context(
+    app_context: &AppContext,
+) -> Result<String, String> {
     let workspace = ensure_monitor_workspace_with_context(app_context)?;
     Ok(workspace.to_string_lossy().to_string())
 }
 
-#[cfg(feature = "desktop-tauri")]
+#[cfg(feature = "desktop-native-shell")]
 #[tauri::command]
 pub fn monitor_ensure_ssh_keypair(app_handle: AppHandle) -> Result<String, String> {
-    let app_context = AppContext::from_tauri(&app_handle);
+    let app_context = AppContext::from_desktop_shell(&app_handle);
     monitor_ensure_ssh_keypair_from_context(&app_context)
 }
 
@@ -513,12 +515,12 @@ pub fn monitor_ensure_ssh_keypair_from_context(app_context: &AppContext) -> Resu
     )
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn get_monitor_security_state() -> Result<MonitorSecurityState, String> {
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
@@ -632,21 +634,21 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                                 installed_node_slot_ids.dedup();
 
                                 MonitorAgentReachability {
-                                physical_machine_id: payload
-                                    .physical_machine_id
-                                    .filter(|value| !value.trim().is_empty())
-                                    .unwrap_or(physical_machine_id),
-                                vpn_ip,
-                                node_slot_ids: installed_node_slot_ids,
-                                reachable: true,
-                                response_ms,
-                                version: Some(payload.version),
-                                workspace_path: Some(payload.workspace_path),
-                                local_vpn_ip: payload.local_vpn_ip,
-                                supported_actions: payload.supported_actions,
-                                checked_at_utc,
-                                error: None,
-                            }
+                                    physical_machine_id: payload
+                                        .physical_machine_id
+                                        .filter(|value| !value.trim().is_empty())
+                                        .unwrap_or(physical_machine_id),
+                                    vpn_ip,
+                                    node_slot_ids: installed_node_slot_ids,
+                                    reachable: true,
+                                    response_ms,
+                                    version: Some(payload.version),
+                                    workspace_path: Some(payload.workspace_path),
+                                    local_vpn_ip: payload.local_vpn_ip,
+                                    supported_actions: payload.supported_actions,
+                                    checked_at_utc,
+                                    error: None,
+                                }
                             }
                             Err(error) => MonitorAgentReachability {
                                 physical_machine_id,
@@ -758,9 +760,7 @@ fn stamp_runtime_host_override(
     overrides.insert(format!("{node_snake}_vpn_ip"), vpn);
 }
 
-async fn augment_host_overrides_with_runtime_placements(
-    overrides: &mut HashMap<String, String>,
-) {
+async fn augment_host_overrides_with_runtime_placements(overrides: &mut HashMap<String, String>) {
     let placements = load_runtime_node_placements().await;
     for (node_slot_id, placement) in placements {
         stamp_runtime_host_override(overrides, &node_slot_id, &placement.vpn_ip);
@@ -773,19 +773,23 @@ fn effective_machine_id_for_node(
 ) -> String {
     let fallback = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
         .unwrap_or_else(|| node.host.clone());
-    let resolved_host =
-        resolve_vpn_override(host_overrides, &node.node_slot_id, &node.node_alias, fallback);
+    let resolved_host = resolve_vpn_override(
+        host_overrides,
+        &node.node_slot_id,
+        &node.node_alias,
+        fallback,
+    );
 
     physical_machine_for_vpn_ip(&resolved_host).unwrap_or_else(|| node.physical_machine_id.clone())
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_get_setup_status() -> Result<MonitorSetupStatus, String> {
     let config = load_security_config()?;
     Ok(build_monitor_setup_status(&config))
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, String> {
     if let Some(machine_id) = detect_local_machine_id_override() {
         let node_slot_ids = logical_nodes_for_physical_machine(&machine_id)?;
@@ -852,14 +856,16 @@ async fn local_agent_health_check() -> Result<DevnetAgentHealth, String> {
         .await
         .map_err(|error| format!("Local devnet agent health request failed: {error}"))?
         .error_for_status()
-        .map_err(|error| format!("Local devnet agent health endpoint returned an error: {error}"))?;
+        .map_err(|error| {
+            format!("Local devnet agent health endpoint returned an error: {error}")
+        })?;
     response
         .json::<DevnetAgentHealth>()
         .await
         .map_err(|error| format!("Failed to decode local devnet agent health payload: {error}"))
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn monitor_mark_setup_complete(
     physical_machine_id: String,
     node_slot_ids: Option<Vec<String>>,
@@ -950,7 +956,7 @@ pub async fn monitor_mark_setup_complete(
     Ok(build_monitor_setup_status(&config))
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_set_active_operator(operator_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let requested = operator_id.trim();
@@ -976,7 +982,7 @@ pub fn monitor_set_active_operator(operator_id: String) -> Result<MonitorSecurit
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_upsert_operator(
     input: MonitorOperatorInput,
 ) -> Result<MonitorSecurityState, String> {
@@ -1034,7 +1040,7 @@ pub fn monitor_upsert_operator(
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_delete_operator(operator_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
@@ -1072,7 +1078,7 @@ pub fn monitor_delete_operator(operator_id: String) -> Result<MonitorSecuritySta
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_upsert_ssh_profile(
     input: MonitorSshProfileInput,
 ) -> Result<MonitorSecurityState, String> {
@@ -1143,7 +1149,7 @@ pub fn monitor_upsert_ssh_profile(
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_delete_ssh_profile(profile_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
@@ -1175,7 +1181,7 @@ pub fn monitor_delete_ssh_profile(profile_id: String) -> Result<MonitorSecurityS
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_assign_ssh_binding(
     input: MonitorSshBindingInput,
 ) -> Result<MonitorSecurityState, String> {
@@ -1238,7 +1244,7 @@ pub fn monitor_assign_ssh_binding(
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub fn monitor_remove_ssh_binding(node_slot_id: String) -> Result<MonitorSecurityState, String> {
     let mut config = load_security_config()?;
     let actor = resolve_active_operator(&config)?;
@@ -1267,7 +1273,7 @@ pub fn monitor_remove_ssh_binding(node_slot_id: String) -> Result<MonitorSecurit
     load_monitor_security_state()
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
@@ -1280,9 +1286,11 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
                 .get(&node.node_slot_id.to_ascii_lowercase())
                 .cloned();
             async move {
-                let mut status = probe_node(apply_runtime_probe_target(node, placement.as_ref())).await;
-                status.active_physical_machine_id =
-                    placement.as_ref().map(|entry| entry.physical_machine_id.clone());
+                let mut status =
+                    probe_node(apply_runtime_probe_target(node, placement.as_ref())).await;
+                status.active_physical_machine_id = placement
+                    .as_ref()
+                    .map(|entry| entry.physical_machine_id.clone());
                 status.active_vpn_ip = placement.as_ref().map(|entry| entry.vpn_ip.clone());
                 status
             }
@@ -1332,7 +1340,7 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
     })
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn monitor_bulk_node_control(
     action: String,
     scope: Option<String>,
@@ -1647,7 +1655,7 @@ async fn reset_explorer_index() -> Result<(), String> {
     }
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNodeDetails, String> {
     let inventory_path = resolve_inventory_path()?;
     let nodes = load_inventory_nodes(&inventory_path)?;
@@ -1667,8 +1675,9 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
     let probe_target = apply_runtime_probe_target(node.clone(), runtime_placement.as_ref());
 
     let mut node_status = probe_node(probe_target.clone()).await;
-    node_status.active_physical_machine_id =
-        runtime_placement.as_ref().map(|entry| entry.physical_machine_id.clone());
+    node_status.active_physical_machine_id = runtime_placement
+        .as_ref()
+        .map(|entry| entry.physical_machine_id.clone());
     node_status.active_vpn_ip = runtime_placement.as_ref().map(|entry| entry.vpn_ip.clone());
 
     let client = Client::builder()
@@ -1830,7 +1839,7 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
     })
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn monitor_node_control(
     node_slot_id: String,
     action: String,
@@ -1860,13 +1869,13 @@ pub async fn monitor_node_control(
     execute_monitor_node_control(&node_slot_id, &normalized_action, &operator, "single").await
 }
 
-#[cfg(feature = "desktop-tauri")]
+#[cfg(feature = "desktop-native-shell")]
 #[tauri::command]
 pub async fn monitor_update_local_agent(
     node_slot_id: String,
     app_handle: AppHandle,
 ) -> Result<MonitorControlResult, String> {
-    let app_context = AppContext::from_tauri(&app_handle);
+    let app_context = AppContext::from_desktop_shell(&app_handle);
     monitor_update_local_agent_from_context(node_slot_id, &app_context).await
 }
 
@@ -1907,7 +1916,8 @@ pub async fn monitor_update_local_agent_from_context(
         ));
     }
 
-    let installed_binary = crate::agent::force_update_local_devnet_agent_from_context(app_context).await?;
+    let installed_binary =
+        crate::agent::force_update_local_devnet_agent_from_context(app_context).await?;
     Ok(MonitorControlResult {
         node_slot_id: node.node_slot_id.clone(),
         action: "update_agent".to_string(),
@@ -1933,7 +1943,7 @@ pub async fn monitor_update_local_agent_from_context(
 /// failure rather than leaving the UI frozen.
 const TERMINAL_COMMAND_TIMEOUT_SECS: u64 = 300;
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn monitor_run_terminal_command(
     command: String,
     cwd: Option<String>,
@@ -2040,6 +2050,7 @@ fn build_windows_terminal_process(command: &str) -> Result<ProcessCommand, Strin
     Ok(cmd)
 }
 
+#[allow(dead_code)]
 fn split_command_arguments(command: &str) -> Result<Vec<String>, String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -2088,7 +2099,7 @@ mod terminal_command_tests {
     #[test]
     fn splits_powershell_file_command_with_windows_path() {
         let tokens = split_command_arguments(
-            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\blueiris\.synergy-devnet-control-panel\monitor-workspace\devnet\lean15\installers\node-12\install_and_start.ps1""#,
+            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\devnet\lean15\installers\node-12\install_and_start.ps1""#,
         )
         .expect("command should parse");
 
@@ -2100,7 +2111,7 @@ mod terminal_command_tests {
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                r"C:\Users\blueiris\.synergy-devnet-control-panel\monitor-workspace\devnet\lean15\installers\node-12\install_and_start.ps1",
+                r"C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\devnet\lean15\installers\node-12\install_and_start.ps1",
             ]
         );
     }
@@ -2173,7 +2184,12 @@ mod terminal_command_tests {
     #[test]
     fn prefers_vpn_ip_for_generated_control_plane_host() {
         assert_eq!(
-            preferred_control_plane_host("192.168.11.98", "10.50.0.7", "73.79.66.255", "192.168.11.98"),
+            preferred_control_plane_host(
+                "192.168.11.98",
+                "10.50.0.7",
+                "73.79.66.255",
+                "192.168.11.98"
+            ),
             "10.50.0.7"
         );
     }
@@ -2192,15 +2208,17 @@ mod terminal_command_tests {
     }
 }
 
-#[cfg(feature = "desktop-tauri")]
+#[cfg(feature = "desktop-native-shell")]
 #[tauri::command]
 pub fn monitor_apply_devnet_topology(app_handle: AppHandle) -> Result<String, String> {
-    let app_context = AppContext::from_tauri(&app_handle);
+    let app_context = AppContext::from_desktop_shell(&app_handle);
     let workspace = ensure_monitor_workspace_with_context(&app_context)?;
     apply_monitor_devnet_topology(&workspace)
 }
 
-pub fn monitor_apply_devnet_topology_from_context(app_context: &AppContext) -> Result<String, String> {
+pub fn monitor_apply_devnet_topology_from_context(
+    app_context: &AppContext,
+) -> Result<String, String> {
     let workspace = ensure_monitor_workspace_with_context(app_context)?;
     apply_monitor_devnet_topology(&workspace)
 }
@@ -2319,7 +2337,7 @@ fn apply_monitor_devnet_topology(workspace: &Path) -> Result<String, String> {
     Ok(message)
 }
 
-#[cfg_attr(feature = "desktop-tauri", tauri::command)]
+#[cfg_attr(feature = "desktop-native-shell", tauri::command)]
 pub async fn monitor_export_node_data(node_slot_id: String) -> Result<MonitorExportResult, String> {
     let details = get_monitor_node_details(node_slot_id.clone()).await?;
     let exported_at_utc = Utc::now().to_rfc3339();
@@ -6251,9 +6269,9 @@ struct MonitorWorkspaceManifest {
     required_paths: Vec<String>,
 }
 
-#[cfg(feature = "desktop-tauri")]
+#[cfg(feature = "desktop-native-shell")]
 pub fn ensure_monitor_workspace(app_handle: &AppHandle) -> Result<PathBuf, String> {
-    let app_context = AppContext::from_tauri(app_handle);
+    let app_context = AppContext::from_desktop_shell(app_handle);
     ensure_monitor_workspace_with_context(&app_context)
 }
 
@@ -6292,7 +6310,7 @@ fn preferred_workspace_root() -> PathBuf {
     dirs::home_dir()
         .or_else(dirs::data_dir)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".synergy-devnet-control-panel")
+        .join(".synergy-node-control-panel")
         .join("monitor-workspace")
 }
 
@@ -6300,6 +6318,12 @@ fn legacy_workspace_roots(app_context: &AppContext) -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
     if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
+        let legacy_devnet_workspace = format!(".synergy-{}-control-panel", "devnet");
+        roots.push(
+            home_dir
+                .join(legacy_devnet_workspace)
+                .join("monitor-workspace"),
+        );
         roots.push(
             home_dir
                 .join(".synergy-node-monitor")
@@ -7047,7 +7071,12 @@ struct MonitorHostsEnvEntry {
     local_ip: String,
 }
 
-fn preferred_control_plane_host(host: &str, vpn_ip: &str, public_ip: &str, local_ip: &str) -> String {
+fn preferred_control_plane_host(
+    host: &str,
+    vpn_ip: &str,
+    public_ip: &str,
+    local_ip: &str,
+) -> String {
     if !vpn_ip.trim().is_empty() {
         vpn_ip.trim().to_string()
     } else if !host.trim().is_empty() {
@@ -7073,10 +7102,10 @@ fn generate_monitor_hosts_env(
 
     let mut lines = vec![
         format!(
-            "# Auto-generated by Synergy Devnet Control Panel on {}",
+            "# Auto-generated by Synergy Node Control Panel on {}",
             Utc::now().format("%Y-%m-%dT%H:%M:%SZ")
         ),
-        "# This file powers the Synergy Devnet Control Panel app remote orchestration workflow."
+        "# This file powers the Synergy Node Control Panel app remote orchestration workflow."
             .to_string(),
         "#".to_string(),
         "# Global SSH defaults used by remote-node-orchestrator.sh:".to_string(),
@@ -7339,10 +7368,10 @@ fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(),
     upsert_key_value_line(&mut lines, "HOST", vpn_ip);
     upsert_key_value_line(&mut lines, "MONITOR_HOST", vpn_ip);
     upsert_key_value_line(&mut lines, "VPN_IP", vpn_ip);
-    upsert_key_value_line(&mut lines, "CHAIN_ID", "338638");
-    upsert_key_value_line(&mut lines, "NETWORK_ID", "338638");
-    upsert_key_value_line(&mut lines, "SYNERGY_CHAIN_ID", "338638");
-    upsert_key_value_line(&mut lines, "SYNERGY_NETWORK_ID", "338638");
+    upsert_key_value_line(&mut lines, "CHAIN_ID", "338639");
+    upsert_key_value_line(&mut lines, "NETWORK_ID", "338639");
+    upsert_key_value_line(&mut lines, "SYNERGY_CHAIN_ID", "338639");
+    upsert_key_value_line(&mut lines, "SYNERGY_NETWORK_ID", "338639");
     upsert_key_value_line(&mut lines, "SYNERGY_CONFIG_PATH", "config/node.toml");
     upsert_key_value_line(&mut lines, "RPC_BIND_ADDRESS", &rpc_bind);
     upsert_key_value_line(&mut lines, "SYNERGY_RPC_BIND_ADDRESS", &rpc_bind);
@@ -7687,17 +7716,70 @@ fn load_monitor_security_state() -> Result<MonitorSecurityState, String> {
 }
 
 fn build_monitor_setup_status(config: &MonitorSecurityConfig) -> MonitorSetupStatus {
+    let claimed_node_slot_ids = config
+        .setup
+        .claimed_node_slot_ids
+        .iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    let normalized_machine_id = config
+        .setup
+        .physical_machine_id
+        .as_ref()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+
+    let has_required_bindings = !claimed_node_slot_ids.is_empty()
+        && claimed_node_slot_ids.iter().all(|node_slot_id| {
+            config
+                .ssh_bindings
+                .iter()
+                .any(|binding| binding.node_slot_id.eq_ignore_ascii_case(node_slot_id))
+        });
+
+    let claims_align_with_machine = normalized_machine_id
+        .as_ref()
+        .map(|physical_machine_id| {
+            logical_nodes_for_physical_machine(physical_machine_id)
+                .map(|expected_node_slot_ids| {
+                    claimed_node_slot_ids.iter().all(|node_slot_id| {
+                        expected_node_slot_ids
+                            .iter()
+                            .any(|expected| expected.eq_ignore_ascii_case(node_slot_id))
+                    })
+                })
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+
+    let local_identity_matches_machine = normalized_machine_id
+        .as_ref()
+        .and_then(|physical_machine_id| {
+            monitor_detect_local_vpn_identity()
+                .ok()
+                .and_then(|identity| identity.physical_machine_id)
+                .map(|detected| detected.eq_ignore_ascii_case(physical_machine_id))
+        })
+        .unwrap_or(false);
+
     let completed = config.setup.completed
         && config.setup.wizard_version >= MONITOR_SETUP_WIZARD_VERSION
-        && config.setup.completed_at_utc.is_some();
+        && config.setup.completed_at_utc.is_some()
+        && normalized_machine_id.is_some()
+        && !claimed_node_slot_ids.is_empty()
+        && has_required_bindings
+        && claims_align_with_machine
+        && local_identity_matches_machine;
 
     MonitorSetupStatus {
         required_wizard_version: MONITOR_SETUP_WIZARD_VERSION,
         completed,
         completed_wizard_version: config.setup.wizard_version,
         completed_at_utc: config.setup.completed_at_utc.clone(),
-        physical_machine_id: config.setup.physical_machine_id.clone(),
-        claimed_node_slot_ids: config.setup.claimed_node_slot_ids.clone(),
+        physical_machine_id: normalized_machine_id,
+        claimed_node_slot_ids,
     }
 }
 
@@ -8302,7 +8384,11 @@ fn select_nodes_for_scope(nodes: &[MonitorNode], scope: &str) -> Vec<String> {
     if normalized.contains(',') {
         let mut seen = HashSet::<String>::new();
         let mut selected = Vec::<String>::new();
-        for token in normalized.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+        for token in normalized
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             for node in nodes.iter().filter(|node| {
                 node.node_slot_id.eq_ignore_ascii_case(token)
                     || node.node_alias.eq_ignore_ascii_case(token)
@@ -8584,10 +8670,8 @@ async fn execute_monitor_node_control(
         ));
     }
 
-    let installed_bootstrap_validators = if matches!(
-        normalized_action,
-        "start" | "restart"
-    ) && is_bootstrap_consensus_validator(&node)
+    let installed_bootstrap_validators = if matches!(normalized_action, "start" | "restart")
+        && is_bootstrap_consensus_validator(&node)
     {
         Some(installed_bootstrap_validator_slots(&nodes).await?)
     } else {
@@ -8647,14 +8731,12 @@ async fn execute_monitor_node_control(
         match try_execute_monitor_agent_control(&node, normalized_action, &host_overrides).await {
             AgentControlAttempt::Completed(result) => result,
             AgentControlAttempt::Unavailable => {
-                if let Some(local_result) =
-                    try_execute_local_monitor_control(
-                        &node,
-                        normalized_action,
-                        &inventory_path,
-                        &effective_machine_id,
-                    )?
-                {
+                if let Some(local_result) = try_execute_local_monitor_control(
+                    &node,
+                    normalized_action,
+                    &inventory_path,
+                    &effective_machine_id,
+                )? {
                     local_result
                 } else {
                     MonitorControlResult {

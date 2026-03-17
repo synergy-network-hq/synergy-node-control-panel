@@ -34,7 +34,7 @@ impl RealNodeProcess {
         let config = NodeConfig {
             node_id: node_id.clone(),
             node_type: node_type.as_str().to_string(),
-            network_id: 338638, // Synergy devnet ID
+            network_id: 338639, // Synergy Testnet-Beta chain ID
             p2p_port: get_default_p2p_port(&node_type),
             rpc_port: get_default_rpc_port(&node_type),
             data_dir: PathBuf::from(format!("./data/{}", node_id)),

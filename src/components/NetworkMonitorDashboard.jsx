@@ -199,10 +199,17 @@ function NetworkMonitorDashboard() {
   const installedNodeIds = new Set(
     Object.values(installedByMachine).flatMap((nodeSlotIds) => nodeSlotIds),
   );
-  const availableNodeOptions = machineTopologyRows
+  const localMachineId = normalizeId(localIdentity?.physical_machine_id);
+  const localVpnIp = String(
+    localIdentity?.vpn_ip || machineTopologyMap[localMachineId]?.vpnIp || '',
+  ).trim();
+  const scopedMachineTopologyRows = localMachineId
+    ? machineTopologyRows.filter((machine) => machine.machineId === localMachineId)
+    : machineTopologyRows;
+  const availableNodeOptions = scopedMachineTopologyRows
     .flatMap((entry) => entry.slots)
     .filter((slot) => !installedNodeIds.has(slot.nodeSlotId));
-  const bootstrapValidatorNodeIds = machineTopologyRows
+  const bootstrapValidatorNodeIds = scopedMachineTopologyRows
     .flatMap((entry) => entry.slots)
     .filter((slot) => isBootstrapConsensusValidator(slot))
     .map((slot) => slot.nodeSlotId);
@@ -210,12 +217,8 @@ function NetworkMonitorDashboard() {
     installedNodeIds.has(nodeSlotId),
   );
   const validatorQuorumReady = installedBootstrapValidatorIds.length >= 5;
-  const localMachineId = normalizeId(localIdentity?.physical_machine_id);
-  const localVpnIp = String(
-    localIdentity?.vpn_ip || machineTopologyMap[localMachineId]?.vpnIp || '',
-  ).trim();
 
-  const dashboardRows = machineTopologyRows.flatMap((machine) => {
+  const dashboardRows = scopedMachineTopologyRows.flatMap((machine) => {
     const installedNodeSlots = installedByMachine[machine.machineId] || [];
     const capacity = Math.max(machine.slots.length, installedNodeSlots.length, 1);
 
@@ -455,7 +458,7 @@ function NetworkMonitorDashboard() {
   };
 
   const totalNodes = snapshot?.total_nodes ?? 0;
-  const totalMachines = machineTopologyRows.length;
+  const totalMachines = scopedMachineTopologyRows.length || machineTopologyRows.length;
   const reachableAgentCount = (agentSnapshot?.agents || []).filter((agent) => agent?.reachable).length;
   const liveResponseSamples = nodes
     .filter((entry) => entry?.online && Number.isFinite(Number(entry?.response_ms)))

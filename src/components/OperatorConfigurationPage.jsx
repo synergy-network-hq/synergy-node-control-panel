@@ -306,7 +306,7 @@ function OperatorConfigurationPage() {
       <div className="monitor-page-hero monitor-page-hero-operator">
         <div className="monitor-hero-copy">
           <p className="monitor-hero-eyebrow">Operations + Security</p>
-          <h2 className="monitor-hero-title">Synergy Devnet Control Panel Settings</h2>
+          <h2 className="monitor-hero-title">Synergy Node Control Panel Settings</h2>
           <p className="monitor-hero-summary">
             Manage operator identity, SSH reachability, control bindings, and fleet-wide actions
             from one deliberate operations surface.

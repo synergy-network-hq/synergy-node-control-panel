@@ -1,4 +1,4 @@
-# Synergy Devnet Control Panel Quick Ops Cheat Sheet
+# Synergy Node Control Panel Quick Ops Cheat Sheet
 
 Version: 2026-02-28
 Scope: Daily operations for Synergy closed devnet (`lean15`)
@@ -16,9 +16,9 @@ Scope: Daily operations for Synergy closed devnet (`lean15`)
 
 ## 2. Where Things Live
 
-- App workspace (macOS): `~/.synergy-devnet-control-panel/monitor-workspace`
-- App workspace (Linux): `~/.synergy-devnet-control-panel/monitor-workspace`
-- App workspace (Windows): `%USERPROFILE%\.synergy-devnet-control-panel\monitor-workspace`
+- App workspace (macOS): `~/.synergy-node-control-panel/monitor-workspace`
+- App workspace (Linux): `~/.synergy-node-control-panel/monitor-workspace`
+- App workspace (Windows): `%USERPROFILE%\.synergy-node-control-panel\monitor-workspace`
 
 Critical files:
 
@@ -174,5 +174,5 @@ Custom operations (admin):
 
 ## 11. macOS Installer Output
 
-- App: `tools/devnet-control-panel/src-tauri/target/release/bundle/macos/Synergy Devnet Control Panel.app`
-- DMG: `tools/devnet-control-panel/src-tauri/target/release/bundle/dmg/Synergy Devnet Control Panel_<version>_aarch64.dmg`
+- App: `tools/devnet-control-panel/src-tauri/target/release/bundle/macos/Synergy Node Control Panel.app`
+- DMG: `tools/devnet-control-panel/src-tauri/target/release/bundle/dmg/Synergy Node Control Panel_<version>_aarch64.dmg`

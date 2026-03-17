@@ -181,9 +181,8 @@ pub struct PeerInfo {
     pub peers: Vec<PeerDetail>,
 }
 
-fn get_rpc_url_from_config(_manager: &NodeManager) -> Option<String> {
-    // Get local node's RPC endpoint for monitoring
-    Some(get_local_rpc_endpoint())
+fn get_rpc_url_from_config(manager: &NodeManager) -> Option<String> {
+    parse_rpc_endpoint_from_config(&manager.node_info.config_path).or_else(|| Some(get_local_rpc_endpoint()))
 }
 
 #[tauri::command]

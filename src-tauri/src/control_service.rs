@@ -9,16 +9,21 @@ use crate::monitor::{
     get_monitor_security_state, get_monitor_snapshot, get_monitor_user_manual_markdown,
     get_monitor_workspace_path, monitor_apply_devnet_topology_from_context,
     monitor_assign_ssh_binding, monitor_bulk_node_control, monitor_delete_operator,
-    monitor_delete_ssh_profile, monitor_detect_local_vpn_identity, monitor_ensure_ssh_keypair_from_context,
-    monitor_export_node_data, monitor_get_setup_status, monitor_initialize_workspace_from_context,
-    monitor_mark_setup_complete, monitor_node_control, monitor_remove_ssh_binding,
-    monitor_run_terminal_command, monitor_set_active_operator, monitor_update_local_agent_from_context,
-    monitor_upsert_operator, monitor_upsert_ssh_profile, MonitorOperatorInput,
-    MonitorSshBindingInput, MonitorSshProfileInput,
+    monitor_delete_ssh_profile, monitor_detect_local_vpn_identity,
+    monitor_ensure_ssh_keypair_from_context, monitor_export_node_data, monitor_get_setup_status,
+    monitor_initialize_workspace_from_context, monitor_mark_setup_complete, monitor_node_control,
+    monitor_remove_ssh_binding, monitor_run_terminal_command, monitor_set_active_operator,
+    monitor_update_local_agent_from_context, monitor_upsert_operator, monitor_upsert_ssh_profile,
+    MonitorOperatorInput, MonitorSshBindingInput, MonitorSshProfileInput,
+};
+use crate::testnet_beta::{
+    testbeta_get_catalog, testbeta_get_device_profile, testbeta_get_live_status,
+    testbeta_get_state, testbeta_node_control, testbeta_setup_node, TestnetBetaNodeControlInput,
+    TestnetBetaSetupInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, Method, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -29,6 +34,7 @@ use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 struct ControlServiceState {
@@ -123,6 +129,16 @@ struct TerminalCommandArgs {
     cwd: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct TestnetBetaSetupArgs {
+    input: TestnetBetaSetupInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaNodeControlArgs {
+    input: TestnetBetaNodeControlInput,
+}
+
 pub async fn serve(port: u16, token: String, app_context: AppContext) -> Result<(), String> {
     let event_bus = EventBus::new(128);
     let state = ControlServiceState {
@@ -151,6 +167,12 @@ pub async fn serve(port: u16, token: String, app_context: AppContext) -> Result<
         .route("/health", get(health_handler))
         .route("/v1/invoke", post(invoke_handler))
         .route("/v1/events/stream", get(events_handler))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+                .allow_headers(Any),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -191,7 +213,9 @@ async fn invoke_handler(
 
     let result = dispatch_command(&state, request).await;
     match result {
-        Ok(payload) => (StatusCode::OK, Json(json!({ "ok": true, "data": payload }))).into_response(),
+        Ok(payload) => {
+            (StatusCode::OK, Json(json!({ "ok": true, "data": payload }))).into_response()
+        }
         Err(error) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": error })),
@@ -234,7 +258,10 @@ async fn events_handler(
         .into_response()
 }
 
-fn authorize(state: &ControlServiceState, headers: &HeaderMap) -> Result<(), axum::response::Response> {
+fn authorize(
+    state: &ControlServiceState,
+    headers: &HeaderMap,
+) -> Result<(), axum::response::Response> {
     let Some(value) = headers.get(header::AUTHORIZATION) else {
         return Err(StatusCode::UNAUTHORIZED.into_response());
     };
@@ -255,8 +282,12 @@ async fn dispatch_command(
     request: InvokeRequest,
 ) -> Result<Value, String> {
     match request.command.as_str() {
-        "monitor_initialize_workspace" => to_value(monitor_initialize_workspace_from_context(&state.app_context)?),
-        "monitor_apply_devnet_topology" => to_value(monitor_apply_devnet_topology_from_context(&state.app_context)?),
+        "monitor_initialize_workspace" => to_value(monitor_initialize_workspace_from_context(
+            &state.app_context,
+        )?),
+        "monitor_apply_devnet_topology" => to_value(monitor_apply_devnet_topology_from_context(
+            &state.app_context,
+        )?),
         "monitor_get_setup_status" => to_value(monitor_get_setup_status()?),
         "get_monitor_snapshot" => to_value(get_monitor_snapshot().await?),
         "get_monitor_agent_snapshot" => to_value(get_monitor_agent_snapshot().await?),
@@ -265,8 +296,12 @@ async fn dispatch_command(
         "get_monitor_user_manual_markdown" => to_value(get_monitor_user_manual_markdown()?),
         "get_monitor_security_state" => to_value(get_monitor_security_state()?),
         "monitor_detect_local_vpn_identity" => to_value(monitor_detect_local_vpn_identity()?),
-        "monitor_ensure_ssh_keypair" => to_value(monitor_ensure_ssh_keypair_from_context(&state.app_context)?),
-        "agent_monitor_initialize_workspace" => to_value(agent_monitor_initialize_workspace_from_context(&state.app_context)?),
+        "monitor_ensure_ssh_keypair" => {
+            to_value(monitor_ensure_ssh_keypair_from_context(&state.app_context)?)
+        }
+        "agent_monitor_initialize_workspace" => to_value(
+            agent_monitor_initialize_workspace_from_context(&state.app_context)?,
+        ),
         "agent_get_inventory_machines" => to_value(agent_get_inventory_machines()?),
         "monitor_set_active_operator" => {
             let args: OperatorIdArgs = parse_args(request.args)?;
@@ -300,6 +335,18 @@ async fn dispatch_command(
             let args: TerminalCommandArgs = parse_args(request.args)?;
             to_value(monitor_run_terminal_command(args.command, args.cwd).await?)
         }
+        "testbeta_get_state" => to_value(testbeta_get_state()?),
+        "testbeta_get_live_status" => to_value(testbeta_get_live_status().await?),
+        "testbeta_get_device_profile" => to_value(testbeta_get_device_profile()?),
+        "testbeta_get_catalog" => to_value(testbeta_get_catalog()?),
+        "testbeta_setup_node" => {
+            let args: TestnetBetaSetupArgs = parse_args(request.args)?;
+            to_value(testbeta_setup_node(args.input)?)
+        }
+        "testbeta_node_control" => {
+            let args: TestnetBetaNodeControlArgs = parse_args(request.args)?;
+            to_value(testbeta_node_control(&state.app_context, args.input).await?)
+        }
         "monitor_mark_setup_complete" => {
             let args: SetupCompleteArgs = parse_args(request.args)?;
             to_value(
@@ -324,11 +371,17 @@ async fn dispatch_command(
         }
         "monitor_update_local_agent" => {
             let args: NodeSlotArgs = parse_args(request.args)?;
-            to_value(monitor_update_local_agent_from_context(args.node_slot_id, &state.app_context).await?)
+            to_value(
+                monitor_update_local_agent_from_context(args.node_slot_id, &state.app_context)
+                    .await?,
+            )
         }
         "agent_prepare_hosts_env" => {
             let args: PrepareHostsArgs = parse_args(request.args)?;
-            to_value(agent_prepare_hosts_env_from_context(args.input, &state.app_context)?)
+            to_value(agent_prepare_hosts_env_from_context(
+                args.input,
+                &state.app_context,
+            )?)
         }
         other => Err(format!("Unsupported control-service command: {other}")),
     }

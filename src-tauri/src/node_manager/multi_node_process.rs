@@ -1,6 +1,7 @@
 use crate::env_config::EnvConfig;
 use crate::node_manager::multi_node::MultiNodeManager;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use tauri::State;
@@ -8,6 +9,12 @@ use tokio::sync::Mutex;
 
 pub struct ProcessManager {
     pub processes: HashMap<String, tokio::process::Child>,
+}
+
+fn node_binary_path(control_panel_path: &std::path::Path, node_type: &crate::node_manager::types::NodeType) -> PathBuf {
+    control_panel_path
+        .join("bin")
+        .join(node_type.installed_binary_name())
 }
 
 impl ProcessManager {
@@ -18,8 +25,8 @@ impl ProcessManager {
     }
 }
 
-/// Refresh the node's config file with current bootnodes from env config
-fn refresh_node_bootnodes(
+/// Refresh the node's config file with current bootstrap inputs from env config.
+fn refresh_node_bootstrap_config(
     config_path: &std::path::Path,
     env_config: &EnvConfig,
 ) -> Result<(), String> {
@@ -34,7 +41,7 @@ fn refresh_node_bootnodes(
         .parse()
         .map_err(|e: toml::de::Error| format!("Failed to parse config: {}", e))?;
 
-    // Update bootnodes from current env config
+    // Update bootstrap inputs from current env config.
     if let Some(network) = config_value.get_mut("network") {
         if let Some(table) = network.as_table_mut() {
             let bootnodes = toml::Value::Array(
@@ -45,6 +52,27 @@ fn refresh_node_bootnodes(
                     .collect(),
             );
             table.insert("bootnodes".to_string(), bootnodes);
+
+            let seed_servers = toml::Value::Array(
+                env_config
+                    .seed_servers
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            );
+            table.insert("seed_servers".to_string(), seed_servers);
+
+            let bootstrap_dns_records = toml::Value::Array(
+                env_config
+                    .bootstrap_dns_records
+                    .iter()
+                    .map(|s| toml::Value::String(s.clone()))
+                    .collect(),
+            );
+            table.insert(
+                "bootstrap_dns_records".to_string(),
+                bootstrap_dns_records,
+            );
         }
     }
 
@@ -75,15 +103,15 @@ pub async fn start_node_by_id(
 
     // Refresh bootnodes in config with current env settings before starting
     let env_config = EnvConfig::load(Some(&app_handle))?;
-    refresh_node_bootnodes(&node.config_path, &env_config)?;
+    refresh_node_bootstrap_config(&node.config_path, &env_config)?;
 
     // Build command
-    let binary_path = &mgr.info.binary_path;
+    let binary_path = node_binary_path(&mgr.info.control_panel_path, &node.node_type);
     if !binary_path.exists() {
         return Err("Node binary not found. Please reinstall.".to_string());
     }
 
-    let mut cmd = tokio::process::Command::new(binary_path);
+    let mut cmd = tokio::process::Command::new(&binary_path);
     // Subcommand must come BEFORE options
     cmd.arg("start")
         .arg("--config")

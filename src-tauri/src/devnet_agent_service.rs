@@ -151,6 +151,7 @@ pub async fn serve_with_host(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn bind_addresses(port: u16) -> Vec<SocketAddr> {
     bind_addresses_for_host(None, port)
 }
@@ -897,7 +898,8 @@ fn install_dir_has_runtime_state(install_dir: &Path) -> bool {
         data_dir.join("logs/node.err"),
     ];
 
-    runtime_markers.iter().any(|path| path.exists()) || is_process_running_for_install_dir(install_dir)
+    runtime_markers.iter().any(|path| path.exists())
+        || is_process_running_for_install_dir(install_dir)
 }
 
 fn install_dir_runtime_timestamp(install_dir: &Path) -> u64 {
@@ -1125,6 +1127,7 @@ fn reset_chain(workspace_root: &Path, install: &NodeInstall) -> Result<CommandOu
     })
 }
 
+#[allow(dead_code)]
 fn run_install_script(install: &NodeInstall) -> Result<CommandOutcome, String> {
     #[cfg(target_os = "windows")]
     let output = ProcessCommand::new("powershell")

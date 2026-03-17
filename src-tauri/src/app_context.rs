@@ -27,8 +27,8 @@ impl AppContext {
         }
     }
 
-    #[cfg(feature = "desktop-tauri")]
-    pub fn from_tauri(app_handle: &tauri::AppHandle) -> Self {
+    #[cfg(feature = "desktop-native-shell")]
+    pub fn from_desktop_shell(app_handle: &tauri::AppHandle) -> Self {
         use tauri::Manager;
 
         let mut resource_roots = Vec::new();

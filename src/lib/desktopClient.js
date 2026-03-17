@@ -1,6 +1,8 @@
 let cachedServiceConfigPromise = null;
 let cachedEventSource = null;
 let cachedEventSourceKey = '';
+const SERVICE_CONFIG_RETRY_DELAY_MS = 160;
+const INVOKE_RETRY_DELAYS_MS = [0, 180, 320, 520, 760];
 
 function getBridge() {
   if (typeof window !== 'undefined' && window.synergyDesktop) {
@@ -9,38 +11,87 @@ function getBridge() {
   return null;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 async function getServiceConfig() {
   if (!cachedServiceConfigPromise) {
-    const bridge = getBridge();
-    if (!bridge?.getServiceConfig) {
-      cachedServiceConfigPromise = Promise.reject(new Error('Electron desktop bridge is unavailable.'));
-    } else {
-      cachedServiceConfigPromise = bridge.getServiceConfig();
-    }
+    cachedServiceConfigPromise = (async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const bridge = getBridge();
+        if (bridge?.getServiceConfig) {
+          const config = await bridge.getServiceConfig();
+          if (config?.baseUrl && config?.token) {
+            return config;
+          }
+        }
+
+        await sleep(SERVICE_CONFIG_RETRY_DELAY_MS);
+      }
+
+      throw new Error('Electron desktop bridge is unavailable.');
+    })();
   }
-  return cachedServiceConfigPromise;
+
+  try {
+    return await cachedServiceConfigPromise;
+  } catch (error) {
+    cachedServiceConfigPromise = null;
+    throw error;
+  }
 }
 
 export async function invoke(command, args = {}) {
-  const config = await getServiceConfig();
-  const response = await fetch(`${config.baseUrl}/v1/invoke`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.token}`,
-    },
-    body: JSON.stringify({
-      command,
-      args,
-    }),
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.ok === false) {
-    throw new Error(String(payload?.error || `Command failed: ${command}`));
+  const bridge = getBridge();
+  if (bridge?.invokeService) {
+    return bridge.invokeService(command, args);
   }
 
-  return payload?.data;
+  const config = await getServiceConfig();
+  let lastError = null;
+
+  for (let index = 0; index < INVOKE_RETRY_DELAYS_MS.length; index += 1) {
+    const delayMs = INVOKE_RETRY_DELAYS_MS[index];
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+
+    try {
+      const response = await fetch(`${config.baseUrl}/v1/invoke`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.token}`,
+        },
+        body: JSON.stringify({
+          command,
+          args,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(String(payload?.error || `Command failed: ${command}`));
+      }
+
+      return payload?.data;
+    } catch (error) {
+      lastError = error;
+      const isNetworkError = error instanceof TypeError;
+      if (!isNetworkError || index === INVOKE_RETRY_DELAYS_MS.length - 1) {
+        break;
+      }
+    }
+  }
+
+  if (lastError instanceof TypeError) {
+    throw new Error(`Control service is not reachable yet for "${command}".`);
+  }
+
+  throw lastError;
 }
 
 function getEventSourceKey(config) {
@@ -108,6 +159,14 @@ export async function openExternal(url) {
     return bridge.openExternal(url);
   }
   window.open(url, '_blank', 'noreferrer');
+  return null;
+}
+
+export async function openPath(targetPath) {
+  const bridge = getBridge();
+  if (bridge?.openPath) {
+    return bridge.openPath(targetPath);
+  }
   return null;
 }
 

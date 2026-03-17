@@ -18,6 +18,8 @@ pub struct EnvConfig {
     pub network: String,
     pub chain_id: u64,
     pub bootstrap_nodes: Vec<String>,
+    pub seed_servers: Vec<String>,
+    pub bootstrap_dns_records: Vec<String>,
     pub rpc_endpoint: String,
     pub rpc_fallbacks: Vec<String>,
     pub ws_endpoint: String,
@@ -61,6 +63,14 @@ impl EnvConfig {
         if bootstrap_nodes.is_empty() {
             return Err("SYNERGY_BOOTSTRAP_NODES is empty".to_string());
         }
+        let seed_servers = layered
+            .optional_string("SYNERGY_SEED_SERVERS")
+            .map(|value| split_endpoints(&value))
+            .unwrap_or_default();
+        let bootstrap_dns_records = layered
+            .optional_string("SYNERGY_BOOTSTRAP_DNS_RECORDS")
+            .map(|value| split_endpoints(&value))
+            .unwrap_or_default();
 
         let rpc_endpoint = layered.require_string("SYNERGY_RPC_ENDPOINT")?;
         let rpc_fallbacks = layered
@@ -110,6 +120,8 @@ impl EnvConfig {
             network,
             chain_id,
             bootstrap_nodes,
+            seed_servers,
+            bootstrap_dns_records,
             rpc_endpoint,
             rpc_fallbacks,
             ws_endpoint,

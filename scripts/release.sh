@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# release.sh — Cut a new release of the Synergy Devnet Control Panel
+# release.sh — Cut a new release of the Synergy Node Control Panel
 # ─────────────────────────────────────────────────────────────────────────────
 # Usage:
 #   ./scripts/release.sh <version>

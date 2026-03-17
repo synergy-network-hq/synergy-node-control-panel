@@ -1,4 +1,4 @@
-# Synergy Devnet Control Panel
+# Synergy Node Control Panel
 
 This app is the desktop operator console for the Synergy closed devnet.
 
@@ -54,6 +54,8 @@ npm install
 npm run build:control-service
 npm run dev:desktop
 ```
+
+`npm run dev:desktop` prefers port `1420` for the renderer but will automatically move to the next free port if another local app already owns it. To pin a specific port for manual `dev:renderer` / `dev:electron` runs, export `SYNERGY_RENDERER_PORT`.
 
 ## Build App Bundle
 

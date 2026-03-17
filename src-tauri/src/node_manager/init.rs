@@ -29,22 +29,48 @@ pub async fn init_node_environment(
     fs::create_dir_all(sandbox.join("data"))
         .map_err(|e| format!("Failed to create data directory: {}", e))?;
 
-    // Create default config file
-    let config_content = serde_json::json!({
-        "network": "devnet",
-        "rpc_port": 48638,
-        "p2p_port": 38638,
-        "data_dir": sandbox.join("data").to_string_lossy(),
-        "log_level": "info",
-        "enable_metrics": true,
-        "metrics_port": 9090
-    });
+    // Create a runtime-compatible TOML config for the legacy single-node path.
+    let data_dir = toml::Value::String(sandbox.join("data").to_string_lossy().to_string()).to_string();
+    let log_file = toml::Value::String(sandbox.join("logs").join("node.log").to_string_lossy().to_string()).to_string();
+    let config_content = format!(
+        r#"[network]
+name = "devnet"
+rpc_port = 48638
+p2p_port = 38638
 
-    fs::write(
-        &manager.node_info.config_path,
-        serde_json::to_string_pretty(&config_content).unwrap(),
-    )
-    .map_err(|e| format!("Failed to write config file: {}", e))?;
+[rpc]
+http_port = 48638
+enable_http = true
+enable_ws = false
+enable_grpc = false
+
+[p2p]
+listen_address = "0.0.0.0:38638"
+node_name = "validator-local"
+
+[storage]
+data_dir = {data_dir}
+
+[logging]
+log_level = "info"
+enable_console = true
+log_file = {log_file}
+
+[identity]
+role = "validator"
+
+[role]
+compiled_profile = "validator_node"
+
+[node]
+auto_register_validator = false
+strict_validator_allowlist = false
+allowed_validator_addresses = []
+"#
+    );
+
+    fs::write(&manager.node_info.config_path, config_content)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
 
     manager.node_info.is_initialized = true;
 

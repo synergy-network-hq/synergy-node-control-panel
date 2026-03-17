@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE_ROOT="${HOME}/.synergy-devnet-control-panel/monitor-workspace"
+WORKSPACE_ROOT="${HOME}/.synergy-node-control-panel/monitor-workspace"
 LEGACY_ROOT="${HOME}/.synergy-node-monitor/monitor-workspace"
 LAUNCH_AGENT="${HOME}/Library/LaunchAgents/io.synergy.devnet.agent.plist"
 
-echo "Cleaning Synergy Devnet Control Panel artifacts on macOS..."
+echo "Cleaning Synergy Node Control Panel artifacts on macOS..."
 
 launchctl unload "$LAUNCH_AGENT" >/dev/null 2>&1 || true
 rm -f "$LAUNCH_AGENT"

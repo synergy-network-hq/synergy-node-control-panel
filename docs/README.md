@@ -1,6 +1,6 @@
 # Documentation Index
 
-This directory holds the current non-bundled project documentation for the Synergy Devnet Control Panel.
+This directory holds the current non-bundled project documentation for the Synergy Node Control Panel.
 
 Operator-facing manuals that ship inside the app stay in `guides/`.
 Superseded or one-off material lives in `archive/`.
@@ -10,6 +10,7 @@ Superseded or one-off material lives in `archive/`.
 - `developer/github-ssh-key.md`: GitHub SSH key setup for contributors/operators
 - `developer/git-remote.md`: repo remote/push setup for this project
 - `operator/firewall-privilege-escalation.md`: sudo / `pkexec` notes for installer-driven firewall changes
+- `operator/public-testing-readiness-checklist.md`: production-readiness checklist before outside testers use the control panel
 - `reference/address-format.md`: Synergy address and node-address format reference
 
 ## Bundled App Help

@@ -1,5 +1,5 @@
-use synergy_devnet_control_panel::app_context::AppContext;
-use synergy_devnet_control_panel::control_service;
+use synergy_node_control_panel::app_context::AppContext;
+use synergy_node_control_panel::control_service;
 
 #[tokio::main]
 async fn main() {

@@ -456,8 +456,14 @@ pub async fn setup_node(
         },
     )?;
 
-    let (binary_path, binary_message) =
-        ensure_binary_ready(&env_config, &manager, &app_handle, &progress_map).await?;
+    let (binary_path, binary_message) = ensure_binary_ready(
+        &env_config,
+        &node.node_type,
+        &manager,
+        &app_handle,
+        &progress_map,
+    )
+    .await?;
     emit_progress(&app_handle, &progress_map, "binary", binary_message)?;
 
     let config_message = ensure_config(
@@ -774,8 +780,15 @@ async fn ensure_node_identity(
     Ok((generated_identity, true))
 }
 
+fn installed_binary_path(control_panel_path: &Path, node_type: &NodeType) -> PathBuf {
+    control_panel_path
+        .join("bin")
+        .join(node_type.installed_binary_name())
+}
+
 async fn fetch_manifest_entry(
     env_config: &EnvConfig,
+    node_type: &NodeType,
 ) -> Result<(String, Option<String>, Option<String>), String> {
     let platform_key = env_config.platform_key();
     if platform_key == "unsupported" {
@@ -796,12 +809,34 @@ async fn fetch_manifest_entry(
     let manifest: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| format!("Failed to parse manifest JSON: {}", e))?;
 
+    let profile_key = node_type.compiled_profile();
+
     let entry_value = manifest
         .get("binaries")
         .and_then(|b| b.get(&platform_key))
-        .or_else(|| manifest.get("platforms").and_then(|p| p.get(&platform_key)))
-        .or_else(|| manifest.get(&platform_key))
-        .ok_or_else(|| format!("No manifest entry for platform {}", platform_key))?;
+        .and_then(|platform| {
+            platform
+                .get("roles")
+                .and_then(|roles| roles.get(profile_key))
+                .or_else(|| platform.get(profile_key))
+        })
+        .or_else(|| {
+            manifest
+                .get("platforms")
+                .and_then(|p| p.get(&platform_key))
+                .and_then(|platform| {
+                    platform
+                        .get("roles")
+                        .and_then(|roles| roles.get(profile_key))
+                        .or_else(|| platform.get(profile_key))
+                })
+        })
+        .ok_or_else(|| {
+            format!(
+                "No manifest entry for platform {} and role {}",
+                platform_key, profile_key
+            )
+        })?;
 
     let url = if entry_value.is_object() {
         entry_value
@@ -830,26 +865,18 @@ async fn fetch_manifest_entry(
 
 async fn ensure_binary_ready(
     env_config: &EnvConfig,
+    node_type: &NodeType,
     manager: &State<'_, Arc<Mutex<MultiNodeManager>>>,
     app_handle: &tauri::AppHandle,
     progress_map: &HashMap<String, u8>,
 ) -> Result<(PathBuf, String), String> {
     let binary_path = {
-        let mut mgr = manager.lock().await;
-        let expected = mgr
-            .info
-            .control_panel_path
-            .join("bin")
-            .join(&env_config.binary_name);
-        if mgr.info.binary_path != expected {
-            mgr.info.binary_path = expected.clone();
-            mgr.save()?;
-        }
-        expected
+        let mgr = manager.lock().await;
+        installed_binary_path(&mgr.info.control_panel_path, node_type)
     };
 
     if binary_path.exists() {
-        if let Ok((url, checksum, _version)) = fetch_manifest_entry(env_config).await {
+        if let Ok((url, checksum, _version)) = fetch_manifest_entry(env_config, node_type).await {
             if let Some(expected) = checksum {
                 let actual = binary_verification::calculate_checksum(&binary_path)
                     .map_err(|e| format!("Failed to checksum binary: {}", e))?;
@@ -873,7 +900,7 @@ async fn ensure_binary_ready(
     }
 
     // Try manifest download first
-    match fetch_manifest_entry(env_config).await {
+    match fetch_manifest_entry(env_config, node_type).await {
         Ok((url, checksum, _version)) => {
             let download_result = binary_downloader::download_binary_direct_with_progress(
                 &binary_path,
@@ -932,7 +959,7 @@ async fn ensure_binary_ready(
     }
 
     // Fallback: look for bundled or local binary and copy it
-    if let Some(source) = find_local_binary(env_config, app_handle) {
+    if let Some(source) = find_local_binary(env_config, node_type, app_handle) {
         fs::create_dir_all(binary_path.parent().unwrap_or(Path::new(".")))
             .map_err(|e| format!("Failed to create bin directory: {}", e))?;
         fs::copy(&source, &binary_path)
@@ -956,49 +983,69 @@ async fn ensure_binary_ready(
     Err("Binary download failed and no bundled binary found".to_string())
 }
 
-fn find_local_binary(env_config: &EnvConfig, app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+fn find_local_binary(
+    env_config: &EnvConfig,
+    node_type: &NodeType,
+    app_handle: &tauri::AppHandle,
+) -> Option<PathBuf> {
     let mut paths = Vec::new();
+    let platform_key = env_config.platform_key();
+    let installed_name = node_type.installed_binary_name();
+    let artifact_name = node_type.artifact_binary_name(&platform_key);
 
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        paths.push(resource_dir.join("binaries").join(&env_config.binary_name));
+        paths.push(resource_dir.join("binaries").join(&installed_name));
+        paths.push(resource_dir.join("binaries").join(&artifact_name));
         paths.push(
             resource_dir
                 .join("_up_")
                 .join("binaries")
-                .join(&env_config.binary_name),
+                .join(&installed_name),
         );
-        paths.push(resource_dir.join("binaries").join("synergy-node"));
         paths.push(
             resource_dir
                 .join("_up_")
                 .join("binaries")
-                .join("synergy-node"),
+                .join(&artifact_name),
         );
     }
 
     if let Ok(current_dir) = std::env::current_dir() {
-        paths.push(current_dir.join("binaries").join(&env_config.binary_name));
-        paths.push(current_dir.join("binaries").join("synergy-node"));
+        paths.push(current_dir.join("binaries").join(&installed_name));
+        paths.push(current_dir.join("binaries").join(&artifact_name));
         paths.push(
             current_dir
                 .join("..")
                 .join("binaries")
-                .join(&env_config.binary_name),
+                .join(&installed_name),
         );
-        paths.push(current_dir.join("..").join("binaries").join("synergy-node"));
+        paths.push(current_dir.join("..").join("binaries").join(&artifact_name));
+        paths.push(
+            current_dir
+                .join("..")
+                .join("..")
+                .join("..")
+                .join("synergy-testnet-beta")
+                .join("binaries")
+                .join(&installed_name),
+        );
+        paths.push(
+            current_dir
+                .join("..")
+                .join("..")
+                .join("..")
+                .join("synergy-testnet-beta")
+                .join("binaries")
+                .join(&artifact_name),
+        );
     }
 
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            paths.push(exe_dir.join("binaries").join(&env_config.binary_name));
-            paths.push(exe_dir.join("binaries").join("synergy-node"));
-            paths.push(
-                exe_dir
-                    .join("..")
-                    .join("binaries")
-                    .join(&env_config.binary_name),
-            );
-            paths.push(exe_dir.join("..").join("binaries").join("synergy-node"));
+            paths.push(exe_dir.join("binaries").join(&installed_name));
+            paths.push(exe_dir.join("binaries").join(&artifact_name));
+            paths.push(exe_dir.join("..").join("binaries").join(&installed_name));
+            paths.push(exe_dir.join("..").join("binaries").join(&artifact_name));
         }
     }
 
@@ -1146,6 +1193,24 @@ fn ensure_config(
             Vec::new()
         } else {
             env_config.bootstrap_nodes.clone()
+        },
+    );
+    set_toml_array(
+        &mut config_value,
+        &["network", "seed_servers"],
+        if user_operated_local {
+            Vec::new()
+        } else {
+            env_config.seed_servers.clone()
+        },
+    );
+    set_toml_array(
+        &mut config_value,
+        &["network", "bootstrap_dns_records"],
+        if user_operated_local {
+            Vec::new()
+        } else {
+            env_config.bootstrap_dns_records.clone()
         },
     );
     set_toml_value(
@@ -1566,7 +1631,46 @@ fn customize_node_config(node: &NodeInstance) -> Result<(), String> {
         .replace("./logs", &node.logs_path.to_string_lossy())
         .replace("./data", &node.data_path.to_string_lossy());
 
-    fs::write(&node.config_path, customized)
+    let mut config_value: toml::Value = customized
+        .parse()
+        .map_err(|e: toml::de::Error| format!("Failed to parse customized config: {}", e))?;
+
+    let document = config_value
+        .as_table_mut()
+        .ok_or_else(|| "Customized config did not parse as a TOML table".to_string())?;
+
+    let identity = document
+        .entry("identity")
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+        .as_table_mut()
+        .ok_or_else(|| "identity section is not a TOML table".to_string())?;
+    identity.insert(
+        "node_id".to_string(),
+        toml::Value::String(node.id.clone()),
+    );
+    identity.insert(
+        "role".to_string(),
+        toml::Value::String(node.node_type.as_str().to_string()),
+    );
+    identity.insert(
+        "label".to_string(),
+        toml::Value::String(node.display_name.clone()),
+    );
+
+    let role = document
+        .entry("role")
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+        .as_table_mut()
+        .ok_or_else(|| "role section is not a TOML table".to_string())?;
+    role.insert(
+        "compiled_profile".to_string(),
+        toml::Value::String(node.node_type.compiled_profile().to_string()),
+    );
+
+    let serialized = toml::to_string_pretty(&config_value)
+        .map_err(|e| format!("Failed to serialize customized config: {}", e))?;
+
+    fs::write(&node.config_path, serialized)
         .map_err(|e| format!("Failed to write config: {}", e))?;
 
     Ok(())

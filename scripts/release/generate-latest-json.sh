@@ -86,7 +86,7 @@ WIN_SIG="$(read_signature "$WIN_SIG_PATH")"
 
 jq -n \
   --arg version "$VERSION_NUM" \
-  --arg notes "Synergy Devnet Control Panel ${VERSION_TAG}" \
+  --arg notes "Synergy Node Control Panel ${VERSION_TAG}" \
   --arg pub_date "$RELEASE_DATE" \
   --arg mac_url "${BASE_URL}/${MAC_BUNDLE_URL}" \
   --arg mac_sig "$MAC_SIG" \

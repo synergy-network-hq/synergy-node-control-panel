@@ -24,6 +24,8 @@ pub async fn start_node(state: State<'_, Arc<Mutex<NodeManager>>>) -> Result<Str
     // Spawn node process with "start" subcommand
     let child = Command::new(&manager.node_info.binary_path)
         .arg("start")
+        .arg("--config")
+        .arg(&manager.node_info.config_path)
         .current_dir(&manager.node_info.sandbox_path)
         .stdout(log_file.try_clone().map_err(|e| e.to_string())?)
         .stderr(log_file)

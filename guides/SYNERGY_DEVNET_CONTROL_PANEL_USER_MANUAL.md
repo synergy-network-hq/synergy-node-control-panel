@@ -1,4 +1,4 @@
-# Synergy Devnet Control Panel User Manual
+# Synergy Node Control Panel User Manual
 
 Version: 2026-03-06
 Applies to: `tools/devnet-control-panel` (desktop app + `devnet/lean15` closed-devnet profile, 23 active node slots across 13 physical machines)
@@ -10,7 +10,7 @@ Applies to: `tools/devnet-control-panel` (desktop app + `devnet/lean15` closed-d
 3. Closed Devnet Configuration Reference
 4. Full Node/Port/RPC Inventory
 5. Pre-Install WireGuard Foundation (Required Before App Install)
-6. Install the Synergy Devnet Control Panel App (macOS, Linux, Windows)
+6. Install the Synergy Node Control Panel App (macOS, Linux, Windows)
 7. Required Steps Immediately After App Install
 8. First Operator Runbook (Bootstrap the Private Devnet)
 9. Subsequent Operator Runbook (Join and Operate Existing Devnet)
@@ -51,15 +51,15 @@ If node ports or RPC endpoints are internet-reachable without explicit hardening
 
 ## 2. Architecture and Workspace Layout
 
-The Synergy Devnet Control Panel app is an Electron desktop application backed by a local Rust control-service and a React frontend.
+The Synergy Node Control Panel app is an Electron desktop application backed by a local Rust control-service and a React frontend.
 
 ### 2.1 Workspace locations by OS
 
 The app writes runtime state under `monitor-workspace`.
 
-- **macOS (current)**: `~/.synergy-devnet-control-panel/monitor-workspace`
-- **Linux (current)**: `~/.synergy-devnet-control-panel/monitor-workspace`
-- **Windows (current)**: `%USERPROFILE%\.synergy-devnet-control-panel\monitor-workspace`
+- **macOS (current)**: `~/.synergy-node-control-panel/monitor-workspace`
+- **Linux (current)**: `~/.synergy-node-control-panel/monitor-workspace`
+- **Windows (current)**: `%USERPROFILE%\.synergy-node-control-panel\monitor-workspace`
 
 Legacy paths migrated automatically when the new workspace is empty:
 
@@ -229,7 +229,7 @@ Even with correct scripts, provisioning fails when SSH paths, tunnel interfaces,
 
 ### 5.2.1 WireGuard install commands by OS
 
-Run on each node host before Synergy Devnet Control Panel install/provisioning.
+Run on each node host before Synergy Node Control Panel install/provisioning.
 
 Linux (Debian/Ubuntu):
 
@@ -345,7 +345,7 @@ Expected result:
 
 ```bash
 # operator machine
-WORKSPACE="${HOME}/.synergy-devnet-control-panel/monitor-workspace"
+WORKSPACE="${HOME}/.synergy-node-control-panel/monitor-workspace"
 cd "$WORKSPACE"
 
 # 1) generate hosts inventory first
@@ -363,7 +363,7 @@ ifconfig | rg 10.50
 ./scripts/devnet15/remote-node-orchestrator.sh node-01 setup_node
 ./scripts/devnet15/remote-node-orchestrator.sh node-01 status
 ```
-WORKSPACE="${HOME}/.synergy-devnet-control-panel/monitor-workspace"
+WORKSPACE="${HOME}/.synergy-node-control-panel/monitor-workspace"
 sudo install -m 600 "$WORKSPACE/devnet/lean15/wireguard/configs/node-01.conf" /etc/wireguard/synergy-devnet.conf
 sudo wg-quick down synergy-devnet >/dev/null 2>&1 || true
 sudo wg-quick up synergy-devnet
@@ -433,14 +433,14 @@ Use these values during first bootstrap:
 
 ---
 
-## 6. Install the Synergy Devnet Control Panel App (macOS, Linux, Windows)
+## 6. Install the Synergy Node Control Panel App (macOS, Linux, Windows)
 
 ### 6.1 macOS install
 
 Current artifact paths:
 
-- App bundle: `tools/devnet-control-panel/src-tauri/target/release/bundle/macos/Synergy Devnet Control Panel.app`
-- DMG: `tools/devnet-control-panel/src-tauri/target/release/bundle/dmg/Synergy Devnet Control Panel_<version>_aarch64.dmg`
+- App bundle: `tools/devnet-control-panel/src-tauri/target/release/bundle/macos/Synergy Node Control Panel.app`
+- DMG: `tools/devnet-control-panel/src-tauri/target/release/bundle/dmg/Synergy Node Control Panel_<version>_aarch64.dmg`
 
 Install:
 
@@ -450,7 +450,7 @@ Install:
 4. If Gatekeeper blocks launch:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Synergy Devnet Control Panel.app"
+xattr -dr com.apple.quarantine "/Applications/Synergy Node Control Panel.app"
 ```
 
 ### 6.2 Linux install
@@ -1125,7 +1125,7 @@ If the VPN path is unhealthy:
 - Use the canonical form with script path:
 
 ```bash
-cd ~/.synergy-devnet-control-panel/monitor-workspace
+cd ~/.synergy-node-control-panel/monitor-workspace
 ./scripts/devnet15/remote-node-orchestrator.sh node-01 status
 ```
 

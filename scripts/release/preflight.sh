@@ -45,7 +45,7 @@ match = re.search(r'^productName:\s*(.+)\s*$', text, re.MULTILINE)
 print((match.group(1).strip() if match else ""), end="")
 PY
 )"
-if [[ "$PRODUCT_NAME" != "Synergy Devnet Control Panel" ]]; then
+if [[ "$PRODUCT_NAME" != "Synergy Node Control Panel" ]]; then
   echo "Unexpected productName in electron-builder.yml: $PRODUCT_NAME" >&2
   exit 1
 fi

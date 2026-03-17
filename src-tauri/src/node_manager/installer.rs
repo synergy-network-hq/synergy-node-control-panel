@@ -3,9 +3,34 @@ use super::binary_verification;
 use super::types::*;
 use super::NodeManager;
 use std::fs::{self};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
+
+fn resource_binary_candidates(binary_path: &std::path::Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(file_name) = binary_path.file_name() {
+        candidates.push(PathBuf::from(file_name));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        candidates.push(PathBuf::from("synergy-testbeta.exe"));
+        candidates.push(PathBuf::from("synergy-node.exe"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        candidates.push(PathBuf::from("synergy-testbeta"));
+        candidates.push(PathBuf::from("synergy-node"));
+    }
+
+    // Preserve support for older packaged resources used by some local builds.
+    candidates.push(PathBuf::from("synergy-devnet-aarch64-apple-darwin"));
+    candidates
+}
 
 #[tauri::command]
 pub async fn install_node_binaries(
@@ -44,22 +69,13 @@ pub async fn install_node_binaries(
         .resource_dir()
         .map_err(|e| format!("Failed to get resource directory: {}", e))?;
 
-    // Try both the generic name and architecture-specific names
-    let mut bundled_binary_path = resource_path.join("synergy-node");
-    let architecture_specific_path = resource_path.join("synergy-devnet-aarch64-apple-darwin");
-
-    // Prefer architecture-specific binary if it exists, otherwise fall back to generic
-    let binary_found = if architecture_specific_path.exists() {
-        bundled_binary_path = architecture_specific_path;
-        true
-    } else if bundled_binary_path.exists() {
-        true
-    } else {
-        false
-    };
+    let bundled_binary_path = resource_binary_candidates(&binary_path)
+        .into_iter()
+        .map(|candidate| resource_path.join(candidate))
+        .find(|candidate| candidate.exists());
 
     // If bundled binary not found, try downloading from remote
-    if !binary_found {
+    if bundled_binary_path.is_none() {
         let _ = app.emit(
             "install-progress",
             InstallProgress {
@@ -115,6 +131,8 @@ pub async fn install_node_binaries(
 
         return Ok("Node binary downloaded and installed successfully".to_string());
     }
+
+    let bundled_binary_path = bundled_binary_path.unwrap();
 
     // Emit progress: Installing
     let _ = app.emit(

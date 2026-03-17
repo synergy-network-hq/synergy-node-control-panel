@@ -10,7 +10,7 @@ These commands are for developing, building, and running the desktop control pan
 
 ### `npm run dev:desktop`
 **Run from:** repo root
-**What it does:** Starts the Vite renderer and launches the Electron shell against it. The Electron main process starts the local Rust `control-service` on demand.
+**What it does:** Starts the Vite renderer and launches the Electron shell against it. The Electron main process starts the local Rust `control-service` on demand. The launcher prefers port `1420` and automatically selects the next free port if `1420` is already occupied.
 
 ### `npm run build:control-service`
 **Run from:** repo root
@@ -23,6 +23,8 @@ These commands are for developing, building, and running the desktop control pan
 ### `npm run dev`
 **Run from:** repo root
 **What it does:** Starts the Vite frontend dev server only. Useful for pure UI work in a browser. Desktop-only Electron bridge calls will not work there.
+
+If you need to pair `npm run dev:renderer` with `npm run dev:electron` manually, set `SYNERGY_RENDERER_PORT` to the same port for both commands.
 
 ### `npm run build`
 **Run from:** repo root
