@@ -1,7 +1,7 @@
 import { getVersion, openExternal, relaunchApp as relaunchDesktopApp } from './desktopClient';
 
-const RELEASES_API_LATEST = 'https://api.github.com/repos/synergy-network-hq/devnet-control-panel-releases/releases/latest';
-const RELEASES_PAGE = 'https://github.com/synergy-network-hq/devnet-control-panel-releases/releases/latest';
+const RELEASES_API_LATEST = 'https://api.github.com/repos/synergy-network-hq/synergy-node-control-panel-releases/releases/latest';
+const RELEASES_PAGE = 'https://github.com/synergy-network-hq/synergy-node-control-panel-releases/releases/latest';
 
 function parseVersionParts(value) {
   const normalized = String(value || '').trim().replace(/^v/i, '');

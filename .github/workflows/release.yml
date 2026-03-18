@@ -47,11 +47,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Create .env if missing
+      - name: Create .env from testbeta example if missing
         shell: bash
         run: |
           if [ ! -f .env ]; then
-            echo "# CI placeholder" > .env
+            cp .env.example .env
           fi
 
       - name: Install Linux packaging dependencies
