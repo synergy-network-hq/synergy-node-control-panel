@@ -248,6 +248,18 @@ pub struct TestnetBetaNodeControlResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestnetBetaRemoveNodeInput {
+    pub node_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestnetBetaRemoveNodeResult {
+    pub node_id: String,
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct GeneratedWalletFiles {
     wallet: TestnetBetaWalletRecord,
 }
@@ -422,6 +434,105 @@ pub async fn testbeta_node_control(
         }
         other => Err(format!("Unsupported Testnet-Beta node action: {other}")),
     }
+}
+
+pub async fn testbeta_remove_node(
+    app_context: &AppContext,
+    input: TestnetBetaRemoveNodeInput,
+) -> Result<TestnetBetaRemoveNodeResult, String> {
+    let root = ensure_testnet_beta_root()?;
+    let mut registry = load_registry(&root)?;
+    let network_profile = load_or_create_network_profile(&root)?;
+
+    let node = registry
+        .nodes
+        .iter()
+        .find(|entry| entry.id == input.node_id)
+        .cloned()
+        .ok_or_else(|| format!("Unknown Testnet-Beta node: {}", input.node_id))?;
+
+    let workspace_directory = PathBuf::from(&node.workspace_directory);
+
+    // Ensure node is stopped before removal.
+    if let Some(pid) = running_pid_for_workspace(&workspace_directory) {
+        let config_path = workspace_directory.join("config").join("node.toml");
+        if config_path.is_file() {
+            if let Ok(runner) = resolve_testbeta_runner(app_context, &node.role_id) {
+                let _ = run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await;
+            }
+        }
+        // If the runner stop didn't work, kill the process directly.
+        if running_pid_for_workspace(&workspace_directory).is_some() {
+            let mut system = System::new_all();
+            system.refresh_all();
+            if let Some(process) = system.process(Pid::from_u32(pid)) {
+                process.kill();
+            }
+        }
+    }
+
+    // Attempt to deregister from seed servers (best-effort).
+    deregister_node_from_seeds(&network_profile, &node).await;
+
+    // Remove the workspace directory.
+    if workspace_directory.exists() {
+        fs::remove_dir_all(&workspace_directory).map_err(|error| {
+            format!(
+                "Failed to remove workspace at {}: {error}",
+                workspace_directory.display()
+            )
+        })?;
+    }
+
+    // Remove the associated funding manifest from the network profile.
+    let mut updated_network_profile = network_profile;
+    updated_network_profile
+        .funding_manifests
+        .retain(|manifest| manifest.id != node.funding_manifest_id);
+    updated_network_profile.updated_at_utc = Utc::now().to_rfc3339();
+    save_network_profile(&root, &updated_network_profile)?;
+
+    // Remove from registry and persist.
+    registry.nodes.retain(|entry| entry.id != input.node_id);
+    save_registry(&root, &registry)?;
+
+    Ok(TestnetBetaRemoveNodeResult {
+        node_id: input.node_id,
+        status: "ok".to_string(),
+        message: format!(
+            "Node {} has been removed. Workspace deleted and seed registrations cleared.",
+            node.display_label
+        ),
+    })
+}
+
+async fn deregister_node_from_seeds(
+    network_profile: &TestnetBetaNetworkProfile,
+    node: &TestnetBetaProvisionedNode,
+) {
+    let client = match Client::builder()
+        .timeout(Duration::from_secs(4))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return,
+    };
+
+    let payload = serde_json::json!({
+        "node_id": node.id,
+        "action": "deregister",
+    });
+
+    let futures = network_profile
+        .seed_servers
+        .iter()
+        .map(|seed| {
+            let url = format!("http://{}:{}/peers/deregister", seed.host, seed.port);
+            client.post(&url).json(&payload).send()
+        })
+        .collect::<Vec<_>>();
+
+    let _ = join_all(futures).await;
 }
 
 pub fn testbeta_reset_deferred_bootstrap_note() -> Result<String, String> {

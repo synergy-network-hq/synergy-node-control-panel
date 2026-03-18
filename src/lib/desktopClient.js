@@ -178,6 +178,59 @@ export async function showSaveDialog(options = {}) {
   return bridge.showSaveDialog(options);
 }
 
+export async function fetchSeedPeerTargets(seedServers = []) {
+  const bridge = getBridge();
+  if (bridge?.fetchSeedPeerTargets) {
+    return bridge.fetchSeedPeerTargets(seedServers);
+  }
+
+  const targets = new Set();
+  const failures = [];
+  const inputs = Array.isArray(seedServers) ? seedServers : [];
+
+  await Promise.all(inputs.map(async (seedServer) => {
+    const trimmed = String(seedServer || '').trim().replace(/\/+$/, '');
+    if (!trimmed) {
+      return;
+    }
+
+    const url = /^https?:\/\//i.test(trimmed)
+      ? (trimmed.includes('/peer-list.json') ? trimmed : `${trimmed}/peer-list.json`)
+      : `http://${trimmed}/peer-list.json`;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        failures.push(`${url}: HTTP ${response.status}`);
+        return;
+      }
+
+      const payload = await response.json();
+      const peers = Array.isArray(payload?.peers) ? payload.peers : [];
+      peers.forEach((peer) => {
+        if (typeof peer === 'string' && peer.trim()) {
+          targets.add(peer.trim());
+        }
+      });
+    } catch (error) {
+      failures.push(`${url}: ${error?.message || String(error)}`);
+    }
+  }));
+
+  return {
+    targets: Array.from(targets).sort(),
+    failures,
+  };
+}
+
+export async function readTextFile(path) {
+  const bridge = getBridge();
+  if (!bridge?.readTextFile) {
+    throw new Error('File reading is unavailable in this runtime.');
+  }
+  return bridge.readTextFile(path);
+}
+
 export async function writeTextFile(path, contents) {
   const bridge = getBridge();
   if (!bridge?.writeTextFile) {

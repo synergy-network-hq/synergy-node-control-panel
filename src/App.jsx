@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import NetworkMonitorNodePage from './components/NetworkMonitorNodePage';
+import TestnetBetaNodeDetail from './components/TestnetBetaNodeDetail';
 import HelpArticlesPage from './components/HelpArticlesPage';
 import SettingsPage from './components/SettingsPage';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
@@ -171,7 +172,8 @@ function App() {
         <Routes>
           <Route path="/" element={<TestnetBetaDashboard onLaunchSetup={handleLaunchSetup} />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/node/:nodeSlotId" element={<NetworkMonitorNodePage />} />
+          <Route path="/node/:nodeId" element={<TestnetBetaNodeDetail />} />
+          <Route path="/monitor/:nodeSlotId" element={<NetworkMonitorNodePage />} />
           <Route path="/help" element={<HelpArticlesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

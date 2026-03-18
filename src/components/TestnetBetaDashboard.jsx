@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { invoke, openPath } from '../lib/desktopClient';
+import {
+  applyStoredTestnetBetaPortSettings,
+  formatPortSettingsSummary,
+  refreshTestnetBetaBootstrapConfig,
+} from '../lib/testnetBetaBootstrap';
 import { SNRGButton } from '../styles/SNRGButton';
 
 const COMMON_TABS = [
@@ -349,6 +355,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [relayerHealth, setRelayerHealth] = useState(null);
   const [sxcpStatus, setSxcpStatus] = useState(null);
   const [sxcpError, setSxcpError] = useState('');
+  const [chainSummary, setChainSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copiedNotice, setCopiedNotice] = useState('');
@@ -380,9 +387,10 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     }
 
     const explorerBase = DEFAULT_ATLAS_API_BASE;
-    const [relayerResult, sxcpResult] = await Promise.allSettled([
+    const [relayerResult, sxcpResult, chainResult] = await Promise.allSettled([
       fetchExplorerJson(explorerBase, '/relayers/health'),
       fetchExplorerJson(explorerBase, '/sxcp/status'),
+      fetchExplorerJson(explorerBase, '/chain/summary'),
     ]);
 
     if (relayerResult.status === 'fulfilled') {
@@ -397,6 +405,12 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     } else {
       setSxcpStatus(null);
       setSxcpError('SXCP status unavailable');
+    }
+
+    if (chainResult.status === 'fulfilled') {
+      setChainSummary(chainResult.value);
+    } else {
+      setChainSummary(null);
     }
 
     setError(nextErrors.join(' '));
@@ -583,13 +597,32 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
 
     setControlBusy(action);
     try {
+      let bootstrapNotice = '';
+      if (action === 'start' || action === 'sync') {
+        try {
+          const portConfig = await applyStoredTestnetBetaPortSettings(selectedNode);
+          bootstrapNotice = ` Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`;
+
+          const bootstrapConfig = await refreshTestnetBetaBootstrapConfig(
+            selectedNode,
+            network,
+          );
+          bootstrapNotice += ` Electron refreshed peers.toml with ${bootstrapConfig.additionalDialTargets.length} seed-discovered dial target(s).`;
+          if (bootstrapConfig.failures.length > 0) {
+            bootstrapNotice += ` Seed preload warnings: ${bootstrapConfig.failures.join(' | ')}.`;
+          }
+        } catch (bootstrapError) {
+          bootstrapNotice = ` Electron bootstrap refresh skipped: ${String(bootstrapError)}.`;
+        }
+      }
+
       const result = await invoke('testbeta_node_control', {
         input: {
           nodeId: selectedNode.id,
           action,
         },
       });
-      setControlMessage(result?.message || `${action} completed.`);
+      setControlMessage(`${result?.message || `${action} completed.`}${bootstrapNotice}`);
       await fetchDashboard(true);
     } catch (actionError) {
       setError(String(actionError));
@@ -914,6 +947,74 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           </section>
         </div>
       ) : null}
+
+      {/* Network Health Summary */}
+      <section className="nodecp-panel">
+        <div className="nodecp-panel-header">
+          <div>
+            <p className="nodecp-panel-kicker">Network health</p>
+            <h3>Chain &amp; Infrastructure</h3>
+          </div>
+        </div>
+        <div className="nodecp-summary-grid">
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Chain ID</span>
+            <p>{network?.chain_id || 338639}</p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Public RPC</span>
+            <p>{liveStatus?.public_rpc_endpoint || 'N/A'}</p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Public Chain Height</span>
+            <p>{formatNumber(liveStatus?.public_chain_height)}</p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Network Peers</span>
+            <p>{formatNumber(liveStatus?.public_peer_count)}</p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Healthy Bootnodes</span>
+            <p>{(liveStatus?.bootnodes || []).filter((b) => b.reachable).length} / {(liveStatus?.bootnodes || []).length}</p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Healthy Seeds</span>
+            <p>{(liveStatus?.seed_servers || []).filter((s) => s.reachable).length} / {(liveStatus?.seed_servers || []).length}</p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Provisioned Nodes</span>
+            <p>{state?.summary?.total_nodes || 0} on this machine</p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Total Reserved Stake</span>
+            <p>{formatWholeSnrg(state?.summary?.total_sponsored_stake_snrg || 0)} SNRG</p>
+          </div>
+          {chainSummary?.total_validators != null ? (
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Active Validators (Network)</span>
+              <p>{formatNumber(chainSummary.total_validators)}</p>
+            </div>
+          ) : null}
+          {chainSummary?.total_transactions != null ? (
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Total Transactions</span>
+              <p>{formatNumber(chainSummary.total_transactions)}</p>
+            </div>
+          ) : null}
+          {chainSummary?.avg_block_time != null ? (
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Avg Block Time</span>
+              <p>{chainSummary.avg_block_time}s</p>
+            </div>
+          ) : null}
+          {chainSummary?.total_stake_snrg != null ? (
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Total Network Stake</span>
+              <p>{formatWholeSnrg(chainSummary.total_stake_snrg)} SNRG</p>
+            </div>
+          ) : null}
+        </div>
+      </section>
     </div>
   );
 
@@ -1290,6 +1391,13 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                         <strong>{slot.scoreLabel}</strong>
                       </div>
                     </div>
+                    <Link
+                      to={`/node/${slot.id}`}
+                      className="nodecp-node-row-details-link"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      View Details &rarr;
+                    </Link>
                   </>
                 )}
               </button>

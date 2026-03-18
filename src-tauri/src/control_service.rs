@@ -18,8 +18,8 @@ use crate::monitor::{
 };
 use crate::testnet_beta::{
     testbeta_get_catalog, testbeta_get_device_profile, testbeta_get_live_status,
-    testbeta_get_state, testbeta_node_control, testbeta_setup_node, TestnetBetaNodeControlInput,
-    TestnetBetaSetupInput,
+    testbeta_get_state, testbeta_node_control, testbeta_remove_node, testbeta_setup_node,
+    TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -137,6 +137,11 @@ struct TestnetBetaSetupArgs {
 #[derive(Debug, Deserialize)]
 struct TestnetBetaNodeControlArgs {
     input: TestnetBetaNodeControlInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaRemoveNodeArgs {
+    input: TestnetBetaRemoveNodeInput,
 }
 
 pub async fn serve(port: u16, token: String, app_context: AppContext) -> Result<(), String> {
@@ -346,6 +351,10 @@ async fn dispatch_command(
         "testbeta_node_control" => {
             let args: TestnetBetaNodeControlArgs = parse_args(request.args)?;
             to_value(testbeta_node_control(&state.app_context, args.input).await?)
+        }
+        "testbeta_remove_node" => {
+            let args: TestnetBetaRemoveNodeArgs = parse_args(request.args)?;
+            to_value(testbeta_remove_node(&state.app_context, args.input).await?)
         }
         "monitor_mark_setup_complete" => {
             let args: SetupCompleteArgs = parse_args(request.args)?;

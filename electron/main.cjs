@@ -93,6 +93,62 @@ function sleep(ms) {
   });
 }
 
+function normalizeSeedPeerListUrl(seedServer) {
+  if (typeof seedServer !== 'string') {
+    return null;
+  }
+
+  const trimmed = seedServer.trim().replace(/\/+$/, '');
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    const [, remainder = ''] = trimmed.split('://', 2);
+    return remainder.includes('/') ? trimmed : `${trimmed}/peer-list.json`;
+  }
+
+  return `http://${trimmed}/peer-list.json`;
+}
+
+async function fetchSeedPeerTargets(seedServers = []) {
+  const targets = new Set();
+  const failures = [];
+  const inputs = Array.isArray(seedServers) ? seedServers : [];
+
+  await Promise.all(inputs.map(async (seedServer) => {
+    const url = normalizeSeedPeerListUrl(seedServer);
+    if (!url) {
+      return;
+    }
+
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!response.ok) {
+        failures.push(`${url}: HTTP ${response.status}`);
+        return;
+      }
+
+      const payload = await response.json();
+      const peers = Array.isArray(payload?.peers) ? payload.peers : [];
+      peers.forEach((peer) => {
+        if (typeof peer === 'string' && peer.trim()) {
+          targets.add(peer.trim());
+        }
+      });
+    } catch (error) {
+      failures.push(`${url}: ${error?.message || String(error)}`);
+    }
+  }));
+
+  return {
+    targets: Array.from(targets).sort(),
+    failures,
+  };
+}
+
 async function invokeControlService(command, args = {}) {
   if (!controlServiceConfig?.baseUrl || !controlServiceConfig?.token) {
     throw new Error('control-service is not configured.');
@@ -312,6 +368,12 @@ function setupIpc() {
     const result = await dialog.showSaveDialog(mainWindow, options);
     return result.canceled ? null : result.filePath;
   });
+  ipcMain.handle('desktop:fetch-seed-peer-targets', async (_event, seedServers) =>
+    fetchSeedPeerTargets(seedServers),
+  );
+  ipcMain.handle('desktop:read-text-file', async (_event, filePath) =>
+    fs.readFile(filePath, 'utf8'),
+  );
   ipcMain.handle('desktop:write-text-file', async (_event, { path: filePath, contents }) => {
     await fs.writeFile(filePath, contents, 'utf8');
     return true;

@@ -3,27 +3,52 @@
 // Supports all 35+ address types - Uses FN-DSA-1024 (NIST Level 5)
 // ============================================================================
 
+use base64::{engine::general_purpose, Engine as _};
+use bech32::{FromBase32, ToBase32, Variant};
+use chrono::Utc;
 use pqcrypto_falcon::falcon1024;
 use pqcrypto_traits::sign::{PublicKey as _, SecretKey as _};
-use serde::{Serialize, Deserialize};
-use base64::{engine::general_purpose, Engine as _};
-use sha3::{Sha3_256, Digest};
-use bech32::{ToBase32, FromBase32, Variant};
-use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
 
 // ADDRESS TYPE DEFINITIONS (35+ types)
 #[derive(Debug, Clone, Copy)]
 pub enum AddressType {
-    WalletPrimary, WalletUtility, WalletAccount, WalletSmart,
-    TransactionStandard, TransactionCrossChain, TransactionInternal,
-    TokenFungible, TokenNonFungibleT1, TokenNonFungibleT2, TokenMultiAsset, TokenIdentity,
-    ContractSystem, ContractCustom,
-    NodeClass1, NodeClass2, NodeClass3, NodeClass4, NodeClass5,
-    ClusterGroup1, ClusterGroup2, ClusterGroup3, ClusterGroup4, ClusterGroup5,
-    DaoProposal, DaoOversight, DaoCommittee,
-    MultisigGeneral, MultisigTreasury, MultisigValidator,
-    FeeCollector, BurnAddress,
-    ReservedE, ReservedI, ReservedP,
+    WalletPrimary,
+    WalletUtility,
+    WalletAccount,
+    WalletSmart,
+    TransactionStandard,
+    TransactionCrossChain,
+    TransactionInternal,
+    TokenFungible,
+    TokenNonFungibleT1,
+    TokenNonFungibleT2,
+    TokenMultiAsset,
+    TokenIdentity,
+    ContractSystem,
+    ContractCustom,
+    NodeClass1,
+    NodeClass2,
+    NodeClass3,
+    NodeClass4,
+    NodeClass5,
+    ClusterGroup1,
+    ClusterGroup2,
+    ClusterGroup3,
+    ClusterGroup4,
+    ClusterGroup5,
+    DaoProposal,
+    DaoOversight,
+    DaoCommittee,
+    MultisigGeneral,
+    MultisigTreasury,
+    MultisigValidator,
+    FeeCollector,
+    BurnAddress,
+    ReservedE,
+    ReservedI,
+    ReservedP,
 }
 
 impl AddressType {

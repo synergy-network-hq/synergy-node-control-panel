@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '../lib/desktopClient';
+import {
+  applyStoredTestnetBetaPortSettings,
+  formatPortSettingsSummary,
+  refreshTestnetBetaBootstrapConfig,
+} from '../lib/testnetBetaBootstrap';
 import { SNRGButton } from '../styles/SNRGButton';
 
 function createId(prefix = 'item') {
@@ -428,6 +433,36 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       (result?.node?.config_paths || []).forEach((path) => addTerminalLine('output', `Generated: ${path}`));
       addTerminalLine('output', `Reward wallet: ${result?.node?.node_address || 'unknown address'}`);
       addTerminalLine('info', `Funding manifest: ${result?.node?.funding_manifest_id || 'pending'}`);
+      try {
+        const portConfig = await applyStoredTestnetBetaPortSettings(result?.node);
+        addTerminalLine(
+          'info',
+          `Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`,
+        );
+      } catch (portError) {
+        addTerminalLine('info', `Electron port profile update skipped: ${String(portError)}`);
+      }
+      try {
+        const bootstrapConfig = await refreshTestnetBetaBootstrapConfig(
+          result?.node,
+          result?.network_profile,
+        );
+        addTerminalLine(
+          'info',
+          `Electron refreshed peers.toml with ${bootstrapConfig.additionalDialTargets.length} seed-discovered dial target(s).`,
+        );
+        if (bootstrapConfig.failures.length > 0) {
+          addTerminalLine(
+            'info',
+            `Seed preload warnings: ${bootstrapConfig.failures.join(' | ')}`,
+          );
+        }
+      } catch (bootstrapError) {
+        addTerminalLine(
+          'info',
+          `Electron bootstrap refresh skipped: ${String(bootstrapError)}`,
+        );
+      }
       addTerminalLine('info', 'Starting the role-bound node runtime and joining the bootstrap network...');
 
       const startResult = await invoke('testbeta_node_control', {
