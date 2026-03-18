@@ -13,17 +13,31 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact_name: macos-dmg
-            build_cmd: npx electron-builder --config electron-builder.yml --mac dmg --publish never
-            artifact_glob: electron-dist/*.dmg
+            artifact_name: macos
+            build_cmd: npx electron-builder --config electron-builder.yml --mac dmg zip --publish never
+            artifact_glob: |
+              electron-dist/*.dmg
+              electron-dist/*.zip
+              electron-dist/*.yml
+              electron-dist/*.yaml
+              electron-dist/*.blockmap
           - os: ubuntu-22.04
-            artifact_name: linux-deb
-            build_cmd: npx electron-builder --config electron-builder.yml --linux deb --publish never
-            artifact_glob: electron-dist/*.deb
+            artifact_name: linux
+            build_cmd: npx electron-builder --config electron-builder.yml --linux deb AppImage --publish never
+            artifact_glob: |
+              electron-dist/*.deb
+              electron-dist/*.AppImage
+              electron-dist/*.yml
+              electron-dist/*.yaml
+              electron-dist/*.blockmap
           - os: windows-latest
-            artifact_name: windows-nsis
+            artifact_name: windows
             build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
-            artifact_glob: electron-dist/*.exe
+            artifact_glob: |
+              electron-dist/*.exe
+              electron-dist/*.yml
+              electron-dist/*.yaml
+              electron-dist/*.blockmap
 
     runs-on: ${{ matrix.os }}
 
@@ -122,8 +136,13 @@ jobs:
           shopt -s globstar nullglob
           files=(
             artifacts/**/*.dmg
+            artifacts/**/*.zip
             artifacts/**/*.exe
             artifacts/**/*.deb
+            artifacts/**/*.AppImage
+            artifacts/**/*.yml
+            artifacts/**/*.yaml
+            artifacts/**/*.blockmap
           )
 
           if [[ "${#files[@]}" -eq 0 ]]; then

@@ -5,6 +5,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const repoRoot = path.resolve(__dirname, '..');
 const appIconPngPath = path.join(repoRoot, 'src-tauri', 'icons', 'icon.png');
 
@@ -252,6 +253,52 @@ async function openHelpWindow() {
   });
 }
 
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:update-available', {
+        version: info.version,
+        releaseDate: info.releaseDate,
+      });
+    }
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:update-not-available');
+    }
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:download-progress', {
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+      });
+    }
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:update-downloaded', {
+        version: info.version,
+      });
+    }
+  });
+
+  autoUpdater.on('error', (error) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('updater:error', {
+        message: error?.message || 'Unknown update error',
+      });
+    }
+  });
+}
+
 function setupIpc() {
   ipcMain.handle('desktop:get-version', () => app.getVersion());
   ipcMain.handle('desktop:get-service-config', () => controlServiceConfig);
@@ -273,6 +320,11 @@ function setupIpc() {
     app.relaunch();
     app.exit(0);
   });
+
+  // Auto-update IPC
+  ipcMain.handle('desktop:check-for-update', () => autoUpdater.checkForUpdates());
+  ipcMain.handle('desktop:download-update', () => autoUpdater.downloadUpdate());
+  ipcMain.handle('desktop:install-update', () => autoUpdater.quitAndInstall(false, true));
 }
 
 app.on('window-all-closed', () => {
@@ -294,6 +346,7 @@ app.whenReady().then(async () => {
   }
 
   await startControlService();
+  setupAutoUpdater();
   setupIpc();
   await createMainWindow();
 

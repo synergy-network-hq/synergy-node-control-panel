@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { openHelpWindow } from '../lib/helpWindow';
-import { checkForUpdate, downloadAndInstallUpdate } from '../lib/appUpdater';
+import { checkForUpdate, downloadAndInstallUpdate, installDownloadedUpdate, onUpdaterEvent } from '../lib/appUpdater';
 import { getVersion } from '../lib/desktopClient';
 import { brandLogoSrc } from '../lib/runtimeAssets';
 import { SNRGButton } from '../styles/SNRGButton';
@@ -13,9 +13,13 @@ function updateButtonLabel(updateState) {
     case 'checking':
       return 'Checking...';
     case 'available':
-      return `Open ${updateState.version}`;
+      return `Update to ${updateState.version}`;
+    case 'downloading':
+      return `Downloading ${updateState.percent ? Math.round(updateState.percent) + '%' : '...'}`;
+    case 'ready':
+      return 'Restart to Update';
     case 'installing':
-      return 'Opening...';
+      return 'Restarting...';
     default:
       return 'Check for Updates';
   }
@@ -31,9 +35,16 @@ function Layout({ children }) {
     status: 'idle',
     message: 'No update check has been run yet.',
     version: '',
+    percent: 0,
   });
   const footerStatusMessage =
-    updateState.status === 'available' ? `Release ${updateState.version} available` : updateState.message;
+    updateState.status === 'available'
+      ? `Release ${updateState.version} available`
+      : updateState.status === 'downloading'
+        ? `Downloading update ${updateState.version}... ${Math.round(updateState.percent || 0)}%`
+        : updateState.status === 'ready'
+          ? `Update ${updateState.version} ready — restart to apply`
+          : updateState.message;
 
   useEffect(() => {
     let disposed = false;
@@ -88,6 +99,39 @@ function Layout({ children }) {
       });
     };
 
+    // Listen for native updater events from main process
+    const unsubProgress = onUpdaterEvent('download-progress', (data) => {
+      if (!disposed) {
+        setUpdateState((previous) => ({
+          ...previous,
+          status: 'downloading',
+          message: `Downloading update...`,
+          percent: data?.percent || 0,
+        }));
+      }
+    });
+
+    const unsubDownloaded = onUpdaterEvent('update-downloaded', (data) => {
+      if (!disposed) {
+        setUpdateState((previous) => ({
+          ...previous,
+          status: 'ready',
+          message: `Update ${data?.version || previous.version} downloaded. Restart to apply.`,
+          version: data?.version || previous.version,
+        }));
+      }
+    });
+
+    const unsubError = onUpdaterEvent('error', (data) => {
+      if (!disposed) {
+        setUpdateState((previous) => ({
+          ...previous,
+          status: 'error',
+          message: data?.message || 'Update failed.',
+        }));
+      }
+    });
+
     loadVersion();
     runCheck(true);
 
@@ -98,11 +142,25 @@ function Layout({ children }) {
     return () => {
       disposed = true;
       window.clearInterval(interval);
+      unsubProgress();
+      unsubDownloaded();
+      unsubError();
     };
   }, []);
 
   const handleUpdateAction = async () => {
-    if (updateState.status === 'checking' || updateState.status === 'installing') {
+    if (updateState.status === 'checking' || updateState.status === 'downloading' || updateState.status === 'installing') {
+      return;
+    }
+
+    // If update is downloaded and ready, install it
+    if (updateState.status === 'ready') {
+      setUpdateState((previous) => ({
+        ...previous,
+        status: 'installing',
+        message: 'Restarting to apply update...',
+      }));
+      await installDownloadedUpdate();
       return;
     }
 
@@ -134,27 +192,18 @@ function Layout({ children }) {
         message: `Release ${targetVersion} is ready to download.`,
         version: targetVersion,
       });
-    }
-
-    if (!window.confirm(`Open the release page for Synergy Node Control Panel ${targetVersion}?`)) {
       return;
     }
 
+    // Download the update
     setUpdateState((previous) => ({
       ...previous,
-      status: 'installing',
-      message: `Opening release ${previous.version}...`,
+      status: 'downloading',
+      message: `Downloading update ${previous.version}...`,
+      percent: 0,
     }));
 
     const result = await downloadAndInstallUpdate();
-    if (result.status === 'up_to_date') {
-      setUpdateState({
-        status: 'up_to_date',
-        message: result.message,
-        version: '',
-      });
-      return;
-    }
 
     if (result.status === 'manual') {
       setUpdateState((previous) => ({
@@ -162,14 +211,20 @@ function Layout({ children }) {
         status: 'available',
         message: result.message,
       }));
-      return;
+    } else if (result.status === 'up_to_date') {
+      setUpdateState({
+        status: 'up_to_date',
+        message: result.message,
+        version: '',
+      });
+    } else if (result.status === 'error') {
+      setUpdateState({
+        status: 'error',
+        message: result.message,
+        version: '',
+      });
     }
-
-    setUpdateState({
-      status: 'error',
-      message: result.message,
-      version: '',
-    });
+    // 'downloading' status is handled by the updater events above
   };
 
   return (
@@ -221,7 +276,7 @@ function Layout({ children }) {
               size="sm"
               className={`header-grid-btn header-grid-update header-grid-update-${updateState.status}`}
               onClick={handleUpdateAction}
-              disabled={updateState.status === 'checking' || updateState.status === 'installing'}
+              disabled={updateState.status === 'checking' || updateState.status === 'downloading' || updateState.status === 'installing'}
               title={updateState.message}
             >
               {updateButtonLabel(updateState)}

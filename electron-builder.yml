@@ -16,11 +16,17 @@ extraResources:
   - from: binaries
     to: binaries
 
+publish:
+  provider: github
+  owner: synergy-network-hq
+  repo: synergy-node-control-panel-releases
+
 mac:
   category: public.app-category.developer-tools
   icon: src-tauri/icons/icon.icns
   target:
     - dmg
+    - zip
 
 win:
   icon: src-tauri/icons/icon.ico
@@ -31,3 +37,4 @@ linux:
   icon: src-tauri/icons
   target:
     - deb
+    - AppImage

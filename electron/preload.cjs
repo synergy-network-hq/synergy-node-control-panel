@@ -12,4 +12,14 @@ contextBridge.exposeInMainWorld('synergyDesktop', {
   writeTextFile: (path, contents) =>
     ipcRenderer.invoke('desktop:write-text-file', { path, contents }),
   relaunch: () => ipcRenderer.invoke('desktop:relaunch'),
+
+  // Auto-update
+  checkForUpdate: () => ipcRenderer.invoke('desktop:check-for-update'),
+  downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),
+  installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
+  onUpdaterEvent: (channel, callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
 });
