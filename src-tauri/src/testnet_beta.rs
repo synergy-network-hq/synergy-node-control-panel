@@ -893,10 +893,10 @@ async fn build_node_live_status(
         None
     };
     let local_peer_count = if is_running {
-        query_rpc_value(client, &rpc_endpoint, "synergy_getPeers", json!([]))
+        query_rpc_value(client, &rpc_endpoint, "synergy_getPeerInfo", json!([]))
             .await
             .ok()
-            .and_then(|value| value.as_array().map(|items| items.len()))
+            .and_then(|value| parse_rpc_peer_count(value).ok())
     } else {
         None
     };
@@ -1273,11 +1273,9 @@ async fn query_public_chain_height(client: &Client) -> Result<u64, String> {
 }
 
 async fn query_public_peer_count(client: &Client) -> Result<usize, String> {
-    let value = query_rpc_value(client, TESTNET_BETA_PUBLIC_RPC_ENDPOINT, "synergy_getPeers", json!([])).await?;
-    let peers = value
-        .as_array()
-        .ok_or_else(|| "Peer list RPC returned a non-array payload.".to_string())?;
-    Ok(peers.len())
+    let value =
+        query_rpc_value(client, TESTNET_BETA_PUBLIC_RPC_ENDPOINT, "synergy_getPeerInfo", json!([])).await?;
+    parse_rpc_peer_count(value)
 }
 
 async fn query_synergy_score(client: &Client, address: &str) -> Result<f64, String> {
@@ -1344,6 +1342,23 @@ fn parse_rpc_u64(value: Value) -> Result<u64, String> {
     }
 
     Err("RPC numeric payload was neither a number nor a string.".to_string())
+}
+
+fn parse_rpc_peer_count(value: Value) -> Result<usize, String> {
+    if let Some(number) = value.get("peer_count").and_then(Value::as_u64) {
+        return usize::try_from(number)
+            .map_err(|error| format!("Failed to convert peer count to usize: {error}"));
+    }
+
+    if let Some(peers) = value.get("peers").and_then(Value::as_array) {
+        return Ok(peers.len());
+    }
+
+    if let Some(peers) = value.as_array() {
+        return Ok(peers.len());
+    }
+
+    Err("Peer RPC returned neither peer_count nor peers.".to_string())
 }
 
 fn ensure_testnet_beta_root() -> Result<PathBuf, String> {
@@ -2135,6 +2150,34 @@ mod tests {
             .map(PathBuf::from)
             .find(|path| path.file_name().and_then(|value| value.to_str()) == Some(file_name))
             .unwrap_or_else(|| panic!("missing {file_name} in generated config paths"))
+    }
+
+    #[test]
+    fn parse_rpc_peer_count_supports_peer_info_objects() {
+        assert_eq!(
+            parse_rpc_peer_count(json!({
+                "peer_count": 3,
+                "peers": [
+                    {"node_id": "a"},
+                    {"node_id": "b"},
+                    {"node_id": "c"}
+                ]
+            }))
+            .expect("peer info object should parse"),
+            3
+        );
+    }
+
+    #[test]
+    fn parse_rpc_peer_count_supports_legacy_arrays() {
+        assert_eq!(
+            parse_rpc_peer_count(json!([
+                {"node_id": "a"},
+                {"node_id": "b"}
+            ]))
+            .expect("legacy peer array should parse"),
+            2
+        );
     }
 
     #[test]

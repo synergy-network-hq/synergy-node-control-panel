@@ -100,9 +100,11 @@ jobs:
 
       - name: Build installer
         shell: bash
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: ${{ matrix.build_cmd }}
+
+      - name: Remove duplicate builder-debug.yml from artifacts
+        shell: bash
+        run: rm -f electron-dist/builder-debug.yml
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -151,10 +153,23 @@ jobs:
             exit 1
           fi
 
+          # Deduplicate files by basename (keep first occurrence)
+          declare -A seen
+          unique_files=()
+          for f in "${files[@]}"; do
+            base="$(basename "$f")"
+            if [[ -z "${seen[$base]:-}" ]]; then
+              seen[$base]=1
+              unique_files+=("$f")
+            else
+              echo "Skipping duplicate: $f (already have $base)"
+            fi
+          done
+
           if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
             echo "Release already exists: $repo@$tag"
           else
             gh release create "$tag" --repo "$repo" --title "$title" --notes "$notes"
           fi
 
-          gh release upload "$tag" "${files[@]}" --repo "$repo" --clobber
+          gh release upload "$tag" "${unique_files[@]}" --repo "$repo" --clobber

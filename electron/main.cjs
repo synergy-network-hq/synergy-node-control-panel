@@ -312,8 +312,20 @@ async function openHelpWindow() {
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = false;
+
+  // Ensure the updater knows where to look for releases
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'synergy-network-hq',
+    repo: 'synergy-node-control-panel-releases',
+  });
+
+  console.log('[auto-updater] configured: github provider -> synergy-network-hq/synergy-node-control-panel-releases');
 
   autoUpdater.on('update-available', (info) => {
+    console.log(`[auto-updater] update available: ${info.version}`);
+
     if (mainWindow) {
       mainWindow.webContents.send('updater:update-available', {
         version: info.version,
@@ -322,7 +334,8 @@ function setupAutoUpdater() {
     }
   });
 
-  autoUpdater.on('update-not-available', () => {
+  autoUpdater.on('update-not-available', (info) => {
+    console.log(`[auto-updater] no update available (current: ${app.getVersion()})`);
     if (mainWindow) {
       mainWindow.webContents.send('updater:update-not-available');
     }
@@ -339,6 +352,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    console.log(`[auto-updater] update downloaded: ${info.version}`);
     if (mainWindow) {
       mainWindow.webContents.send('updater:update-downloaded', {
         version: info.version,
@@ -347,6 +361,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('error', (error) => {
+    console.error(`[auto-updater] error: ${error?.message || error}`);
     if (mainWindow) {
       mainWindow.webContents.send('updater:error', {
         message: error?.message || 'Unknown update error',
@@ -384,9 +399,28 @@ function setupIpc() {
   });
 
   // Auto-update IPC
-  ipcMain.handle('desktop:check-for-update', () => autoUpdater.checkForUpdates());
-  ipcMain.handle('desktop:download-update', () => autoUpdater.downloadUpdate());
-  ipcMain.handle('desktop:install-update', () => autoUpdater.quitAndInstall(false, true));
+  ipcMain.handle('desktop:check-for-update', async () => {
+    console.log('[auto-updater] check-for-update requested by renderer');
+    try {
+      return await autoUpdater.checkForUpdates();
+    } catch (error) {
+      console.error(`[auto-updater] checkForUpdates failed: ${error.message}`);
+      throw error;
+    }
+  });
+  ipcMain.handle('desktop:download-update', async () => {
+    console.log('[auto-updater] download-update requested by renderer');
+    try {
+      return await autoUpdater.downloadUpdate();
+    } catch (error) {
+      console.error(`[auto-updater] downloadUpdate failed: ${error.message}`);
+      throw error;
+    }
+  });
+  ipcMain.handle('desktop:install-update', () => {
+    console.log('[auto-updater] install-update (quitAndInstall) requested by renderer');
+    autoUpdater.quitAndInstall(false, true);
+  });
 }
 
 app.on('window-all-closed', () => {

@@ -1,4 +1,4 @@
-appId: io.synergy-network.devnet-control-panel
+appId: io.synergy-network.node-control-panel
 productName: Synergy Node Control Panel
 
 directories:
@@ -16,6 +16,8 @@ extraResources:
   - from: binaries
     to: binaries
 
+afterPack: scripts/electron/afterPack.cjs
+
 publish:
   provider: github
   owner: synergy-network-hq
@@ -24,6 +26,7 @@ publish:
 mac:
   category: public.app-category.developer-tools
   icon: src-tauri/icons/icon.icns
+  identity: null
   target:
     - dmg
     - zip
@@ -32,6 +35,11 @@ win:
   icon: src-tauri/icons/icon.ico
   target:
     - nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
 
 linux:
   icon: src-tauri/icons
