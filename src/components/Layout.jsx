@@ -111,14 +111,26 @@ function Layout({ children }) {
       }
     });
 
-    const unsubDownloaded = onUpdaterEvent('update-downloaded', (data) => {
+    const unsubDownloaded = onUpdaterEvent('update-downloaded', async (data) => {
       if (!disposed) {
         setUpdateState((previous) => ({
           ...previous,
-          status: 'ready',
-          message: `Update ${data?.version || previous.version} downloaded. Restart to apply.`,
+          status: 'installing',
+          message: `Update ${data?.version || previous.version} downloaded. Restarting to apply.`,
           version: data?.version || previous.version,
         }));
+
+        try {
+          await installDownloadedUpdate();
+        } catch (error) {
+          if (!disposed) {
+            setUpdateState((previous) => ({
+              ...previous,
+              status: 'error',
+              message: error?.message || 'Update install failed.',
+            }));
+          }
+        }
       }
     });
 
@@ -187,44 +199,27 @@ function Layout({ children }) {
       }
 
       targetVersion = result.version || '';
-      setUpdateState({
-        status: 'available',
-        message: `Release ${targetVersion} is ready to download.`,
-        version: targetVersion,
-      });
-      return;
     }
 
     // Download the update
     setUpdateState((previous) => ({
       ...previous,
       status: 'downloading',
-      message: `Downloading update ${previous.version}...`,
+      message: `Downloading update ${targetVersion || previous.version}...`,
       percent: 0,
+      version: targetVersion || previous.version,
     }));
 
     const result = await downloadAndInstallUpdate();
 
-    if (result.status === 'manual') {
-      setUpdateState((previous) => ({
-        ...previous,
-        status: 'available',
-        message: result.message,
-      }));
-    } else if (result.status === 'up_to_date') {
-      setUpdateState({
-        status: 'up_to_date',
-        message: result.message,
-        version: '',
-      });
-    } else if (result.status === 'error') {
+    if (result.status === 'error') {
       setUpdateState({
         status: 'error',
         message: result.message,
-        version: '',
+        version: targetVersion || '',
       });
     }
-    // 'downloading' status is handled by the updater events above
+    // 'installing' status is handled by the updater events above
   };
 
   return (

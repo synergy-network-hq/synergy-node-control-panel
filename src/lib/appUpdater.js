@@ -1,4 +1,4 @@
-import { getVersion, openExternal } from './desktopClient';
+import { getVersion } from './desktopClient';
 
 function getBridge() {
   if (typeof window !== 'undefined' && window.synergyDesktop) {
@@ -6,8 +6,6 @@ function getBridge() {
   }
   return null;
 }
-
-const RELEASES_PAGE = 'https://github.com/synergy-network-hq/synergy-node-control-panel-releases/releases/latest';
 
 function hasNativeUpdater() {
   const bridge = getBridge();
@@ -68,16 +66,14 @@ export async function downloadAndInstallUpdate() {
       };
     }
 
-    await openExternal(RELEASES_PAGE);
     return {
-      status: 'manual',
-      message: 'Opened the releases page. Download the installer for your platform.',
+      status: 'error',
+      message: 'Native updater is unavailable in this build.',
     };
   } catch (error) {
-    await openExternal(RELEASES_PAGE);
     return {
-      status: 'manual',
-      message: 'Auto-update is not available for this install type. Opened the releases page - download the latest installer for your platform.',
+      status: 'error',
+      message: normalizeUpdateError(error),
     };
   }
 }
