@@ -1,13 +1,13 @@
 import { getVersion, openExternal } from './desktopClient';
 
-const RELEASES_PAGE = 'https://github.com/synergy-network-hq/synergy-node-control-panel-releases/releases/latest';
-
 function getBridge() {
   if (typeof window !== 'undefined' && window.synergyDesktop) {
     return window.synergyDesktop;
   }
   return null;
 }
+
+const RELEASES_PAGE = 'https://github.com/synergy-network-hq/synergy-node-control-panel-releases/releases/latest';
 
 function hasNativeUpdater() {
   const bridge = getBridge();
@@ -68,18 +68,16 @@ export async function downloadAndInstallUpdate() {
       };
     }
 
-    // Fallback: open releases page for manual download
     await openExternal(RELEASES_PAGE);
     return {
       status: 'manual',
       message: 'Opened the releases page. Download the installer for your platform.',
     };
   } catch (error) {
-    // If native updater fails (e.g. Linux deb), fall back to manual
     await openExternal(RELEASES_PAGE);
     return {
       status: 'manual',
-      message: 'Auto-update is not available for this install type. Opened the releases page — download the latest installer for your platform.',
+      message: 'Auto-update is not available for this install type. Opened the releases page - download the latest installer for your platform.',
     };
   }
 }
@@ -162,8 +160,24 @@ function normalizeUpdateError(error) {
   const text = String(error?.message ?? error ?? '').trim();
   const lower = text.toLowerCase();
 
+  if (lower.includes('no published versions') || lower.includes('cannot find channel')) {
+    return 'No published auto-update package is available for this platform yet.';
+  }
+
   if (lower.includes('network') || lower.includes('timed out') || lower.includes('timeout')) {
     return 'Update check failed due to network/timeout. Verify internet access.';
+  }
+
+  if (lower.includes('cannot update while running') && lower.includes('disk image')) {
+    return 'Move the app into Applications, launch it from Applications, then run the update again.';
+  }
+
+  if (lower.includes('code signature') || lower.includes('signature') || lower.includes('signed bundle')) {
+    return 'This build is not signed correctly for native auto-update. Install a signed release build and try again.';
+  }
+
+  if (lower.includes('cannot find appimage') || lower.includes('appimageupdat') || lower.includes('deb package')) {
+    return 'This Linux install type does not support native in-app updates. Install the latest packaged release for your platform.';
   }
 
   if (lower.includes('404') || lower.includes('not found')) {
