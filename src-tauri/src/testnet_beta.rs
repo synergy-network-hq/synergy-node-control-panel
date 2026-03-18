@@ -1476,7 +1476,7 @@ fn build_seed_registration(
     node: &TestnetBetaProvisionedNode,
     public_host: &str,
 ) -> SeedPeerRegistration {
-    let dial = format!("snr://peer@{}:{}", public_host, TESTNET_BETA_P2P_PORT);
+    let dial = format!("snr://{}@{}:{}", node.node_address, public_host, TESTNET_BETA_P2P_PORT);
     SeedPeerRegistration {
         node_id: node.id.clone(),
         role_id: node.role_id.clone(),
