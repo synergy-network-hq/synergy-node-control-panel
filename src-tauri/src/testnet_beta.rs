@@ -21,7 +21,7 @@ const TESTNET_BETA_DISPLAY_NAME: &str = "Testnet-Beta";
 const TESTNET_BETA_CHAIN_NAME: &str = "synergy-testnet-beta";
 const TESTNET_BETA_CHAIN_ID: u64 = 338639;
 const TESTNET_BETA_P2P_PORT: u16 = 38638;
-const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://rpc.synergynode.xyz";
+const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergy-network.io";
 const TOKEN_SYMBOL: &str = "SNRG";
 const TOKEN_DECIMALS: u32 = 9;
 const TOKEN_SCALE: u64 = 1_000_000_000;
@@ -428,7 +428,9 @@ pub fn testbeta_reset_deferred_bootstrap_note() -> Result<String, String> {
     Ok("Bootnodes, dnsaddr bootstrap records, and seed services are configured as the active multi-source discovery path.".to_string())
 }
 
-pub fn testbeta_setup_node(input: TestnetBetaSetupInput) -> Result<TestnetBetaSetupResult, String> {
+pub async fn testbeta_setup_node(
+    input: TestnetBetaSetupInput,
+) -> Result<TestnetBetaSetupResult, String> {
     let root = ensure_testnet_beta_root()?;
     let role = find_role_profile(&input.role_id)?;
     let device_profile = detect_device_profile();
@@ -470,7 +472,7 @@ pub fn testbeta_setup_node(input: TestnetBetaSetupInput) -> Result<TestnetBetaSe
     }
 
     let node_identity = generate_node_wallet(&role, &keys_directory)?;
-    let detected_public_host = detect_public_host();
+    let detected_public_host = detect_public_host().await;
     let funding_manifest = TestnetBetaFundingManifest {
         id: format!("fund-{}", Uuid::new_v4().simple()),
         source_wallet: network_profile.treasury_wallet.address.clone(),
@@ -564,7 +566,7 @@ pub fn testbeta_setup_node(input: TestnetBetaSetupInput) -> Result<TestnetBetaSe
         .sort_by(|left, right| left.created_at_utc.cmp(&right.created_at_utc));
     save_registry(&root, &registry)?;
     save_network_profile(&root, &network_profile)?;
-    register_node_with_seeds_best_effort(&network_profile, &node_record);
+    register_node_with_seeds_best_effort(&network_profile, &node_record).await;
 
     Ok(TestnetBetaSetupResult {
         node: node_record,
@@ -1396,51 +1398,44 @@ fn detect_device_profile() -> TestnetBetaDeviceProfile {
     }
 }
 
-fn detect_public_host() -> Option<String> {
+async fn detect_public_host() -> Option<String> {
     if let Ok(override_value) = std::env::var("SYNERGY_TESTBETA_PUBLIC_HOST") {
         if let Some(host) = normalize_public_host_candidate(&override_value) {
             return Some(host);
         }
     }
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
+    let client = Client::builder()
+        .timeout(Duration::from_secs(3))
         .build()
         .ok()?;
 
-    runtime.block_on(async move {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(3))
-            .build()
-            .ok()?;
+    for endpoint in [
+        "https://api64.ipify.org",
+        "https://api.ipify.org",
+        "https://ifconfig.me/ip",
+    ] {
+        let response = match client
+            .get(endpoint)
+            .header("User-Agent", "Synergy-Node-Control-Panel/5.0.0")
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => response,
+            _ => continue,
+        };
 
-        for endpoint in [
-            "https://api64.ipify.org",
-            "https://api.ipify.org",
-            "https://ifconfig.me/ip",
-        ] {
-            let response = match client
-                .get(endpoint)
-                .header("User-Agent", "Synergy-Node-Control-Panel/5.0.0")
-                .send()
-                .await
-            {
-                Ok(response) if response.status().is_success() => response,
-                _ => continue,
-            };
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(_) => continue,
+        };
 
-            let body = match response.text().await {
-                Ok(body) => body,
-                Err(_) => continue,
-            };
-
-            if let Some(host) = normalize_public_host_candidate(&body) {
-                return Some(host);
-            }
+        if let Some(host) = normalize_public_host_candidate(&body) {
+            return Some(host);
         }
+    }
 
-        None
-    })
+    None
 }
 
 fn normalize_public_host_candidate(value: &str) -> Option<String> {
@@ -1499,12 +1494,17 @@ async fn register_node_with_seeds_async(
     network_profile: &TestnetBetaNetworkProfile,
     node: &TestnetBetaProvisionedNode,
 ) -> Result<(), String> {
-    let public_host = node
+    let public_host = match node
         .public_host
         .as_deref()
         .and_then(normalize_public_host_candidate)
-        .or_else(|| detect_public_host().and_then(|host| normalize_public_host_candidate(&host)))
-        .ok_or_else(|| "Public host not available for seed registration.".to_string())?;
+    {
+        Some(host) => host,
+        None => detect_public_host()
+            .await
+            .and_then(|host| normalize_public_host_candidate(&host))
+            .ok_or_else(|| "Public host not available for seed registration.".to_string())?,
+    };
     let payload = build_seed_registration(node, &public_host);
 
     let client = Client::builder()
@@ -1532,18 +1532,11 @@ async fn register_node_with_seeds_async(
     }
 }
 
-fn register_node_with_seeds_best_effort(
+async fn register_node_with_seeds_best_effort(
     network_profile: &TestnetBetaNetworkProfile,
     node: &TestnetBetaProvisionedNode,
 ) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build();
-    let Ok(runtime) = runtime else {
-        return;
-    };
-
-    let _ = runtime.block_on(register_node_with_seeds_async(network_profile, node));
+    let _ = register_node_with_seeds_async(network_profile, node).await;
 }
 
 fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
@@ -1835,7 +1828,7 @@ fn build_peers_toml(network_profile: &TestnetBetaNetworkProfile) -> String {
         .join(", ");
 
     format!(
-        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\n\n[testbeta]\ncore_rpc = \"https://rpc.synergynode.xyz\"\ncore_ws = \"wss://ws.synergynode.xyz\"\nwallet_api = \"https://wallet.synergynode.xyz\"\nsxcp_api = \"https://sxcp.synergynode.xyz\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
+        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\n\n[testbeta]\ncore_rpc = \"https://testbeta-core-rpc.synergy-network.io\"\ncore_ws = \"wss://testbeta-core-ws.synergy-network.io\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
     )
 }
 
@@ -2040,12 +2033,14 @@ mod tests {
                 "SYNERGY_TESTBETA_PUBLIC_HOST",
                 Path::new("validator-alpha.synergynode.xyz"),
             );
-            let result = testbeta_setup_node(TestnetBetaSetupInput {
-                role_id: "validator".to_string(),
-                display_label: Some("Validator Alpha".to_string()),
-                intended_directory: None,
-            })
-            .expect("setup should succeed");
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let result = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Validator Alpha".to_string()),
+                    intended_directory: None,
+                }))
+                .expect("setup should succeed");
 
             assert_eq!(result.node.role_id, "validator");
             assert_eq!(result.node.role_display_name, "Validator Node");
@@ -2167,14 +2162,14 @@ mod tests {
                     .get("testbeta")
                     .and_then(|section| section.get("core_rpc"))
                     .and_then(toml::Value::as_str),
-                Some("https://rpc.synergynode.xyz")
+                Some("https://testbeta-core-rpc.synergy-network.io")
             );
             assert_eq!(
                 peers_value
                     .get("testbeta")
                     .and_then(|section| section.get("wallet_api"))
                     .and_then(toml::Value::as_str),
-                Some("https://wallet.synergynode.xyz")
+                Some("https://testbeta-wallet-api.synergy-network.io")
             );
 
             let state = testbeta_get_state().expect("state should load from test temp home");
@@ -2252,14 +2247,14 @@ esac
             fs::set_permissions(&runner_path, permissions).expect("runner should be executable");
 
             let _resource_root = EnvVarGuard::set_path("SYNERGY_RESOURCE_ROOT", &resources);
-            let setup = testbeta_setup_node(TestnetBetaSetupInput {
-                role_id: "validator".to_string(),
-                display_label: Some("Validator Test".to_string()),
-                intended_directory: None,
-            })
-            .expect("setup should succeed");
-
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let setup = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Validator Test".to_string()),
+                    intended_directory: None,
+                }))
+                .expect("setup should succeed");
             let app_context = AppContext::from_env();
             let start_result = runtime
                 .block_on(testbeta_node_control(

@@ -193,7 +193,7 @@ function JarvisAgentSetup({ onComplete, onDefer }) {
     sshPort: '22',
     sshKeyPath: '~/.ssh/id_ed25519',
     remoteRoot: '/opt/synergy',
-    atlasBaseUrl: 'https://devnet-explorer.synergy-network.io',
+    atlasBaseUrl: 'https://testbeta-explorer.synergy-network.io',
   });
 
   const [haltedAction, setHaltedAction] = useState(null);

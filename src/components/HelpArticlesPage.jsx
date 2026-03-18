@@ -179,7 +179,7 @@ function HelpArticlesPage() {
           </Link>
           <a
             className="monitor-link-btn"
-            href="https://devnet-explorer.synergy-network.io"
+            href="https://testbeta-explorer.synergy-network.io"
             target="_blank"
             rel="noreferrer"
           >

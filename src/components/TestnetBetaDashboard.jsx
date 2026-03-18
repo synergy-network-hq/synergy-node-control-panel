@@ -9,7 +9,7 @@ const COMMON_TABS = [
   { id: 'files', label: 'Files' },
 ];
 const MAX_NODE_SLOTS = 4;
-const DEFAULT_EXPLORER_API_BASE = 'https://testnet-explorer-api.synergy-network.io/api/v1';
+const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 
 async function fetchExplorerJson(baseUrl, path) {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
@@ -379,7 +379,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       nextErrors.push(String(liveResult.reason));
     }
 
-    const explorerBase = DEFAULT_EXPLORER_API_BASE;
+    const explorerBase = DEFAULT_ATLAS_API_BASE;
     const [relayerResult, sxcpResult] = await Promise.allSettled([
       fetchExplorerJson(explorerBase, '/relayers/health'),
       fetchExplorerJson(explorerBase, '/sxcp/status'),

@@ -25,8 +25,8 @@ fn get_public_rpc_endpoint() -> String {
     if let Ok(env_config) = crate::env_config::EnvConfig::load(None) {
         return env_config.rpc_endpoint;
     }
-    // Fallback to public devnet RPC
-    "https://devnet-core-rpc.synergy-network.io/".to_string()
+    // Fallback to public testbeta RPC
+    "https://testbeta-core-rpc.synergy-network.io/".to_string()
 }
 
 fn parse_rpc_endpoint_from_config(config_path: &Path) -> Option<String> {

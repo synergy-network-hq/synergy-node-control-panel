@@ -40,7 +40,9 @@ impl RealNodeProcess {
             data_dir: PathBuf::from(format!("./data/{}", node_id)),
             log_file: PathBuf::from(format!("./logs/{}.log", node_id)),
             bootstrap_nodes: vec![
-                "snr://sYnV5um22g62fwrnq6zh92msp9ek7lqrjrw3hpukd@bootnode1.synergy-network.io:38638".to_string()
+                "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergynode.xyz:38638".to_string(),
+                "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergynode.xyz:38638".to_string(),
+                "snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergynode.xyz:38638".to_string(),
             ],
         };
 

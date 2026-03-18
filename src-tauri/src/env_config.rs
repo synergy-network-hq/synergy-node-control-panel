@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri::Manager;
 
-/// Environment-backed configuration for Synergy devnet.
+/// Environment-backed configuration for Synergy testbeta.
 /// Values are sourced in the following precedence:
 /// 1) Process environment variables
 /// 2) App config directory .env (when present)
 /// 3) Working directory .env (development)
-/// 4) Embedded .env fallback (devnet defaults)
+/// 4) Embedded .env fallback (testbeta defaults)
 #[derive(Debug, Clone)]
 pub struct EnvConfig {
     pub network: String,
@@ -85,19 +85,19 @@ impl EnvConfig {
         let sxcp_api_endpoint = layered
             .optional_string("SYNERGY_SXCP_API_ENDPOINT")
             .unwrap_or_else(|| match network.as_str() {
-                "devnet" => "https://devnet-sxcp-api.synergy-network.io".to_string(),
+                "testbeta" => "https://testbeta-sxcp-api.synergy-network.io".to_string(),
                 _ => String::new(),
             });
         let sxcp_ws_endpoint = layered
             .optional_string("SYNERGY_SXCP_WS_ENDPOINT")
             .unwrap_or_else(|| match network.as_str() {
-                "devnet" => "wss://devnet-sxcp-ws.synergy-network.io".to_string(),
+                "testbeta" => "wss://testbeta-sxcp-ws.synergy-network.io".to_string(),
                 _ => String::new(),
             });
         let aegis_verify_endpoint = layered
             .optional_string("SYNERGY_AEGIS_VERIFY_ENDPOINT")
             .unwrap_or_else(|| match network.as_str() {
-                "devnet" => "https://devnet-aegis-verify.synergy-network.io".to_string(),
+                "testbeta" => "https://testbeta-aegis-verify.synergy-network.io".to_string(),
                 _ => String::new(),
             });
 

@@ -125,7 +125,7 @@ function SettingsPage() {
           <SNRGButton variant="blue" size="md" onClick={() => storageRoot && openPath(storageRoot)}>
             Open Workspace Folder
           </SNRGButton>
-          <SNRGButton variant="cyan" size="md" onClick={() => openExternal('https://devnet-explorer.synergy-network.io')}>
+          <SNRGButton variant="cyan" size="md" onClick={() => openExternal('https://testbeta-explorer.synergy-network.io')}>
             Open Explorer
           </SNRGButton>
         </div>

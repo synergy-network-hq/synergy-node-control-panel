@@ -175,8 +175,12 @@ impl BlockchainService {
                 Ok(result)
             }
             None => {
-                // Fallback to default bootstrap node (only bootnode1 is available on devnet)
-                Ok(vec!["bootnode1.synergy-network.io:38638".to_string()])
+                // Fallback to the published Testnet-Beta bootstrap set.
+                Ok(vec![
+                    "bootnode1.synergynode.xyz:38638".to_string(),
+                    "bootnode2.synergynode.xyz:38638".to_string(),
+                    "bootnode3.synergynode.xyz:38638".to_string(),
+                ])
             }
         }
     }

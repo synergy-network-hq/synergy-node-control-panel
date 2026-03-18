@@ -341,7 +341,7 @@ async fn dispatch_command(
         "testbeta_get_catalog" => to_value(testbeta_get_catalog()?),
         "testbeta_setup_node" => {
             let args: TestnetBetaSetupArgs = parse_args(request.args)?;
-            to_value(testbeta_setup_node(args.input)?)
+            to_value(testbeta_setup_node(args.input).await?)
         }
         "testbeta_node_control" => {
             let args: TestnetBetaNodeControlArgs = parse_args(request.args)?;

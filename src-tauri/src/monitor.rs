@@ -5614,7 +5614,7 @@ fn build_atlas_links(
         })
         .or_else(|| std::env::var("SYNERGY_ATLAS_BASE_URL").ok())
         .or_else(|| std::env::var("SYNERGY_EXPLORER_ENDPOINT").ok())
-        .or_else(|| Some("https://devnet-explorer.synergy-network.io".to_string()))
+        .or_else(|| Some("https://testbeta-explorer.synergy-network.io".to_string()))
         .map(|value| value.trim().trim_end_matches('/').to_string())
         .filter(|value| !value.is_empty());
 
@@ -7118,8 +7118,8 @@ fn generate_monitor_hosts_env(
         "SYNERGY_DEVNET_WG_HUB_PORT=51820".to_string(),
         String::new(),
         "# Explorer bridge used by control panel Atlas links:".to_string(),
-        "ATLAS_BASE_URL=https://devnet-explorer.synergy-network.io".to_string(),
-        "SYNERGY_EXPLORER_RESET_ENDPOINT=https://devnet-atlas-api.synergy-network.io/v1/admin/reindex-from-genesis".to_string(),
+        "ATLAS_BASE_URL=https://testbeta-explorer.synergy-network.io".to_string(),
+        "SYNERGY_EXPLORER_RESET_ENDPOINT=https://testbeta-atlas-api.synergy-network.io/v1/admin/reindex-from-genesis".to_string(),
         String::new(),
     ];
 

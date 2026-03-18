@@ -349,8 +349,8 @@ mod tests {
     #[test]
     fn test_extract_host_from_bootnode() {
         assert_eq!(
-            extract_host_from_bootnode("snr://synv11xyz@bootnode1.synergy-network.io:38638"),
-            Some("bootnode1.synergy-network.io".to_string())
+            extract_host_from_bootnode("snr://synv11xyz@bootnode1.synergynode.xyz:38638"),
+            Some("bootnode1.synergynode.xyz".to_string())
         );
 
         assert_eq!(
