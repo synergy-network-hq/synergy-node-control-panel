@@ -16,8 +16,6 @@ extraResources:
   - from: binaries
     to: binaries
 
-afterPack: scripts/electron/afterPack.cjs
-
 publish:
   provider: github
   owner: synergy-network-hq
