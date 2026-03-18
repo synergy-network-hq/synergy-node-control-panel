@@ -191,7 +191,7 @@ function SettingsPage() {
     setPortErrors({});
     setPortNotice(
       'good',
-      `Saved local port profile: ${formatPortSettingsSummary(saved)}. New workspaces and every start/sync will use these ports automatically.`,
+      `Saved base port profile: ${formatPortSettingsSummary(saved)}. Each node keeps a stable local port offset from this base during setup, start, and sync.`,
     );
   }, [setPortNotice, validatePortForm]);
 
@@ -253,12 +253,12 @@ function SettingsPage() {
 
         setPortNotice(
           'warn',
-          `Applied the saved port profile to ${results.length - failed.length}/${results.length} node workspace(s). Restart any running nodes, then fix the remaining failures: ${failureSummary}`,
+          `Applied the saved base profile to ${results.length - failed.length}/${results.length} node workspace(s). Restart any running nodes, then fix the remaining failures: ${failureSummary}`,
         );
       } else {
         setPortNotice(
           'good',
-          `Applied ${formatPortSettingsSummary(saved)} to ${results.length} node workspace(s). Restart any running nodes so the new ports take effect.`,
+          `Applied base profile ${formatPortSettingsSummary(saved)} to ${results.length} node workspace(s) with stable per-node offsets. Restart any running nodes so the new ports take effect.`,
         );
       }
     } catch (applyError) {
@@ -399,14 +399,14 @@ function SettingsPage() {
           <div className="nodecp-panel-header">
             <div>
               <p className="nodecp-panel-kicker">Ports</p>
-              <h3>Per-machine node port profile</h3>
+              <h3>Per-machine base port profile</h3>
             </div>
           </div>
           <p className="nodecp-panel-copy">
-            Save one port profile for this machine. Electron writes these ports
-            into each node&apos;s <code>node.toml</code> before provisioning,
-            start, and sync, so you can run multiple nodes on the same home
-            network without rebuilding installers.
+            Save one base profile for this machine. Electron applies a stable
+            per-node offset before writing <code>node.toml</code> during
+            provisioning, start, and sync, so multiple local nodes do not
+            collide on the same P2P, RPC, WS, discovery, or metrics ports.
           </p>
           <div className="monitor-form-grid monitor-form-grid-wide">
             {portFields.map((field) => (

@@ -83,6 +83,54 @@ function formatStatusTone(status) {
   return 'bad';
 }
 
+function nodeRuntimeLabel(nodeLive) {
+  if (!nodeLive?.is_running) {
+    return 'Offline';
+  }
+  if (nodeLive.local_rpc_ready === false) {
+    return 'Degraded';
+  }
+  return 'Online';
+}
+
+function nodeRuntimeTone(nodeLive) {
+  return formatStatusTone(nodeRuntimeLabel(nodeLive));
+}
+
+function nodeBlockHeightValue(nodeLive, liveStatus) {
+  if (nodeLive?.is_running) {
+    return nodeLive?.local_chain_height;
+  }
+  return nodeLive?.local_chain_height ?? liveStatus?.public_chain_height;
+}
+
+function nodeBlockHeightDetail(nodeLive, liveStatus) {
+  if (!nodeLive?.is_running) {
+    return `Public chain: ${formatNumber(liveStatus?.public_chain_height)}`;
+  }
+  if (nodeLive.local_rpc_ready === false) {
+    return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
+  }
+  return `${formatNumber(nodeLive?.sync_gap ?? 0)} blocks behind`;
+}
+
+function nodePeerCountValue(nodeLive, liveStatus) {
+  if (nodeLive?.is_running) {
+    return nodeLive?.local_peer_count;
+  }
+  return nodeLive?.local_peer_count ?? liveStatus?.public_peer_count;
+}
+
+function nodePeerCountDetail(nodeLive) {
+  if (!nodeLive?.is_running) {
+    return 'Public network peers';
+  }
+  if (nodeLive.local_rpc_ready === false) {
+    return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
+  }
+  return 'Live connected peers';
+}
+
 function formatTimestamp(utcString) {
   if (!utcString) return 'N/A';
   try {
@@ -214,22 +262,34 @@ function TestnetBetaNodeDetail() {
   const fundingManifest = useMemo(() => (network?.funding_manifests || []).find((f) => f.id === node?.funding_manifest_id) || null, [network?.funding_manifests, node?.funding_manifest_id]);
   const rewardProfile = useMemo(() => rewardProfileForRole(role), [role]);
   const isRunning = Boolean(nodeLive?.is_running);
+  const runtimeLabel = nodeRuntimeLabel(nodeLive);
+  const runtimeTone = nodeRuntimeTone(nodeLive);
 
   // Load port settings and config when node is selected
   useEffect(() => {
-    if (!node) return;
+    if (!node) {
+      setPortSettings(null);
+      setConfigContents('');
+      return;
+    }
     (async () => {
       try {
         const ports = await readTestnetBetaNodePortSettings(node);
-        setPortSettings(ports);
-      } catch { /* ok */ }
+        setPortSettings(ports?.portSettings || null);
+      } catch {
+        setPortSettings(null);
+      }
       try {
         const nodeToml = node.config_paths?.find((p) => p.endsWith('/node.toml'));
         if (nodeToml) {
           const contents = await readTextFile(nodeToml);
           setConfigContents(contents || '');
+        } else {
+          setConfigContents('');
         }
-      } catch { /* ok */ }
+      } catch {
+        setConfigContents('');
+      }
     })();
   }, [node]);
 
@@ -322,18 +382,16 @@ function TestnetBetaNodeDetail() {
           <div className="nodecp-stat-icon">{ICONS.chain}</div>
           <div className="nodecp-stat-copy">
             <span className="nodecp-stat-label">Block Height</span>
-            <strong className="nodecp-stat-value">{formatNumber(nodeLive?.local_chain_height || liveStatus?.public_chain_height)}</strong>
-            <span className="nodecp-stat-detail">
-              {isRunning ? `${formatNumber(nodeLive?.sync_gap ?? 0)} blocks behind` : `Public chain: ${formatNumber(liveStatus?.public_chain_height)}`}
-            </span>
+            <strong className="nodecp-stat-value">{formatNumber(nodeBlockHeightValue(nodeLive, liveStatus))}</strong>
+            <span className="nodecp-stat-detail">{nodeBlockHeightDetail(nodeLive, liveStatus)}</span>
           </div>
         </article>
         <article className="nodecp-stat-card">
           <div className="nodecp-stat-icon">{ICONS.peers}</div>
           <div className="nodecp-stat-copy">
             <span className="nodecp-stat-label">Peer Count</span>
-            <strong className="nodecp-stat-value">{formatNumber(nodeLive?.local_peer_count ?? liveStatus?.public_peer_count)}</strong>
-            <span className="nodecp-stat-detail">{isRunning ? 'Live connected peers' : 'Public network peers'}</span>
+            <strong className="nodecp-stat-value">{formatNumber(nodePeerCountValue(nodeLive, liveStatus))}</strong>
+            <span className="nodecp-stat-detail">{nodePeerCountDetail(nodeLive)}</span>
           </div>
         </article>
         <article className="nodecp-stat-card">
@@ -348,16 +406,22 @@ function TestnetBetaNodeDetail() {
           <div className="nodecp-stat-icon">{ICONS.pulse}</div>
           <div className="nodecp-stat-copy">
             <span className="nodecp-stat-label">Runtime Status</span>
-            <strong className="nodecp-stat-value">{isRunning ? 'Online' : 'Offline'}</strong>
-            <span className="nodecp-stat-detail">{nodeLive?.pid ? `PID ${nodeLive.pid}` : 'No active process'}</span>
+            <strong className="nodecp-stat-value">{runtimeLabel}</strong>
+            <span className="nodecp-stat-detail">{nodeLive?.local_rpc_status || (nodeLive?.pid ? `PID ${nodeLive.pid}` : 'No active process')}</span>
           </div>
         </article>
         <article className="nodecp-stat-card">
           <div className="nodecp-stat-icon">{ICONS.sync}</div>
           <div className="nodecp-stat-copy">
             <span className="nodecp-stat-label">Sync Gap</span>
-            <strong className="nodecp-stat-value">{isRunning ? formatNumber(nodeLive?.sync_gap ?? 0) : 'Offline'}</strong>
-            <span className="nodecp-stat-detail">{isRunning ? 'Blocks remaining to catch up' : 'Start node to measure sync'}</span>
+            <strong className="nodecp-stat-value">{isRunning ? formatNumber(nodeLive?.sync_gap) : 'Offline'}</strong>
+            <span className="nodecp-stat-detail">
+              {isRunning
+                ? (nodeLive?.local_rpc_ready === false
+                  ? (nodeLive?.local_rpc_status || 'Local RPC is not responding.')
+                  : 'Blocks remaining to catch up')
+                : 'Start node to measure sync'}
+            </span>
           </div>
         </article>
       </div>
@@ -369,8 +433,8 @@ function TestnetBetaNodeDetail() {
             <p className="nodecp-panel-kicker">Node Identity</p>
             <h3>{node.display_label}</h3>
           </div>
-          <span className={`nodecp-health-pill nodecp-health-${isRunning ? 'good' : 'bad'}`}>
-            {isRunning ? 'Online' : 'Offline'}
+          <span className={`nodecp-health-pill nodecp-health-${runtimeTone}`}>
+            {runtimeLabel}
           </span>
         </div>
         <div className="nodecp-summary-grid">
@@ -816,11 +880,17 @@ function TestnetBetaNodeDetail() {
 
       {/* Status bar */}
       <div className="nodedetail-status-bar">
-        <span className={`nodecp-health-pill nodecp-health-${isRunning ? 'good' : 'bad'}`}>
-          {isRunning ? 'Online' : 'Offline'}
+        <span className={`nodecp-health-pill nodecp-health-${runtimeTone}`}>
+          {runtimeLabel}
         </span>
         <span className="nodedetail-status-text">
-          {controlMessage || error || (isRunning ? `Running (PID ${nodeLive?.pid || '?'}) \u2022 ${formatNumber(nodeLive?.local_peer_count ?? 0)} peers \u2022 Block ${formatNumber(nodeLive?.local_chain_height)}` : 'Node is not running.')}
+          {controlMessage
+            || error
+            || (isRunning
+              ? (nodeLive?.local_rpc_ready === false
+                ? `Degraded: ${nodeLive?.local_rpc_status || 'Local RPC is not responding.'}`
+                : `Running (PID ${nodeLive?.pid || '?'}) \u2022 ${formatNumber(nodeLive?.local_peer_count ?? 0)} peers \u2022 Block ${formatNumber(nodeLive?.local_chain_height)}`)
+              : 'Node is not running.')}
         </span>
       </div>
 

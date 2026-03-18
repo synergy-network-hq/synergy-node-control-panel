@@ -196,6 +196,54 @@ function formatStatusTone(status) {
   return 'bad';
 }
 
+function nodeRuntimeLabel(nodeLive) {
+  if (!nodeLive?.is_running) {
+    return 'Offline';
+  }
+  if (nodeLive.local_rpc_ready === false) {
+    return 'Degraded';
+  }
+  return 'Online';
+}
+
+function nodeRuntimeTone(nodeLive) {
+  return formatStatusTone(nodeRuntimeLabel(nodeLive));
+}
+
+function nodeBlockHeightValue(nodeLive, liveStatus) {
+  if (nodeLive?.is_running) {
+    return nodeLive?.local_chain_height;
+  }
+  return nodeLive?.local_chain_height ?? liveStatus?.public_chain_height;
+}
+
+function nodePeerCountValue(nodeLive, liveStatus) {
+  if (nodeLive?.is_running) {
+    return nodeLive?.local_peer_count;
+  }
+  return nodeLive?.local_peer_count ?? liveStatus?.public_peer_count;
+}
+
+function nodeBlockHeightDetail(nodeLive, liveStatus) {
+  if (!nodeLive?.is_running) {
+    return `Public chain currently reports ${formatNumber(liveStatus?.public_chain_height)} blocks`;
+  }
+  if (nodeLive.local_rpc_ready === false) {
+    return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
+  }
+  return `${formatNumber(nodeLive?.sync_gap ?? 0)} blocks behind the live chain`;
+}
+
+function nodePeerCountDetail(nodeLive) {
+  if (!nodeLive?.is_running) {
+    return 'Visible network peers from the public control-plane view';
+  }
+  if (nodeLive.local_rpc_ready === false) {
+    return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
+  }
+  return 'Live peers currently connected to this node';
+}
+
 function latencyLabel(entry) {
   if (!entry?.reachable || entry?.latency_ms == null) {
     return entry?.detail || 'Unavailable';
@@ -306,10 +354,6 @@ function tabsForRole(role) {
       soon: true,
     },
   ];
-}
-
-function nodeRuntimeLabel(nodeLive) {
-  return nodeLive?.is_running ? 'Online' : 'Offline';
 }
 
 function nodeWorkspaceStatus(nodeLive) {
@@ -553,7 +597,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
 
       const nodeLive = nodeLiveById[node.id] || null;
       const role = roleById[node.role_id] || null;
-      const isOnline = Boolean(nodeLive?.is_running);
+      const statusLabel = nodeRuntimeLabel(nodeLive);
       return {
         id: node.id,
         index,
@@ -561,15 +605,16 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
         node,
         nodeLive,
         role,
-        isOnline,
+        isOnline: statusLabel === 'Online',
+        statusLabel,
+        statusTone: nodeRuntimeTone(nodeLive),
         typeLabel: roleTypeLabel(node.role_display_name),
         classLabel: classTierLabel(role),
         addressLabel: truncateAddress(node.node_address),
-        blockHeightLabel: isOnline
+        blockHeightLabel: nodeLive?.is_running
           ? formatNumber(nodeLive?.local_chain_height)
           : 'Offline',
         scoreLabel: formatCompactScoreOutOfHundred(nodeLive?.synergy_score),
-        statusLabel: nodeRuntimeLabel(nodeLive),
       };
     });
   }, [liveStatus?.public_chain_height, nodeLiveById, nodes, roleById]);
@@ -641,18 +686,14 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
         },
         {
           label: 'Block Height',
-          value: formatNumber(selectedNodeLive?.local_chain_height || liveStatus?.public_chain_height),
-          detail: selectedNodeLive?.is_running
-            ? `${formatNumber(selectedNodeLive?.sync_gap ?? 0)} blocks behind the live chain`
-            : `Public chain currently reports ${formatNumber(liveStatus?.public_chain_height)} blocks`,
+          value: formatNumber(nodeBlockHeightValue(selectedNodeLive, liveStatus)),
+          detail: nodeBlockHeightDetail(selectedNodeLive, liveStatus),
           icon: ICONS.chain,
         },
         {
           label: 'Peer Count',
-          value: formatNumber(selectedNodeLive?.local_peer_count ?? liveStatus?.public_peer_count),
-          detail: selectedNodeLive?.is_running
-            ? 'Live peers currently connected to this node'
-            : 'Visible network peers from the public control-plane view',
+          value: formatNumber(nodePeerCountValue(selectedNodeLive, liveStatus)),
+          detail: nodePeerCountDetail(selectedNodeLive),
           icon: ICONS.peers,
         },
         {
@@ -699,20 +740,28 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     },
     {
       label: 'Chain Height',
-      value: formatNumber(selectedNodeLive?.local_chain_height || liveStatus?.public_chain_height),
+      value: formatNumber(nodeBlockHeightValue(selectedNodeLive, liveStatus)),
       detail: selectedNodeLive?.is_running
-        ? `Local node sees ${formatNumber(selectedNodeLive?.local_peer_count)} peers.`
+        ? (selectedNodeLive?.local_rpc_ready === false
+          ? (selectedNodeLive?.local_rpc_status || 'Local RPC is not responding.')
+          : `Local node sees ${formatNumber(selectedNodeLive?.local_peer_count)} peers.`)
         : (liveStatus?.chain_status || 'Chain data unavailable'),
-      tone: formatStatusTone(selectedNodeLive?.is_running ? 'running' : liveStatus?.chain_status),
+      tone: selectedNodeLive?.is_running
+        ? nodeRuntimeTone(selectedNodeLive)
+        : formatStatusTone(liveStatus?.chain_status),
       icon: ICONS.chain,
     },
     {
       label: 'Sync Gap',
       value: formatNumber(selectedNodeLive?.sync_gap),
       detail: selectedNodeLive?.is_running
-        ? 'Blocks remaining before this node fully catches up.'
+        ? (selectedNodeLive?.local_rpc_ready === false
+          ? (selectedNodeLive?.local_rpc_status || 'Local RPC is not responding.')
+          : 'Blocks remaining before this node fully catches up.')
         : 'Start the node to measure its local sync position.',
-      tone: formatStatusTone(selectedNodeLive?.sync_gap > 0 ? 'syncing' : 'running'),
+      tone: selectedNodeLive?.local_rpc_ready === false
+        ? 'warn'
+        : formatStatusTone(selectedNodeLive?.sync_gap > 0 ? 'syncing' : 'running'),
       icon: ICONS.sync,
     },
     {
@@ -1376,7 +1425,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                   <>
                     <div className="nodecp-node-row-top">
                       <span className="nodecp-node-row-type">{slot.typeLabel}</span>
-                      <span className={`nodecp-health-pill ${slot.isOnline ? 'nodecp-health-good' : 'nodecp-health-bad'}`}>
+                      <span className={`nodecp-health-pill nodecp-health-${slot.statusTone}`}>
                         {slot.statusLabel}
                       </span>
                     </div>

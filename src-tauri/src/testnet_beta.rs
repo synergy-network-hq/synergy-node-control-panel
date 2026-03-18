@@ -21,6 +21,10 @@ const TESTNET_BETA_DISPLAY_NAME: &str = "Testnet-Beta";
 const TESTNET_BETA_CHAIN_NAME: &str = "synergy-testnet-beta";
 const TESTNET_BETA_CHAIN_ID: u64 = 338639;
 const TESTNET_BETA_P2P_PORT: u16 = 38638;
+const TESTNET_BETA_RPC_PORT: u16 = 48638;
+const TESTNET_BETA_WS_PORT: u16 = 58638;
+const TESTNET_BETA_DISCOVERY_PORT: u16 = 30301;
+const TESTNET_BETA_METRICS_PORT: u16 = 9090;
 const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergy-network.io";
 const TOKEN_SYMBOL: &str = "SNRG";
 const TOKEN_DECIMALS: u32 = 9;
@@ -143,6 +147,8 @@ pub struct TestnetBetaProvisionedNode {
     pub role_certificate_status: String,
     pub funding_manifest_id: String,
     pub created_at_utc: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_slot: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -192,6 +198,8 @@ pub struct TestnetBetaNodeLiveStatus {
     pub config_ready: bool,
     pub runtime_report_present: bool,
     pub is_running: bool,
+    pub local_rpc_ready: bool,
+    pub local_rpc_status: String,
     pub pid: Option<u32>,
     pub local_chain_height: Option<u64>,
     pub local_peer_count: Option<usize>,
@@ -602,6 +610,7 @@ pub async fn testbeta_setup_node(
     network_profile.updated_at_utc = Utc::now().to_rfc3339();
 
     let role_overlay = role_overlay_for(&role.id);
+    let port_slot = next_available_port_slot(&registry.nodes);
     let peers_contents = build_peers_toml(&network_profile);
     let aegis_contents = build_aegis_toml();
     let node_contents = build_node_toml(
@@ -613,6 +622,7 @@ pub async fn testbeta_setup_node(
         detected_public_host.as_deref(),
         &network_profile,
         role_overlay.as_str(),
+        port_slot,
     );
     let manifest_contents = serde_json::to_string_pretty(&serde_json::json!({
         "node_id": node_id,
@@ -669,6 +679,7 @@ pub async fn testbeta_setup_node(
         role_certificate_status: "Pending Aegis role certificate binding.".to_string(),
         funding_manifest_id: funding_manifest.id.clone(),
         created_at_utc: Utc::now().to_rfc3339(),
+        port_slot: Some(port_slot),
     };
 
     registry.nodes.push(node_record.clone());
@@ -880,36 +891,68 @@ async fn build_node_live_status(
     let config_path = workspace_directory.join("config").join("node.toml");
     let runtime_report_path = workspace_directory.join("data").join("role-runtime.json");
     let rpc_endpoint =
-        parse_testbeta_rpc_endpoint(&config_path).unwrap_or_else(|| "http://127.0.0.1:48638".to_string());
+        parse_testbeta_rpc_endpoint(&config_path).unwrap_or_else(|| format!("http://127.0.0.1:{TESTNET_BETA_RPC_PORT}"));
     let public_chain_height = query_public_chain_height(client).await.ok();
     let pid = running_pid_for_workspace(&workspace_directory);
     let is_running = pid.is_some();
-    let local_chain_height = if is_running {
-        query_rpc_value(client, &rpc_endpoint, "synergy_blockNumber", json!([]))
-            .await
-            .ok()
-            .and_then(|value| parse_rpc_u64(value).ok())
+    let (local_chain_height, local_chain_error) = if is_running {
+        match query_rpc_value(client, &rpc_endpoint, "synergy_blockNumber", json!([])).await {
+            Ok(value) => match parse_rpc_u64(value) {
+                Ok(height) => (Some(height), None),
+                Err(error) => (None, Some(error)),
+            },
+            Err(error) => (None, Some(error)),
+        }
     } else {
-        None
+        (None, None)
     };
-    let local_peer_count = if is_running {
-        query_rpc_value(client, &rpc_endpoint, "synergy_getPeerInfo", json!([]))
-            .await
-            .ok()
-            .and_then(|value| parse_rpc_peer_count(value).ok())
+    let (local_peer_count, local_peer_error) = if is_running {
+        match query_rpc_value(client, &rpc_endpoint, "synergy_getPeerInfo", json!([])).await {
+            Ok(value) => match parse_rpc_peer_count(value) {
+                Ok(count) => (Some(count), None),
+                Err(error) => (None, Some(error)),
+            },
+            Err(error) => (None, Some(error)),
+        }
     } else {
-        None
+        (None, None)
+    };
+    let local_rpc_ready = is_running && (local_chain_height.is_some() || local_peer_count.is_some());
+    let local_rpc_status = if !is_running {
+        "Local runtime is offline.".to_string()
+    } else if local_rpc_ready {
+        format!("Local RPC responding on {rpc_endpoint}.")
+    } else {
+        let mut details = Vec::new();
+        if let Some(error) = local_chain_error.as_ref() {
+            details.push(format!("synergy_blockNumber: {error}"));
+        }
+        if let Some(error) = local_peer_error.as_ref() {
+            details.push(format!("synergy_getPeerInfo: {error}"));
+        }
+        if details.is_empty() {
+            format!("Local RPC is not responding on {rpc_endpoint}.")
+        } else {
+            format!(
+                "Local RPC is not responding on {rpc_endpoint}. {}",
+                details.join(" | ")
+            )
+        }
     };
     let sync_gap = match (public_chain_height, local_chain_height) {
         (Some(public_height), Some(local_height)) => Some(public_height.saturating_sub(local_height)),
         _ => None,
     };
 
-    let synergy_score = query_synergy_score(client, &node.node_address).await.ok();
-    let synergy_score_status = match synergy_score {
-        Some(score) => format!("Live score {score:.2} from public RPC."),
-        None => "Synergy score is not available from the public RPC yet.".to_string(),
-    };
+    let (synergy_score, synergy_score_status) = resolve_synergy_score_status(
+        client,
+        &node.role_id,
+        &rpc_endpoint,
+        &node.node_address,
+        is_running,
+        local_rpc_ready,
+    )
+    .await;
 
     TestnetBetaNodeLiveStatus {
         node_id: node.id.clone(),
@@ -918,6 +961,8 @@ async fn build_node_live_status(
         config_ready: config_path.is_file(),
         runtime_report_present: runtime_report_path.is_file(),
         is_running,
+        local_rpc_ready,
+        local_rpc_status,
         pid,
         local_chain_height,
         local_peer_count,
@@ -1263,7 +1308,7 @@ fn parse_testbeta_rpc_endpoint(config_path: &Path) -> Option<String> {
         .get("rpc")
         .and_then(|section| section.get("http_port"))
         .and_then(toml::Value::as_integer)
-        .unwrap_or(48638);
+        .unwrap_or(i64::from(TESTNET_BETA_RPC_PORT));
     Some(format!("http://127.0.0.1:{port}"))
 }
 
@@ -1279,18 +1324,70 @@ async fn query_public_peer_count(client: &Client) -> Result<usize, String> {
 }
 
 async fn query_synergy_score(client: &Client, address: &str) -> Result<f64, String> {
-    let value = query_rpc_value(
-        client,
-        TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
-        "synergy_getSynergyScore",
-        json!([address]),
-    )
-    .await?;
+    query_synergy_score_from_endpoint(client, TESTNET_BETA_PUBLIC_RPC_ENDPOINT, address).await
+}
+
+async fn query_synergy_score_from_endpoint(
+    client: &Client,
+    endpoint: &str,
+    address: &str,
+) -> Result<f64, String> {
+    let value = query_rpc_value(client, endpoint, "synergy_getSynergyScore", json!([address])).await?;
 
     value
         .as_f64()
         .or_else(|| value.as_str().and_then(|text| text.parse::<f64>().ok()))
         .ok_or_else(|| "Synergy score RPC returned a non-numeric payload.".to_string())
+}
+
+async fn resolve_synergy_score_status(
+    client: &Client,
+    role_id: &str,
+    rpc_endpoint: &str,
+    address: &str,
+    is_running: bool,
+    local_rpc_ready: bool,
+) -> (Option<f64>, String) {
+    if let Ok(score) = query_synergy_score(client, address).await {
+        return (Some(score), format!("Live score {score:.2} from public RPC."));
+    }
+
+    if role_supports_validator_registration(role_id) && is_running && local_rpc_ready {
+        if let Ok(score) = query_synergy_score_from_endpoint(client, rpc_endpoint, address).await {
+            return (
+                Some(score),
+                format!("Live score {score:.2} from local node RPC. Public RPC has not caught up yet."),
+            );
+        }
+    }
+
+    if !role_supports_validator_registration(role_id) {
+        return (
+            None,
+            "This role is running, but validator-style synergy scoring is not exposed for it.".to_string(),
+        );
+    }
+
+    if is_running && !local_rpc_ready {
+        return (
+            None,
+            format!(
+                "Synergy score is unavailable because the local RPC is not responding on {rpc_endpoint}."
+            ),
+        );
+    }
+
+    if is_running {
+        return (
+            None,
+            "Validator RPC is online, but synergy score telemetry is not exposed yet.".to_string(),
+        );
+    }
+
+    (
+        None,
+        "Synergy score is not available from the public RPC yet.".to_string(),
+    )
 }
 
 async fn query_rpc_value(
@@ -1486,8 +1583,10 @@ fn load_registry(root: &Path) -> Result<TestnetBetaRegistryFile, String> {
 
     let contents = fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-    serde_json::from_str(&contents)
-        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))
+    let mut registry: TestnetBetaRegistryFile = serde_json::from_str(&contents)
+        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
+    normalize_registry_port_slots(&mut registry.nodes);
+    Ok(registry)
 }
 
 fn save_registry(root: &Path, registry: &TestnetBetaRegistryFile) -> Result<(), String> {
@@ -1495,6 +1594,42 @@ fn save_registry(root: &Path, registry: &TestnetBetaRegistryFile) -> Result<(), 
     let contents = serde_json::to_string_pretty(registry)
         .map_err(|error| format!("Failed to serialize {}: {error}", path.display()))?;
     write_file(&path, &contents)
+}
+
+fn normalize_registry_port_slots(nodes: &mut [TestnetBetaProvisionedNode]) {
+    let mut used_slots = std::collections::BTreeSet::new();
+
+    for node in nodes {
+        let slot = match node.port_slot {
+            Some(slot) if used_slots.insert(slot) => slot,
+            _ => {
+                let next_slot = next_available_port_slot_from_used(&used_slots);
+                used_slots.insert(next_slot);
+                next_slot
+            }
+        };
+        node.port_slot = Some(slot);
+    }
+}
+
+fn next_available_port_slot(nodes: &[TestnetBetaProvisionedNode]) -> u16 {
+    let mut used_slots = std::collections::BTreeSet::new();
+    for node in nodes {
+        if let Some(slot) = node.port_slot {
+            used_slots.insert(slot);
+        }
+    }
+    next_available_port_slot_from_used(&used_slots)
+}
+
+fn next_available_port_slot_from_used(
+    used_slots: &std::collections::BTreeSet<u16>,
+) -> u16 {
+    let mut slot = 0_u16;
+    while used_slots.contains(&slot) {
+        slot = slot.saturating_add(1);
+    }
+    slot
 }
 
 fn detect_device_profile() -> TestnetBetaDeviceProfile {
@@ -1884,13 +2019,19 @@ fn build_node_toml(
     public_host: Option<&str>,
     network_profile: &TestnetBetaNetworkProfile,
     role_overlay: &str,
+    port_slot: u16,
 ) -> String {
+    let p2p_port = TESTNET_BETA_P2P_PORT.saturating_add(port_slot);
+    let rpc_port = TESTNET_BETA_RPC_PORT.saturating_add(port_slot);
+    let ws_port = TESTNET_BETA_WS_PORT.saturating_add(port_slot);
+    let discovery_port = TESTNET_BETA_DISCOVERY_PORT.saturating_add(port_slot);
+    let metrics_port = TESTNET_BETA_METRICS_PORT.saturating_add(port_slot);
     let public_host_line = normalize_optional(public_host)
         .map(|value| format!("public_host = \"{value}\"\n"))
         .unwrap_or_default();
     let runtime_public_address = normalize_optional(public_host)
-        .map(|value| format!("{value}:38638"))
-        .unwrap_or_else(|| "127.0.0.1:38638".to_string());
+        .map(|value| format!("{value}:{p2p_port}"))
+        .unwrap_or_else(|| format!("127.0.0.1:{p2p_port}"));
     let bootnodes = network_profile
         .bootnodes
         .iter()
@@ -1911,13 +2052,18 @@ fn build_node_toml(
     };
 
     format!(
-        "[identity]\nnode_id = \"{node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = 38638\nrpc_port = 48638\nws_port = 58638\np2p_listen = \"0.0.0.0:38638\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = 30000\nmin_validators = 3\nvalidator_cluster_size = 7\nmax_validators = 21\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"127.0.0.1:48638\"\nenable_http = true\nhttp_port = 48638\nenable_ws = true\nws_port = 58638\nenable_grpc = true\ngrpc_port = 48638\ncors_enabled = false\ncors_origins = []\n\n[p2p]\nlisten_address = \"0.0.0.0:38638\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{node_id}\"\nenable_discovery = true\ndiscovery_port = 30301\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:9090\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = 30000\nmin_validators = 3\nvalidator_cluster_size = 7\nmax_validators = 21\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"127.0.0.1:{rpc_port}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = false\ncors_origins = []\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
         display_name = TESTNET_BETA_DISPLAY_NAME,
         chain_name = network_profile.chain_name,
         chain_id = network_profile.chain_id,
+        p2p_port = p2p_port,
+        rpc_port = rpc_port,
+        ws_port = ws_port,
+        discovery_port = discovery_port,
+        metrics_port = metrics_port,
         bootnodes = bootnodes,
         seeds = seeds,
         bootstrap_dns_records = bootstrap_dns_records,
@@ -2435,6 +2581,52 @@ esac
                     },
                 ))
                 .expect("stop should succeed");
+        });
+    }
+
+    #[test]
+    fn setup_assigns_unique_port_slots_and_config_ports() {
+        with_temp_home(|home| {
+            let _cwd = CurrentDirGuard::set(home);
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+            let first = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Validator A".to_string()),
+                    intended_directory: None,
+                }))
+                .expect("first setup should succeed");
+            let second = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "rpc_gateway".to_string(),
+                    display_label: Some("RPC B".to_string()),
+                    intended_directory: None,
+                }))
+                .expect("second setup should succeed");
+
+            assert_eq!(first.node.port_slot, Some(0));
+            assert_eq!(second.node.port_slot, Some(1));
+
+            let second_toml = fs::read_to_string(config_path_for(&second.node, "node.toml"))
+                .expect("second node.toml should exist");
+            let second_value: toml::Value =
+                toml::from_str(&second_toml).expect("second node.toml should parse");
+
+            assert_eq!(
+                second_value
+                    .get("rpc")
+                    .and_then(|section| section.get("http_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(i64::from(TESTNET_BETA_RPC_PORT + 1))
+            );
+            assert_eq!(
+                second_value
+                    .get("p2p")
+                    .and_then(|section| section.get("discovery_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(i64::from(TESTNET_BETA_DISCOVERY_PORT + 1))
+            );
         });
     }
 

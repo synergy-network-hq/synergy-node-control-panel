@@ -75,6 +75,35 @@ function normalizeStoredPortSettings(value) {
   return normalized;
 }
 
+function resolveNodePortSlot(node) {
+  const raw = node?.port_slot ?? node?.portSlot ?? 0;
+  const parsed = Number.parseInt(String(raw).trim(), 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+}
+
+function offsetPort(port, offset) {
+  const nextPort = Number(port) + Number(offset);
+  if (!Number.isInteger(nextPort) || nextPort <= 0 || nextPort > 65535) {
+    return port;
+  }
+  return nextPort;
+}
+
+function resolveNodePortSettings(settings, node) {
+  const baseSettings = normalizeStoredPortSettings(settings);
+  const portSlot = resolveNodePortSlot(node);
+  return normalizeStoredPortSettings({
+    p2p: offsetPort(baseSettings.p2p, portSlot),
+    rpc: offsetPort(baseSettings.rpc, portSlot),
+    ws: offsetPort(baseSettings.ws, portSlot),
+    discovery: offsetPort(baseSettings.discovery, portSlot),
+    metrics: offsetPort(baseSettings.metrics, portSlot),
+  });
+}
+
 function parsePortValue(value) {
   const parsed = Number.parseInt(String(value ?? '').trim(), 10);
   if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
@@ -488,7 +517,7 @@ export async function applyTestnetBetaPortSettings(node, settings) {
   }
 
   let contents = await readTextFile(nodeTomlPath);
-  const portSettings = normalizeStoredPortSettings(settings);
+  const portSettings = resolveNodePortSettings(settings, node);
 
   const rpcBindAddress = updateAddressPort(
     readSectionValue(contents, 'rpc', 'bind_address'),
@@ -533,6 +562,7 @@ export async function applyTestnetBetaPortSettings(node, settings) {
 
   return {
     nodeTomlPath,
+    portSlot: resolveNodePortSlot(node),
     portSettings,
   };
 }
