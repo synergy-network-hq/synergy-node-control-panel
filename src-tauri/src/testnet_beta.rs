@@ -389,6 +389,37 @@ pub async fn testbeta_node_control(
                 });
             }
 
+            // Refresh genesis.json before launch so all currently provisioned
+            // validator nodes are in the validator manager when the binary boots.
+            // Without this each node self-registers only itself (1 validator)
+            // which is below min_validators=3 and blocks block production.
+            if let Err(e) = write_genesis_json_for_workspace(&state.nodes, &workspace_directory) {
+                eprintln!("Warning: could not write genesis.json for {}: {e}", node.display_label);
+            }
+
+            // Inject localhost dial targets for every other node provisioned on
+            // this machine so same-machine validators can peer directly without
+            // relying on NAT loop-back through the public IP.  We merge with
+            // whatever the JS bootstrap refresh already wrote (seed-server peers)
+            // so nothing is lost.
+            {
+                let peers_toml_path = workspace_directory.join("config").join("peers.toml");
+                let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
+                for sibling in local_sibling_dial_targets(&state.nodes, &node.id) {
+                    if !targets.contains(&sibling) {
+                        targets.push(sibling);
+                    }
+                }
+                let peers_contents =
+                    build_peers_toml_with_additional(&state.network_profile, &targets);
+                if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
+                    eprintln!(
+                        "Warning: could not refresh peers.toml for {}: {e}",
+                        node.display_label
+                    );
+                }
+            }
+
             launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
             wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
             if let Err(error) = register_node_with_seeds_async(&state.network_profile, &node).await
@@ -423,6 +454,30 @@ pub async fn testbeta_node_control(
         "sync" => {
             if is_running {
                 run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
+            }
+
+            // Refresh genesis.json before relaunching after sync.
+            if let Err(e) = write_genesis_json_for_workspace(&state.nodes, &workspace_directory) {
+                eprintln!("Warning: could not write genesis.json for {}: {e}", node.display_label);
+            }
+
+            // Same local-sibling injection as the start path.
+            {
+                let peers_toml_path = workspace_directory.join("config").join("peers.toml");
+                let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
+                for sibling in local_sibling_dial_targets(&state.nodes, &node.id) {
+                    if !targets.contains(&sibling) {
+                        targets.push(sibling);
+                    }
+                }
+                let peers_contents =
+                    build_peers_toml_with_additional(&state.network_profile, &targets);
+                if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
+                    eprintln!(
+                        "Warning: could not refresh peers.toml for {}: {e}",
+                        node.display_label
+                    );
+                }
             }
 
             run_runner_and_wait(&runner, "sync", &config_path, &workspace_directory).await?;
@@ -785,6 +840,18 @@ pub async fn testbeta_setup_node(
         .sort_by(|left, right| left.created_at_utc.cmp(&right.created_at_utc));
     save_registry(&root, &registry)?;
     save_network_profile(&root, &network_profile)?;
+
+    // Write/refresh genesis.json for every validator workspace so that when
+    // any node starts it sees ALL provisioned validators in its validator manager.
+    for n in registry.nodes.iter().filter(|n| role_supports_validator_registration(&n.role_id)) {
+        let ws = PathBuf::from(&n.workspace_directory);
+        if ws.is_dir() {
+            if let Err(e) = write_genesis_json_for_workspace(&registry.nodes, &ws) {
+                eprintln!("Warning: could not write genesis.json for {}: {e}", n.display_label);
+            }
+        }
+    }
+
     register_node_with_seeds_best_effort(&network_profile, &node_record).await;
 
     Ok(TestnetBetaSetupResult {
@@ -1589,6 +1656,81 @@ fn registry_path(root: &Path) -> PathBuf {
     root.join("network").join("registry.json")
 }
 
+/// Build a genesis.json that lists every provisioned validator node so that the
+/// binary's validator manager is seeded correctly when it boots.  The binary
+/// reads "config/genesis.json" relative to its working directory
+/// (the workspace_directory).  Without this file each node falls back to an
+/// empty validator set, self-registers only itself, and block production stalls
+/// because active_validators.len() < min_validators.
+///
+/// The binary accepts either a file path (`public_key_file`) or a fallback
+/// of "genesis_key".  We use absolute paths so the read succeeds even when a
+/// validator's key lives in a different workspace directory.
+fn build_genesis_json_for_workspace(
+    all_nodes: &[TestnetBetaProvisionedNode],
+    target_workspace: &Path,
+) -> String {
+    // Collect validator nodes from the registry.
+    let validators: Vec<_> = all_nodes
+        .iter()
+        .filter(|n| role_supports_validator_registration(&n.role_id))
+        .collect();
+
+    let validator_entries: Vec<String> = validators
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            // Resolve the public key file as an absolute path so the binary can
+            // read it regardless of which workspace it is currently running from.
+            let key_abs = PathBuf::from(&node.public_key_path);
+            let key_str = if key_abs.is_file() {
+                key_abs.to_string_lossy().into_owned()
+            } else {
+                // Fallback: derive from workspace directory.
+                PathBuf::from(&node.workspace_directory)
+                    .join("keys")
+                    .join("identity.json")
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let name = if node.display_label.is_empty() {
+                format!("Validator {}", i + 1)
+            } else {
+                node.display_label.clone()
+            };
+            // Escape the strings for JSON.
+            let addr = node.node_address.replace('"', "\\\"");
+            let key_str_escaped = key_str.replace('\\', "\\\\").replace('"', "\\\"");
+            let name_escaped = name.replace('"', "\\\"");
+            format!(
+                "    {{\n      \"address\": \"{addr}\",\n      \"public_key_file\": \"{key_str_escaped}\",\n      \"details\": {{ \"name\": \"{name_escaped}\" }}\n    }}"
+            )
+        })
+        .collect();
+
+    let validators_json = validator_entries.join(",\n");
+
+    // Compute the workspace path for context (unused at runtime; included as a comment).
+    let ws_note = target_workspace.to_string_lossy();
+
+    format!(
+        "{{\n  \"_note\": \"Auto-generated by Synergy Node Control Panel for workspace {ws_note}\",\n  \"validators\": [\n{validators_json}\n  ]\n}}\n"
+    )
+}
+
+/// Write (or refresh) the genesis.json inside a workspace config directory.
+fn write_genesis_json_for_workspace(
+    all_nodes: &[TestnetBetaProvisionedNode],
+    workspace_directory: &Path,
+) -> Result<(), String> {
+    let config_dir = workspace_directory.join("config");
+    fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create config dir: {e}"))?;
+    let genesis_path = config_dir.join("genesis.json");
+    let contents = build_genesis_json_for_workspace(all_nodes, workspace_directory);
+    write_file(&genesis_path, &contents)
+}
+
 fn load_or_create_network_profile(root: &Path) -> Result<TestnetBetaNetworkProfile, String> {
     let path = network_profile_path(root);
     if path.is_file() {
@@ -1844,18 +1986,66 @@ fn build_seed_registration(
     node: &TestnetBetaProvisionedNode,
     public_host: &str,
 ) -> SeedPeerRegistration {
-    let dial = format!("snr://{}@{}:{}", node.node_address, public_host, TESTNET_BETA_P2P_PORT);
+    // Use the slot-adjusted P2P port so the seed server publishes the correct
+    // address for this node.  Without this, every node on the same machine
+    // (slots 0-3) registers as port 38638 and the seed-server peer list is
+    // useless for slots 1-3.
+    let p2p_port = TESTNET_BETA_P2P_PORT.saturating_add(node.port_slot.unwrap_or(0));
+    let dial = format!("snr://{}@{}:{}", node.node_address, public_host, p2p_port);
     SeedPeerRegistration {
         node_id: node.id.clone(),
         role_id: node.role_id.clone(),
         role_display_name: node.role_display_name.clone(),
         wallet_address: node.node_address.clone(),
         public_host: public_host.to_string(),
-        p2p_port: TESTNET_BETA_P2P_PORT,
+        p2p_port,
         dial,
         chain_id: TESTNET_BETA_CHAIN_ID,
         registered_at_utc: Utc::now().to_rfc3339(),
     }
+}
+
+/// Returns `"127.0.0.1:<p2p_port>"` for every provisioned node on this
+/// machine that is NOT `current_node_id`.  These targets let validators on the
+/// same host peer with each other directly, bypassing the NAT / public-IP
+/// loop-back problem that would otherwise prevent seed-server–sourced addresses
+/// from working.
+fn local_sibling_dial_targets(
+    all_nodes: &[TestnetBetaProvisionedNode],
+    current_node_id: &str,
+) -> Vec<String> {
+    all_nodes
+        .iter()
+        .filter(|n| n.id != current_node_id)
+        .filter_map(|n| {
+            let slot = n.port_slot?;
+            let port = TESTNET_BETA_P2P_PORT.saturating_add(slot);
+            Some(format!("127.0.0.1:{port}"))
+        })
+        .collect()
+}
+
+/// Reads the `global.additional_dial_targets` array from an existing
+/// peers.toml file.  Returns an empty vec if the file is missing or malformed.
+fn read_peers_toml_additional_targets(peers_toml_path: &Path) -> Vec<String> {
+    let contents = match fs::read_to_string(peers_toml_path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let value: toml::Value = match toml::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+    value
+        .get("global")
+        .and_then(|g| g.get("additional_dial_targets"))
+        .and_then(|a| a.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 async fn register_node_with_seeds_async(
@@ -2207,6 +2397,13 @@ fn role_supports_validator_registration(role_id: &str) -> bool {
 }
 
 fn build_peers_toml(network_profile: &TestnetBetaNetworkProfile) -> String {
+    build_peers_toml_with_additional(network_profile, &[])
+}
+
+fn build_peers_toml_with_additional(
+    network_profile: &TestnetBetaNetworkProfile,
+    additional_dial_targets: &[String],
+) -> String {
     let bootnodes = network_profile
         .bootnodes
         .iter()
@@ -2219,9 +2416,14 @@ fn build_peers_toml(network_profile: &TestnetBetaNetworkProfile) -> String {
         .map(|entry| format!("\"http://{}:{}\"", entry.host, entry.port))
         .collect::<Vec<_>>()
         .join(", ");
+    let additional = additional_dial_targets
+        .iter()
+        .map(|t| format!("\"{}\"", t.replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     format!(
-        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\n\n[testbeta]\ncore_rpc = \"https://testbeta-core-rpc.synergy-network.io\"\ncore_ws = \"wss://testbeta-core-ws.synergy-network.io\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
+        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\nadditional_dial_targets = [{additional}]\n\n[testbeta]\ncore_rpc = \"https://testbeta-core-rpc.synergy-network.io\"\ncore_ws = \"wss://testbeta-core-ws.synergy-network.io\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
     )
 }
 
