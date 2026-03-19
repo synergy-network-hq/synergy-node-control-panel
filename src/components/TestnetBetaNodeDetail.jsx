@@ -10,7 +10,7 @@ import {
 import { SNRGButton } from '../styles/SNRGButton';
 
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
-const POLL_INTERVAL_MS = 10000;
+const POLL_INTERVAL_MS = 8000;
 
 async function fetchExplorerJson(baseUrl, path) {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
@@ -366,8 +366,19 @@ function TestnetBetaNodeDetail() {
     { id: 'files', label: 'Files' },
   ];
 
-  const renderOverview = () => (
+  const renderOverview = () => {
+    const zeroPeersRunning = isRunning && (nodeLive?.local_peer_count ?? 0) === 0;
+    const pubHeight = liveStatus?.public_chain_height;
+    return (
     <div className="nodedetail-tab-stack">
+      {/* Zero-peer warning */}
+      {zeroPeersRunning && (
+        <div className="nodecp-alert nodecp-alert-warn">
+          <strong>⚠ 0 peers detected</strong> — this node is running but sees no P2P connections and cannot sync.
+          Verify that port 38638 is open in your firewall and reachable from the internet.
+          Check the Connectivity tab for bootnode and seed server health.
+        </div>
+      )}
       {/* Metrics grid */}
       <div className="nodecp-stats-grid nodedetail-stats-grid">
         <article className="nodecp-stat-card">
@@ -465,38 +476,6 @@ function TestnetBetaNodeDetail() {
         </div>
       </section>
 
-      {/* Role Details */}
-      {role ? (
-        <div className="nodecp-panel-grid">
-          <section className="nodecp-panel">
-            <div className="nodecp-panel-header">
-              <div>
-                <p className="nodecp-panel-kicker">Role responsibilities</p>
-                <h3>What this node handles</h3>
-              </div>
-            </div>
-            <ul className="nodecp-list">
-              {(role.responsibilities || []).slice(0, 6).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </section>
-          <section className="nodecp-panel">
-            <div className="nodecp-panel-header">
-              <div>
-                <p className="nodecp-panel-kicker">Service surface</p>
-                <h3>Operator KPIs</h3>
-              </div>
-            </div>
-            <ul className="nodecp-list">
-              {(role.operator_kpis || []).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      ) : null}
-
       {/* Chain & Network Summary */}
       <section className="nodecp-panel">
         <div className="nodecp-panel-header">
@@ -519,33 +498,52 @@ function TestnetBetaNodeDetail() {
             <p className="nodedetail-mono">{liveStatus?.public_rpc_endpoint || 'N/A'}</p>
           </div>
           <div className="nodecp-summary-block">
-            <span className="nodecp-summary-label">Public Chain Height</span>
-            <p>{formatNumber(liveStatus?.public_chain_height)}</p>
+            <span className="nodecp-summary-label">Local / Public Block Height</span>
+            <p>
+              {formatNumber(nodeLive?.local_chain_height)}
+              {' / '}
+              {pubHeight != null ? formatNumber(pubHeight) : 'N/A'}
+            </p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Local Peer Count</span>
+            <p>
+              {nodeLive?.local_peer_count != null ? (
+                <span className={zeroPeersRunning ? 'nodecp-warn-text' : ''}>
+                  {zeroPeersRunning ? '⚠ ' : ''}{nodeLive.local_peer_count}
+                </span>
+              ) : '—'}
+            </p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Public RPC Status</span>
+            <p>
+              <span className={`nodecp-health-pill nodecp-health-${liveStatus?.public_rpc_online ? 'ok' : 'error'}`}>
+                {liveStatus?.public_rpc_online ? 'Online' : 'Offline'}
+              </span>
+            </p>
           </div>
           <div className="nodecp-summary-block">
             <span className="nodecp-summary-label">Discovery Status</span>
             <p>{liveStatus?.discovery_status || 'Unknown'}</p>
           </div>
-          <div className="nodecp-summary-block">
-            <span className="nodecp-summary-label">Visible Peers (Network)</span>
-            <p>{formatNumber(liveStatus?.public_peer_count)}</p>
-          </div>
-          {explorerData ? (
-            <>
-              <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Total Validators</span>
-                <p>{formatNumber(explorerData.total_validators)}</p>
-              </div>
-              <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Total Transactions</span>
-                <p>{formatNumber(explorerData.total_transactions)}</p>
-              </div>
-            </>
-          ) : null}
+          {explorerData?.total_validators != null && (
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Total Validators</span>
+              <p>{formatNumber(explorerData.total_validators)}</p>
+            </div>
+          )}
+          {explorerData?.total_transactions != null && (
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Total Transactions</span>
+              <p>{formatNumber(explorerData.total_transactions)}</p>
+            </div>
+          )}
         </div>
       </section>
     </div>
-  );
+    );
+  };
 
   const renderConnectivity = () => (
     <div className="nodedetail-tab-stack">
@@ -678,8 +676,8 @@ function TestnetBetaNodeDetail() {
         <section className="nodecp-panel">
           <div className="nodecp-panel-header">
             <div>
-              <p className="nodecp-panel-kicker">Staking &amp; rewards</p>
-              <h3>Earning Profile</h3>
+              <p className="nodecp-panel-kicker">Staking &amp; live performance</p>
+              <h3>Stake &amp; Score</h3>
             </div>
           </div>
           <div className="nodecp-definition-list">
@@ -688,16 +686,16 @@ function TestnetBetaNodeDetail() {
               <strong>{formatWholeSnrg(fundingManifest?.amount_snrg || 5000)} SNRG</strong>
             </div>
             <div className="nodecp-definition-row">
-              <span>Reward tier</span>
-              <strong>{rewardProfile.tier}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Reward multiplier</span>
-              <strong>{rewardProfile.multiplier}</strong>
+              <span>Total stake (this machine)</span>
+              <strong>{formatWholeSnrg(state?.summary?.total_sponsored_stake_snrg || 0)} SNRG</strong>
             </div>
             <div className="nodecp-definition-row">
               <span>Synergy score</span>
               <strong>{formatScoreOutOfHundred(nodeLive?.synergy_score)}</strong>
+            </div>
+            <div className="nodecp-definition-row">
+              <span>Score status</span>
+              <strong>{nodeLive?.synergy_score_status || 'Waiting for live chain data'}</strong>
             </div>
             <div className="nodecp-definition-row">
               <span>Funding manifest</span>
@@ -707,32 +705,17 @@ function TestnetBetaNodeDetail() {
               <span>Funding status</span>
               <strong>{fundingManifest?.status || 'N/A'}</strong>
             </div>
+            <div className="nodecp-definition-row">
+              <span>Stake vault wallet</span>
+              <strong className="nodedetail-mono">{truncateAddress(fundingManifest?.stake_vault_wallet)}</strong>
+            </div>
+            <div className="nodecp-definition-row">
+              <span>Source treasury</span>
+              <strong className="nodedetail-mono">{truncateAddress(fundingManifest?.source_wallet)}</strong>
+            </div>
           </div>
         </section>
       </div>
-
-      <section className="nodecp-panel">
-        <div className="nodecp-panel-header">
-          <div>
-            <p className="nodecp-panel-kicker">Earning overview</p>
-            <h3>{rewardProfile.summary}</h3>
-          </div>
-        </div>
-        <div className="nodecp-summary-grid">
-          <div className="nodecp-summary-block">
-            <span className="nodecp-summary-label">Total stake on this machine</span>
-            <p>{formatWholeSnrg(state?.summary?.total_sponsored_stake_snrg || 0)} SNRG</p>
-          </div>
-          <div className="nodecp-summary-block">
-            <span className="nodecp-summary-label">Stake vault wallet</span>
-            <p className="nodedetail-mono">{truncateAddress(fundingManifest?.stake_vault_wallet)}</p>
-          </div>
-          <div className="nodecp-summary-block">
-            <span className="nodecp-summary-label">Source treasury</span>
-            <p className="nodedetail-mono">{truncateAddress(fundingManifest?.source_wallet)}</p>
-          </div>
-        </div>
-      </section>
     </div>
   );
 
