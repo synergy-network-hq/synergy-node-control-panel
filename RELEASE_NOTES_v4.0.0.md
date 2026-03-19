@@ -6,7 +6,7 @@
 
 ## Overview
 
-Release v4.0.0 upgrades the control panel from a remote-agent recovery tool into a fully packaged operator workstation. Desktop installers now bundle the `synergy-devnet-agent` sidecars needed for remote deployment, the node detail page can reinstall and restart the local agent without SSH keys when opened on the target machine, and the monitor experience has been redesigned around clearer metrics, faster per-node controls, and a more operator-focused interface.
+Release v4.0.0 upgrades the control panel from a remote-agent recovery tool into a fully packaged operator workstation. Desktop installers now bundle the `synergy-testbeta-agent` sidecars needed for remote deployment, the node detail page can reinstall and restart the local agent without SSH keys when opened on the target machine, and the monitor experience has been redesigned around clearer metrics, faster per-node controls, and a more operator-focused interface.
 
 Key outcomes:
 
@@ -23,8 +23,8 @@ Key outcomes:
 |---|---|
 | Version | v4.0.0 |
 | Release Date | March 2026 |
-| Product | Synergy Devnet Control Panel |
-| Components | Tauri Backend (Rust) • React Frontend • Agent Services • Release Packaging |
+| Product | Synergy Testnet-Beta Control Panel |
+| Components | Electron Shell (Rust) • React Frontend • Agent Services • Release Packaging |
 | Status | Major Release — Ready for Deployment |
 
 ---
@@ -33,7 +33,7 @@ Key outcomes:
 
 | Type | Area | Description |
 |---|---|---|
-| FEATURE | Release Pipeline | GitHub Actions now builds agent sidecars per target platform and bundles them into the shipped Tauri installers. |
+| FEATURE | Release Pipeline | GitHub Actions now builds agent sidecars per target platform and bundles them into the shipped Electron installers. |
 | FEATURE | Build Tooling | `scripts/build-sidecars.sh` now supports native, Linux, Windows, and `--all` sidecar builds with `cargo-zigbuild` guidance. |
 | FEATURE | Agent Management | Node detail page can perform same-machine local agent reinstall and restart without SSH keys via `Update Local Agent`. |
 | FIX | Agent Runtime | Local agent binary replacement is now atomic and autostart reload/restart paths are validated on launchd/systemd. |
@@ -48,11 +48,11 @@ Key outcomes:
 
 ## 1. Release Packaging and Installer-Bundled Agents
 
-The release pipeline now builds devnet-agent binaries ahead of the main Tauri build and injects them into `binaries/` before installer creation. This means the shipped control panel installer carries the agent payloads required to deploy or refresh service agents on remote machines.
+The release pipeline now builds testbeta-agent binaries ahead of the main Electron build and injects them into `binaries/` before installer creation. This means the shipped control panel installer carries the agent payloads required to deploy or refresh service agents on remote machines.
 
 ### Release workflow
 
-A dedicated `build-agents` job was added to `.github/workflows/release.yml`. It produces Linux, macOS, and Windows sidecars as artifacts and the app-build job downloads them back into `binaries/` so Tauri bundles them as resources.
+A dedicated `build-agents` job was added to `.github/workflows/release.yml`. It produces Linux, macOS, and Windows sidecars as artifacts and the app-build job downloads them back into `binaries/` so Electron bundles them as resources.
 
 ### Sidecar build tooling
 
@@ -66,7 +66,7 @@ A dedicated `build-agents` job was added to `.github/workflows/release.yml`. It 
 
 ## 2. Local Agent Self-Update Without SSH Keys
 
-v4.0.0 introduces a same-machine repair path for the devnet agent. When the control panel is opened on the same physical machine as the selected node, the node detail page now switches from a remote SSH deployment flow to a local self-update flow.
+v4.0.0 introduces a same-machine repair path for the testbeta agent. When the control panel is opened on the same physical machine as the selected node, the node detail page now switches from a remote SSH deployment flow to a local self-update flow.
 
 ### Node detail behavior
 
@@ -132,12 +132,12 @@ A new `COMMANDS` reference was added under `docs/reference` in both Markdown and
 
 | File / Path | Change |
 |---|---|
-| `.github/workflows/release.yml` | New `build-agents` job; downloads bundled sidecars into `binaries/` before Tauri release builds |
+| `.github/workflows/release.yml` | New `build-agents` job; downloads bundled sidecars into `binaries/` before Electron release builds |
 | `scripts/build-sidecars.sh` | Expanded native/cross-platform sidecar build workflow; improved `cargo-zigbuild` detection and release guidance |
-| `scripts/devnet15/build-node-installers.sh` | Added per-attempt timeout guard for pre-start sync attempts |
-| `scripts/devnet15/remote-node-orchestrator.sh` | Added `sync_node` -> `nodectl sync` mapping |
-| `src-tauri/src/agent.rs` | Added `force_update_local_devnet_agent`, atomic binary replacement, and stronger local runtime restart/autostart handling |
-| `src-tauri/src/monitor.rs` | Added local agent update command, live throughput/block-time metrics, sync fallback wiring, and single-reset explorer reindex hook |
+| `scripts/testbeta/build-node-installers.sh` | Added per-attempt timeout guard for pre-start sync attempts |
+| `scripts/testbeta/remote-node-orchestrator.sh` | Added `sync_node` -> `nodectl sync` mapping |
+| `control-service/src/agent.rs` | Added `force_update_local_testbeta_agent`, atomic binary replacement, and stronger local runtime restart/autostart handling |
+| `control-service/src/monitor.rs` | Added local agent update command, live throughput/block-time metrics, sync fallback wiring, and single-reset explorer reindex hook |
 | `src/components/NetworkMonitorNodePage.jsx` | Same-machine `Update Local Agent` behavior and messaging |
 | `src/components/NetworkMonitorDashboard.jsx` | Dashboard redesign, live summary cards, per-row `Start`/`Stop`/`Details` controls, and auto-refresh/footer layout |
 | `src/components/Layout.jsx` / `src/styles.css` | Header/status layout refresh and button standardization; `Operator Settings` rename |
@@ -157,4 +157,4 @@ The recommended operator workflow for v4.0.0 is now:
 - Use the redesigned dashboard for fleet-level `Start`, `Stop`, `Restart`, `Sync All`, and `Reset Chain to Genesis` actions; use the row-level controls for single-node interventions.
 - Refer to `COMMANDS.md` / `COMMANDS.docx` for the operator command reference.
 
-Prepared by Synergy Protocol - Devnet Engineering from the changes between `v2.10.0` and the `v4.0.0` release candidate.
+Prepared by Synergy Protocol - Testnet-Beta Engineering from the changes between `v2.10.0` and the `v4.0.0` release candidate.

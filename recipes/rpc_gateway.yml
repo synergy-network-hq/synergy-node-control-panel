@@ -20,7 +20,7 @@ steps:
     description: Preparing configuration files for the RPC gateway
     progress: 75
   - name: register
-    description: Registering the node on the Synergy devnet
+    description: Registering the node on the Synergy testbeta
     progress: 90
   - name: sync
     description: Syncing blockchain data to the latest block

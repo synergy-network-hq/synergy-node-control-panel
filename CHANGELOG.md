@@ -3,7 +3,7 @@
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
 ## v2.9.2 - 2026-03-08
-- Updated the `synergy-devnet-agent` sidecar crate dependencies, including adding `reqwest` to support follow-on agent networking and sync work.
+- Updated the `synergy-testbeta-agent` sidecar crate dependencies, including adding `reqwest` to support follow-on agent networking and sync work.
 - Maintenance release with no large UI or workflow delta clearly exposed in the tag range.
 
 ## v2.8.3 - 2026-03-08
@@ -12,7 +12,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Refined monitor and backend integration around topology-aware node views and app update behavior.
 
 ## v2.8.1 - 2026-03-08
-- Regenerated `lean15` installer bundles after topology changes across the devnet fleet.
+- Regenerated `lean15` installer bundles after topology changes across the testbeta fleet.
 - Updated per-node install/start scripts and binary status markers.
 - Primarily a topology and installer refresh release.
 
@@ -23,7 +23,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 
 ## v2.7.2 - 2026-03-07
 - Fixed Windows node setup scripts and process launch behavior to avoid broken or stuck installs.
-- Added stronger stop/restart cleanup in the devnet agent so orphaned node processes are killed before resets or restarts.
+- Added stronger stop/restart cleanup in the testbeta agent so orphaned node processes are killed before resets or restarts.
 - Improved updater UX with app relaunch support and clearer Linux manual-update messaging.
 
 ## v2.7.1 - 2026-03-07
@@ -37,7 +37,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Reliability release focused on Windows setup and release-pipeline stability.
 
 ## v2.6.10 - 2026-03-06
-- Split `synergy-devnet-agent` into a dedicated sidecar crate and updated sidecar builds to use the new manifest and target directory.
+- Split `synergy-testbeta-agent` into a dedicated sidecar crate and updated sidecar builds to use the new manifest and target directory.
 - Strengthened release asset generation by normalizing filenames, validating `latest.json`, URL-encoding asset names, and requiring updater signatures.
 - Refined topology application and machine-control plumbing, including regenerated `hosts.env`, fallback node-address discovery, and remote-path normalization.
 - Refreshed a large set of generated installer and sidecar artifacts as part of the release.

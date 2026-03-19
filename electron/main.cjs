@@ -7,7 +7,7 @@ const { spawn } = require('node:child_process');
 const { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const repoRoot = path.resolve(__dirname, '..');
-const appIconPngPath = path.join(repoRoot, 'src-tauri', 'icons', 'icon.png');
+const appIconPngPath = path.join(repoRoot, 'control-service', 'icons', 'icon.png');
 
 let mainWindow = null;
 let helpWindow = null;
@@ -62,7 +62,7 @@ function getPackagedServiceBinaryPath() {
 
 function getDevServiceBinaryPath() {
   const executable = process.platform === 'win32' ? 'control-service.exe' : 'control-service';
-  const cargoReleaseBinary = path.join(repoRoot, 'src-tauri', 'target', 'release', executable);
+  const cargoReleaseBinary = path.join(repoRoot, 'control-service', 'target', 'release', executable);
   if (existsSync(cargoReleaseBinary)) {
     return cargoReleaseBinary;
   }
@@ -220,7 +220,7 @@ async function startControlService() {
         [
           'run',
           '--manifest-path',
-          path.join(repoRoot, 'src-tauri', 'Cargo.toml'),
+          path.join(repoRoot, 'control-service', 'Cargo.toml'),
           '--bin',
           'control-service',
           '--',
@@ -310,7 +310,7 @@ async function openHelpWindow() {
 }
 
 function setupAutoUpdater() {
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowDowngrade = false;
 

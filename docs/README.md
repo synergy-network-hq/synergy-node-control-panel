@@ -15,5 +15,5 @@ Superseded or one-off material lives in `archive/`.
 
 ## Bundled App Help
 
-- `guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md`
-- `guides/SYNERGY_DEVNET_CONTROL_PANEL_QUICK_OPS_CHEAT_SHEET.md`
+- `guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md`
+- `guides/SYNERGY_TESTBETA_CONTROL_PANEL_QUICK_OPS_CHEAT_SHEET.md`

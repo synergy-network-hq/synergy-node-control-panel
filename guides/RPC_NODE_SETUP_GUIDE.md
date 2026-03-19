@@ -1,4 +1,4 @@
-# Synergy Devnet - RPC Node Setup Guide
+# Synergy Testnet-Beta - RPC Node Setup Guide
 **For Setting Up Remote RPC Nodes**
 
 ---
@@ -58,10 +58,10 @@ sudo apt update && sudo apt install -y \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 
-# Clone Synergy Devnet
+# Clone Synergy Testnet-Beta
 cd ~
-git clone https://github.com/synergy-network-hq/synergy-devnet.git
-cd synergy-devnet
+git clone https://github.com/synergy-network-hq/synergy-testbeta.git
+cd synergy-testbeta
 ```
 
 ### Build Binaries
@@ -71,7 +71,7 @@ cd synergy-devnet
 cargo build --release
 
 # Verify build
-./target/release/synergy-devnet --version
+./target/release/synergy-testbeta --version
 ```
 
 ---
@@ -99,7 +99,7 @@ node_type = "rpc"  # Class II node (no consensus participation)
 data_dir = "./data/rpc-node"
 
 [network]
-id = 338638  # Devnet chain ID
+id = 338639  # Testnet-Beta chain ID
 p2p_port = 38638
 rpc_port = 48638
 ws_port = 58638
@@ -112,7 +112,7 @@ listen_address = "0.0.0.0:38638"
 # Replace with your actual public IP or domain
 public_address = "YOUR_PUBLIC_IP:38638"
 
-# Connect to devnet bootnodes
+# Connect to testbeta bootnodes
 bootnodes = [
   "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638",
   "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergy-network.io:38638",
@@ -135,7 +135,7 @@ ws_port = 58638
 ws_bind_address = "0.0.0.0:58638"
 
 # CORS settings (adjust for your use case)
-cors_origins = ["*"]  # For devnet - restrict in production!
+cors_origins = ["*"]  # For testbeta - restrict in production!
 
 # Rate limiting
 max_connections = 1000
@@ -204,7 +204,7 @@ sudo ufw status
 mkdir -p data/rpc-node data/logs
 
 # Start node
-./target/release/synergy-devnet node start \
+./target/release/synergy-testbeta node start \
   --config config/rpc-node/node_config.toml
 ```
 
@@ -212,7 +212,7 @@ mkdir -p data/rpc-node data/logs
 
 ```
 [INFO] Synergy RPC Node starting...
-[INFO] Chain ID: 338638 (Devnet)
+[INFO] Chain ID: 338639 (Testnet-Beta)
 [INFO] P2P listening on 0.0.0.0:38638
 [INFO] RPC HTTP listening on 0.0.0.0:48638
 [INFO] RPC WebSocket listening on 0.0.0.0:58638
@@ -312,18 +312,18 @@ Add the following content:
 
 ```ini
 [Unit]
-Description=Synergy Devnet RPC Node
+Description=Synergy Testnet-Beta RPC Node
 After=network.target
 
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/synergy-devnet
-ExecStart=/home/YOUR_USERNAME/synergy-devnet/target/release/synergy-devnet node start --config config/rpc-node/node_config.toml
+WorkingDirectory=/home/YOUR_USERNAME/synergy-testbeta
+ExecStart=/home/YOUR_USERNAME/synergy-testbeta/target/release/synergy-testbeta node start --config config/rpc-node/node_config.toml
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:/home/YOUR_USERNAME/synergy-devnet/data/logs/rpc-node.log
-StandardError=append:/home/YOUR_USERNAME/synergy-devnet/data/logs/rpc-node-error.log
+StandardOutput=append:/home/YOUR_USERNAME/synergy-testbeta/data/logs/rpc-node.log
+StandardError=append:/home/YOUR_USERNAME/synergy-testbeta/data/logs/rpc-node-error.log
 
 # Security hardening
 NoNewPrivileges=true
@@ -389,7 +389,7 @@ iotop
 Create `/etc/logrotate.d/synergy-rpc`:
 
 ```
-/home/YOUR_USERNAME/synergy-devnet/data/logs/rpc-node*.log {
+/home/YOUR_USERNAME/synergy-testbeta/data/logs/rpc-node*.log {
     daily
     rotate 7
     compress
@@ -446,7 +446,7 @@ Add to cron for periodic checks:
 
 ```bash
 # Run every 5 minutes
-*/5 * * * * /home/YOUR_USERNAME/synergy-devnet/scripts/rpc-health-check.sh >> /home/YOUR_USERNAME/synergy-devnet/data/logs/health-check.log 2>&1
+*/5 * * * * /home/YOUR_USERNAME/synergy-testbeta/scripts/rpc-health-check.sh >> /home/YOUR_USERNAME/synergy-testbeta/data/logs/health-check.log 2>&1
 ```
 
 ---
@@ -560,7 +560,7 @@ sudo certbot --nginx -d YOUR_DOMAIN.com
 
 **Check configuration syntax:**
 ```bash
-./target/release/synergy-devnet node validate-config \
+./target/release/synergy-testbeta node validate-config \
   --config config/rpc-node/node_config.toml
 ```
 

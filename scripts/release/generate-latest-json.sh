@@ -3,13 +3,13 @@ set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 3 ]]; then
   echo "Usage: $0 <assets-dir> <version-tag> [releases-repo]" >&2
-  echo "Example: $0 release-assets v2.4.3 synergy-network-hq/devnet-control-panel-releases" >&2
+  echo "Example: $0 release-assets v2.4.3 synergy-network-hq/testbeta-control-panel-releases" >&2
   exit 1
 fi
 
 ASSETS_DIR="$1"
 VERSION_TAG="$2"
-RELEASES_REPO="${3:-synergy-network-hq/devnet-control-panel-releases}"
+RELEASES_REPO="${3:-synergy-network-hq/testbeta-control-panel-releases}"
 
 if [[ ! -d "$ASSETS_DIR" ]]; then
   echo "Assets directory not found: $ASSETS_DIR" >&2

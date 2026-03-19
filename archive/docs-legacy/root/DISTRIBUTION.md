@@ -1,4 +1,4 @@
-# Synergy Devnet Control Panel Distribution Notes
+# Synergy Testnet-Beta Control Panel Distribution Notes
 
 ## Data locations
 - **macOS**: `~/Library/Application Support/synergy/control-panel` (state) and `~/.synergy/control-panel` (node sandboxes, binaries, configs).
@@ -31,5 +31,5 @@ Each node gets its own sandbox under `nodes/<node_id>` containing `config`, `dat
 
 ## Runtime permissions
 - Filesystem: write access to the control panel directories above (creates sandboxes, keys, configs, logs).
-- Network: outbound HTTPS to `SYNERGY_UNIFIED_BINARY_URL` for manifest/binary downloads; outbound RPC/WS/API connections to the Synergy devnet endpoints defined in `.env`.
+- Network: outbound HTTPS to `SYNERGY_UNIFIED_BINARY_URL` for manifest/binary downloads; outbound RPC/WS/API connections to the Synergy testbeta endpoints defined in `.env`.
 - Execution: ability to spawn the downloaded binary from the sandbox `bin/` directory.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Synergy Devnet Control Center uses a GitHub Actions pipeline to build
+The Synergy Testnet-Beta Control Center uses a GitHub Actions pipeline to build
 cross-platform installers (macOS, Linux, Windows) and publish them to a
 **public releases repository** so that:
 
@@ -11,7 +11,7 @@ cross-platform installers (macOS, Linux, Windows) and publish them to a
 
 ```
 Private source repo                     Public releases repo
-(devnet-control-panel)                  (devnet-control-panel-releases)
+(testbeta-control-panel)                  (testbeta-control-panel-releases)
         │                                        │
         │  push tag v2.0.2                       │
         ├──────────────────►  GitHub Actions      │
@@ -29,35 +29,30 @@ Private source repo                     Public releases repo
 
 ### 1. Add secrets to the PRIVATE source repo
 
-Go to **https://github.com/synergy-network-hq/devnet-control-panel/settings/secrets/actions**
+Go to **https://github.com/synergy-network-hq/testbeta-control-panel/settings/secrets/actions**
 and add these repository secrets:
 
-#### `TAURI_SIGNING_PRIVATE_KEY`
+#### `CSC_LINK`
 
-This is the signing key that signs update bundles so the app trusts them.
+Path, URL, or base64 value for the code-signing certificate consumed by
+`electron-builder`. This is used for Windows signing and macOS notarized
+release builds when available.
 
-Set this to the **exact content** of the generated private key file
-(for example, `updater.key` from `tauri signer generate`).
+#### `CSC_KEY_PASSWORD`
 
-```text
-dW50cnVzdGVkIGNvbW1lbnQ6IHJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5...
-```
+Password for the code-signing certificate referenced by `CSC_LINK`.
 
-> **IMPORTANT:** Keep this key secret. Anyone with this key can sign fake
-> updates that your app will trust.
+#### `APPLE_ID`
 
-#### `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+Apple developer account email used by the macOS notarization step.
 
-Set this to the passphrase used when generating the private key.
+#### `APPLE_APP_SPECIFIC_PASSWORD`
 
-#### `TAURI_SIGNING_PUBLIC_KEY`
+App-specific password for the Apple ID above.
 
-Set this to the **exact content** of the generated public key file
-(`updater.key.pub`), which is also a base64 string.
+#### `APPLE_TEAM_ID`
 
-```text
-dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6...
-```
+Apple team identifier used by the macOS signing/notarization workflow.
 
 #### `RELEASES_REPO_TOKEN`
 
@@ -73,14 +68,14 @@ To create one:
 
 ### 2. Initialize the public releases repo
 
-The releases repo at `synergy-network-hq/devnet-control-panel-releases`
+The releases repo at `synergy-network-hq/testbeta-control-panel-releases`
 should be **public** and can start empty. The first release build will
 create the initial release automatically.
 
 Optionally add a README:
 
 ```markdown
-# Synergy Devnet Control Center — Releases
+# Synergy Testnet-Beta Control Center — Releases
 
 Download the latest installer for your platform from the
 [Releases page](../../releases).
@@ -116,8 +111,8 @@ This bumps the version everywhere, commits, tags, and pushes.
 ### Option B: Manual steps
 
 ```bash
-# 1. Bump version in: package.json, src-tauri/Cargo.toml,
-#    src-tauri/tauri.conf.json, src/components/Layout.jsx
+# 1. Bump version in: package.json, control-service/Cargo.toml,
+#    electron-builder.yml, electron/main.cjs, src/components/Layout.jsx
 # 2. Commit
 git add -A && git commit -m "chore: bump version to 2.0.2"
 # 3. Tag
@@ -147,7 +142,7 @@ the tag name (e.g., `v2.0.2`).
 ### Update endpoint
 
 ```
-https://github.com/synergy-network-hq/devnet-control-panel-releases/releases/latest/download/latest.json
+https://github.com/synergy-network-hq/testbeta-control-panel-releases/releases/latest/download/latest.json
 ```
 
 This URL always resolves to the `latest.json` from the most recent release.
@@ -159,10 +154,11 @@ This URL always resolves to the `latest.json` from the most recent release.
 | Key | Value |
 |-----|-------|
 | Algorithm | Ed25519 (minisign format) |
-| Public key source | GitHub secret `TAURI_SIGNING_PUBLIC_KEY` |
-| Public key usage | Injected into `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) during CI |
-| Private key source | GitHub secret `TAURI_SIGNING_PRIVATE_KEY` |
-| Private key password | GitHub secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` |
+| Windows signing cert | GitHub secret `CSC_LINK` |
+| Windows signing password | GitHub secret `CSC_KEY_PASSWORD` |
+| macOS Apple ID | GitHub secret `APPLE_ID` |
+| macOS app password | GitHub secret `APPLE_APP_SPECIFIC_PASSWORD` |
+| macOS team ID | GitHub secret `APPLE_TEAM_ID` |
 
 If the private key is ever compromised, generate a new keypair, update
 all three updater secrets, and release a new version. All machines will

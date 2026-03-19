@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { invoke } from '../lib/desktopClient';
 
 const REFRESH_SECONDS_OPTIONS = [3, 5, 10, 15, 30];
+const BOOTSTRAP_VALIDATOR_QUORUM = 3;
 
 function normalizeId(value) {
   return String(value || '').trim().toLowerCase();
@@ -140,7 +141,7 @@ function NetworkMonitorDashboard() {
     try {
       if (!workspaceReady) {
         await invoke('monitor_initialize_workspace');
-        await invoke('monitor_apply_devnet_topology');
+        await invoke('monitor_apply_topology');
         setWorkspaceReady(true);
       }
       const [data, agentData, securityData, identityData] = await Promise.all([
@@ -209,14 +210,14 @@ function NetworkMonitorDashboard() {
   const availableNodeOptions = scopedMachineTopologyRows
     .flatMap((entry) => entry.slots)
     .filter((slot) => !installedNodeIds.has(slot.nodeSlotId));
-  const bootstrapValidatorNodeIds = scopedMachineTopologyRows
+  const bootstrapValidatorNodeIds = machineTopologyRows
     .flatMap((entry) => entry.slots)
     .filter((slot) => isBootstrapConsensusValidator(slot))
     .map((slot) => slot.nodeSlotId);
   const installedBootstrapValidatorIds = bootstrapValidatorNodeIds.filter((nodeSlotId) =>
     installedNodeIds.has(nodeSlotId),
   );
-  const validatorQuorumReady = installedBootstrapValidatorIds.length >= 5;
+  const validatorQuorumReady = installedBootstrapValidatorIds.length >= BOOTSTRAP_VALIDATOR_QUORUM;
 
   const dashboardRows = scopedMachineTopologyRows.flatMap((machine) => {
     const installedNodeSlots = installedByMachine[machine.machineId] || [];
@@ -295,7 +296,7 @@ function NetworkMonitorDashboard() {
   };
 
   const maybeStartBootstrapValidators = async () => {
-    if (bootstrapValidatorNodeIds.length < 5) return;
+    if (bootstrapValidatorNodeIds.length < BOOTSTRAP_VALIDATOR_QUORUM) return;
 
     const [freshSnapshot, freshAgentSnapshot] = await Promise.all([
       invoke('get_monitor_snapshot'),
@@ -315,7 +316,7 @@ function NetworkMonitorDashboard() {
       installedNodeSet.has(nodeSlotId),
     );
 
-    if (installedValidators.length < 5) {
+    if (installedValidators.length < BOOTSTRAP_VALIDATOR_QUORUM) {
       return;
     }
 
@@ -545,7 +546,7 @@ function NetworkMonitorDashboard() {
         <div className="monitor-toolbar-left">
           <div className="monitor-summary-strip">
             <div className="monitor-summary-title">
-              <h2>Devnet Control Panel</h2>
+              <h2>Testnet-Beta Control Panel</h2>
             </div>
             <div className="monitor-summary-grid">
               {summaryCards.map((card) => (
@@ -862,7 +863,7 @@ function NetworkMonitorDashboard() {
                   </td>
                   <td className="monitor-col-error">
                     {isInstalled
-                      ? truncate(entry.error || (isStagedBootstrap ? 'Waiting for 5-validator quorum before block production starts.' : ''), 88)
+                      ? truncate(entry.error || (isStagedBootstrap ? `Waiting for ${BOOTSTRAP_VALIDATOR_QUORUM}-validator quorum before block production starts.` : ''), 88)
                       : '—'}
                   </td>
                   <td className="monitor-controls-cell">

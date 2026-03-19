@@ -1,6 +1,6 @@
-# Synergy Devnet Control Panel User Guide
+# Synergy Testnet-Beta Control Panel User Guide
 
-The Synergy Devnet Control Panel is a desktop application for setting up and managing Synergy network nodes. This guide covers installation, node setup, monitoring, and troubleshooting.
+The Synergy Testnet-Beta Control Panel is a desktop application for setting up and managing Synergy network nodes. This guide covers installation, node setup, monitoring, and troubleshooting.
 
 ## Table of Contents
 
@@ -51,7 +51,7 @@ Download the appropriate installer for your platform from the official release p
 On first launch, the control panel will:
 
 1. Create the configuration directory at `~/.synergy/control-panel/`
-2. Check network connectivity to the Synergy devnet
+2. Check network connectivity to the Synergy testbeta
 3. Display the Jarvis setup assistant
 
 ---
@@ -151,7 +151,7 @@ The **Network** tab shows other nodes discovered on the Synergy network.
 
 - **Discovered Peers**: Total peers found across the network
 - **Bootstrap Nodes**: How many bootstrap nodes are reachable
-- **Chain ID**: The network chain identifier (338638 for devnet)
+- **Chain ID**: The network chain identifier (338639 for testbeta)
 - **Current Block**: Latest block height
 
 ### Peer Table
@@ -212,8 +212,8 @@ Click **+ Add Node** in the sidebar to return to the Jarvis setup assistant and 
 
 ```toml
 [network]
-id = 338638                    # Chain ID
-name = "synergy-devnet"        # Network name
+id = 338639                    # Chain ID
+name = "synergy-testbeta"        # Network name
 p2p_port = 38638              # P2P listening port
 rpc_port = 48638              # RPC API port
 ws_port = 58638               # WebSocket port
@@ -282,7 +282,7 @@ The **Monitoring** tab shows real-time metrics when a node is running:
 1. Check your internet connection
 2. Verify firewall settings allow outbound HTTPS
 3. Try again later (network may be temporarily unavailable)
-4. Check if `https://devnet-core-rpc.synergy-network.io` is accessible in your browser
+4. Check if `https://testbeta-core-rpc.synergy-network.io` is accessible in your browser
 
 ### "Binary verification failed"
 
@@ -337,7 +337,7 @@ The control panel creates the following structure:
 ```
 ~/.synergy/control-panel/
 ├── bin/                      # Node binary
-│   └── synergy-devnet
+│   └── synergy-testbeta
 ├── nodes/                    # Per-node directories
 │   └── <node-id>/
 │       ├── config/
@@ -390,6 +390,6 @@ For issues and feature requests:
 ## Version Information
 
 - **Control Panel Version**: 1.0.0
-- **Network**: Synergy Devnet
-- **Chain ID**: 338638
+- **Network**: Synergy Testnet-Beta
+- **Chain ID**: 338639
 - **Consensus**: Proof of Synergy (PoSy)

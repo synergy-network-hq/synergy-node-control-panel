@@ -23,7 +23,7 @@ const childEnv = {
 console.log('[dev:desktop] Building control-service for the current source tree');
 const cargoBuild = spawnSync(
   'cargo',
-  ['build', '--manifest-path', 'src-tauri/Cargo.toml', '--bin', 'control-service', '--release', '--no-default-features'],
+  ['build', '--manifest-path', 'control-service/Cargo.toml', '--bin', 'control-service', '--release', '--no-default-features'],
   {
     cwd: repoRoot,
     stdio: 'inherit',

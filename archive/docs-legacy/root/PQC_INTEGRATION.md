@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Synergy Devnet Control Panel now integrates **post-quantum cryptography (PQC)** for node identity generation, class-based addressing, and automatic network registration.
+The Synergy Testnet-Beta Control Panel now integrates **post-quantum cryptography (PQC)** for node identity generation, class-based addressing, and automatic network registration.
 
 ## What Changed
 
@@ -31,8 +31,8 @@ These algorithms are quantum-resistant and protect against both classical and qu
 
 The control panel now:
 
-1. **Generates PQC Keys**: Calls `synergy-devnet` binary to generate cryptographic keys
-2. **Registers with Network**: Automatically registers the node with Synergy devnet
+1. **Generates PQC Keys**: Calls `synergy-testbeta` binary to generate cryptographic keys
+2. **Registers with Network**: Automatically registers the node with Synergy testbeta
 3. **Syncs Blockchain**: Performs initial blockchain synchronization
 4. **Stores Keys Securely**: Private keys stored in isolated `~/.synergy/control-panel/nodes/<node-id>/keys/` directory
 
@@ -40,7 +40,7 @@ The control panel now:
 
 ### Backend (Rust)
 
-#### `src-tauri/src/node_manager/node_classes.rs`
+#### `control-service/src/node_manager/node_classes.rs`
 
 Defines the 5 node classes and maps all 19 node types to their respective classes.
 
@@ -70,7 +70,7 @@ impl NodeClass {
 }
 ```
 
-#### `src-tauri/src/node_manager/crypto.rs`
+#### `control-service/src/node_manager/crypto.rs`
 
 Implements PQC key generation and network integration functions.
 
@@ -87,8 +87,8 @@ pub async fn generate_pqc_keypair(
     node_class: NodeClass,
     keys_dir: &PathBuf,
 ) -> Result<NodeIdentity, String> {
-    // Calls synergy-devnet binary:
-    // synergy-devnet keygen --type ml-dsa-65 --output <keys_dir> --class <class_number>
+    // Calls synergy-testbeta binary:
+    // synergy-testbeta keygen --type ml-dsa-65 --output <keys_dir> --class <class_number>
 }
 
 pub async fn register_node_with_network(
@@ -96,16 +96,16 @@ pub async fn register_node_with_network(
     node_identity: &NodeIdentity,
     config_path: &PathBuf,
 ) -> Result<(), String> {
-    // Calls synergy-devnet binary:
-    // synergy-devnet register --config <config> --address <address> --key <private_key>
+    // Calls synergy-testbeta binary:
+    // synergy-testbeta register --config <config> --address <address> --key <private_key>
 }
 
 pub async fn connect_and_sync(
     binary_path: &PathBuf,
     config_path: &PathBuf,
 ) -> Result<(), String> {
-    // Calls synergy-devnet binary:
-    // synergy-devnet sync --config <config> --network devnet --check-only
+    // Calls synergy-testbeta binary:
+    // synergy-testbeta sync --config <config> --network testbeta --check-only
 }
 ```
 
@@ -113,7 +113,7 @@ pub async fn connect_and_sync(
 
 ### Backend
 
-#### `src-tauri/src/node_manager/types.rs`
+#### `control-service/src/node_manager/types.rs`
 
 Added new fields to `NodeInstance` for storing PQC-generated identity:
 
@@ -126,7 +126,7 @@ pub struct NodeInstance {
 }
 ```
 
-#### `src-tauri/src/node_manager/multi_node.rs`
+#### `control-service/src/node_manager/multi_node.rs`
 
 Added `update_node_identity` method:
 
@@ -142,17 +142,17 @@ pub fn update_node_identity(&mut self, node_id: &str, identity: &NodeIdentity) -
 }
 ```
 
-#### `src-tauri/src/node_manager/commands.rs`
+#### `control-service/src/node_manager/commands.rs`
 
 Updated `setup_node` command to integrate PQC key generation:
 
 ```rust
-#[tauri::command]
+#[electron::command]
 pub async fn setup_node(
     node_type: String,
     display_name: Option<String>,
     manager: State<'_, Arc<Mutex<MultiNodeManager>>>,
-    app_handle: tauri::AppHandle,
+    app_handle: electron::AppHandle,
 ) -> Result<String, String> {
     // 1. Determine node class
     let node_class = NodeClass::from_node_type(&node_type);
@@ -195,7 +195,7 @@ await addMessage(
 );
 
 await addMessage(
-  `Connecting to Synergy devnet, registering your node, and syncing with the network...`,
+  `Connecting to Synergy testbeta, registering your node, and syncing with the network...`,
   'jarvis',
   800
 );
@@ -224,12 +224,12 @@ Each node now has the following directory structure:
 
 ## Binary Commands
 
-The control panel expects the `synergy-devnet` binary to support the following commands:
+The control panel expects the `synergy-testbeta` binary to support the following commands:
 
 ### Key Generation
 
 ```bash
-synergy-devnet keygen \
+synergy-testbeta keygen \
   --type ml-dsa-65 \
   --output /path/to/keys \
   --class <1-5>
@@ -240,38 +240,38 @@ synergy-devnet keygen \
 ### Node Registration
 
 ```bash
-synergy-devnet register \
+synergy-testbeta register \
   --config /path/to/node.toml \
   --address sYnV1-<identifier> \
   --key /path/to/keys/private.key
 ```
 
-**Output:** Should register the node with the Synergy devnet.
+**Output:** Should register the node with the Synergy testbeta.
 
 ### Network Sync
 
 ```bash
-synergy-devnet sync \
+synergy-testbeta sync \
   --config /path/to/node.toml \
-  --network devnet \
+  --network testbeta \
   --check-only
 ```
 
-**Output:** Should verify connection to devnet without performing full sync.
+**Output:** Should verify connection to testbeta without performing full sync.
 
 ## Testing
 
-Currently, the crypto functions use **placeholder implementations** for testing without the actual `synergy-devnet` binary:
+Currently, the crypto functions use **placeholder implementations** for testing without the actual `synergy-testbeta` binary:
 
 - `generate_placeholder_public_key()`: Generates random 64-character hex string
 - `generate_class_based_address()`: Generates address with proper class prefix
 
 To test with the actual binary:
 
-1. Place `synergy-devnet` binary in project root
-2. Ensure it has execute permissions: `chmod +x synergy-devnet`
+1. Place `synergy-testbeta` binary in project root
+2. Ensure it has execute permissions: `chmod +x synergy-testbeta`
 3. Verify it supports the required commands
-4. Run the control panel: `npm run tauri:dev`
+4. Run the control panel: `npm run dev:electron`
 
 ## Security Considerations
 
@@ -284,7 +284,7 @@ To test with the actual binary:
 
 To complete the integration:
 
-1. **Binary Implementation**: Implement the required commands in `synergy-devnet` binary
+1. **Binary Implementation**: Implement the required commands in `synergy-testbeta` binary
 2. **Error Handling**: Add robust error handling for binary command failures
 3. **Key Backup**: Implement key backup and recovery mechanisms
 4. **Address Validation**: Add address format validation and checksum verification

@@ -234,12 +234,21 @@ function nodeBlockHeightDetail(nodeLive, liveStatus) {
   return `${formatNumber(nodeLive?.sync_gap ?? 0)} blocks behind the live chain`;
 }
 
-function nodePeerCountDetail(nodeLive) {
+function nodePeerCountDetail(nodeLive, liveStatus) {
   if (!nodeLive?.is_running) {
-    return 'Visible network peers from the public control-plane view';
+    return liveStatus?.public_peer_count != null
+      ? `Public RPC reports ${formatNumber(liveStatus.public_peer_count)} visible peers.`
+      : 'Visible network peers from the public control-plane view';
   }
   if (nodeLive.local_rpc_ready === false) {
     return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
+  }
+  if (
+    liveStatus?.public_peer_count != null
+    && nodeLive?.local_peer_count != null
+    && liveStatus.public_peer_count !== nodeLive.local_peer_count
+  ) {
+    return `This node sees ${formatNumber(nodeLive.local_peer_count)} local peers; public RPC sees ${formatNumber(liveStatus.public_peer_count)} visible peers.`;
   }
   return 'Live peers currently connected to this node';
 }
@@ -659,9 +668,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           icon: ICONS.chain,
         },
         {
-          label: 'Peer Count',
+          label: 'Local Peer Count',
           value: formatNumber(nodePeerCountValue(selectedNodeLive, liveStatus)),
-          detail: nodePeerCountDetail(selectedNodeLive),
+          detail: nodePeerCountDetail(selectedNodeLive, liveStatus),
           icon: ICONS.peers,
         },
         {
@@ -712,7 +721,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       detail: selectedNodeLive?.is_running
         ? (selectedNodeLive?.local_rpc_ready === false
           ? (selectedNodeLive?.local_rpc_status || 'Local RPC is not responding.')
-          : `Local node sees ${formatNumber(selectedNodeLive?.local_peer_count)} peers.`)
+          : (liveStatus?.public_peer_count != null && selectedNodeLive?.local_peer_count != null && liveStatus.public_peer_count !== selectedNodeLive.local_peer_count
+            ? `Local node sees ${formatNumber(selectedNodeLive.local_peer_count)} peers; public RPC sees ${formatNumber(liveStatus.public_peer_count)} visible peers.`
+            : `Local node sees ${formatNumber(selectedNodeLive?.local_peer_count)} peers.`))
         : (liveStatus?.chain_status || 'Chain data unavailable'),
       tone: selectedNodeLive?.is_running
         ? nodeRuntimeTone(selectedNodeLive)
@@ -858,9 +869,13 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             {/* Zero-peer warning */}
             {zeroPeerRunningNodes.length > 0 && (
               <div className="nodecp-alert nodecp-alert-warn">
-                <strong>⚠ 0 peers detected</strong>{' '}
+                <strong>⚠ 0 local peers detected</strong>{' '}
                 — {zeroPeerRunningNodes.map((n) => n.display_label || n.id).join(', ')}{' '}
-                cannot sync. Verify that P2P port 38638 is open and reachable from the internet,
+                cannot sync because the node is not connected to its own P2P mesh.
+                {liveStatus?.public_peer_count != null
+                  ? ` Public RPC still reports ${formatNumber(liveStatus.public_peer_count)} visible peers, which means the wider network is up but this node is isolated.`
+                  : ''}
+                Verify that P2P port 38638 is open and reachable from the internet,
                 then check bootnode and seed connectivity in the Connectivity tab.
               </div>
             )}
@@ -933,7 +948,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       <th>PID</th>
                       <th>Local Block</th>
                       <th>Public Block</th>
-                      <th>Peers</th>
+                      <th>Local Peers</th>
                       <th>Sync Gap</th>
                       <th>Score</th>
                     </tr>
@@ -1028,7 +1043,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             </strong>
             <p className="nodecp-status-detail">
               {zeroPeerRunningNodes.length > 0
-                ? '⚠ No peers found. P2P port 38638 may be blocked.'
+                ? `⚠ No local peers found. P2P port 38638 may be blocked.${liveStatus?.public_peer_count != null ? ` Public RPC reports ${formatNumber(liveStatus.public_peer_count)} visible peers.` : ''}`
                 : selectedNodeLive?.is_running
                   ? 'Your node is connected to the network.'
                   : 'Start a node to check peer connectivity.'}

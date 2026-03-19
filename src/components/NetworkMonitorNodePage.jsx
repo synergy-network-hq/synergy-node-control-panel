@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { invoke } from '../lib/desktopClient';
 
 const REFRESH_SECONDS_OPTIONS = [3, 5, 10, 15, 30];
+const BOOTSTRAP_VALIDATOR_QUORUM = 3;
 
 function formatLocalTimestamp(value) {
   if (!value) return 'N/A';
@@ -297,7 +298,7 @@ function NetworkMonitorNodePage() {
       .map((entry) => normalize(entry?.node?.node_slot_id))
       .filter((value) => installedSet.has(value));
   }, [agentSnapshot, snapshot]);
-  const validatorQuorumReady = installedBootstrapValidatorIds.length >= 5;
+  const validatorQuorumReady = installedBootstrapValidatorIds.length >= BOOTSTRAP_VALIDATOR_QUORUM;
   const isBootstrapNode = isBootstrapConsensusValidator(nodeDetails?.status?.node);
   const isStagedBootstrap = Boolean(
     nodeDetails?.status?.node
@@ -317,7 +318,7 @@ function NetworkMonitorNodePage() {
           : 'unknown';
   const statusSummary =
     isStagedBootstrap
-      ? `Installed and waiting for validator quorum. ${installedBootstrapValidatorIds.length}/5 bootstrap validators are installed.`
+      ? `Installed and waiting for validator quorum. ${installedBootstrapValidatorIds.length}/${BOOTSTRAP_VALIDATOR_QUORUM} bootstrap validators are installed.`
       : syncing === true
       ? 'Syncing toward chain head.'
       : syncing === false
@@ -448,8 +449,8 @@ function NetworkMonitorNodePage() {
     && normalize(localVpnIdentity?.physical_machine_id) === normalize(node?.physical_machine_id);
   const agentUpdateAvailable = localMachineMatch || control?.update_agent_configured;
   const agentUpdateTitle = localMachineMatch
-    ? 'Reinstall the bundled devnet-agent on this machine and restart the local service. No SSH keys are required.'
-    : 'Push the latest devnet-agent binary to the remote machine via SSH and restart it. Use when the remote agent is missing, outdated, or unresponsive.';
+    ? 'Reinstall the bundled local agent on this machine and restart the local service. No SSH keys are required.'
+    : 'Push the latest local agent binary to the remote machine via SSH and restart it. Use when the remote agent is missing, outdated, or unresponsive.';
   const agentUpdateLabel = localMachineMatch ? 'Update Local Agent' : 'Update Agent';
   const protocolProfile = isRecord(nodeDetails?.protocol_profile) ? nodeDetails.protocol_profile : {};
   const economicsProfile = isRecord(nodeDetails?.economics_profile) ? nodeDetails.economics_profile : {};
@@ -838,8 +839,8 @@ function NetworkMonitorNodePage() {
           onClick={() => {
             const approved = window.confirm(
               localMachineMatch
-                ? 'Update the local devnet agent for this machine?\n\nThis reinstalls the bundled synergy-devnet-agent binary from the control panel resources and restarts the local agent service/process.\n\nNo SSH keys are required, but this only works when you are running the control panel on the same physical machine as the selected node.'
-                : 'Update devnet agent on this node?\n\nThis pushes the latest synergy-devnet-agent binary to the remote machine via SSH and restarts the agent service.\n\nPrerequisite: run scripts/build-sidecars.sh first to compile binaries.\n\nThis operation uses SSH directly — it works even when the remote agent is offline or running an outdated version.',
+                ? 'Update the local agent for this machine?\n\nThis reinstalls the bundled agent binary from the control panel resources and restarts the local agent service/process.\n\nNo SSH keys are required, but this only works when you are running the control panel on the same physical machine as the selected node.'
+                : 'Update the agent on this node?\n\nThis pushes the latest agent binary to the remote machine via SSH and restarts the agent service.\n\nPrerequisite: run scripts/build-sidecars.sh first to compile binaries.\n\nThis operation uses SSH directly — it works even when the remote agent is offline or running an outdated version.',
             );
             if (approved) {
               if (localMachineMatch) {
@@ -1471,7 +1472,7 @@ function NetworkMonitorNodePage() {
               {!atlas?.enabled ? (
                 <p className="monitor-control-hint">
                   Atlas link integration is not configured. Set <code>ATLAS_BASE_URL</code> or
-                  <code> EXPLORER_URL</code> in <code>devnet/lean15/hosts.env</code>.
+                  <code> EXPLORER_URL</code> in the current workspace <code>hosts.env</code>.
                 </p>
               ) : (
                 <div className="monitor-atlas-links">

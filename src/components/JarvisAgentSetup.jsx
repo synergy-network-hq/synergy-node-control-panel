@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { invoke } from '../lib/desktopClient';
 
 const PROVISION_SEQUENCE = ['setup', 'start', 'status'];
-const DEVNET_NODE_LAYOUT = [
+const TESTBETA_NODE_LAYOUT = [
   ['node-01', 'node-14'],
   ['node-02', 'node-03'],
   ['node-04', 'node-05'],
@@ -70,9 +70,9 @@ function computeAssignments(inventory, deviceCount, deviceHosts) {
   const inventorySet = new Set(inventory.map((entry) => entry.node_slot_id));
   if (
     deviceCount === 13
-    && DEVNET_NODE_LAYOUT.every((group) => group.every((nodeSlotId) => inventorySet.has(nodeSlotId)))
+    && TESTBETA_NODE_LAYOUT.every((group) => group.every((nodeSlotId) => inventorySet.has(nodeSlotId)))
   ) {
-    return DEVNET_NODE_LAYOUT.map((nodeSlotIds, index) => ({
+    return TESTBETA_NODE_LAYOUT.map((nodeSlotIds, index) => ({
       deviceIndex: index,
       deviceLabel: `device-${String(index + 1).padStart(2, '0')}`,
       host: String(deviceHosts[index] || '').trim(),
@@ -218,7 +218,7 @@ function JarvisAgentSetup({ onComplete, onDefer }) {
 
   const maxDeviceCount = useMemo(() => {
     const suggestedCount = Math.ceil(Math.max(inventory.length, 1) / 2);
-    return Math.max(1, Math.min(DEVNET_NODE_LAYOUT.length, suggestedCount || 1));
+    return Math.max(1, Math.min(TESTBETA_NODE_LAYOUT.length, suggestedCount || 1));
   }, [inventory.length]);
 
   const resetMessageQueue = useCallback(() => {
@@ -745,8 +745,8 @@ function JarvisAgentSetup({ onComplete, onDefer }) {
 
       if (phase === 'await_device_count') {
         const parsed = Number.parseInt(value, 10);
-        if (!Number.isFinite(parsed) || parsed < 1 || parsed > DEVNET_NODE_LAYOUT.length) {
-          await queueJarvisMessage(`Enter a valid device count between 1 and ${DEVNET_NODE_LAYOUT.length}.`);
+        if (!Number.isFinite(parsed) || parsed < 1 || parsed > TESTBETA_NODE_LAYOUT.length) {
+          await queueJarvisMessage(`Enter a valid device count between 1 and ${TESTBETA_NODE_LAYOUT.length}.`);
           return;
         }
 
@@ -774,7 +774,7 @@ function JarvisAgentSetup({ onComplete, onDefer }) {
           addTerminalLine('info', `Planning for ${parsed} physical devices.`);
           if (parsed === 13) {
             await queueJarvisMessage(
-              '13-device topology detected. I will use the fixed assignment layout for the current devnet inventory.',
+              '13-device topology detected. I will use the fixed assignment layout for the current inventory.',
               'text',
               { typingMs: 920, pauseMs: 120 },
             );

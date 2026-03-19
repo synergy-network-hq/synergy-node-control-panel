@@ -3,7 +3,7 @@ set -euo pipefail
 
 WORKSPACE_ROOT="${HOME}/.synergy-node-control-panel/monitor-workspace"
 LEGACY_ROOT="${HOME}/.synergy-node-monitor/monitor-workspace"
-LAUNCH_AGENT="${HOME}/Library/LaunchAgents/io.synergy.devnet.agent.plist"
+LAUNCH_AGENT="${HOME}/Library/LaunchAgents/io.synergy.testbeta.agent.plist"
 
 echo "Cleaning Synergy Node Control Panel artifacts on macOS..."
 

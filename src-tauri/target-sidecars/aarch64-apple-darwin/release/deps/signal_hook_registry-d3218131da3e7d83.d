@@ -1,9 +1,0 @@
-/Users/devpup/Desktop/synergy-devnet/tools/devnet-control-panel/src-tauri/target-sidecars/aarch64-apple-darwin/release/deps/signal_hook_registry-d3218131da3e7d83.d: /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/lib.rs /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/half_lock.rs /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/vec_map.rs
-
-/Users/devpup/Desktop/synergy-devnet/tools/devnet-control-panel/src-tauri/target-sidecars/aarch64-apple-darwin/release/deps/libsignal_hook_registry-d3218131da3e7d83.rlib: /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/lib.rs /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/half_lock.rs /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/vec_map.rs
-
-/Users/devpup/Desktop/synergy-devnet/tools/devnet-control-panel/src-tauri/target-sidecars/aarch64-apple-darwin/release/deps/libsignal_hook_registry-d3218131da3e7d83.rmeta: /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/lib.rs /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/half_lock.rs /Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/vec_map.rs
-
-/Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/lib.rs:
-/Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/half_lock.rs:
-/Users/devpup/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/signal-hook-registry-1.4.8/src/vec_map.rs:

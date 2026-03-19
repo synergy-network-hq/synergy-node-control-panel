@@ -1,4 +1,4 @@
-# Synergy Devnet - Relayer Node Setup Guide
+# Synergy Testnet-Beta - Relayer Node Setup Guide
 **For SXCP Bridgeless Cross-Chain Protocol**
 
 ---
@@ -47,14 +47,14 @@ Relayers in SXCP:
 - **58648**: Relayer RPC endpoint
 
 **Outgoing Connections:**
-- **Synergy Devnet**: Port 38638 to bootnodes
+- **Synergy Testnet-Beta**: Port 38638 to bootnodes
 - **Sepolia Testnet**: Port 38638 (Ethereum P2P)
 - **Target Testnet**: Chain-specific ports
 
 ### Required Accounts
 
-For devnet testing, you'll need:
-1. **Synergy Devnet Account**: For transaction fees and relayer registration
+For testbeta testing, you'll need:
+1. **Synergy Testnet-Beta Account**: For transaction fees and relayer registration
 2. **Sepolia ETH**: For interacting with Sepolia testnet
 3. **Target Chain Account**: For the second testnet you're integrating
 
@@ -65,7 +65,7 @@ For devnet testing, you'll need:
 ```
 ┌─────────────────────┐          ┌─────────────────────┐
 │  Source Chain       │          │  Destination Chain  │
-│  (e.g., Sepolia)    │          │  (Synergy Devnet)   │
+│  (e.g., Sepolia)    │          │  (Synergy Testnet-Beta)   │
 │                     │          │                     │
 │  User submits TX ───┼──┐    ┌──┼──→ Message verified │
 │  with cross-chain   │  │    │  │     and executed    │
@@ -132,8 +132,8 @@ source $HOME/.cargo/env
 
 # Clone repository
 cd ~
-git clone https://github.com/synergy-network-hq/synergy-devnet.git
-cd synergy-devnet
+git clone https://github.com/synergy-network-hq/synergy-testbeta.git
+cd synergy-testbeta
 
 # Build binaries
 cargo build --release
@@ -211,7 +211,7 @@ identity_file = "config/relayer1/identity.json"
 data_dir = "./data/relayer1"
 
 [network]
-id = 338638  # Synergy Devnet chain ID
+id = 338639  # Synergy Testnet-Beta chain ID
 p2p_port = 38638
 rpc_port = 48648
 ws_port = 58648
@@ -233,7 +233,7 @@ max_outbound_peers = 20
 [relayer]
 # Enable SXCP relaying
 enabled = true
-cluster_id = "sxcp-devnet-cluster-1"
+cluster_id = "sxcp-testbeta-cluster-1"
 
 # Relayer cluster members (will be populated after all identities generated)
 cluster_members = [
@@ -283,12 +283,12 @@ ws_endpoint = "wss://polygon-amoy-bor-rpc.publicnode.com"
 confirmation_blocks = 32
 poll_interval_ms = 2000  # Polygon is faster
 
-# Destination chain (Synergy Devnet)
+# Destination chain (Synergy Testnet-Beta)
 [sxcp.destination]
-chain_id = 338638
-name = "synergy-devnet"
-rpc_endpoint = "https://devnet-core-rpc.synergy-network.io"
-ws_endpoint = "wss://devnet-core-ws.synergy-network.io"
+chain_id = 338639
+name = "synergy-testbeta"
+rpc_endpoint = "https://testbeta-core-rpc.synergy-network.io"
+ws_endpoint = "wss://testbeta-core-ws.synergy-network.io"
 
 # Local RPC if running validator/RPC node
 local_rpc = "http://localhost:48638"
@@ -366,7 +366,7 @@ Public Key: $(jq -r '.public_key' config/relayer${NODE_NUMBER}/identity.json)
 Algorithm: FN-DSA-1024
 Node Type: Class II Relayer (SXCP)
 Server IP: $(curl -s ifconfig.me)
-Cluster: sxcp-devnet-cluster-1
+Cluster: sxcp-testbeta-cluster-1
 Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
@@ -375,7 +375,7 @@ cat relayer${NODE_NUMBER}-info.txt
 
 ### Send to Coordinator
 
-Share `relayer${NODE_NUMBER}-info.txt` with the devnet coordinator who will:
+Share `relayer${NODE_NUMBER}-info.txt` with the testbeta coordinator who will:
 1. Register your relayer on-chain
 2. Send initial SNRG allocation (recommended: 100,000 SNRG per relayer)
 3. Add relayer to cluster registry
@@ -484,7 +484,7 @@ sudo ufw status
 mkdir -p data/relayer1 data/logs
 
 # Start relayer
-./target/release/synergy-devnet relayer start \
+./target/release/synergy-testbeta relayer start \
   --config config/relayer1/node_config.toml
 ```
 
@@ -493,7 +493,7 @@ mkdir -p data/relayer1 data/logs
 ```
 [INFO] Synergy SXCP Relayer starting...
 [INFO] Relayer Address: synr1abc123...
-[INFO] Cluster ID: sxcp-devnet-cluster-1
+[INFO] Cluster ID: sxcp-testbeta-cluster-1
 [INFO] Cluster Members: 5 relayers
 [INFO] Cluster Threshold: 67% (4/5 signatures required)
 [INFO] Connecting to Synergy bootnodes...
@@ -514,16 +514,16 @@ Repeat on each server with respective configs:
 
 ```bash
 # Relayer 2
-./target/release/synergy-devnet relayer start --config config/relayer2/node_config.toml
+./target/release/synergy-testbeta relayer start --config config/relayer2/node_config.toml
 
 # Relayer 3
-./target/release/synergy-devnet relayer start --config config/relayer3/node_config.toml
+./target/release/synergy-testbeta relayer start --config config/relayer3/node_config.toml
 
 # Relayer 4
-./target/release/synergy-devnet relayer start --config config/relayer4/node_config.toml
+./target/release/synergy-testbeta relayer start --config config/relayer4/node_config.toml
 
 # Relayer 5
-./target/release/synergy-devnet relayer start --config config/relayer5/node_config.toml
+./target/release/synergy-testbeta relayer start --config config/relayer5/node_config.toml
 ```
 
 Once all 5 are online:
@@ -554,7 +554,7 @@ curl -s -X POST http://localhost:48648/rpc \
 # Expected output:
 # {
 #   "result": {
-#     "cluster_id": "sxcp-devnet-cluster-1",
+#     "cluster_id": "sxcp-testbeta-cluster-1",
 #     "total_members": 5,
 #     "online_members": 5,
 #     "threshold": 0.67,
@@ -609,12 +609,12 @@ After=network.target
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/synergy-devnet
-ExecStart=/home/YOUR_USERNAME/synergy-devnet/target/release/synergy-devnet relayer start --config config/relayer${NODE_NUMBER}/node_config.toml
+WorkingDirectory=/home/YOUR_USERNAME/synergy-testbeta
+ExecStart=/home/YOUR_USERNAME/synergy-testbeta/target/release/synergy-testbeta relayer start --config config/relayer${NODE_NUMBER}/node_config.toml
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:/home/YOUR_USERNAME/synergy-devnet/data/logs/relayer${NODE_NUMBER}.log
-StandardError=append:/home/YOUR_USERNAME/synergy-devnet/data/logs/relayer${NODE_NUMBER}-error.log
+StandardOutput=append:/home/YOUR_USERNAME/synergy-testbeta/data/logs/relayer${NODE_NUMBER}.log
+StandardError=append:/home/YOUR_USERNAME/synergy-testbeta/data/logs/relayer${NODE_NUMBER}-error.log
 
 [Install]
 WantedBy=multi-user.target
@@ -634,7 +634,7 @@ sudo systemctl status synergy-relayer
 
 ### Test Message Flow
 
-You'll need to submit a cross-chain message from Sepolia that the relayers will detect and relay to Synergy Devnet.
+You'll need to submit a cross-chain message from Sepolia that the relayers will detect and relay to Synergy Testnet-Beta.
 
 **Message Flow:**
 1. Deploy test contract on Sepolia
@@ -642,7 +642,7 @@ You'll need to submit a cross-chain message from Sepolia that the relayers will 
 3. Relayers detect event
 4. Relayers generate Merkle proof
 5. Relayers reach cluster consensus
-6. Leader submits to Synergy Devnet
+6. Leader submits to Synergy Testnet-Beta
 7. Synergy verifies proof and executes
 
 ### Monitor Relayer Activity
@@ -780,7 +780,7 @@ echo "✅ Relayer health check complete"
 
 ### Message Submission Failing
 
-**Problem**: Cannot submit messages to Synergy Devnet
+**Problem**: Cannot submit messages to Synergy Testnet-Beta
 
 **Solution:**
 1. Check relayer has sufficient SNRG for gas fees

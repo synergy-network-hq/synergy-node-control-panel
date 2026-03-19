@@ -3,7 +3,7 @@ productName: Synergy Node Control Panel
 
 directories:
   output: electron-dist
-  buildResources: src-tauri/icons
+  buildResources: control-service/icons
 
 files:
   - dist/**/*
@@ -23,14 +23,14 @@ publish:
 
 mac:
   category: public.app-category.developer-tools
-  icon: src-tauri/icons/icon.icns
+  icon: control-service/icons/icon.icns
   identity: null
   target:
     - dmg
     - zip
 
 win:
-  icon: src-tauri/icons/icon.ico
+  icon: control-service/icons/icon.ico
   target:
     - nsis
 
@@ -40,7 +40,7 @@ nsis:
   allowToChangeInstallationDirectory: true
 
 linux:
-  icon: src-tauri/icons
+  icon: control-service/icons
   target:
     - deb
     - AppImage

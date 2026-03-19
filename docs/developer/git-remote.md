@@ -3,19 +3,19 @@
 Repo path on this workspace:
 
 ```bash
-cd /Users/devpup/Desktop/synergy-devnet/tools/devnet-control-panel
+cd /Users/devpup/Desktop/synergy-testbeta/tools/testbeta-control-panel
 ```
 
 Current GitHub remote:
 
 ```text
-https://github.com/synergy-network-hq/devnet-control-panel.git
+https://github.com/synergy-network-hq/testbeta-control-panel.git
 ```
 
 ## Preferred: SSH Remote
 
 ```bash
-git remote set-url origin git@github.com:synergy-network-hq/devnet-control-panel.git
+git remote set-url origin git@github.com:synergy-network-hq/testbeta-control-panel.git
 git fetch origin
 git pull origin main
 ```
@@ -23,7 +23,7 @@ git pull origin main
 ## HTTPS Remote
 
 ```bash
-git remote set-url origin https://github.com/synergy-network-hq/devnet-control-panel.git
+git remote set-url origin https://github.com/synergy-network-hq/testbeta-control-panel.git
 git fetch origin
 git pull origin main
 ```
@@ -35,7 +35,7 @@ If GitHub prompts repeatedly over HTTPS, configure a credential helper or switch
 ### Option 3: Check Available Branches First
 
 ```bash
-cd /home/devpup/Desktop/devnet-control-panel
+cd /home/devpup/Desktop/testbeta-control-panel
 # Try to see what branches exist (may work if repo is public)
 git ls-remote --heads origin
 
@@ -68,6 +68,6 @@ git remote -v
 
 Should show:
 ```
-origin  https://github.com/synergy-network-hq/devnet-control-panel.git (fetch)
-origin  https://github.com/synergy-network-hq/devnet-control-panel.git (push)
+origin  https://github.com/synergy-network-hq/testbeta-control-panel.git (fetch)
+origin  https://github.com/synergy-network-hq/testbeta-control-panel.git (push)
 ```

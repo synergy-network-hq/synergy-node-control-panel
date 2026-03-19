@@ -1,8 +1,8 @@
-# Synergy Devnet Control Panel - Setup Guide
+# Synergy Testnet-Beta Control Panel - Setup Guide
 
 ## Overview
 
-The Synergy Devnet Control Panel is a sophisticated desktop application built with Tauri (Rust + React) that provides an intuitive chat-based interface for setting up and managing multiple Synergy Network nodes with complete isolation and security.
+The Synergy Testnet-Beta Control Panel is a sophisticated desktop application built with Electron (Rust + React) that provides an intuitive chat-based interface for setting up and managing multiple Synergy Network nodes with complete isolation and security.
 
 ## Features
 
@@ -49,7 +49,7 @@ The Synergy Devnet Control Panel is a sophisticated desktop application built wi
 ## Prerequisites
 
 - **Node.js** 18+ and npm
-- **Rust** 1.70+ (for Tauri)
+- **Rust** 1.70+ (for Electron)
 - **macOS/Linux/Windows** with appropriate development tools
 
 ## Installation
@@ -69,16 +69,16 @@ npm install
 
 ### 3. Place Node Binary
 
-Ensure the `synergy-devnet` binary is in the project root:
+Ensure the `synergy-testbeta` binary is in the project root:
 
 ```
 control-panel/
-├── synergy-devnet          # Node binary (executable)
+├── synergy-testbeta          # Node binary (executable)
 ├── templates/              # 19 node config templates
 ├── public/
 │   └── snrg.gif           # Loading animation
 ├── src/
-└── src-tauri/
+└── control-service/
 ```
 
 ### 4. Verify Templates
@@ -109,12 +109,12 @@ The `templates/` directory should contain 19 TOML configuration files:
 ### Run in Development Mode
 
 ```bash
-npm run tauri:dev
+npm run dev:electron
 ```
 
 This will:
 1. Start the Vite development server (React frontend)
-2. Launch the Tauri application (Rust backend)
+2. Launch the Electron application (Rust backend)
 3. Enable hot-reload for both frontend and backend changes
 
 ### Build Frontend Only
@@ -126,7 +126,7 @@ npm run build
 ### Build Backend Only
 
 ```bash
-cd src-tauri
+cd control-service
 cargo build
 ```
 
@@ -135,10 +135,10 @@ cargo build
 ### Create Production Build
 
 ```bash
-npm run tauri:build
+npm run dist:electron
 ```
 
-This will create platform-specific installers in `src-tauri/target/release/bundle/`:
+This will create platform-specific installers in `control-service/target/release/bundle/`:
 
 - **macOS**: `.dmg` and `.app`
 - **Windows**: `.msi` and `.exe`
@@ -155,21 +155,21 @@ control-panel/
 │   │   └── Layout.jsx
 │   ├── App.jsx                   # Main application
 │   └── styles.css                # Complete styling
-├── src-tauri/                    # Rust backend
+├── control-service/                    # Rust backend
 │   ├── src/
-│   │   ├── main.rs              # Tauri entry point
+│   │   ├── main.rs              # Electron entry point
 │   │   └── node_manager/
 │   │       ├── types.rs         # Data structures
 │   │       ├── multi_node.rs    # Multi-node manager
 │   │       ├── multi_node_process.rs # Process control
-│   │       ├── commands.rs      # Tauri commands
+│   │       ├── commands.rs      # Electron commands
 │   │       └── ...
 │   ├── Cargo.toml               # Rust dependencies
-│   └── tauri.conf.json          # Tauri configuration
+│   └── electron-builder.yml          # Electron configuration
 ├── templates/                    # Node configuration templates
 ├── public/                       # Static assets
 │   └── snrg.gif
-├── synergy-devnet               # Node binary
+├── synergy-testbeta               # Node binary
 └── package.json
 ```
 
@@ -214,7 +214,7 @@ When running, the control panel creates:
 ```
 ~/.synergy/control-panel/
 ├── bin/
-│   └── synergy-devnet           # Node binary
+│   └── synergy-testbeta           # Node binary
 ├── templates/                    # Config templates
 ├── nodes/
 │   ├── <node-id-1>/
@@ -235,7 +235,7 @@ When running, the control panel creates:
 
 ```bash
 # Clean and rebuild
-cd src-tauri
+cd control-service
 cargo clean
 cargo build
 ```
@@ -251,7 +251,7 @@ cargo build
 On Unix systems, ensure the binary is executable:
 
 ```bash
-chmod +x synergy-devnet
+chmod +x synergy-testbeta
 ```
 
 ## Development Tips
@@ -262,24 +262,24 @@ Changes to React components will hot-reload automatically in dev mode.
 
 ### Rust Changes
 
-Rust changes require a rebuild, but Tauri will detect and recompile automatically in dev mode.
+Rust changes require a rebuild, but Electron will detect and recompile automatically in dev mode.
 
 ### Debugging
 
 - **Frontend**: Use browser DevTools (F12 in the app window)
-- **Backend**: Check console output where you ran `npm run tauri:dev`
+- **Backend**: Check console output where you ran `npm run dev:electron`
 - **Logs**: Node logs are in `~/.synergy/control-panel/nodes/<node-id>/logs/`
 
 ### Adding New Node Types
 
-1. Add enum variant in `src-tauri/src/node_manager/types.rs`
+1. Add enum variant in `control-service/src/node_manager/types.rs`
 2. Update compatibility rules in `compatible_nodes()` method
 3. Create template file in `templates/` directory
 4. Update node type descriptions in `commands.rs`
 
 ## API Reference
 
-### Tauri Commands
+### Electron Commands
 
 The frontend can invoke these Rust commands:
 

@@ -86,9 +86,27 @@ function deriveSetupStatus(phase, running, hasProvisionedNode) {
 const promptKindsWithSelections = new Set([
   'await_node_type',
   'review_device',
+  'confirm_public_host',
   'review_directory',
   'ready_provision',
   'error',
+]);
+
+// Roles that are designed to run on a dedicated public server rather than the
+// user's own machine.  For these roles the setup wizard asks for the server IP
+// before provisioning so it can be baked into node.toml and nginx.conf.
+const REMOTE_DEPLOYMENT_ROLES = new Set(['rpc_gateway', 'indexer']);
+const SETUP_ALLOWED_ROLE_IDS = new Set([
+  'validator',
+  'witness',
+  'data_availability',
+  'rpc_gateway',
+  'indexer',
+  'archive_validator',
+  'audit_validator',
+  'governance_auditor',
+  'ai_inference',
+  'observer',
 ]);
 
 function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
@@ -337,7 +355,10 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     const data = await invoke('testbeta_get_state');
     setDeviceProfile(data?.device_profile || null);
     setNetworkProfile(data?.network_profile || null);
-    setNodeCatalog(Array.isArray(data?.node_catalog) ? data.node_catalog : []);
+    setNodeCatalog(
+      (Array.isArray(data?.node_catalog) ? data.node_catalog : [])
+        .filter((entry) => SETUP_ALLOWED_ROLE_IDS.has(String(entry?.id || '').trim())),
+    );
     setExistingNodes(Array.isArray(data?.nodes) ? data.nodes : []);
     setTerminalCwd(data?.device_profile?.home_directory || '');
 
@@ -424,6 +445,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           roleId: selectedRole.id,
           displayLabel: selectedRole.display_name,
           intendedDirectory: directoryChoice || null,
+          publicHost: publicHost || null,
         },
       });
 
@@ -511,6 +533,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     directoryChoice,
     navigate,
     onComplete,
+    publicHost,
     queueJarvisMessage,
     queueJarvisMessages,
     refreshState,
@@ -576,8 +599,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
       if (isContinueValue(value)) {
         setRunning(true);
+        let detected = '';
         try {
-          const detected = await refreshPublicHost({ announce: true });
+          detected = await refreshPublicHost({ announce: true });
           if (detected) {
             await queueJarvisMessage(`Public endpoint detected as ${detected}.`);
           } else {
@@ -586,12 +610,45 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         } finally {
           setRunning(false);
         }
-        setPhase('review_directory');
-        await queueJarvisMessage(`The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`);
+
+        // For server-side roles (RPC gateway, indexer) ask the user to confirm
+        // or override the IP so node.toml and nginx.conf get the server's real
+        // address rather than this machine's IP.
+        if (REMOTE_DEPLOYMENT_ROLES.has(selectedRoleId)) {
+          const detectedNote = detected
+            ? `I detected this machine's IP as ${detected}.`
+            : "I couldn't auto-detect an IP for this machine.";
+          setPhase('confirm_public_host');
+          await queueJarvisMessage(
+            `${detectedNote} This node type is built to run on a dedicated public server. ` +
+            `Enter that server's IP address now (e.g. 74.208.227.23), or choose "Use Detected" to keep the value above.`
+          );
+        } else {
+          setPhase('review_directory');
+          await queueJarvisMessage(`The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`);
+        }
         return;
       }
 
       await queueJarvisMessage('Choose Continue if these details look right, or Refresh Detection if you want me to check again.');
+      return;
+    }
+
+    if (phase === 'confirm_public_host') {
+      const trimmed = String(value || '').trim();
+      if (!/^use[\s-]*detected$/i.test(trimmed) && trimmed) {
+        // User typed an explicit server IP — use it.
+        setPublicHost(trimmed);
+        await queueJarvisMessage(`Server IP set to ${trimmed}. This will be written into node.toml and the generated nginx.conf.`);
+      } else {
+        await queueJarvisMessage(
+          publicHost
+            ? `Using auto-detected IP: ${publicHost}.`
+            : 'No IP available — you can edit node.toml manually after provisioning.'
+        );
+      }
+      setPhase('review_directory');
+      await queueJarvisMessage(`The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`);
       return;
     }
 
@@ -637,12 +694,15 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     handoffToDashboard,
     nodeCatalog,
     phase,
+    publicHost,
     queueJarvisMessage,
     queueJarvisMessages,
+    refreshPublicHost,
     refreshState,
     resetMessageQueue,
     runProvision,
     running,
+    selectedRoleId,
   ]);
 
   const submitChat = useCallback(async (event) => {
@@ -695,6 +755,22 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       };
     }
 
+    if (phase === 'confirm_public_host') {
+      return {
+        kind: 'choices',
+        hint: publicHost
+          ? `Detected IP: ${publicHost}. Enter a different server IP, or choose "Use Detected" to keep it.`
+          : 'Enter the public IP address of the server this node will run on.',
+        options: [
+          {
+            value: 'use detected',
+            label: publicHost ? `Use Detected (${publicHost})` : 'Use Detected',
+          },
+        ],
+        placeholder: 'Enter server IP (e.g. 74.208.227.23) or use detected',
+      };
+    }
+
     if (phase === 'review_directory') {
       return {
         kind: 'choices',
@@ -733,7 +809,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       hint: 'Setup Assistant is getting things ready.',
       placeholder: 'Setup Assistant is warming up...',
     };
-  }, [directoryChoice, nodeCatalog, phase]);
+  }, [directoryChoice, nodeCatalog, phase, publicHost]);
 
   useEffect(() => {
     if (promptConfig.kind !== 'select') {

@@ -1,0 +1,78 @@
+Synergy Testnet-Beta Node Command Reference
+====================================
+
+Node Slot: node-16
+Type: archive-validator
+
+Ports
+-----
+P2P: 38654
+RPC: 48654
+WebSocket: 58654
+gRPC: 50066
+Discovery: 39653
+
+Linux/macOS Commands
+--------------------
+# One-command installation + firewall + start
+./install_and_start.sh
+
+# Status
+./nodectl.sh status
+
+# Live logs
+./nodectl.sh logs --follow
+
+# Last logs
+./nodectl.sh logs
+
+# Restart
+./nodectl.sh restart
+
+# Stop
+./nodectl.sh stop
+
+# Node metadata/ports
+./nodectl.sh info
+
+Windows PowerShell Commands
+---------------------------
+# One-command installation + start
+powershell -ExecutionPolicy Bypass -File .\install_and_start.ps1
+
+# Status
+powershell -ExecutionPolicy Bypass -File .\nodectl.ps1 status
+
+# Live logs
+powershell -ExecutionPolicy Bypass -File .\nodectl.ps1 logs -Follow
+
+# Last logs
+powershell -ExecutionPolicy Bypass -File .\nodectl.ps1 logs
+
+# Restart
+powershell -ExecutionPolicy Bypass -File .\nodectl.ps1 restart
+
+# Stop
+powershell -ExecutionPolicy Bypass -File .\nodectl.ps1 stop
+
+# Node metadata/ports
+powershell -ExecutionPolicy Bypass -File .\nodectl.ps1 info
+
+Direct Binary Commands
+----------------------
+Linux:
+./bin/synergy-testbeta-linux-amd64 start --config ./config/node.toml
+
+macOS:
+./bin/synergy-testbeta-darwin-arm64 start --config ./config/node.toml
+
+Windows:
+.\bin\synergy-testbeta-windows-amd64.exe start --config .\config\node.toml
+
+Data Paths
+----------
+PID file: ./data/node.pid
+Logs: ./data/logs/node.out
+Chain data: ./data/chain
+Config: ./config/node.toml
+Keys: ./keys/

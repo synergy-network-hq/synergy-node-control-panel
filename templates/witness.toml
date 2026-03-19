@@ -1,6 +1,6 @@
 [network]
-id = 338638
-name = "synergy-devnet"
+id = 338639
+name = "synergy-testbeta"
 p2p_port = 38638
 rpc_port = 48638
 ws_port = 58638
@@ -10,7 +10,7 @@ bootnodes = ["snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.syner
 [blockchain]
 block_time = 5
 max_gas_limit = "0x2fefd8"
-chain_id = 338638
+chain_id = 338639
 
 [consensus]
 algorithm = "Proof of Synergy"

@@ -8,7 +8,7 @@ const isWindows = process.platform === 'win32';
 
 const sourceBinary = path.join(
   repoRoot,
-  'src-tauri',
+  'control-service',
   'target',
   'release',
   isWindows ? 'control-service.exe' : 'control-service',

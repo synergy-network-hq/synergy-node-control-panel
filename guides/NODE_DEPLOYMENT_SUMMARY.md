@@ -1,11 +1,11 @@
-# Synergy Devnet - Node Deployment Summary
+# Synergy Testnet-Beta - Node Deployment Summary
 **Complete Guide Index for All Node Types**
 
 ---
 
 ## Overview
 
-This document provides a comprehensive index of all available node setup guides for the Synergy Devnet, organized by node type and use case.
+This document provides a comprehensive index of all available node setup guides for the Synergy Testnet-Beta, organized by node type and use case.
 
 ---
 
@@ -13,7 +13,7 @@ This document provides a comprehensive index of all available node setup guides 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Synergy Devnet Network                   │
+│                    Synergy Testnet-Beta Network                   │
 │                                                             │
 │  ┌────────────────────────────────────────────────────┐    │
 │  │          Consensus Layer (PoSy)                    │    │
@@ -119,7 +119,7 @@ This document provides a comprehensive index of all available node setup guides 
 
 **Key Features:**
 - **Dynamic registration**: Register post-genesis (no need to be in genesis block)
-- **Zero stake requirement**: Set to 0 SNRG for devnet (no economic barrier to entry)
+- **Zero stake requirement**: Set to 0 SNRG for testbeta (no economic barrier to entry)
 - **Synergy Score participation**: Earn rewards and voting power based on performance
 - **Cluster assignment**: Automatically assigned to clusters each epoch
 - **Blockchain sync**: Download and verify existing blockchain state
@@ -299,16 +299,16 @@ Message Execution
 
 ## Network Endpoints
 
-### Devnet Endpoints
+### Testnet-Beta Endpoints
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| **RPC** | `https://devnet-core-rpc.synergy-network.io` | JSON-RPC HTTP |
-| **WebSocket** | `wss://devnet-core-ws.synergy-network.io` | Real-time subscriptions |
-| **REST API** | `https://devnet-api.synergy-network.io` | RESTful queries |
-| **Explorer** | `https://devnet-explorer.synergy-network.io` | Block explorer |
-| **Indexer** | `https://devnet-indexer.synergy-network.io` | Query service |
-| **Faucet** | `https://devnet-faucet.synergy-network.io` | Request test SNRG |
+| **RPC** | `https://testbeta-core-rpc.synergy-network.io` | JSON-RPC HTTP |
+| **WebSocket** | `wss://testbeta-core-ws.synergy-network.io` | Real-time subscriptions |
+| **REST API** | `https://testbeta-api.synergy-network.io` | RESTful queries |
+| **Explorer** | `https://testbeta-explorer.synergy-network.io` | Block explorer |
+| **Indexer** | `https://testbeta-indexer.synergy-network.io` | Query service |
+| **Faucet** | `https://testbeta-faucet.synergy-network.io` | Request test SNRG |
 
 ### Port Configuration
 
@@ -322,7 +322,7 @@ Message Execution
 | **SXCP Relayer RPC** | 49638 | HTTP |
 | **SXCP Relayer WS** | 59638 | WebSocket |
 
-**Reference**: [SYNERGY_DEVNET_PORTS_AND_PROTOCOLS.txt](SYNERGY_DEVNET_PORTS_AND_PROTOCOLS.txt)
+**Reference**: [SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt](SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt)
 
 ---
 
@@ -547,7 +547,7 @@ curl -s -X POST http://localhost:48638/rpc \
 ### Documentation
 
 - **Main README**: [README.md](README.md)
-- **Port Specification**: [SYNERGY_DEVNET_PORTS_AND_PROTOCOLS.txt](SYNERGY_DEVNET_PORTS_AND_PROTOCOLS.txt)
+- **Port Specification**: [SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt](SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt)
 - **Port Audit Report**: [PORT_AUDIT_REPORT.md](PORT_AUDIT_REPORT.md)
 - **PoSy Consensus**: [PoSy.txt](PoSy.txt)
 - **SXCP Protocol**: [SXCP.txt](SXCP.txt)
@@ -555,16 +555,16 @@ curl -s -X POST http://localhost:48638/rpc \
 
 ### Quick Reference
 
-- **Chain ID**: 338638 (Devnet)
+- **Chain ID**: 338639 (Testnet-Beta)
 - **Block Time**: ~6 seconds
 - **Epoch Length**: ~1000 blocks (~1 hour)
-- **Minimum Stake**: 0 SNRG (devnet only)
+- **Minimum Stake**: 0 SNRG (testbeta only)
 - **Cluster Size Target**: 30 validators
 - **Quorum Thresholds**: 67% (validation) + 51% (cooperation)
 
 ### Contact
 
-- **GitHub**: https://github.com/synergy-network-hq/synergy-devnet
+- **GitHub**: https://github.com/synergy-network-hq/synergy-testbeta
 - **Discord**: Synergy Network Development
 - **Coordinator**: Contact via team channels
 
@@ -584,13 +584,13 @@ curl -s -X POST http://localhost:48638/rpc \
 - Scale to 50+ validators for true multi-cluster testing
 - Deploy production relayers for mainnet cross-chain bridging
 - Implement additional SXCP source chains (Avalanche, BNB Chain, etc.)
-- Optimize PoSy parameters based on devnet performance data
+- Optimize PoSy parameters based on testbeta performance data
 - Launch public RPC endpoints with load balancing
 - Develop blockchain explorer and analytics dashboard
 
 ---
 
-**Welcome to the Synergy Devnet! 🚀**
+**Welcome to the Synergy Testnet-Beta! 🚀**
 
 All systems are configured and ready for team validator onboarding, RPC deployment, and cross-chain relayer testing.
 

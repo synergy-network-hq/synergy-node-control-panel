@@ -1,11 +1,11 @@
-# Synergy Devnet - Coordinator Operations Guide
+# Synergy Testnet-Beta - Coordinator Operations Guide
 **For Managing Validator Onboarding & Token Distribution**
 
 ---
 
 ## 🎯 Overview
 
-This guide is for the devnet coordinator who manages:
+This guide is for the testbeta coordinator who manages:
 - Validator registration requests
 - SNRG token distribution
 - Network monitoring
@@ -15,10 +15,10 @@ This guide is for the devnet coordinator who manages:
 
 ## 📋 Prerequisites
 
-- Access to the devnet server running bootnodes
+- Access to the testbeta server running bootnodes
 - Faucet wallet keys: `config/faucet/identity.json`
 - Treasury wallet keys: `config/treasury/identity.json`
-- RPC access to the devnet (localhost:48638)
+- RPC access to the testbeta (localhost:48638)
 
 ---
 
@@ -138,7 +138,7 @@ Send them confirmation:
 ```
 ✅ Validator Registration Complete
 
-Your validator has been registered on Synergy Devnet!
+Your validator has been registered on Synergy Testnet-Beta!
 
 Address: synv1abc123...
 Initial Balance: 1,000,000 SNRG
@@ -357,9 +357,9 @@ Create a simple monitoring script:
 
 ```bash
 #!/bin/bash
-# monitor-devnet.sh
+# monitor-testbeta.sh
 
-echo "=== Synergy Devnet Status ==="
+echo "=== Synergy Testnet-Beta Status ==="
 echo ""
 echo "Block Height:"
 curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
@@ -378,6 +378,6 @@ curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
 
 ---
 
-**You're all set to manage the Synergy Devnet! 🚀**
+**You're all set to manage the Synergy Testnet-Beta! 🚀**
 
 Need help? Check the main documentation or reach out to the dev team.

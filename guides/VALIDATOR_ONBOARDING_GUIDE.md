@@ -1,11 +1,11 @@
-# Synergy Devnet - Team Validator Onboarding Guide
+# Synergy Testnet-Beta - Team Validator Onboarding Guide
 **For Team Members Setting Up Remote Validator Nodes**
 
 ---
 
 ## 🎯 Purpose
 
-This guide is specifically for Synergy team members who want to set up their own validator nodes on remote systems to participate in the Devnet. Unlike bootnode validators that are included in the genesis block, your validator will:
+This guide is specifically for Synergy team members who want to set up their own validator nodes on remote systems to participate in the Testnet-Beta. Unlike bootnode validators that are included in the genesis block, your validator will:
 
 1. ✅ Connect to the existing running blockchain
 2. ✅ Sync with the network from current state
@@ -58,12 +58,12 @@ cd ~/synergy
 
 ---
 
-## 📦 Step 2: Clone and Build Synergy Devnet
+## 📦 Step 2: Clone and Build Synergy Testnet-Beta
 
 ```bash
 # Clone the repository
-git clone https://github.com/synergy-network-hq/synergy-devnet.git
-cd synergy-devnet
+git clone https://github.com/synergy-network-hq/synergy-testbeta.git
+cd synergy-testbeta
 
 # Build the node binary
 cargo build --release
@@ -74,7 +74,7 @@ cargo build --release
 cd ../..
 
 # Verify builds
-./target/release/synergy-devnet --version
+./target/release/synergy-testbeta --version
 ./target/release/synergy-address-engine --help
 ```
 
@@ -177,9 +177,9 @@ bootnodes = [
 address = "VALIDATOR_ADDRESS_HERE"  # Will be auto-filled
 identity_file = "config/my-validator/identity.json"
 enabled = true
-name = "My Devnet Validator"
+name = "My Testnet-Beta Validator"
 auto_register = true
-min_stake = 0  # No stake required for devnet onboarding
+min_stake = 0  # No stake required for testbeta onboarding
 
 [consensus]
 algorithm = "PoSy"
@@ -189,7 +189,7 @@ synergetic_mode = true
 vrf_enabled = true
 
 [blockchain]
-chain_id = 338638
+chain_id = 338639
 sync_mode = "fast"  # Fast sync from existing blockchain
 start_from_genesis = false
 
@@ -197,8 +197,8 @@ start_from_genesis = false
 http_port = 48638
 ws_port = 58638
 enable_cors = true
-external_http = "https://devnet-core-rpc.synergy-network.io"
-external_ws = "wss://devnet-core-ws.synergy-network.io"
+external_http = "https://testbeta-core-rpc.synergy-network.io"
+external_ws = "wss://testbeta-core-ws.synergy-network.io"
 
 [logging]
 log_level = "info"
@@ -267,12 +267,12 @@ sudo ufw status verbose
 mkdir -p data/logs
 
 # Start the validator
-./target/release/synergy-devnet start \
+./target/release/synergy-testbeta start \
   --config config/my-validator-config.toml
 
 # You should see:
 # [INFO] Synergy Network Validator Starting...
-# [INFO] Chain ID: 338638
+# [INFO] Chain ID: 338639
 # [INFO] Validator Address: synv1...
 # [INFO] Connecting to bootnodes...
 # [INFO] Syncing blockchain... (this may take a while)
@@ -287,19 +287,19 @@ mkdir -p data/logs
 # Create systemd service
 sudo tee /etc/systemd/system/synergy-validator.service > /dev/null <<EOF
 [Unit]
-Description=Synergy Devnet Validator Node
+Description=Synergy Testnet-Beta Validator Node
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME/synergy/synergy-devnet
-ExecStart=$HOME/synergy/synergy-devnet/target/release/synergy-devnet start --config config/my-validator-config.toml
+WorkingDirectory=$HOME/synergy/synergy-testbeta
+ExecStart=$HOME/synergy/synergy-testbeta/target/release/synergy-testbeta start --config config/my-validator-config.toml
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:$HOME/synergy/synergy-devnet/data/logs/validator.log
-StandardError=append:$HOME/synergy/synergy-devnet/data/logs/validator-error.log
+StandardOutput=append:$HOME/synergy/synergy-testbeta/data/logs/validator.log
+StandardError=append:$HOME/synergy/synergy-testbeta/data/logs/validator-error.log
 Environment="PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.cargo/bin"
 Environment="RUST_LOG=info"
 
@@ -367,14 +367,14 @@ curl -s -X POST http://localhost:48638/rpc \
 
 ## 📝 Step 8: Register Your Validator
 
-Once your node is synced, send your validator information to the devnet coordinator:
+Once your node is synced, send your validator information to the testbeta coordinator:
 
 ```bash
 # Display your validator registration info
 cat config/my-validator/validator-info.txt
 
 # Or email/DM this information:
-echo "Subject: Devnet Validator Registration Request"
+echo "Subject: Testnet-Beta Validator Registration Request"
 echo ""
 echo "Validator Address: $VALIDATOR_ADDRESS"
 echo "Public Key: $(jq -r '.public_key' config/my-validator/identity.json)"
@@ -386,9 +386,9 @@ echo "Node is synced and ready for activation."
 ```
 
 **Send this information via:**
-- Discord DM to devnet coordinator
-- Email to: devnet-coordinator@synergy.network
-- Telegram: @synergy_devnet
+- Discord DM to testbeta coordinator
+- Email to: testbeta-coordinator@synergy.network
+- Telegram: @synergy_testbeta
 
 ---
 
@@ -490,7 +490,7 @@ curl -s -X POST http://localhost:48638/rpc \
 htop
 
 # Check disk usage
-df -h ~/synergy/synergy-devnet/data/
+df -h ~/synergy/synergy-testbeta/data/
 
 # Monitor network connections
 ss -tuln | grep -E '38638|48638|58638'
@@ -506,7 +506,7 @@ curl -s http://localhost:9090/metrics
 sudo systemctl stop synergy-validator
 
 # Pull latest changes
-cd ~/synergy/synergy-devnet
+cd ~/synergy/synergy-testbeta
 git pull origin main
 
 # Rebuild
@@ -538,7 +538,7 @@ sudo netstat -tuln | grep 38638
 sudo ufw status
 
 # Try manual bootnode connection
-./target/release/synergy-devnet peers add \
+./target/release/synergy-testbeta peers add \
   snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638
 ```
 
@@ -598,9 +598,9 @@ curl -s -X POST http://localhost:48638/rpc \
 ## 📞 Support & Resources
 
 ### Get Help
-- **Discord**: #devnet-validators channel
-- **Telegram**: @synergy_devnet
-- **Email**: devnet-support@synergy.network
+- **Discord**: #testbeta-validators channel
+- **Telegram**: @synergy_testbeta
+- **Email**: testbeta-support@synergy.network
 
 ### Useful Commands Reference
 
@@ -645,6 +645,6 @@ Before contacting the coordinator, ensure:
 
 ---
 
-**Welcome to the Synergy Devnet validator network! 🎉**
+**Welcome to the Synergy Testnet-Beta validator network! 🎉**
 
 Your participation helps test and strengthen the network before mainnet launch.

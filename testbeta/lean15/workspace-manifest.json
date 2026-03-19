@@ -1,0 +1,21 @@
+{
+  "workspace_resource_version": "5.0.8+ff922b4421b7",
+  "app_version": "5.0.8",
+  "bundle_digest": "ff922b4421b7851b969d08d8e79dcdd74777b5ecd5c449a23de07d717ecc6806",
+  "required_paths": [
+    "testbeta/lean15/node-inventory.csv",
+    "testbeta/lean15/hosts.env.example",
+    "testbeta/lean15/configs",
+    "testbeta/lean15/installers",
+    "binaries",
+    "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md"
+  ],
+  "checksums": {
+    "binaries/synergy-testbeta-agent-darwin-arm64": "5a8e3d5f575b3913637c9753bac09708c70cd035fb8bb4c60210b770394c2e65",
+    "binaries/synergy-testbeta-agent-linux-amd64": "fa43b617e81f80a2aaccf4bab8f04d50e870c43c92b155f5a7dc6bf7823a6595",
+    "binaries/synergy-testbeta-agent-windows-amd64.exe": "158f41f9f571ac1140b2db9f64699cd0e3d917c9c0b0dac00eb9351608081471",
+    "binaries/synergy-testbeta-darwin-arm64": "43c367c33fc98ecaee907aa36514c89a782d4ba3ea23ca9d5d192d3df8fb22cc",
+    "binaries/synergy-testbeta-linux-amd64": "3ff6fbdb328eb3d96a50527cba7b500abcb2678c365b9c8118a29c45f79363fa",
+    "binaries/synergy-testbeta-windows-amd64.exe": "2b34eb89e7cc05eb34bfb958f26e074ca7798c9c67f247bff9b85492cdf72b52"
+  }
+}

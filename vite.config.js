@@ -19,7 +19,7 @@ export default defineConfig({
     port: getRendererPortFromEnv(),
     strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/**']
+      ignored: ['**/control-service/**']
     }
   },
   build: {

@@ -20,9 +20,9 @@ dist-ssr
 target
 
 # Tauri build artifacts
-src-tauri/target
-src-tauri/Cargo.lock
-src-tauri/devnet-agent/Cargo.lock
+control-service/target
+control-service/Cargo.lock
+control-service/testbeta-agent/Cargo.lock
 
 # Editor directories and files
 .vscode/*
@@ -37,7 +37,7 @@ src-tauri/devnet-agent/Cargo.lock
 
 # Synergy Network specific
 .synergy/
-synergy-devnet
+synergy-testbeta
 templates.zip
 
 # OS files
@@ -51,10 +51,10 @@ Thumbs.db
 *.swo
 *~
 .tmp-release-assets-*
-binaries/synergy-devnet-agent-*
-!binaries/synergy-devnet-agent-darwin-arm64
-!binaries/synergy-devnet-agent-linux-amd64
-!binaries/synergy-devnet-agent-windows-amd64.exe
+binaries/synergy-testbeta-agent-*
+!binaries/synergy-testbeta-agent-darwin-arm64
+!binaries/synergy-testbeta-agent-linux-amd64
+!binaries/synergy-testbeta-agent-windows-amd64.exe
 
 # IDE
 .vscode/

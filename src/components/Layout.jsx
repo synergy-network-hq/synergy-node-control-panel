@@ -66,7 +66,7 @@ function Layout({ children }) {
       if (!disposed) {
         setUpdateState((previous) => ({
           ...previous,
-          status: 'checking',
+          status: silent ? previous.status : 'checking',
           message: silent && previous.message ? previous.message : 'Checking for updates...',
         }));
       }
@@ -75,11 +75,13 @@ function Layout({ children }) {
       if (disposed) return;
 
       if (result?.error) {
-        setUpdateState({
-          status: 'error',
-          message: result.error,
-          version: '',
-        });
+        if (!silent) {
+          setUpdateState({
+            status: 'error',
+            message: result.error,
+            version: '',
+          });
+        }
         return;
       }
 
@@ -100,6 +102,34 @@ function Layout({ children }) {
     };
 
     // Listen for native updater events from main process
+    const unsubAvailable = onUpdaterEvent('update-available', (data) => {
+      if (!disposed) {
+        setUpdateState((previous) => ({
+          ...previous,
+          status: 'available',
+          message: `Update ${data?.version || previous.version} found. Downloading in the background.`,
+          version: data?.version || previous.version || '',
+        }));
+      }
+    });
+
+    const unsubNotAvailable = onUpdaterEvent('update-not-available', () => {
+      if (!disposed) {
+        setUpdateState((previous) => {
+          if (previous.status === 'downloading' || previous.status === 'installing') {
+            return previous;
+          }
+
+          return {
+            status: 'up_to_date',
+            message: 'You are running the latest published version.',
+            version: '',
+            percent: 0,
+          };
+        });
+      }
+    });
+
     const unsubProgress = onUpdaterEvent('download-progress', (data) => {
       if (!disposed) {
         setUpdateState((previous) => ({
@@ -154,6 +184,8 @@ function Layout({ children }) {
     return () => {
       disposed = true;
       window.clearInterval(interval);
+      unsubAvailable();
+      unsubNotAvailable();
       unsubProgress();
       unsubDownloaded();
       unsubError();
@@ -218,7 +250,16 @@ function Layout({ children }) {
         message: result.message,
         version: targetVersion || '',
       });
+      return;
     }
+
+    setUpdateState((previous) => ({
+      ...previous,
+      status: 'downloading',
+      message: result.message,
+      percent: previous.percent || 0,
+      version: targetVersion || previous.version,
+    }));
     // 'installing' status is handled by the updater events above
   };
 

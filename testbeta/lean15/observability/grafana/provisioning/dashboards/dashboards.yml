@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Synergy Testnet-Beta
+    orgId: 1
+    folder: Synergy Testnet-Beta
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

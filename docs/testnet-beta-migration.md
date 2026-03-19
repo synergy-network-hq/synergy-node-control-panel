@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-The current control panel is built for a closed devnet with WireGuard-only reachability, VPN-based machine identity, and agent trust derived from the private `10.50.0.0/24` network. That model is causing operational friction and does not fit a broader testnet-beta where each node publishes its own stable public endpoint.
+The current control panel is built for a closed testbeta with WireGuard-only reachability, VPN-based machine identity, and agent trust derived from the private `10.50.0.0/24` network. That model is causing operational friction and does not fit a broader testnet-beta where each node publishes its own stable public endpoint.
 
 The migration target is a public-endpoint testnet-beta where:
 - every node has a public RPC hostname such as `node0202.synergynode.net`
@@ -19,22 +19,22 @@ The migration target is a public-endpoint testnet-beta where:
 The current design assumes:
 - `host` and `vpn_ip` are effectively the same private address
 - local machine identity is derived from a `10.50.0.x` address
-- the devnet agent is reachable only from WireGuard peers
+- the testbeta agent is reachable only from WireGuard peers
 - installer generation rewrites config and inventory around private overlay addresses
 
-That is appropriate for a closed devnet and inappropriate for a public testnet-beta.
+That is appropriate for a closed testbeta and inappropriate for a public testnet-beta.
 
 ## Goals
 
 - Support public per-node RPC endpoints in inventory.
 - Decouple read-path monitoring from private control transport.
 - Allow same-machine local actions without VPN detection.
-- Preserve backward compatibility while the old devnet profile still exists.
+- Preserve backward compatibility while the old testbeta profile still exists.
 
 ## Non-Goals
 
-- Exposing the current unauthenticated devnet agent directly to the public internet.
-- Rewriting the entire devnet/bootstrap pipeline in one cutover.
+- Exposing the current unauthenticated testbeta agent directly to the public internet.
+- Rewriting the entire testbeta/bootstrap pipeline in one cutover.
 - Removing every WireGuard code path in the same change.
 
 ## Transport Model
@@ -77,7 +77,7 @@ This is enough to begin migrating the read path to public node endpoints.
 
 - Introduce an explicit control transport model instead of overloading `host`.
 - Add inventory columns for `control_host` and `public_rpc_url`.
-- Rename UI/documentation from "closed devnet" to "testnet-beta" for the selected profile.
+- Rename UI/documentation from "closed testbeta" to "testnet-beta" for the selected profile.
 
 ### P1
 
@@ -88,11 +88,11 @@ This is enough to begin migrating the read path to public node endpoints.
 ### P2
 
 - Remove topology rewrites that force `host` and `vpn_ip` to the same private address.
-- Add a dedicated `testnet-beta` inventory/profile beside `devnet/lean15`.
+- Add a dedicated `testnet-beta` inventory/profile beside `testbeta/lean15`.
 - Rework installer templates so bind/public addresses are not forced to private overlay IPs.
 
 ## Acceptance Criteria
 
 - A node inventory row can specify a public RPC target and the dashboard uses it for health checks.
 - A same-machine operator can run local control actions with `SYNERGY_MACHINE_ID` set and no VPN present.
-- Existing closed-devnet inventory continues to work unchanged.
+- Existing closed-testbeta inventory continues to work unchanged.

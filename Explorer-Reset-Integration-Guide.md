@@ -2,7 +2,7 @@
 
 ## Problem
 
-When the devnet chain is reset to genesis via the control panel, the explorer and indexer services continue to display stale blockchain data from the previous chain. This is because the explorer maintains its own internal database of indexed blocks, and there is no mechanism to signal it to clear that data when a chain reset occurs.
+When the testbeta chain is reset to genesis via the control panel, the explorer and indexer services continue to display stale blockchain data from the previous chain. This is because the explorer maintains its own internal database of indexed blocks, and there is no mechanism to signal it to clear that data when a chain reset occurs.
 
 ## What the Control Panel Now Does
 
@@ -13,7 +13,7 @@ As of this update, the control panel's bulk `reset_chain` action will attempt to
 Set the explorer reset endpoint in one of these locations (checked in order):
 
 1. **Environment variable:** `SYNERGY_EXPLORER_RESET_ENDPOINT`
-2. **hosts.env file:** Add `SYNERGY_EXPLORER_RESET_ENDPOINT=https://your-explorer-api.example.com/v1/admin/reindex-from-genesis` to `devnet/lean15/hosts.env`
+2. **hosts.env file:** Add `SYNERGY_EXPLORER_RESET_ENDPOINT=https://your-explorer-api.example.com/v1/admin/reindex-from-genesis` to `testbeta/lean15/hosts.env`
 
 ### Request Format
 
@@ -93,10 +93,10 @@ If the automated endpoint is not configured, the explorer must be reindexed manu
 
 After implementing the endpoint, test the full flow:
 
-1. Start the devnet and produce some blocks (wait for block height > 10)
+1. Start the testbeta and produce some blocks (wait for block height > 10)
 2. Verify the explorer shows the current block height
 3. From the control panel dashboard, click "Reset Chain" (global)
 4. Verify all nodes stop and chain data is erased
 5. Verify the explorer no longer shows the old block data
-6. Start the devnet via "Start All"
+6. Start the testbeta via "Start All"
 7. Verify the explorer picks up the new genesis and starts indexing fresh blocks

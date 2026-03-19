@@ -59,10 +59,10 @@ export async function downloadAndInstallUpdate() {
   try {
     if (hasNativeUpdater()) {
       const bridge = getBridge();
-      await bridge.downloadUpdate();
+      await bridge.checkForUpdate();
       return {
         status: 'downloading',
-        message: 'Downloading update. The app will restart automatically when ready.',
+        message: 'Checking for an update and downloading it in the background. The app will restart automatically when ready.',
       };
     }
 
@@ -162,6 +162,10 @@ function normalizeUpdateError(error) {
 
   if (lower.includes('network') || lower.includes('timed out') || lower.includes('timeout')) {
     return 'Update check failed due to network/timeout. Verify internet access.';
+  }
+
+  if (lower.includes('rate limit') || lower.includes('api rate limit')) {
+    return 'Update check hit the GitHub rate limit. Try again shortly.';
   }
 
   if (lower.includes('cannot update while running') && lower.includes('disk image')) {

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-MANIFEST_PATH="$ROOT_DIR/devnet/lean15/workspace-manifest.json"
+MANIFEST_PATH="$ROOT_DIR/testbeta/lean15/workspace-manifest.json"
 APP_VERSION="$(node -e 'const fs=require("fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));process.stdout.write(pkg.version);')"
 python3 - <<'PY' "$ROOT_DIR" "$MANIFEST_PATH" "$APP_VERSION"
 import hashlib
@@ -18,21 +18,21 @@ manifest_path = pathlib.Path(sys.argv[2])
 app_version = sys.argv[3]
 
 required_paths = [
-    "devnet/lean15/node-inventory.csv",
-    "devnet/lean15/hosts.env.example",
-    "devnet/lean15/configs",
-    "devnet/lean15/installers",
+    "testbeta/lean15/node-inventory.csv",
+    "testbeta/lean15/hosts.env.example",
+    "testbeta/lean15/configs",
+    "testbeta/lean15/installers",
     "binaries",
-    "guides/SYNERGY_DEVNET_CONTROL_PANEL_USER_MANUAL.md",
+    "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md",
 ]
 
 checksum_targets = [
-    "binaries/synergy-devnet-agent-darwin-arm64",
-    "binaries/synergy-devnet-agent-linux-amd64",
-    "binaries/synergy-devnet-agent-windows-amd64.exe",
-    "binaries/synergy-devnet-darwin-arm64",
-    "binaries/synergy-devnet-linux-amd64",
-    "binaries/synergy-devnet-windows-amd64.exe",
+    "binaries/synergy-testbeta-agent-darwin-arm64",
+    "binaries/synergy-testbeta-agent-linux-amd64",
+    "binaries/synergy-testbeta-agent-windows-amd64.exe",
+    "binaries/synergy-testbeta-darwin-arm64",
+    "binaries/synergy-testbeta-linux-amd64",
+    "binaries/synergy-testbeta-windows-amd64.exe",
 ]
 
 ignored_names = {

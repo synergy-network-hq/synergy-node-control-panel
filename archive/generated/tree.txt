@@ -4,7 +4,7 @@
 │   └── synergy-node
 ├── control-panel
 │   ├── public
-│   └── src-tauri
+│   └── control-service
 │       └── binaries
 ├── dist
 │   ├── 02.png
@@ -13,12 +13,12 @@
 │   │   └── index-Deya3V90.css
 │   ├── index.html
 │   ├── snrg.gif
-│   ├── tauri.svg
+│   ├── electron.svg
 │   └── vite.svg
 ├── guides
 │   ├── COORDINATOR_GUIDE.md
-│   ├── DEVNET_GUIDE.md
-│   ├── DEVNET_STARTUP_GUIDE.md
+│   ├── TESTBETA_GUIDE.md
+│   ├── TESTBETA_STARTUP_GUIDE.md
 │   ├── NODE_DEPLOYMENT_SUMMARY.md
 │   ├── POSY_CLUSTER_TESTING_GUIDE.md
 │   ├── QUICK_REFERENCE.md
@@ -37,7 +37,7 @@
 ├── public
 │   ├── 02.png
 │   ├── snrg.gif
-│   ├── tauri.svg
+│   ├── electron.svg
 │   └── vite.svg
 ├── README.md
 ├── SETUP_WIZARD_GUIDE.md
@@ -46,7 +46,7 @@
 ├── src
 │   ├── App.jsx
 │   ├── assets
-│   │   └── synergy-devnet
+│   │   └── synergy-testbeta
 │   ├── components
 │   │   ├── Dashboard.jsx
 │   │   ├── JarvisSetupWizard.jsx
@@ -66,9 +66,9 @@
 │   │   ├── synergy.css
 │   │   └── typography.css
 │   └── styles.css
-├── src-tauri
+├── control-service
 │   ├── binaries
-│   │   └── synergy-devnet-aarch64-apple-darwin
+│   │   └── synergy-testbeta-aarch64-apple-darwin
 │   ├── build.rs
 │   ├── capabilities
 │   │   ├── default.json
@@ -180,7 +180,7 @@
 │   ├── synergy-address-engine
 │   │   ├── Cargo.lock
 │   │   ├── Cargo.toml
-│   │   ├── devnet_generator.rs
+│   │   ├── testbeta_generator.rs
 │   │   ├── readme_doc.md
 │   │   ├── src
 │   │   │   ├── lib.rs
@@ -487,8 +487,8 @@
 │   │           ├── incremental
 │   │           ├── synergy-node
 │   │           └── synergy-node.d
-│   └── tauri.conf.json
-├── SYNERGY_DEVNET_PORTS_AND_PROTOCOLS.txt
+│   └── electron-builder.yml
+├── SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt
 ├── templates
 │   ├── ai-inference.toml
 │   ├── archive-validator.toml

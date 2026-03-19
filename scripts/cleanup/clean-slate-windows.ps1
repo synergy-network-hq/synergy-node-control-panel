@@ -2,11 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $workspaceRoot = Join-Path $HOME ".synergy-node-control-panel\monitor-workspace"
 $legacyRoot = Join-Path $HOME ".synergy-node-monitor\monitor-workspace"
-$startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) "Synergy Devnet Agent.cmd"
+$startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) "Synergy Testnet-Beta Agent.cmd"
 
 Write-Host "Cleaning Synergy Node Control Panel artifacts on Windows..."
 
-Get-Process synergy-devnet-agent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process synergy-testbeta-agent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 if (Test-Path $startupLink) {
   Remove-Item $startupLink -Force
 }

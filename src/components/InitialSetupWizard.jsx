@@ -14,7 +14,7 @@ const STEPS = [
 
 const AUTOPILOT_PLAN = [
   { key: 'workspace', label: 'Initialize Workspace' },
-  { key: 'topology', label: 'Apply 13-Machine Devnet Topology' },
+  { key: 'topology', label: 'Apply 13-Machine Testnet-Beta Topology' },
   { key: 'username', label: 'Detect Local Username' },
   { key: 'sshkey', label: 'Create SSH Key (if missing)' },
   { key: 'operator', label: 'Save Active Operator' },
@@ -28,6 +28,7 @@ const AUTOPILOT_PLAN = [
 const AUTOPILOT_STEP_PAUSE_MS = 520;
 const AUTOPILOT_NODE_PAUSE_MS = 320;
 const AUTOPILOT_RUN_START_PAUSE_MS = 260;
+const BOOTSTRAP_VALIDATOR_QUORUM = 3;
 
 function newAutopilotSteps() {
   return AUTOPILOT_PLAN.map((entry) => ({
@@ -247,7 +248,7 @@ function buildSshKeySetupCommand() {
       "$ErrorActionPreference='Stop';",
       "New-Item -ItemType Directory -Force -Path 'keys/ssh' | Out-Null;",
       "if (-not (Test-Path 'keys/ssh/ops_ed25519')) {",
-      "& ssh-keygen -t ed25519 -a 64 -f 'keys/ssh/ops_ed25519' -C 'devnet-ops' -N '';",
+      "& ssh-keygen -t ed25519 -a 64 -f 'keys/ssh/ops_ed25519' -C 'testbeta-ops' -N '';",
       "} else {",
       "Write-Output 'SSH key already exists; skipping generation.';",
       "}",
@@ -258,7 +259,7 @@ function buildSshKeySetupCommand() {
 
   return [
     'mkdir -p keys/ssh',
-    'if [ ! -f keys/ssh/ops_ed25519 ]; then ssh-keygen -t ed25519 -a 64 -f keys/ssh/ops_ed25519 -C "devnet-ops" -N ""; else echo "SSH key already exists; skipping generation."; fi',
+    'if [ ! -f keys/ssh/ops_ed25519 ]; then ssh-keygen -t ed25519 -a 64 -f keys/ssh/ops_ed25519 -C "testbeta-ops" -N ""; else echo "SSH key already exists; skipping generation."; fi',
     'ls -lah keys/ssh',
   ].join(' && ');
 }
@@ -399,7 +400,7 @@ function InitialSetupWizard({ onComplete }) {
         setInventoryMachines(inventoryRows);
         setAgentSnapshot(agentData);
 
-        const topologyMessage = await invoke('monitor_apply_devnet_topology');
+        const topologyMessage = await invoke('monitor_apply_topology');
         addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
         const identity = await invoke('monitor_detect_local_vpn_identity');
@@ -769,10 +770,10 @@ function InitialSetupWizard({ onComplete }) {
     );
     const installedValidators = validatorNodeIds.filter((nodeSlotId) => installedNodeSet.has(nodeSlotId));
 
-    if (installedValidators.length < 5) {
+    if (installedValidators.length < BOOTSTRAP_VALIDATOR_QUORUM) {
       addTerminalLine(
         'info',
-        `Bootstrap validator quorum waiting: ${installedValidators.length}/5 installed.`,
+        `Bootstrap validator quorum waiting: ${installedValidators.length}/${BOOTSTRAP_VALIDATOR_QUORUM} installed.`,
       );
       return { installed: installedValidators, started: [] };
     }
@@ -896,7 +897,7 @@ function InitialSetupWizard({ onComplete }) {
     setNodeSetupBusy(true);
     setNodeSetupSummary('');
     try {
-      const topologyMessage = await invoke('monitor_apply_devnet_topology');
+      const topologyMessage = await invoke('monitor_apply_topology');
       addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
       const selectedMachine = toCanonicalMachineId(selectedPhysicalMachine, bindingForm.node_slot_id);
@@ -925,14 +926,14 @@ function InitialSetupWizard({ onComplete }) {
 
       addTerminalLine('info', `Installing ${toLogicalNodeLabel(targetNodeId)} on ${selectedMachine}.`);
 
-      const installersRoot = joinWorkspacePath(workspacePath, 'devnet', 'lean15', 'installers');
+      const installersRoot = joinWorkspacePath(workspacePath, 'testbeta', 'lean15', 'installers');
       await runStrictCommand(buildInstallerCommand(installersRoot, targetNodeId), workspacePath || null);
 
       let summary = `Installed ${toLogicalNodeLabel(targetNodeId)} on ${selectedMachine}.`;
       if (isBootstrapValidatorLogicalNode(targetNode)) {
         const quorumResult = await maybeStartBootstrapValidators();
-        if (quorumResult.installed.length < 5) {
-          summary = `${summary} Validator quorum is waiting at ${quorumResult.installed.length}/5 installed.`;
+        if (quorumResult.installed.length < BOOTSTRAP_VALIDATOR_QUORUM) {
+          summary = `${summary} Validator quorum is waiting at ${quorumResult.installed.length}/${BOOTSTRAP_VALIDATOR_QUORUM} installed.`;
         } else if (quorumResult.started.length > 0) {
           summary = `${summary} Bootstrap validators started together after quorum was reached.`;
         }
@@ -1029,7 +1030,7 @@ function InitialSetupWizard({ onComplete }) {
       });
 
       await runStep('topology', 'Apply topology mapping', async () => {
-        const message = await invoke('monitor_apply_devnet_topology');
+        const message = await invoke('monitor_apply_topology');
         addTerminalLine('success', String(message || 'Topology applied.'));
       });
 
@@ -1136,7 +1137,7 @@ function InitialSetupWizard({ onComplete }) {
       });
 
       await runStep('installers', 'Run local installer scripts', async () => {
-        const installersRoot = joinWorkspacePath(resolvedWorkspace, 'devnet', 'lean15', 'installers');
+        const installersRoot = joinWorkspacePath(resolvedWorkspace, 'testbeta', 'lean15', 'installers');
         for (const [index, logicalMachineId] of targetNodes.entries()) {
           updateAutopilotStep(
             'installers',
@@ -1676,7 +1677,7 @@ function InitialSetupWizard({ onComplete }) {
                 <p className="wizard-note">
                   <strong>Select one node slot.</strong>
                   {' '}
-                  Validator-first is the recommended bootstrap path because quorum begins once five
+                  Validator-first is the recommended bootstrap path because quorum begins once three
                   bootstrap validators are installed.
                 </p>
               )}
@@ -1686,7 +1687,7 @@ function InitialSetupWizard({ onComplete }) {
                 </p>
               ) : null}
               <p className="wizard-note">
-                Bootstrap validators stay staged until five validators are installed. Non-validator
+                Bootstrap validators stay staged until three validators are installed. Non-validator
                 nodes stay offline until you run the node&apos;s
                 {' '}
                 <strong>Sync Node</strong>

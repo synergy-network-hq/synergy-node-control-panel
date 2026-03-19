@@ -121,12 +121,21 @@ function nodePeerCountValue(nodeLive, liveStatus) {
   return nodeLive?.local_peer_count ?? liveStatus?.public_peer_count;
 }
 
-function nodePeerCountDetail(nodeLive) {
+function nodePeerCountDetail(nodeLive, liveStatus) {
   if (!nodeLive?.is_running) {
-    return 'Public network peers';
+    return liveStatus?.public_peer_count != null
+      ? `Public RPC reports ${formatNumber(liveStatus.public_peer_count)} visible peers.`
+      : 'Public network peers';
   }
   if (nodeLive.local_rpc_ready === false) {
     return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
+  }
+  if (
+    liveStatus?.public_peer_count != null
+    && nodeLive?.local_peer_count != null
+    && liveStatus.public_peer_count !== nodeLive.local_peer_count
+  ) {
+    return `This node sees ${formatNumber(nodeLive.local_peer_count)} local peers; public RPC sees ${formatNumber(liveStatus.public_peer_count)} visible peers.`;
   }
   return 'Live connected peers';
 }
@@ -374,7 +383,10 @@ function TestnetBetaNodeDetail() {
       {/* Zero-peer warning */}
       {zeroPeersRunning && (
         <div className="nodecp-alert nodecp-alert-warn">
-          <strong>⚠ 0 peers detected</strong> — this node is running but sees no P2P connections and cannot sync.
+          <strong>⚠ 0 local peers detected</strong> — this node is running but sees no P2P connections and cannot sync.
+          {liveStatus?.public_peer_count != null
+            ? ` Public RPC still reports ${formatNumber(liveStatus.public_peer_count)} visible peers, which means the wider network is up but this node is isolated.`
+            : ''}
           Verify that port 38638 is open in your firewall and reachable from the internet.
           Check the Connectivity tab for bootnode and seed server health.
         </div>
@@ -400,9 +412,9 @@ function TestnetBetaNodeDetail() {
         <article className="nodecp-stat-card">
           <div className="nodecp-stat-icon">{ICONS.peers}</div>
           <div className="nodecp-stat-copy">
-            <span className="nodecp-stat-label">Peer Count</span>
+            <span className="nodecp-stat-label">Local Peer Count</span>
             <strong className="nodecp-stat-value">{formatNumber(nodePeerCountValue(nodeLive, liveStatus))}</strong>
-            <span className="nodecp-stat-detail">{nodePeerCountDetail(nodeLive)}</span>
+            <span className="nodecp-stat-detail">{nodePeerCountDetail(nodeLive, liveStatus)}</span>
           </div>
         </article>
         <article className="nodecp-stat-card">
@@ -504,6 +516,10 @@ function TestnetBetaNodeDetail() {
               {' / '}
               {pubHeight != null ? formatNumber(pubHeight) : 'N/A'}
             </p>
+          </div>
+          <div className="nodecp-summary-block">
+            <span className="nodecp-summary-label">Public Visible Peers</span>
+            <p>{liveStatus?.public_peer_count != null ? formatNumber(liveStatus.public_peer_count) : 'N/A'}</p>
           </div>
           <div className="nodecp-summary-block">
             <span className="nodecp-summary-label">Local Peer Count</span>
@@ -872,7 +888,7 @@ function TestnetBetaNodeDetail() {
             || (isRunning
               ? (nodeLive?.local_rpc_ready === false
                 ? `Degraded: ${nodeLive?.local_rpc_status || 'Local RPC is not responding.'}`
-                : `Running (PID ${nodeLive?.pid || '?'}) \u2022 ${formatNumber(nodeLive?.local_peer_count ?? 0)} peers \u2022 Block ${formatNumber(nodeLive?.local_chain_height)}`)
+                : `Running (PID ${nodeLive?.pid || '?'}) \u2022 ${formatNumber(nodeLive?.local_peer_count ?? 0)} local peers \u2022 Block ${formatNumber(nodeLive?.local_chain_height)}`)
               : 'Node is not running.')}
         </span>
       </div>

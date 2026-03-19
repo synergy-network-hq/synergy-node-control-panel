@@ -1,8 +1,8 @@
-# Synergy Devnet Control Panel - Setup Wizard Guide
+# Synergy Testnet-Beta Control Panel - Setup Wizard Guide
 
 ## Overview
 
-The Synergy Devnet Control Panel features an enhanced Jarvis-powered setup wizard that guides users through the process of setting up and managing Synergy network nodes. This document provides a comprehensive guide to the setup wizard's features, functionality, and architecture.
+The Synergy Testnet-Beta Control Panel features an enhanced Jarvis-powered setup wizard that guides users through the process of setting up and managing Synergy network nodes. This document provides a comprehensive guide to the setup wizard's features, functionality, and architecture.
 
 ---
 
@@ -126,7 +126,7 @@ The wizard performs these steps automatically:
 ```
 [Jarvis] Loading configuration template...
 [Config] Template: validator.toml
-[Config] Setting network ID: 338638 (Synergy Devnet)
+[Config] Setting network ID: 338639 (Synergy Testnet-Beta)
 [Config] Setting P2P port: 38638
 [Config] Setting RPC port: 48638
 [Config] Setting WebSocket port: 58638
@@ -136,13 +136,13 @@ The wizard performs these steps automatically:
 
 ##### **5.5 Register with Network**
 ```
-[Jarvis] Connecting to Synergy Devnet...
-[Network] Resolving devnet-api.synergy-network.io...
+[Jarvis] Connecting to Synergy Testnet-Beta...
+[Network] Resolving testbeta-api.synergy-network.io...
 [Network] Connected to registration endpoint
 [Network] Submitting Validator Node registration...
 [Network] Sending public key and address...
 [Network] ✓ Registration confirmed!
-[Network] ✓ Node added to devnet registry
+[Network] ✓ Node added to testbeta registry
 ```
 
 ##### **5.6 Blockchain Sync**
@@ -218,7 +218,7 @@ Displays four critical metrics in highlighted cards:
 Three cards showing:
 - **⏱️ Uptime**: How long the node has been running
 - **📦 Current Block**: Local and network block heights
-- **🌍 Network**: Synergy Devnet (Chain ID: 338638)
+- **🌍 Network**: Synergy Testnet-Beta (Chain ID: 338639)
 
 #### **Node Information**
 - Config path
@@ -270,7 +270,7 @@ Only available when the node is running. Shows:
 ```
 ~/.synergy/control-panel/
 ├── bin/
-│   └── synergy-devnet          # Node binary
+│   └── synergy-testbeta          # Node binary
 ├── templates/
 │   ├── validator.toml          # Validator config template
 │   ├── rpc_gateway.toml        # RPC node config template
@@ -321,7 +321,7 @@ Dashboard component featuring:
 - **Metric Display**: Key metrics with live data
 - **Control Functions**: Start, stop, add nodes
 
-### Backend Commands (Tauri)
+### Backend Commands (Electron)
 
 #### **init_multi_node_environment()**
 - Creates control panel directory structure
@@ -333,7 +333,7 @@ Dashboard component featuring:
 - Generates PQC keypair using synergy-address-engine
 - Derives Synergy address from public key
 - Copies configuration template
-- Registers node with devnet
+- Registers node with testbeta
 - Initiates blockchain sync
 - Returns node ID
 
@@ -366,7 +366,7 @@ Dashboard component featuring:
 - Returns node identity with address
 
 #### **register_node_with_network(binaryPath, nodeIdentity, configPath)**
-- Connects to devnet-api.synergy-network.io
+- Connects to testbeta-api.synergy-network.io
 - Submits node public key and address
 - Waits for registration confirmation
 - Returns registration status
@@ -382,7 +382,7 @@ Dashboard component featuring:
 
 ## Network Configuration
 
-### Devnet Ports
+### Testnet-Beta Ports
 - **38638**: P2P/SNR gossip
 - **48638**: JSON-RPC HTTP
 - **58638**: WebSocket
@@ -396,7 +396,7 @@ bootnode3.synergy-network.io:38638
 ```
 
 ### Chain ID
-- **Devnet**: 338638
+- **Testnet-Beta**: 338639
 
 ---
 
@@ -483,7 +483,7 @@ Once validator, RPC, and relayer nodes are fully tested:
 - **Solution**: Verify binary exists in `bin/` directory, check execute permissions
 
 #### **"Failed to register with network"**
-- **Cause**: Network connectivity issues or devnet API unavailable
+- **Cause**: Network connectivity issues or testbeta API unavailable
 - **Solution**: Check internet connection, verify firewall settings
 
 #### **Sync progress stuck at X%**
@@ -521,15 +521,15 @@ src/
 ├── styles.css                    # All application styles
 └── App.jsx                       # Main app component
 
-src-tauri/src/
+control-service/src/
 ├── node_manager/
-│   ├── commands.rs              # Tauri command handlers
+│   ├── commands.rs              # Electron command handlers
 │   ├── crypto.rs                # PQC operations
 │   ├── multi_node.rs            # Node management
 │   ├── multi_node_process.rs   # Process control
 │   ├── types.rs                 # Data structures
 │   └── node_classes.rs          # Node class definitions
-└── main.rs                      # Tauri entry point
+└── main.rs                      # Electron entry point
 ```
 
 ---
@@ -539,7 +539,7 @@ src-tauri/src/
 - [Validator Guide](guides/validator-guide-ubuntu.md) - Complete validator setup documentation
 - [RPC Node Guide](guides/RPC_NODE_SETUP_GUIDE.md) - RPC node configuration details
 - [Relayer Guide](guides/RELAYER_NODE_SETUP_GUIDE.md) - SXCP relayer setup instructions
-- [Devnet Ports](guides/SYNERGY_DEVNET_PORTS_AND_PROTOCOLS.txt) - Network port specifications
+- [Testnet-Beta Ports](guides/SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt) - Network port specifications
 
 ---
 

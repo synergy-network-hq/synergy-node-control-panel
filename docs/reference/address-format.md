@@ -57,7 +57,7 @@ pub async fn generate_pqc_keypair(
     node_class: NodeClass,
     keys_dir: &PathBuf,
 ) -> Result<NodeIdentity, String> {
-    // Call synergy-devnet binary to generate ML-DSA-65 keypair
+    // Call synergy-testbeta binary to generate ML-DSA-65 keypair
     let output = Command::new(binary_path)
         .arg("keygen")
         .arg("--type").arg("ml-dsa-65")
@@ -72,7 +72,7 @@ pub async fn generate_pqc_keypair(
 **Key Features**:
 - **Key Generation**: ML-DSA-65 (signing) and ML-KEM-768 (encryption)
 - **Address Derivation**: Class-based prefix + cryptographically derived identifier
-- **Network Registration**: Automatic registration with Synergy devnet
+- **Network Registration**: Automatic registration with Synergy testbeta
 - **Blockchain Sync**: Initial sync upon node creation
 
 ### Format Details

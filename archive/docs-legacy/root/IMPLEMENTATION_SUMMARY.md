@@ -1,8 +1,8 @@
-# Synergy Devnet Control Panel - Implementation Summary
+# Synergy Testnet-Beta Control Panel - Implementation Summary
 
 ## Overview
 
-The Synergy Devnet Control Panel has been completely overhauled with a new Jarvis-powered setup wizard featuring an integrated terminal interface. This implementation follows the specifications from the validator, RPC, and relayer node setup guides to provide users with a seamless, guided experience for setting up Synergy network nodes.
+The Synergy Testnet-Beta Control Panel has been completely overhauled with a new Jarvis-powered setup wizard featuring an integrated terminal interface. This implementation follows the specifications from the validator, RPC, and relayer node setup guides to provide users with a seamless, guided experience for setting up Synergy network nodes.
 
 ---
 
@@ -116,7 +116,7 @@ return (
 3. **Enhanced Status Cards** (Lines 287-325):
    - Uptime calculation and formatting
    - Current block height vs network height
-   - Network information (Devnet, Chain ID)
+   - Network information (Testnet-Beta, Chain ID)
 
 4. **Added formatUptime() Helper** (Lines 18-28):
    ```javascript
@@ -240,7 +240,7 @@ return (
 ```
 [Jarvis] Loading configuration template...
 [Config] Template: validator.toml
-[Config] Setting network ID: 338638 (Synergy Devnet)
+[Config] Setting network ID: 338639 (Synergy Testnet-Beta)
 [Config] Setting P2P port: 38638
 [Config] Setting RPC port: 48638
 [Config] Setting WebSocket port: 58638
@@ -257,18 +257,18 @@ return (
 
 **Terminal Output:**
 ```
-[Jarvis] Connecting to Synergy Devnet...
-[Network] Resolving devnet-api.synergy-network.io...
+[Jarvis] Connecting to Synergy Testnet-Beta...
+[Network] Resolving testbeta-api.synergy-network.io...
 [Network] Connected to registration endpoint
 [Network] Submitting Validator Node registration...
 [Network] Sending public key and address...
 [Network] ✓ Registration confirmed!
-[Network] ✓ Node added to devnet registry
+[Network] ✓ Node added to testbeta registry
 ```
 
 **Progress:** 56% → 70%
 
-**Implementation:** Connects to devnet API and submits node identity for registration.
+**Implementation:** Connects to testbeta API and submits node identity for registration.
 
 ### Step 6: Blockchain Synchronization
 **Backend Call:** `crypto::connect_and_sync()`
@@ -405,7 +405,7 @@ return (
 **Solution:** Frontend simulates detailed terminal output based on actual backend steps
 **Benefit:** Better UX with informative feedback at each substep
 
-**Note:** While terminal output is simulated on the frontend, the actual backend operations (key generation, network registration, sync, etc.) are real and use the `invoke()` calls to Tauri commands.
+**Note:** While terminal output is simulated on the frontend, the actual backend operations (key generation, network registration, sync, etc.) are real and use the `invoke()` calls to Electron commands.
 
 ### Why Restrict to 3 Node Types Initially?
 **Problem:** 19 node types with varying setup requirements
@@ -517,7 +517,7 @@ return (
 2. **No Log Streaming**
    - Logs tab shows placeholder, not real logs
    - Users must check log files manually
-   - **Future:** Implement real-time log streaming with Tauri events
+   - **Future:** Implement real-time log streaming with Electron events
 
 3. **No Config Editing**
    - Config tab has "Edit" button but no actual editor
@@ -540,7 +540,7 @@ return (
 
 ### Short-Term (Next Sprint)
 1. **Real Log Streaming:**
-   - Tauri event-based log streaming
+   - Electron event-based log streaming
    - Log filtering and search
    - Download logs feature
 
@@ -592,10 +592,10 @@ return (
 
 ### Pre-Deployment
 - [ ] Test all three node types on fresh install
-- [ ] Verify synergy-devnet binary is included
+- [ ] Verify synergy-testbeta binary is included
 - [ ] Check all config templates are present
 - [ ] Test on macOS, Linux, and Windows
-- [ ] Verify network connectivity to devnet
+- [ ] Verify network connectivity to testbeta
 - [ ] Test error handling for common failures
 
 ### Post-Deployment
@@ -615,7 +615,7 @@ return (
 
 ## Conclusion
 
-The Synergy Devnet Control Panel now features a world-class onboarding experience with the Jarvis setup wizard. Users are guided through the complex process of setting up a Synergy node with clear explanations, real-time feedback, and a beautiful interface.
+The Synergy Testnet-Beta Control Panel now features a world-class onboarding experience with the Jarvis setup wizard. Users are guided through the complex process of setting up a Synergy node with clear explanations, real-time feedback, and a beautiful interface.
 
 The enhanced dashboard provides all the critical metrics at a glance, making it easy for node operators to monitor their node's health, performance, and network status.
 

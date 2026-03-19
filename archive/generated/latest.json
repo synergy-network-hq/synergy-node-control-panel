@@ -1,12 +1,12 @@
 {
-    "version": "devnet-2025-01",
+    "version": "testbeta-2025-01",
     "binaries": {
       "darwin-arm64": {
-        "url": "https://devnet.synergy-network.io/binaries/synergy-devnet-darwin-arm64",
+        "url": "https://testbeta.synergy-network.io/binaries/synergy-testbeta-darwin-arm64",
         "checksum": "14836ccd7481353e1ca0befde755347ce8c4a46fbc14b273e4cd78939c9bb44d"
       },
       "linux-amd64": {
-        "url": "https://devnet.synergy-network.io/binaries/synergy-devnet-linux-amd64",
+        "url": "https://testbeta.synergy-network.io/binaries/synergy-testbeta-linux-amd64",
         "checksum": "ce65b23401cbe9b0c018eaa789821648d9091b5532230658fedc33f1c2b767c0"
       }
     }

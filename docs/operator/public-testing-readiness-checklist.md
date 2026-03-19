@@ -38,9 +38,9 @@
 
 - [ ] Verify that every supported `NodeType` maps to the correct specialized binary on Windows, macOS, and Linux.
 - [ ] Remove or fully migrate any legacy setup path that still assumes one generic node executable.
-- [x] Verify that the Testnet-Beta setup flow writes correct role metadata into generated configs. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet-Beta/synergy-devnet/tools/devnet-control-panel/src-tauri/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
+- [x] Verify that the Testnet-Beta setup flow writes correct role metadata into generated configs. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet-Beta/synergy-testbeta/tools/testbeta-control-panel/control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
 - [ ] Verify that the generic node-manager flow also writes correct role metadata when it is used.
-- [x] Verify that the control panel writes valid bootstrap inputs into generated config files. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet-Beta/synergy-devnet/tools/devnet-control-panel/src-tauri/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
+- [x] Verify that the control panel writes valid bootstrap inputs into generated config files. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet-Beta/synergy-testbeta/tools/testbeta-control-panel/control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
 - [ ] Verify that setup, install, start, stop, restart, logs, status, and uninstall all work for every public-test role.
 - [ ] Verify that the control panel can recover cleanly from partial installs, interrupted downloads, or corrupted config files.
 - [ ] Verify that the control panel shows clear user-facing errors when a role cannot be installed or started.

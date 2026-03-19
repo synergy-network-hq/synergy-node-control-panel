@@ -1,8 +1,8 @@
-# Synergy Devnet Quick Reference
+# Synergy Testnet-Beta Quick Reference
 
 ## Network Configuration
 
-- **Chain ID**: 338638
+- **Chain ID**: 338639
 - **P2P Port**: 38638
 - **RPC Port**: 48638
 - **WebSocket Port**: 58638
@@ -10,14 +10,14 @@
 
 ## Endpoints
 
-- **Core RPC**: https://devnet-core-rpc.synergy-network.io
-- **Core WebSocket**: wss://devnet-core-ws.synergy-network.io
-- **EVM RPC**: https://devnet-evm-rpc.synergy-network.io
-- **EVM WebSocket**: wss://devnet-evm-ws.synergy-network.io
-- **API**: https://devnet-api.synergy-network.io
-- **Explorer**: https://devnet-explorer.synergy-network.io
-- **Indexer**: https://devnet-indexer.synergy-network.io
-- **Faucet**: https://devnet-faucet.synergy-network.io
+- **Core RPC**: https://testbeta-core-rpc.synergy-network.io
+- **Core WebSocket**: wss://testbeta-core-ws.synergy-network.io
+- **EVM RPC**: https://testbeta-evm-rpc.synergy-network.io
+- **EVM WebSocket**: wss://testbeta-evm-ws.synergy-network.io
+- **API**: https://testbeta-api.synergy-network.io
+- **Explorer**: https://testbeta-explorer.synergy-network.io
+- **Indexer**: https://testbeta-indexer.synergy-network.io
+- **Faucet**: https://testbeta-faucet.synergy-network.io
 
 ## Bootnodes
 
@@ -54,32 +54,32 @@
 ## Cluster
 
 - **Cluster ID**: `syngrp116xlcwtcuwd8cdkqrftdww5dpqvm699uanux4mc`
-- **Name**: Devnet Bootstrap Cluster
+- **Name**: Testnet-Beta Bootstrap Cluster
 - **Class**: 1 (Consensus Nodes)
 
 ## Network
 
 - **Total Supply**: 12,000,000,000 SNRG
 - **Burn Address**: `synergy00000000000000000000000burn`
-- **Chain ID**: `synergy-devnet`
+- **Chain ID**: `synergy-testbeta`
 
 ## Quick Commands
 
 ```bash
 # Start primary bootnode
-./devnet.sh start validator
+./testbeta.sh start validator
 
 # Check status
-./devnet.sh status
+./testbeta.sh status
 
 # View logs
-./devnet.sh logs
+./testbeta.sh logs
 
 # Clean and reset
-./devnet.sh clean
+./testbeta.sh clean
 
 # Build project
-./devnet.sh build
+./testbeta.sh build
 ```
 
 ## Generate New Address

@@ -10,7 +10,7 @@
 #
 # This script will:
 #   1. Validate the version string
-#   2. Bump the version in package.json and src-tauri/Cargo.toml
+#   2. Bump the version in package.json and control-service/Cargo.toml
 #   3. Run local release preflight checks, including an Electron runtime build
 #   4. Commit the version bump
 #   5. Create a git tag (v2.0.2)
@@ -57,14 +57,14 @@ echo "Bumping version in package.json..."
 sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 rm -f package.json.bak
 
-echo "Bumping version in src-tauri/Cargo.toml..."
-sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
-rm -f src-tauri/Cargo.toml.bak
+echo "Bumping version in control-service/Cargo.toml..."
+sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" control-service/Cargo.toml
+rm -f control-service/Cargo.toml.bak
 
 # Update Cargo.lock if it exists
-if [[ -f src-tauri/Cargo.lock ]]; then
+if [[ -f control-service/Cargo.lock ]]; then
   echo "Updating Cargo.lock..."
-  (cd src-tauri && cargo generate-lockfile 2>/dev/null || true)
+  (cd control-service && cargo generate-lockfile 2>/dev/null || true)
 fi
 
 echo ""
@@ -85,9 +85,9 @@ echo "Preflight passed."
 echo ""
 
 # ── Commit and tag ──
-git add package.json src-tauri/Cargo.toml
-git add src-tauri/Cargo.lock 2>/dev/null || true
-git add devnet/lean15/configs devnet/lean15/installers devnet/lean15/workspace-manifest.json
+git add package.json control-service/Cargo.toml
+git add control-service/Cargo.lock 2>/dev/null || true
+git add testbeta/lean15/configs testbeta/lean15/installers testbeta/lean15/workspace-manifest.json
 git add scripts/release/preflight.sh scripts/release/generate-latest-json.sh .github/workflows/release.yml 2>/dev/null || true
 git commit -m "chore: bump version to $VERSION"
 git tag -a "$TAG" -m "Release $TAG"
@@ -103,7 +103,7 @@ if [[ "$confirm" =~ ^[Yy]$ ]]; then
   git push origin "$TAG"
   echo ""
   echo "Pushed! The GitHub Actions release build is now running."
-  echo "Monitor progress at: https://github.com/synergy-network-hq/devnet-control-panel/actions"
+  echo "Monitor progress at: https://github.com/synergy-network-hq/testbeta-control-panel/actions"
   echo ""
   echo "Once complete, download the generated installers from the workflow artifacts"
   echo "or publish them to the releases repo for distribution."

@@ -1,4 +1,4 @@
-# Synergy Devnet — Command Reference
+# Synergy Testnet-Beta — Command Reference
 
 All paths are relative to the repo root unless stated otherwise.
 
@@ -38,11 +38,11 @@ If you need to pair `npm run dev:renderer` with `npm run dev:electron` manually,
 
 ## 2. Agent (Service Worker) Binary
 
-The **devnet agent** (`synergy-devnet-agent`) is the lightweight service worker that runs on each remote devnet machine. It exposes an HTTP control API at port 47990, letting the control panel start/stop/reset nodes without SSH.
+The **testbeta agent** (`synergy-testbeta-agent`) is the lightweight service worker that runs on each remote testbeta machine. It exposes an HTTP control API at port 47990, letting the control panel start/stop/reset nodes without SSH.
 
 ### `scripts/build-sidecars.sh`
 **Run from:** repo root
-**What it does (default — no args):** Compiles the agent for the current native platform and copies the binary to `binaries/synergy-devnet-agent-<platform>`. This is the most common variant and is also used by CI.
+**What it does (default — no args):** Compiles the agent for the current native platform and copies the binary to `binaries/synergy-testbeta-agent-<platform>`. This is the most common variant and is also used by CI.
 
 ```bash
 bash scripts/build-sidecars.sh
@@ -53,8 +53,8 @@ bash scripts/build-sidecars.sh
 | Flag | What it does |
 |---|---|
 | *(none)* | Build for the native platform only (macOS arm64 → `darwin-arm64`, etc.) |
-| `--linux` | Cross-compile for `x86_64-unknown-linux-gnu` → `binaries/synergy-devnet-agent-linux-amd64` using `cargo-zigbuild` (no Docker) |
-| `--windows` | Cross-compile for `x86_64-pc-windows-gnu` → `binaries/synergy-devnet-agent-windows-amd64.exe` using `cargo-zigbuild` (no Docker) |
+| `--linux` | Cross-compile for `x86_64-unknown-linux-gnu` → `binaries/synergy-testbeta-agent-linux-amd64` using `cargo-zigbuild` (no Docker) |
+| `--windows` | Cross-compile for `x86_64-pc-windows-gnu` → `binaries/synergy-testbeta-agent-windows-amd64.exe` using `cargo-zigbuild` (no Docker) |
 | `--all` | Native + linux-amd64 + linux-arm64 + windows-amd64 — builds all remote-deployment targets in one shot |
 
 **One-time setup for `--linux`, `--windows`, or `--all` (macOS):**
@@ -68,23 +68,23 @@ rustup target add x86_64-pc-windows-gnu           # required for --windows / --a
 
 **CI variant (used in `release.yml`):** The workflow sets `CARGO_BUILD_TARGET=<triple>` and calls `bash scripts/build-sidecars.sh` with no flags. Each GitHub Actions runner builds its own platform natively, so `cargo-zigbuild` is not needed in CI.
 
-**Why these binaries matter:** `binaries/` is bundled into the Electron app as extra resources. When you click **Update Agent** in the control panel, `deploy_agent()` copies the matching binary from this directory to the remote machine over SSH. If `synergy-devnet-agent-linux-amd64` is missing, all agent deployments to Linux machines will fail with "binary not found".
+**Why these binaries matter:** `binaries/` is bundled into the Electron app as extra resources. When you click **Update Agent** in the control panel, `deploy_agent()` copies the matching binary from this directory to the remote machine over SSH. If `synergy-testbeta-agent-linux-amd64` is missing, all agent deployments to Linux machines will fail with "binary not found".
 
 ---
 
 ## 3. Node Installer Bundles
 
-Node installer bundles are per-node archives deployed to remote machines during initial setup. They contain the `synergy-devnet` binary, config, keys, and a startup script.
+Node installer bundles are per-node archives deployed to remote machines during initial setup. They contain the `synergy-testbeta` binary, config, keys, and a startup script.
 
-### `scripts/devnet15/build-node-installers.sh`
+### `scripts/testbeta/build-node-installers.sh`
 **Run from:** repo root
-**What it does:** Assembles per-node installer bundles under `devnet/lean15/installers/<node-slot-id>/`. Each bundle is uploaded to the corresponding remote machine by `remote-node-orchestrator.sh install_node`. The script resolves platform binaries automatically — it prefers freshly compiled binaries in `target/` and falls back to pre-built binaries in `binaries/`.
+**What it does:** Assembles per-node installer bundles under `testbeta/lean15/installers/<node-slot-id>/`. Each bundle is uploaded to the corresponding remote machine by `remote-node-orchestrator.sh install_node`. The script resolves platform binaries automatically — it prefers freshly compiled binaries in `target/` and falls back to pre-built binaries in `binaries/`.
 
 ```bash
-bash scripts/devnet15/build-node-installers.sh
+bash scripts/testbeta/build-node-installers.sh
 ```
 
-**Required before running:** The appropriate `synergy-devnet` binary must exist in `target/release/`, `target/x86_64-unknown-linux-gnu/release/`, or `binaries/` (fallback).
+**Required before running:** The appropriate `synergy-testbeta` binary must exist in `target/release/`, `target/x86_64-unknown-linux-gnu/release/`, or `binaries/` (fallback).
 
 ---
 
@@ -92,20 +92,20 @@ bash scripts/devnet15/build-node-installers.sh
 
 All remote node actions (both SSH-based and agent-based) go through a single script.
 
-### `scripts/devnet15/remote-node-orchestrator.sh`
+### `scripts/testbeta/remote-node-orchestrator.sh`
 **Run from:** repo root
 **What it does:** Executes a single operation on a single remote node. The control panel calls this script internally through the local Rust `control-service`. You can also invoke it directly from the terminal.
 
 ```bash
-bash scripts/devnet15/remote-node-orchestrator.sh <node-slot-id> <operation>
+bash scripts/testbeta/remote-node-orchestrator.sh <node-slot-id> <operation>
 ```
 
 **Examples:**
 ```bash
-bash scripts/devnet15/remote-node-orchestrator.sh node-03 status
-bash scripts/devnet15/remote-node-orchestrator.sh node-07 start
-bash scripts/devnet15/remote-node-orchestrator.sh node-14 logs
-bash scripts/devnet15/remote-node-orchestrator.sh node-01 deploy_agent
+bash scripts/testbeta/remote-node-orchestrator.sh node-03 status
+bash scripts/testbeta/remote-node-orchestrator.sh node-07 start
+bash scripts/testbeta/remote-node-orchestrator.sh node-14 logs
+bash scripts/testbeta/remote-node-orchestrator.sh node-01 deploy_agent
 ```
 
 **Node slot IDs:** `node-01` through `node-25` (23 nodes total — `node-19` and `node-21` do not exist)
@@ -119,16 +119,16 @@ bash scripts/devnet15/remote-node-orchestrator.sh node-01 deploy_agent
 | `restart` | Restarts the node (`nodectl restart`) |
 | `status` | Returns node running status (`nodectl status`) |
 | `logs` | Tails the last 120 lines of node logs |
-| `export_logs` | Downloads a full logs archive to `devnet/lean15/reports/remote-exports/` |
-| `install_node` | Copies the installer bundle from `devnet/lean15/installers/<id>/` to the remote machine |
+| `export_logs` | Downloads a full logs archive to `testbeta/lean15/reports/remote-exports/` |
+| `install_node` | Copies the installer bundle from `testbeta/lean15/installers/<id>/` to the remote machine |
 | `setup_node` | Copies installer bundle and runs `install_and_start.sh` — full first-time node setup |
 | `bootstrap_node` | Same as `setup_node` — alias used during genesis bootstrap |
 | `reset_chain` | Stops the node, deletes all chain state on the remote machine, and redeploys config. Does **not** restart — use `start` afterward |
 | `sync_node` | Runs the custom sync operation defined in the node's recipe |
-| `deploy_agent` | SCPs the matching `binaries/synergy-devnet-agent-<platform>` binary to the remote machine and installs/restarts it as a systemd service. Requires the binary to already exist in `binaries/` |
+| `deploy_agent` | SCPs the matching `binaries/synergy-testbeta-agent-<platform>` binary to the remote machine and installs/restarts it as a systemd service. Requires the binary to already exist in `binaries/` |
 | `explorer_reset` | Triggers the block explorer to reindex from the remote machine using VPN-safe routing |
 | `view_chain_data` | Shows chain data directory size and top files on the remote machine |
-| `export_chain_data` | Downloads a chain data archive to `devnet/lean15/reports/remote-exports/` |
+| `export_chain_data` | Downloads a chain data archive to `testbeta/lean15/reports/remote-exports/` |
 | `info` | Prints resolved host/SSH/path config for this node — useful for debugging connectivity |
 
 **Node-type-specific operations** (only valid for the appropriate node role):
@@ -148,18 +148,18 @@ bash scripts/devnet15/remote-node-orchestrator.sh node-01 deploy_agent
 
 **How routing works:** The orchestrator tries the agent HTTP API first (`http://<vpn_ip>:47990/v1/control`). If the agent is unreachable it falls back to SSH. The `deploy_agent` operation always uses SSH (by design — the agent can't update itself).
 
-**Environment / config:** The script reads `devnet/lean15/hosts.env` for SSH credentials and VPN IPs. Override specific machines with env vars like `NODE_03_HOST`, `NODE_03_SSH_KEY`, etc.
+**Environment / config:** The script reads `testbeta/lean15/hosts.env` for SSH credentials and VPN IPs. Override specific machines with env vars like `NODE_03_HOST`, `NODE_03_SSH_KEY`, etc.
 
 ---
 
 ## 5. Local Node Runner (for locally-hosted nodes)
 
-### `scripts/devnet15/run-node.sh`
+### `scripts/testbeta/run-node.sh`
 **Run from:** repo root
 **What it does:** Starts, stops, or checks a node that runs locally (on the same machine as the control panel). Used for locally-hosted nodes and by the reset script.
 
 ```bash
-bash scripts/devnet15/run-node.sh <action> <node-slot-id> [--follow]
+bash scripts/testbeta/run-node.sh <action> <node-slot-id> [--follow]
 ```
 
 **Actions:** `start`, `stop`, `restart`, `status`, `logs`
@@ -169,21 +169,21 @@ bash scripts/devnet15/run-node.sh <action> <node-slot-id> [--follow]
 
 **Examples:**
 ```bash
-bash scripts/devnet15/run-node.sh start node-01
-bash scripts/devnet15/run-node.sh logs node-01 --follow
-bash scripts/devnet15/run-node.sh status node-03
+bash scripts/testbeta/run-node.sh start node-01
+bash scripts/testbeta/run-node.sh logs node-01 --follow
+bash scripts/testbeta/run-node.sh status node-03
 ```
 
 ---
 
-## 6. Devnet Reset
+## 6. Testnet-Beta Reset
 
-### `scripts/devnet15/reset-devnet.sh` (via `scripts/reset-devnet.sh`)
+### `scripts/testbeta/reset-testbeta.sh` (via `scripts/reset-testbeta.sh`)
 **Run from:** repo root
-**What it does:** Full closed-devnet reset workflow. Stops all nodes, clears all chain/token/validator state locally and on all remote machines, re-renders configs, regenerates deterministic genesis, then optionally rebuilds installers. Nodes are intentionally **not** restarted — use **Start All** from the control panel dashboard when ready.
+**What it does:** Full closed-testbeta reset workflow. Stops all nodes, clears all chain/token/validator state locally and on all remote machines, re-renders configs, regenerates deterministic genesis, then optionally rebuilds installers. Nodes are intentionally **not** restarted — use **Start All** from the control panel dashboard when ready.
 
 ```bash
-bash scripts/reset-devnet.sh
+bash scripts/reset-testbeta.sh
 ```
 
 **Flags:**
@@ -192,7 +192,7 @@ bash scripts/reset-devnet.sh
 |---|---|
 | `--rebuild-installers` | Also rebuilds all node installer bundles after the reset (calls `build-node-installers.sh`) |
 | `--skip-restart` | Skip the final cluster restart (default is already skip — nodes don't restart after reset) |
-| `--hosts-file <path>` | Override the default `devnet/lean15/hosts.env` with a custom hosts file |
+| `--hosts-file <path>` | Override the default `testbeta/lean15/hosts.env` with a custom hosts file |
 
 ---
 
@@ -200,7 +200,7 @@ bash scripts/reset-devnet.sh
 
 ### `scripts/release.sh <version>`
 **Run from:** repo root
-**What it does:** The single command to cut and publish a new release. Bumps the version in `package.json` and `src-tauri/Cargo.toml`, runs the release preflight checks, commits the version bump, creates a git tag, and pushes it to origin — which triggers the GitHub Actions release build.
+**What it does:** The single command to cut and publish a new release. Bumps the version in `package.json` and `control-service/Cargo.toml`, runs the release preflight checks, commits the version bump, creates a git tag, and pushes it to origin — which triggers the GitHub Actions release build.
 
 ```bash
 bash scripts/release.sh 2.11.0
@@ -209,7 +209,7 @@ bash scripts/release.sh 2.11.0
 **What it does step by step:**
 1. Validates the version string is valid semver (`major.minor.patch`)
 2. Checks there are no uncommitted changes (exits if there are)
-3. Bumps the version in `package.json` and `src-tauri/Cargo.toml`
+3. Bumps the version in `package.json` and `control-service/Cargo.toml`
 4. Runs `scripts/release/preflight.sh` (see below)
 5. Commits the version bump
 6. Creates an annotated git tag (`v2.11.0`)
@@ -247,8 +247,8 @@ bash scripts/release/preflight.sh
           └─ uploads installers as GitHub Actions artifacts
 ```
 
-**Monitor the build:** `https://github.com/synergy-network-hq/devnet-control-panel/actions`
-**Installers published to:** `https://github.com/synergy-network-hq/devnet-control-panel-releases/releases`
+**Monitor the build:** `https://github.com/synergy-network-hq/testbeta-control-panel/actions`
+**Installers published to:** `https://github.com/synergy-network-hq/testbeta-control-panel-releases/releases`
 
 ---
 
@@ -264,9 +264,9 @@ bash scripts/release/preflight.sh
 | `bash scripts/build-sidecars.sh --linux` | repo root | Cross-compile agent for Linux (zigbuild) |
 | `bash scripts/build-sidecars.sh --windows` | repo root | Cross-compile agent for Windows (zigbuild) |
 | `bash scripts/build-sidecars.sh --all` | repo root | Build agent for all remote platforms |
-| `bash scripts/devnet15/build-node-installers.sh` | repo root | Assemble per-node installer bundles |
-| `bash scripts/devnet15/remote-node-orchestrator.sh <id> <op>` | repo root | Run any operation on a remote node (node-01–node-25, excl. node-19/21) |
-| `bash scripts/devnet15/run-node.sh <action> <id>` | repo root | Start/stop/status a locally-hosted node |
-| `bash scripts/reset-devnet.sh` | repo root | Full devnet reset (stop + wipe + regenerate) |
+| `bash scripts/testbeta/build-node-installers.sh` | repo root | Assemble per-node installer bundles |
+| `bash scripts/testbeta/remote-node-orchestrator.sh <id> <op>` | repo root | Run any operation on a remote node (node-01–node-25, excl. node-19/21) |
+| `bash scripts/testbeta/run-node.sh <action> <id>` | repo root | Start/stop/status a locally-hosted node |
+| `bash scripts/reset-testbeta.sh` | repo root | Full testbeta reset (stop + wipe + regenerate) |
 | `bash scripts/release.sh <version>` | repo root | Cut and publish a new release |
 | `bash scripts/release/preflight.sh` | repo root | Validate release readiness without publishing |

@@ -38,7 +38,7 @@ As a validator, you will:
 - **Git**: For repository management
 - **OpenSSL**: Cryptographic libraries
 
-### Network Requirements (Devnet)
+### Network Requirements (Testnet-Beta)
 
 - **Static IP**: Required for P2P connectivity
 - **Open Ports**:
@@ -80,14 +80,14 @@ mkdir -p ~/synergy
 ```bash
 # Clone repository
 cd ~/synergy
-git clone https://github.com/synergy-network-hq/synergy-devnet.git
-cd synergy-devnet
+git clone https://github.com/synergy-network-hq/synergy-testbeta.git
+cd synergy-testbeta
 
 # Build the node
-cargo build --release --bin synergy-devnet
+cargo build --release --bin synergy-testbeta
 
 # Verify the build
-./target/release/synergy-devnet version
+./target/release/synergy-testbeta version
 ```
 
 ### 3. Configuration
@@ -96,8 +96,8 @@ cargo build --release --bin synergy-devnet
 
 ```toml
 [network]
-id = 338638
-name = "Synergy Devnet"
+id = 338639
+name = "Synergy Testnet-Beta"
 p2p_port = 38638
 rpc_port = 48638
 ws_port = 58638
@@ -114,13 +114,13 @@ ws  = "0.0.0.0:58638"
 
 [rpc]
 bind_address = "0.0.0.0:48638"
-external_http = "https://devnet-core-rpc.synergy-network.io"
-external_ws = "wss://devnet-core-ws.synergy-network.io"
+external_http = "https://testbeta-core-rpc.synergy-network.io"
+external_ws = "wss://testbeta-core-ws.synergy-network.io"
 
 [blockchain]
 block_time = 5
 max_gas_limit = "0x2fefd8"
-chain_id = 338638
+chain_id = 338639
 
 [storage]
 database = "rocksdb"
@@ -140,13 +140,13 @@ bind_address = "0.0.0.0:9090"
 
 #### Using Node Templates
 
-Synergy devnet uses template-based configuration. Simply start a validator node using:
+Synergy testbeta uses template-based configuration. Simply start a validator node using:
 
 ```bash
-./target/release/synergy-devnet start --node-type validator
+./target/release/synergy-testbeta start --node-type validator
 ```
 
-The validator template (`templates/validator.toml`) contains all necessary configuration matching the correct Devnet ports specified in SYNERGY_DEVNET_PORTS_AND_PROTOCOLS.txt:
+The validator template (`templates/validator.toml`) contains all necessary configuration matching the correct Testnet-Beta ports specified in SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt:
 
 - **P2P Port**: 38638
 - **RPC Port**: 48638
@@ -160,8 +160,8 @@ The validator template (`templates/validator.toml`) contains all necessary confi
 Synergy Network uses **post-quantum cryptography (PQC)** with **FN-DSA-1024** (NIST Level 5) for validator keys. The Synergy Address Engine generates quantum-safe **Class 1 Node addresses** with the `sYnV1` prefix, cryptographically derived from the public key using SHA3-256.
 
 ```bash
-# Navigate to devnet directory
-cd ~/synergy/synergy-devnet
+# Navigate to testbeta directory
+cd ~/synergy/synergy-testbeta
 
 # Create validator config directory
 mkdir -p config/validator
@@ -256,14 +256,14 @@ ADDR=$(jq -r '.address' config/validator/validator_identity.json)
 echo "Your validator address: $ADDR"
 
 # Test that the node can read the configuration
-./target/release/synergy-devnet --help
+./target/release/synergy-testbeta --help
 ```
 
 #### Register with Genesis
 
 To become an initial validator, your public key must be included in the genesis block.
 
-**For Devnet (Development Network):**
+**For Testnet-Beta (Development Network):**
 
 1. **Submit Validator Information:**
    - Navigate to the Synergy Network Discord or Telegram
@@ -287,17 +287,17 @@ EOF
 ```
 
 2. **Wait for Genesis Inclusion:**
-   - The devnet coordinator will add your validator to the genesis configuration
+   - The testbeta coordinator will add your validator to the genesis configuration
    - You'll receive confirmation when your validator is included
 
 3. **Download Updated Genesis:**
 
 ```bash
 # Once approved, download the latest genesis file
-curl -o devnet/genesis.json https://devnet-api.synergy-network.io/genesis.json
+curl -o testbeta/genesis.json https://testbeta-api.synergy-network.io/genesis.json
 
 # Verify your validator is included
-jq '.validators[] | select(.address == "'$(jq -r '.address' config/validator/validator_identity.json)'")' devnet/genesis.json
+jq '.validators[] | select(.address == "'$(jq -r '.address' config/validator/validator_identity.json)'")' testbeta/genesis.json
 
 # Expected output:
 # {
@@ -321,7 +321,7 @@ Provide:
 4. Hardware specifications and uptime commitment
 5. Stake amount (if applicable)
 
-**Example Pre-configured Devnet Addresses (Class 1 Node format):**
+**Example Pre-configured Testnet-Beta Addresses (Class 1 Node format):**
 
 - `sYnV1ffzcyq7l0sw7v9fhrx2wdvxxzv9q5mj3ehd6yl3e`
 - `sYnV1v3smghwdd2zj7vpgkx0fn3cf0k57eq7hqufup0tp`
@@ -342,12 +342,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$HOME/synergy/synergy-devnet
-ExecStart=$HOME/synergy/synergy-devnet/target/release/synergy-devnet start --node-type validator
+WorkingDirectory=$HOME/synergy/synergy-testbeta
+ExecStart=$HOME/synergy/synergy-testbeta/target/release/synergy-testbeta start --node-type validator
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:$HOME/synergy/synergy-devnet/data/logs/synergy-validator.log
-StandardError=append:$HOME/synergy/synergy-devnet/data/logs/synergy-validator-error.log
+StandardOutput=append:$HOME/synergy/synergy-testbeta/data/logs/synergy-validator.log
+StandardError=append:$HOME/synergy/synergy-testbeta/data/logs/synergy-validator-error.log
 Environment="PATH=/usr/local/bin:/usr/bin:/bin:$HOME/.cargo/bin"
 Environment="RUST_LOG=info"
 
@@ -356,7 +356,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=$HOME/synergy/synergy-devnet/data
+ReadWritePaths=$HOME/synergy/synergy-testbeta/data
 
 # Resource limits
 LimitNOFILE=65536
@@ -366,7 +366,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create log directory
-mkdir -p ~/synergy/synergy-devnet/data/logs
+mkdir -p ~/synergy/synergy-testbeta/data/logs
 
 # Reload systemd daemon
 sudo systemctl daemon-reload
@@ -477,8 +477,8 @@ sudo systemctl status synergy-validator
 
 # View logs
 journalctl -u synergy-validator -f
-tail -f ~/synergy/synergy-devnet/data/logs/synergy-validator.log
-tail -f ~/synergy/synergy-devnet/data/logs/synergy-validator-error.log
+tail -f ~/synergy/synergy-testbeta/data/logs/synergy-validator.log
+tail -f ~/synergy/synergy-testbeta/data/logs/synergy-validator-error.log
 
 # Check node info via RPC
 curl -X POST -H "Content-Type: application/json" \
@@ -509,11 +509,11 @@ sudo lsof -i :58638
 ss -tn | grep -E '38638|48638|58638'
 
 # Check disk usage
-du -sh ~/synergy/synergy-devnet/data/
-ls -lah ~/synergy/synergy-devnet/data/logs/
+du -sh ~/synergy/synergy-testbeta/data/
+ls -lah ~/synergy/synergy-testbeta/data/logs/
 
 # Monitor I/O
-sudo iotop -p $(pgrep synergy-devnet)
+sudo iotop -p $(pgrep synergy-testbeta)
 
 # System performance statistics
 vmstat 1 10
@@ -536,12 +536,12 @@ mkdir -p $BACKUP_DIR
 sudo systemctl stop synergy-validator
 
 # Backup blockchain data
-cp -r $HOME/synergy/synergy-devnet/data/chain $BACKUP_DIR/chain_$DATE/
-cp $HOME/synergy/synergy-devnet/data/chain.json $BACKUP_DIR/ 2>/dev/null || true
-cp $HOME/synergy/synergy-devnet/data/validators.json $BACKUP_DIR/ 2>/dev/null || true
+cp -r $HOME/synergy/synergy-testbeta/data/chain $BACKUP_DIR/chain_$DATE/
+cp $HOME/synergy/synergy-testbeta/data/chain.json $BACKUP_DIR/ 2>/dev/null || true
+cp $HOME/synergy/synergy-testbeta/data/validators.json $BACKUP_DIR/ 2>/dev/null || true
 
 # Backup configuration
-cp -r $HOME/synergy/synergy-devnet/config $BACKUP_DIR/config_$DATE/
+cp -r $HOME/synergy/synergy-testbeta/config $BACKUP_DIR/config_$DATE/
 
 # Restart the validator service
 sudo systemctl start synergy-validator
@@ -613,7 +613,7 @@ Configure logrotate for automatic log management:
 ```bash
 # Create logrotate configuration
 sudo tee /etc/logrotate.d/synergy-validator > /dev/null <<EOF
-$HOME/synergy/synergy-devnet/data/logs/*.log {
+$HOME/synergy/synergy-testbeta/data/logs/*.log {
     daily
     rotate 7
     compress
@@ -650,11 +650,11 @@ sudo lsof -i :58638
 sudo ss -tuln | grep -E '38638|48638|58638'
 
 # Check available disk space
-df -h ~/synergy/synergy-devnet/
+df -h ~/synergy/synergy-testbeta/
 
 # Check file permissions
-chmod -R 755 ~/synergy/synergy-devnet/
-chmod 600 ~/synergy/synergy-devnet/config/validator/validator_key.pem
+chmod -R 755 ~/synergy/synergy-testbeta/
+chmod 600 ~/synergy/synergy-testbeta/config/validator/validator_key.pem
 
 # Check service status and logs
 sudo systemctl status synergy-validator
@@ -671,7 +671,7 @@ curl -X POST -H "Content-Type: application/json" \
 
 # Restart with fresh sync
 sudo systemctl stop synergy-validator
-rm -rf ~/synergy/synergy-devnet/data/chain/*
+rm -rf ~/synergy/synergy-testbeta/data/chain/*
 sudo systemctl start synergy-validator
 journalctl -u synergy-validator -f
 ```
@@ -682,7 +682,7 @@ journalctl -u synergy-validator -f
 # Check what's using resources
 top -o %CPU
 htop
-ps aux | grep synergy-devnet
+ps aux | grep synergy-testbeta
 
 # Check memory usage
 free -h
@@ -699,12 +699,12 @@ sudo systemctl restart synergy-validator
 
 ```bash
 # Fix ownership of data directory
-sudo chown -R $USER:$USER ~/synergy/synergy-devnet/data/
+sudo chown -R $USER:$USER ~/synergy/synergy-testbeta/data/
 
 # Fix permissions
-chmod -R 755 ~/synergy/synergy-devnet/
-chmod 600 ~/synergy/synergy-devnet/config/validator/validator_key.pem
-chmod 644 ~/synergy/synergy-devnet/config/validator/validator_pub.pem
+chmod -R 755 ~/synergy/synergy-testbeta/
+chmod 600 ~/synergy/synergy-testbeta/config/validator/validator_key.pem
+chmod 644 ~/synergy/synergy-testbeta/config/validator/validator_pub.pem
 ```
 
 ### Debug Mode
@@ -716,8 +716,8 @@ Run the node in debug mode for detailed logging:
 sudo systemctl stop synergy-validator
 
 # Run manually with debug logging
-cd ~/synergy/synergy-devnet
-RUST_LOG=debug ./target/release/synergy-devnet start --node-type validator
+cd ~/synergy/synergy-testbeta
+RUST_LOG=debug ./target/release/synergy-testbeta start --node-type validator
 
 # Or modify the systemd service for debug mode
 sudo systemctl edit synergy-validator
@@ -740,11 +740,11 @@ journalctl -u synergy-validator -f
 sudo systemctl stop synergy-validator
 
 # Backup current data
-cp -r ~/synergy/synergy-devnet/data ~/synergy/synergy-devnet/data.backup
+cp -r ~/synergy/synergy-testbeta/data ~/synergy/synergy-testbeta/data.backup
 
 # Remove corrupted data
-rm -rf ~/synergy/synergy-devnet/data/chain/*
-rm ~/synergy/synergy-devnet/data/chain.json
+rm -rf ~/synergy/synergy-testbeta/data/chain/*
+rm ~/synergy/synergy-testbeta/data/chain.json
 
 # Restart (will rebuild from genesis)
 sudo systemctl start synergy-validator
@@ -758,7 +758,7 @@ journalctl -u synergy-validator -f
 sudo systemctl stop synergy-validator
 
 # Generate new keys
-cd ~/synergy/synergy-devnet
+cd ~/synergy/synergy-testbeta
 openssl ecparam -name prime256v1 -genkey -noout -out config/validator/new_validator_key.pem
 openssl ec -in config/validator/new_validator_key.pem -pubout -out config/validator/new_validator_pub.pem
 
@@ -928,7 +928,7 @@ sudo systemctl status unattended-upgrades
 - **Discord**: [Synergy Network Discord](https://discord.gg/synergy)
 <!-- - **Forum**: [Synergy Network Forum](https://forum.synergy.network) -->
 - **Telegram**: [Synergy Validators](https://t.me/synergy_validators)
-<!-- - **GitHub**: [Issues and Discussions](https://github.com/synergy-network/devnet) -->
+<!-- - **GitHub**: [Issues and Discussions](https://github.com/synergy-network/testbeta) -->
 
 ### Best Practices
 

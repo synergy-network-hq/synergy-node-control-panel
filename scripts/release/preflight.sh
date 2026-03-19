@@ -4,12 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-REPO_SLUG="synergy-network-hq/devnet-control-panel"
+REPO_SLUG="synergy-network-hq/node-control-panel"
 
 echo "== Release preflight =="
 echo "Repo: $REPO_SLUG"
 
-if [[ ! -f package.json || ! -f src-tauri/Cargo.toml || ! -f electron-builder.yml ]]; then
+if [[ ! -f package.json || ! -f control-service/Cargo.toml || ! -f electron-builder.yml ]]; then
   echo "Release metadata files are missing." >&2
   exit 1
 fi
@@ -19,7 +19,7 @@ CARGO_VERSION="$(python3 - <<'PY'
 import pathlib
 import re
 
-text = pathlib.Path("src-tauri/Cargo.toml").read_text(encoding="utf-8")
+text = pathlib.Path("control-service/Cargo.toml").read_text(encoding="utf-8")
 match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
 if not match:
     raise SystemExit(1)
@@ -70,7 +70,7 @@ echo "Frontend build..."
 npm run build
 
 echo "Rust compile check..."
-cargo check --manifest-path src-tauri/Cargo.toml --bin control-service --no-default-features
+cargo check --manifest-path control-service/Cargo.toml --bin control-service --no-default-features
 
 echo "Stage Electron runtime..."
 npm run build:control-service

@@ -1,41 +1,41 @@
-# Synergy Devnet - Quick Start
+# Synergy Testnet-Beta - Quick Start
 
 ## Build & Run in 3 Steps
 
 ```bash
 # 1. Build the binary
-./devnet.sh build
+./testbeta.sh build
 
 # 2. Start a node (choose any of the 19 types)
-./devnet.sh start validator
+./testbeta.sh start validator
 
 # 3. Check status
-./devnet.sh status
+./testbeta.sh status
 ```
 
 ## Common Commands
 
 ```bash
 # List all available node types
-./devnet.sh list
+./testbeta.sh list
 
 # Start different node types
-./devnet.sh start validator      # Core validator
-./devnet.sh start oracle          # Oracle node
-./devnet.sh start ai-inference    # AI inference node
-./devnet.sh start rpc-gateway     # RPC gateway
+./testbeta.sh start validator      # Core validator
+./testbeta.sh start oracle          # Oracle node
+./testbeta.sh start ai-inference    # AI inference node
+./testbeta.sh start rpc-gateway     # RPC gateway
 
 # View logs
-./devnet.sh logs                  # View recent logs
-./devnet.sh logs follow           # Follow logs in real-time
+./testbeta.sh logs                  # View recent logs
+./testbeta.sh logs follow           # Follow logs in real-time
 
 # Control nodes
-./devnet.sh stop                  # Stop the node
-./devnet.sh restart validator     # Restart with new type
-./devnet.sh status                # Check if running
+./testbeta.sh stop                  # Stop the node
+./testbeta.sh restart validator     # Restart with new type
+./testbeta.sh status                # Check if running
 
 # Maintenance
-./devnet.sh clean                 # Clean all data (requires confirmation)
+./testbeta.sh clean                 # Clean all data (requires confirmation)
 ```
 
 ## Available Node Types (19 Total)
@@ -70,12 +70,12 @@
 
 ```bash
 # Direct binary usage
-./target/release/synergy-devnet start --node-type validator
-./target/release/synergy-devnet list-templates
-./target/release/synergy-devnet generate-keypair
-./target/release/synergy-devnet version
-./target/release/synergy-devnet logs --follow
-./target/release/synergy-devnet stop
+./target/release/synergy-testbeta start --node-type validator
+./target/release/synergy-testbeta list-templates
+./target/release/synergy-testbeta generate-keypair
+./target/release/synergy-testbeta version
+./target/release/synergy-testbeta logs --follow
+./target/release/synergy-testbeta stop
 ```
 
 ## Default Ports
@@ -86,29 +86,29 @@
 
 ## Files & Directories
 
-- **Binary**: `./target/release/synergy-devnet`
+- **Binary**: `./target/release/synergy-testbeta`
 - **Templates**: `./templates/`
 - **Config**: `./config/node.toml`
 - **Data**: `./data/chain/`
 - **Logs**: `./data/logs/`
-- **PID File**: `./data/synergy-devnet.pid`
+- **PID File**: `./data/synergy-testbeta.pid`
 
 ## Troubleshooting
 
 ```bash
 # If node won't stop
-pkill -9 synergy-devnet
-rm -f data/synergy-devnet.pid
+pkill -9 synergy-testbeta
+rm -f data/synergy-testbeta.pid
 
 # Clean restart
-./devnet.sh stop
-./devnet.sh clean
-./devnet.sh start validator
+./testbeta.sh stop
+./testbeta.sh clean
+./testbeta.sh start validator
 
 # Change ports (if in use)
 export SYNERGY_RPC_PORT=58638
 export SYNERGY_P2P_PORT=30304
-./devnet.sh start validator
+./testbeta.sh start validator
 ```
 
 ## Running Multiple Nodes
@@ -118,17 +118,17 @@ Open multiple terminals:
 ```bash
 # Terminal 1: Validator
 export SYNERGY_RPC_PORT=48638 && export SYNERGY_P2P_PORT=38638
-./target/release/synergy-devnet start --node-type validator
+./target/release/synergy-testbeta start --node-type validator
 
 # Terminal 2: Oracle
 export SYNERGY_RPC_PORT=58638 && export SYNERGY_P2P_PORT=30304
-./target/release/synergy-devnet start --node-type oracle
+./target/release/synergy-testbeta start --node-type oracle
 
 # Terminal 3: RPC Gateway
 export SYNERGY_RPC_PORT=8547 && export SYNERGY_P2P_PORT=30305
-./target/release/synergy-devnet start --node-type rpc-gateway
+./target/release/synergy-testbeta start --node-type rpc-gateway
 ```
 
 ## Next Steps
 
-For detailed documentation, see [DEVNET_GUIDE.md](DEVNET_GUIDE.md)
+For detailed documentation, see [TESTBETA_GUIDE.md](TESTBETA_GUIDE.md)

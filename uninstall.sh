@@ -40,7 +40,7 @@ fi
 # Check if installed via .deb package
 if command -v dpkg >/dev/null 2>&1; then
     # Check for actual installed package name
-    INSTALLED_PKG=$(dpkg -l 2>/dev/null | grep -E "^ii\s+(synergy-node-control-panel|synergy-devnet-control-center|com\.synergy\.node-monitor)" | awk '{print $2}' | head -1)
+    INSTALLED_PKG=$(dpkg -l 2>/dev/null | grep -E "^ii\s+(synergy-node-control-panel|com\.synergy\.node-control-panel|com\.synergy\.node-monitor)" | awk '{print $2}' | head -1)
     
     if [[ -n "$INSTALLED_PKG" ]]; then
         echo "Found installed package: $INSTALLED_PKG"
@@ -120,7 +120,7 @@ echo ""
 echo "Removing desktop entries..."
 rm -f "$HOME/.local/share/applications/com.synergy.node-monitor.desktop"
 rm -f "$HOME/.local/share/applications/synergy-node-control-panel.desktop"
-rm -f "$HOME/.local/share/applications/synergy-devnet-control-center.desktop"
+rm -f "$HOME/.local/share/applications/synergy-node-control-panel.desktop"
 echo "✓ Removed user desktop entries"
 
 # Remove from system applications (if installed system-wide)
@@ -129,8 +129,8 @@ if [[ -f "/usr/share/applications/com.synergy.node-monitor.desktop" ]]; then
     echo "✓ Removed system desktop entry"
 fi
 
-if [[ -f "/usr/share/applications/synergy-devnet-control-center.desktop" ]]; then
-    sudo rm -f /usr/share/applications/synergy-devnet-control-center.desktop 2>/dev/null || true
+if [[ -f "/usr/share/applications/synergy-node-control-panel.desktop" ]]; then
+    sudo rm -f /usr/share/applications/synergy-node-control-panel.desktop 2>/dev/null || true
     echo "✓ Removed system desktop entry"
 fi
 

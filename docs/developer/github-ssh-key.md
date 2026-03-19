@@ -90,8 +90,8 @@ If you see a warning about authenticity, type `yes` to continue.
 ## Step 8: Update Your Git Remote to Use SSH
 
 ```bash
-cd /home/devpup/Desktop/devnet-control-panel
-git remote set-url origin git@github.com:synergy-network-hq/devnet-control-panel.git
+cd /home/devpup/Desktop/testbeta-control-panel
+git remote set-url origin git@github.com:synergy-network-hq/testbeta-control-panel.git
 git remote -v  # Verify the change
 ```
 
