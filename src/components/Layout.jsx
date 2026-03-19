@@ -13,7 +13,7 @@ function updateButtonLabel(updateState) {
     case 'checking':
       return 'Checking...';
     case 'available':
-      return `Update to ${updateState.version}`;
+      return `Update v${updateState.version} Available!`;
     case 'downloading':
       return `Downloading ${updateState.percent ? Math.round(updateState.percent) + '%' : '...'}`;
     case 'ready':
@@ -242,29 +242,20 @@ function Layout({ children }) {
           <div className="header-right-controls">
             <SNRGButton
               as={Link}
-              to="/"
-              variant="blue"
-              size="sm"
-              className={`header-grid-btn ${onDashboardRoute ? 'header-grid-active' : ''}`}
-            >
-              Dashboard
-            </SNRGButton>
-            <SNRGButton
-              variant="cyan"
-              size="sm"
-              className="header-grid-btn header-grid-help"
-              onClick={openHelpWindow}
-            >
-              Help
-            </SNRGButton>
-            <SNRGButton
-              as={Link}
               to="/settings"
               variant="blue"
               size="sm"
               className={`header-grid-btn ${onSettingsRoute ? 'header-grid-active' : ''}`}
             >
               Settings
+            </SNRGButton>
+            <SNRGButton
+              variant="blue"
+              size="sm"
+              className="header-grid-btn"
+              onClick={openHelpWindow}
+            >
+              Help
             </SNRGButton>
             <SNRGButton
               variant="blue"

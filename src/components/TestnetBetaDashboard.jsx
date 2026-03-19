@@ -741,25 +741,37 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     },
   ];
 
+  const handleRestart = async () => {
+    if (!selectedNode || controlBusy) return;
+    setControlBusy('restart');
+    try {
+      let bootstrapNotice = '';
+      try {
+        const portConfig = await applyStoredTestnetBetaPortSettings(selectedNode);
+        bootstrapNotice = ` Port profile applied: ${formatPortSettingsSummary(portConfig.portSettings)}.`;
+        const bootstrapConfig = await refreshTestnetBetaBootstrapConfig(selectedNode, network);
+        bootstrapNotice += ` Peers refreshed (${bootstrapConfig.additionalDialTargets.length} targets).`;
+      } catch (bootstrapError) {
+        bootstrapNotice = ` Bootstrap refresh skipped: ${String(bootstrapError)}.`;
+      }
+      await invoke('testbeta_node_control', { input: { nodeId: selectedNode.id, action: 'stop' } });
+      await invoke('testbeta_node_control', { input: { nodeId: selectedNode.id, action: 'start' } });
+      setControlMessage(`Node restarted successfully.${bootstrapNotice}`);
+      await fetchDashboard(true);
+    } catch (actionError) {
+      setError(String(actionError));
+    } finally {
+      setControlBusy('');
+    }
+  };
+
   const renderNodeControls = () => {
     const isRunning = Boolean(selectedNodeLive?.is_running);
     const controlDisabled = !selectedNode || Boolean(controlBusy);
-    const nodeTomlPath =
-      selectedNode?.config_paths.find((path) => path.endsWith('/node.toml'))
-      || selectedNode?.config_paths?.[0];
 
     return (
-      <aside className="nodecp-panel nodecp-controls-card">
-        <div className="nodecp-panel-header">
-          <div>
-            <p className="nodecp-panel-kicker">Node Controls</p>
-            <h3>{selectedNode ? 'Run this node' : 'Select a node'}</h3>
-          </div>
-        </div>
-        <p className="nodecp-controls-copy">
-          Start, stop, or fast-sync the selected workspace. Sync stops the node,
-          catches it up to the live chain, and starts it again automatically.
-        </p>
+      <section className="nodecp-panel nodecp-controls-card">
+        <h3 className="nodecp-panel-title-standalone">Node Controls</h3>
         <div className="nodecp-controls-layout">
           <SNRGButton
             className="nodecp-control-btn nodecp-control-start"
@@ -768,8 +780,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             disabled={controlDisabled || isRunning}
             onClick={() => runNodeControl('start')}
           >
-            <span className="nodecp-action-icon">{ICONS.play}</span>
-            <span>{controlBusy === 'start' ? 'Starting...' : 'Start'}</span>
+            {controlBusy === 'start' ? 'Starting…' : 'Start'}
           </SNRGButton>
           <SNRGButton
             className="nodecp-control-btn nodecp-control-stop"
@@ -778,52 +789,25 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             disabled={controlDisabled || !isRunning}
             onClick={() => runNodeControl('stop')}
           >
-            <span className="nodecp-action-icon">{ICONS.stop}</span>
-            <span>{controlBusy === 'stop' ? 'Stopping...' : 'Stop'}</span>
+            {controlBusy === 'stop' ? 'Stopping…' : 'Stop'}
           </SNRGButton>
           <SNRGButton
-            className="nodecp-control-btn nodecp-control-sync nodecp-control-btn-full"
+            className="nodecp-control-btn nodecp-control-restart"
+            variant="yellow"
+            size="sm"
+            disabled={controlDisabled || !isRunning}
+            onClick={handleRestart}
+          >
+            {controlBusy === 'restart' ? 'Restarting…' : 'Restart'}
+          </SNRGButton>
+          <SNRGButton
+            className="nodecp-control-btn nodecp-control-sync"
             variant="yellow"
             size="sm"
             disabled={controlDisabled || !selectedNode?.config_paths?.length}
             onClick={() => runNodeControl('sync')}
           >
-            <span className="nodecp-action-icon">{ICONS.sync}</span>
-            <span>{controlBusy === 'sync' ? 'Syncing...' : 'Speed Sync'}</span>
-          </SNRGButton>
-          <SNRGButton
-            className="nodecp-control-btn"
-            variant="blue"
-            size="sm"
-            disabled={!selectedNode}
-            onClick={async () => {
-              if (!selectedNode) return;
-              await navigator.clipboard.writeText(selectedNode.node_address);
-              setCopiedNotice('Wallet copied');
-            }}
-          >
-            <span className="nodecp-action-icon">{ICONS.copy}</span>
-            <span>Copy Wallet</span>
-          </SNRGButton>
-          <SNRGButton
-            className="nodecp-control-btn"
-            variant="blue"
-            size="sm"
-            disabled={!selectedNode}
-            onClick={() => selectedNode && openPath(selectedNode.workspace_directory)}
-          >
-            <span className="nodecp-action-icon">{ICONS.folder}</span>
-            <span>Open Workspace</span>
-          </SNRGButton>
-          <SNRGButton
-            className="nodecp-control-btn"
-            variant="blue"
-            size="sm"
-            disabled={!nodeTomlPath}
-            onClick={() => nodeTomlPath && openPath(nodeTomlPath)}
-          >
-            <span className="nodecp-action-icon">{ICONS.file}</span>
-            <span>Open Config</span>
+            {controlBusy === 'sync' ? 'Syncing…' : 'Sync'}
           </SNRGButton>
           <SNRGButton
             className="nodecp-control-btn"
@@ -832,17 +816,16 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             disabled={!selectedNode}
             onClick={() => selectedNode && openPath(`${selectedNode.workspace_directory}/logs`)}
           >
-            <span className="nodecp-action-icon">{ICONS.folder}</span>
-            <span>Open Logs</span>
+            Logs
           </SNRGButton>
         </div>
         <div className="nodecp-controls-status">
-          <span className={`nodecp-health-pill nodecp-health-${formatStatusTone(selectedWorkspaceStatus.label)}`}>
-            {selectedWorkspaceStatus.label}
+          <span className={`nodecp-health-pill nodecp-health-${nodeRuntimeTone(selectedNodeLive)}`}>
+            {nodeRuntimeLabel(selectedNodeLive)}
           </span>
           <span>{controlMessage || copiedNotice || selectedWorkspaceStatus.detail}</span>
         </div>
-      </aside>
+      </section>
     );
   };
 
@@ -852,6 +835,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       const live = nodeLiveById[n.id];
       return live?.is_running && (live?.local_peer_count ?? 0) === 0;
     });
+    const healthyBootnodes = (liveStatus?.bootnodes || []).filter((b) => b.reachable).length;
+    const totalBootnodes = (liveStatus?.bootnodes || []).length;
+    const healthySeeds = (liveStatus?.seed_servers || []).filter((s) => s.reachable).length;
+    const totalSeeds = (liveStatus?.seed_servers || []).length;
+    const networkUp = liveStatus?.public_rpc_online;
 
     return (
       <div className="nodecp-tab-stack">
@@ -876,6 +864,57 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                 then check bootnode and seed connectivity in the Connectivity tab.
               </div>
             )}
+
+            {/* First section: Node Controls + Chain Details side-by-side */}
+            <div className="nodecp-overview-first-section">
+              {/* Left: Node Controls */}
+              {renderNodeControls()}
+
+              {/* Right: Chain Details */}
+              <section className="nodecp-panel">
+                <h3 className="nodecp-panel-title-standalone">Chain Details</h3>
+                <div className="nodecp-chain-details-grid">
+                  <div className="nodecp-chain-detail-item">
+                    <span className="nodecp-chain-detail-label">Block Height</span>
+                    <strong className="nodecp-chain-detail-value">
+                      {pubHeight != null ? formatNumber(pubHeight) : (selectedNodeLive?.local_chain_height != null ? formatNumber(selectedNodeLive.local_chain_height) : '—')}
+                    </strong>
+                    <span className="nodecp-chain-detail-sub">
+                      {selectedNode && selectedNodeLive?.local_chain_height != null
+                        ? `Your node: ${formatNumber(selectedNodeLive.local_chain_height)}`
+                        : 'Public network chain tip'}
+                    </span>
+                  </div>
+                  <div className="nodecp-chain-detail-item">
+                    <span className="nodecp-chain-detail-label">Sync Gap</span>
+                    <strong className="nodecp-chain-detail-value">
+                      {selectedNodeLive?.sync_gap != null ? formatNumber(selectedNodeLive.sync_gap) : '—'}
+                    </strong>
+                    <span className="nodecp-chain-detail-sub">
+                      {selectedNodeLive?.sync_gap === 0
+                        ? 'Fully synced with network'
+                        : selectedNodeLive?.sync_gap > 0
+                          ? 'Blocks behind the network'
+                          : 'Start a node to measure sync'}
+                    </span>
+                  </div>
+                  <div className="nodecp-chain-detail-item">
+                    <span className="nodecp-chain-detail-label">Active Validators</span>
+                    <strong className="nodecp-chain-detail-value">
+                      {chainSummary?.total_validators != null ? formatNumber(chainSummary.total_validators) : '—'}
+                    </strong>
+                    <span className="nodecp-chain-detail-sub">Validators on the network</span>
+                  </div>
+                  <div className="nodecp-chain-detail-item">
+                    <span className="nodecp-chain-detail-label">Validator Clusters</span>
+                    <strong className="nodecp-chain-detail-value">
+                      {chainSummary?.total_validator_clusters != null ? formatNumber(chainSummary.total_validator_clusters) : '—'}
+                    </strong>
+                    <span className="nodecp-chain-detail-sub">Distributed validator groups</span>
+                  </div>
+                </div>
+              </section>
+            </div>
 
             {/* All-nodes live state table */}
             <section className="nodecp-panel">
@@ -945,149 +984,114 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           </>
         )}
 
-        {/* Selected node metrics + controls */}
-        {selectedNode && (
-          <div className="nodecp-overview-top">
-            <div className="nodecp-overview-main">
-              <div className="nodecp-stats-grid">
-                {metrics.map((card) => (
-                  <article key={card.label} className="nodecp-stat-card">
-                    <div className="nodecp-stat-icon">{card.icon}</div>
-                    <div className="nodecp-stat-copy">
-                      <span className="nodecp-stat-label">{card.label}</span>
-                      <strong className="nodecp-stat-value">{card.value}</strong>
-                      <span className="nodecp-stat-detail">{card.detail}</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-
-              <section className="nodecp-panel">
-                <div className="nodecp-panel-header">
-                  <div>
-                    <p className="nodecp-panel-kicker">Selected node</p>
-                    <h3>{selectedNode.display_label || selectedNode.role_display_name}</h3>
-                  </div>
-                </div>
-                <div className="nodecp-summary-grid">
-                  <div className="nodecp-summary-block">
-                    <span className="nodecp-summary-label">Node Wallet</span>
-                    <p>{truncateAddress(selectedNode.node_address)}</p>
-                  </div>
-                  <div className="nodecp-summary-block">
-                    <span className="nodecp-summary-label">Reserved Stake</span>
-                    <p>{formatWholeSnrg(selectedFundingManifest?.amount_snrg || 5000)} SNRG</p>
-                  </div>
-                  <div className="nodecp-summary-block">
-                    <span className="nodecp-summary-label">Runtime Status</span>
-                    <p>
-                      <span className={`nodecp-health-pill nodecp-health-${nodeRuntimeTone(selectedNodeLive)}`}>
-                        {nodeRuntimeLabel(selectedNodeLive)}
-                      </span>
-                      {selectedNodeLive?.pid ? ` · PID ${selectedNodeLive.pid}` : ''}
-                    </p>
-                  </div>
-                  <div className="nodecp-summary-block">
-                    <span className="nodecp-summary-label">Local / Public Block</span>
-                    <p>
-                      {formatNumber(selectedNodeLive?.local_chain_height)}
-                      {' / '}
-                      {pubHeight != null ? formatNumber(pubHeight) : 'N/A'}
-                    </p>
-                  </div>
-                  <div className="nodecp-summary-block">
-                    <span className="nodecp-summary-label">Block Production</span>
-                    <p>{validatorQuorumCopy}</p>
-                  </div>
-                  <div className="nodecp-summary-block">
-                    <span className="nodecp-summary-label">Public Endpoint</span>
-                    <p>{selectedNode.public_host || 'Auto-detect pending'}</p>
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            {renderNodeControls()}
-          </div>
-        )}
-
-        {/* Live status cards */}
+        {/* Network health — user-friendly status cards */}
         <div className="nodecp-status-grid">
-          {statusCards.map((card) => (
-            <article key={card.label} className={`nodecp-status-card nodecp-status-${card.tone}`}>
-              <div className="nodecp-status-head">
-                <span className="nodecp-status-icon">{card.icon}</span>
-                <span className="nodecp-status-label">{card.label}</span>
-              </div>
-              <strong className="nodecp-status-value">{card.value}</strong>
-              <p className="nodecp-status-detail">{card.detail}</p>
-            </article>
-          ))}
+          <article className={`nodecp-status-card nodecp-status-${networkUp ? 'ok' : 'error'}`}>
+            <div className="nodecp-status-head">
+              <span className="nodecp-status-icon">{ICONS.pulse}</span>
+              <span className="nodecp-status-label">Network Status</span>
+            </div>
+            <strong className="nodecp-status-value">{networkUp ? 'Online' : 'Offline'}</strong>
+            <p className="nodecp-status-detail">
+              {networkUp
+                ? 'Public RPC is reachable. Chain data is live.'
+                : 'Cannot reach the public RPC endpoint. Check your connection.'}
+            </p>
+          </article>
+
+          <article className={`nodecp-status-card nodecp-status-${pubHeight != null ? 'ok' : 'warn'}`}>
+            <div className="nodecp-status-head">
+              <span className="nodecp-status-icon">{ICONS.chain}</span>
+              <span className="nodecp-status-label">Latest Block</span>
+            </div>
+            <strong className="nodecp-status-value">{formatNumber(pubHeight)}</strong>
+            <p className="nodecp-status-detail">
+              {chainSummary?.avg_block_time != null
+                ? `New blocks every ~${chainSummary.avg_block_time}s`
+                : 'Live chain tip from the public RPC.'}
+            </p>
+          </article>
+
+          <article className={`nodecp-status-card nodecp-status-${
+            zeroPeerRunningNodes.length === 0 && nodes.some((n) => nodeLiveById[n.id]?.is_running)
+              ? 'ok'
+              : zeroPeerRunningNodes.length > 0 ? 'error' : 'warn'
+          }`}>
+            <div className="nodecp-status-head">
+              <span className="nodecp-status-icon">{ICONS.peers}</span>
+              <span className="nodecp-status-label">Peer Connectivity</span>
+            </div>
+            <strong className="nodecp-status-value">
+              {selectedNodeLive?.local_peer_count != null
+                ? `${selectedNodeLive.local_peer_count} peers`
+                : '—'}
+            </strong>
+            <p className="nodecp-status-detail">
+              {zeroPeerRunningNodes.length > 0
+                ? '⚠ No peers found. P2P port 38638 may be blocked.'
+                : selectedNodeLive?.is_running
+                  ? 'Your node is connected to the network.'
+                  : 'Start a node to check peer connectivity.'}
+            </p>
+          </article>
+
+          <article className={`nodecp-status-card nodecp-status-${
+            selectedNodeLive?.synergy_score != null ? 'ok' : 'warn'
+          }`}>
+            <div className="nodecp-status-head">
+              <span className="nodecp-status-icon">{ICONS.score}</span>
+              <span className="nodecp-status-label">Synergy Score</span>
+            </div>
+            <strong className="nodecp-status-value">
+              {formatScoreOutOfHundred(selectedNodeLive?.synergy_score)}
+            </strong>
+            <p className="nodecp-status-detail">
+              {selectedNodeLive?.synergy_score_status || 'Score reflects uptime, sync, and participation.'}
+            </p>
+          </article>
         </div>
 
-        {/* Network infrastructure (compact — live data only) */}
+        {/* Network overview — key live stats */}
         <section className="nodecp-panel">
           <div className="nodecp-panel-header">
             <div>
-              <p className="nodecp-panel-kicker">Network infrastructure</p>
-              <h3>Chain &amp; Discovery</h3>
+              <p className="nodecp-panel-kicker">Network overview</p>
+              <h3>Synergy Testnet-Beta</h3>
             </div>
           </div>
           <div className="nodecp-summary-grid">
             <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Chain ID</span>
-              <p>{network?.chain_id || 338639}</p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Public Chain Height</span>
-              <p>{formatNumber(pubHeight)}</p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Public RPC</span>
-              <p>
-                <span className={`nodecp-health-pill nodecp-health-${liveStatus?.public_rpc_online ? 'ok' : 'error'}`}>
-                  {liveStatus?.public_rpc_online ? 'Online' : 'Offline'}
-                </span>
-              </p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Discovery Status</span>
-              <p>{liveStatus?.discovery_status || 'Checking…'}</p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Healthy Bootnodes</span>
-              <p>
-                {(liveStatus?.bootnodes || []).filter((b) => b.reachable).length}
-                {' / '}
-                {(liveStatus?.bootnodes || []).length}
-              </p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Healthy Seeds</span>
-              <p>
-                {(liveStatus?.seed_servers || []).filter((s) => s.reachable).length}
-                {' / '}
-                {(liveStatus?.seed_servers || []).length}
-              </p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Provisioned Nodes</span>
-              <p>{state?.summary?.total_nodes || 0} on this machine</p>
+              <span className="nodecp-summary-label">Your Nodes on This Machine</span>
+              <p>{state?.summary?.total_nodes || 0}</p>
             </div>
             <div className="nodecp-summary-block">
               <span className="nodecp-summary-label">Total Reserved Stake</span>
               <p>{formatWholeSnrg(state?.summary?.total_sponsored_stake_snrg || 0)} SNRG</p>
             </div>
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Public RPC</span>
+              <p>
+                <span className={`nodecp-health-pill nodecp-health-${networkUp ? 'ok' : 'error'}`}>
+                  {networkUp ? 'Online' : 'Offline'}
+                </span>
+              </p>
+            </div>
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Bootstrap Discovery</span>
+              <p>{liveStatus?.discovery_status || 'Checking…'}</p>
+            </div>
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Bootnodes Healthy</span>
+              <p>{totalBootnodes > 0 ? `${healthyBootnodes} / ${totalBootnodes}` : '—'}</p>
+            </div>
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Seed Servers Healthy</span>
+              <p>{totalSeeds > 0 ? `${healthySeeds} / ${totalSeeds}` : '—'}</p>
+            </div>
             {chainSummary?.total_validators != null && (
               <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Active Validators (Network)</span>
+                <span className="nodecp-summary-label">Active Validators</span>
                 <p>{formatNumber(chainSummary.total_validators)}</p>
-              </div>
-            )}
-            {chainSummary?.avg_block_time != null && (
-              <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Avg Block Time</span>
-                <p>{chainSummary.avg_block_time}s</p>
               </div>
             )}
             {chainSummary?.total_transactions != null && (
@@ -1100,6 +1104,12 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
               <div className="nodecp-summary-block">
                 <span className="nodecp-summary-label">Total Network Stake</span>
                 <p>{formatWholeSnrg(chainSummary.total_stake_snrg)} SNRG</p>
+              </div>
+            )}
+            {chainSummary?.avg_block_time != null && (
+              <div className="nodecp-summary-block">
+                <span className="nodecp-summary-label">Avg Block Time</span>
+                <p>{chainSummary.avg_block_time}s</p>
               </div>
             )}
           </div>
@@ -1466,13 +1476,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
               <div className="dashboard-header testbeta-dashboard-header nodecp-dashboard-header">
                 <div>
                   <p className="nodecp-page-kicker">Synergy Testnet-Beta • Chain ID 338639</p>
-                  <h2 className="panel-title nodecp-page-title">Node Overview</h2>
-                  <p className="nodecp-page-copy">{headerCopy}</p>
+                  <h2 className="panel-title nodecp-page-title">Node Control Panel Dashboard</h2>
                 </div>
                 <div className="control-buttons nodecp-control-buttons">
-                  <SNRGButton className="nodecp-header-btn nodecp-refresh-btn" variant="blue" size="sm" onClick={() => fetchDashboard(true)}>
-                    <span className="nodecp-action-icon">{ICONS.refresh}</span>
-                    <span>Refresh</span>
+                  <SNRGButton className="nodecp-header-btn nodecp-refresh-btn header-grid-btn" variant="blue" size="sm" onClick={() => fetchDashboard(true)}>
+                    Refresh
                   </SNRGButton>
                 </div>
               </div>
