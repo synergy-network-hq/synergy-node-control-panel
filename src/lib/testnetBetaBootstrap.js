@@ -300,6 +300,14 @@ function resolveConfigPath(node, fileName) {
   }) || null;
 }
 
+function replaceNginxUpstreamPort(contents, upstreamName, port) {
+  const pattern = new RegExp(
+    `(upstream\\s+${escapeRegExp(upstreamName)}\\s*\\{[\\s\\S]*?server\\s+127\\.0\\.0\\.1:)(\\d+)(;)`,
+    'm',
+  );
+  return String(contents || '').replace(pattern, `$1${port}$3`);
+}
+
 function seedServerUrls(networkProfile) {
   const seeds = Array.isArray(networkProfile?.seed_servers) ? networkProfile.seed_servers : [];
   return seeds
@@ -442,6 +450,10 @@ export function resolvePeersTomlPath(node) {
   return resolveConfigPath(node, 'peers.toml');
 }
 
+export function resolveNginxConfPath(node) {
+  return resolveConfigPath(node, 'nginx.conf');
+}
+
 export function buildPeersToml(networkProfile, additionalDialTargets = []) {
   const bootnodes = (Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : [])
     .map((entry) => `${entry.host}:${entry.port}`);
@@ -560,8 +572,26 @@ export async function applyTestnetBetaPortSettings(node, settings) {
 
   await writeTextFile(nodeTomlPath, contents);
 
+  const updatedFiles = [nodeTomlPath];
+  const nginxConfPath = resolveNginxConfPath(node);
+  if (nginxConfPath) {
+    const nginxContents = await readTextFile(nginxConfPath);
+    const nextNginxContents = replaceNginxUpstreamPort(
+      replaceNginxUpstreamPort(nginxContents, `${node?.id}_rpc`, portSettings.rpc),
+      `${node?.id}_ws`,
+      portSettings.ws,
+    );
+
+    if (nextNginxContents !== nginxContents) {
+      await writeTextFile(nginxConfPath, nextNginxContents);
+      updatedFiles.push(nginxConfPath);
+    }
+  }
+
   return {
     nodeTomlPath,
+    nginxConfPath,
+    updatedFiles,
     portSlot: resolveNodePortSlot(node),
     portSettings,
   };

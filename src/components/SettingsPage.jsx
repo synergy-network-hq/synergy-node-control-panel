@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getVersion, invoke, openExternal, openPath } from '../lib/desktopClient';
 import {
   applyTestnetBetaPortSettings,
@@ -323,6 +324,9 @@ function SettingsPage() {
           </p>
         </div>
         <div className="nodecp-settings-actions">
+          <SNRGButton as={Link} to="/" variant="purple" size="md">
+            Back to Dashboard
+          </SNRGButton>
           <SNRGButton variant="blue" size="md" onClick={() => storageRoot && openPath(storageRoot)}>
             Open Workspace Folder
           </SNRGButton>

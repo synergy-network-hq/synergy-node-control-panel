@@ -275,7 +275,9 @@ function Layout({ children }) {
                 className="logo-icon-bg"
               />
               <div className="brand-stack brand-stack-single">
-                <span className="brand-title brand-title-network">Synergy Network</span>
+                <Link to="/" className="header-brand-link" aria-label="Open dashboard">
+                  <span className="brand-title brand-title-network">Synergy Network</span>
+                </Link>
               </div>
             </div>
           </div>

@@ -2,10 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { invoke, openPath, readTextFile } from '../lib/desktopClient';
 import {
+  applyTestnetBetaPortSettings,
   applyStoredTestnetBetaPortSettings,
+  formatPortSettingsForForm,
   formatPortSettingsSummary,
+  getTestnetBetaPortFields,
   readTestnetBetaNodePortSettings,
+  resolveNginxConfPath,
   refreshTestnetBetaBootstrapConfig,
+  validateTestnetBetaPortSettingsForm,
 } from '../lib/testnetBetaBootstrap';
 import { SNRGButton } from '../styles/SNRGButton';
 
@@ -222,8 +227,14 @@ function TestnetBetaNodeDetail() {
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [portSettings, setPortSettings] = useState(null);
+  const [portForm, setPortForm] = useState(() => formatPortSettingsForForm({}));
+  const [portErrors, setPortErrors] = useState({});
+  const [portBusy, setPortBusy] = useState(false);
+  const [portNotice, setPortNotice] = useState('');
+  const [portNoticeTone, setPortNoticeTone] = useState('good');
   const [configContents, setConfigContents] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
+  const portFields = useMemo(() => getTestnetBetaPortFields(), []);
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -273,34 +284,50 @@ function TestnetBetaNodeDetail() {
   const isRunning = Boolean(nodeLive?.is_running);
   const runtimeLabel = nodeRuntimeLabel(nodeLive);
   const runtimeTone = nodeRuntimeTone(nodeLive);
+  const nodeTomlPath = node?.config_paths?.find((p) => p.endsWith('/node.toml')) || node?.config_paths?.[0];
+  const nginxConfPath = node ? resolveNginxConfPath(node) : null;
+
+  const loadConfigArtifacts = useCallback(async (targetNode) => {
+    if (!targetNode) {
+      setPortSettings(null);
+      setPortForm(formatPortSettingsForForm({}));
+      setConfigContents('');
+      return;
+    }
+
+    try {
+      const ports = await readTestnetBetaNodePortSettings(targetNode);
+      setPortSettings(ports?.portSettings || null);
+      setPortForm(formatPortSettingsForForm(ports?.portSettings || {}));
+    } catch {
+      setPortSettings(null);
+      setPortForm(formatPortSettingsForForm({}));
+    }
+
+    try {
+      const targetNodeTomlPath = targetNode.config_paths?.find((p) => p.endsWith('/node.toml'));
+      if (targetNodeTomlPath) {
+        const contents = await readTextFile(targetNodeTomlPath);
+        setConfigContents(contents || '');
+      } else {
+        setConfigContents('');
+      }
+    } catch {
+      setConfigContents('');
+    }
+  }, []);
 
   // Load port settings and config when node is selected
   useEffect(() => {
     if (!node) {
-      setPortSettings(null);
-      setConfigContents('');
+      loadConfigArtifacts(null);
       return;
     }
-    (async () => {
-      try {
-        const ports = await readTestnetBetaNodePortSettings(node);
-        setPortSettings(ports?.portSettings || null);
-      } catch {
-        setPortSettings(null);
-      }
-      try {
-        const nodeToml = node.config_paths?.find((p) => p.endsWith('/node.toml'));
-        if (nodeToml) {
-          const contents = await readTextFile(nodeToml);
-          setConfigContents(contents || '');
-        } else {
-          setConfigContents('');
-        }
-      } catch {
-        setConfigContents('');
-      }
-    })();
-  }, [node]);
+    setPortErrors({});
+    setPortNotice('');
+    setPortNoticeTone('good');
+    loadConfigArtifacts(node);
+  }, [loadConfigArtifacts, node]);
 
   const runNodeControl = async (action) => {
     if (!node) return;
@@ -346,6 +373,52 @@ function TestnetBetaNodeDetail() {
     setCopiedNotice('Address copied');
   };
 
+  const handlePortFieldChange = useCallback((key, value) => {
+    setPortForm((current) => ({
+      ...current,
+      [key]: value,
+    }));
+    setPortErrors((current) => {
+      if (!current[key]) {
+        return current;
+      }
+
+      const nextErrors = { ...current };
+      delete nextErrors[key];
+      return nextErrors;
+    });
+  }, []);
+
+  const handleApplyNodePorts = useCallback(async () => {
+    if (!node) {
+      return;
+    }
+
+    const validation = validateTestnetBetaPortSettingsForm(portForm);
+    setPortErrors(validation.errors);
+    if (!validation.ok || !validation.value) {
+      setPortNoticeTone('bad');
+      setPortNotice('Fix the port validation errors before saving the node configuration.');
+      return;
+    }
+
+    setPortBusy(true);
+    try {
+      const result = await applyTestnetBetaPortSettings(node, validation.value);
+      await loadConfigArtifacts(node);
+      await fetchData(true);
+      setPortNoticeTone('good');
+      setPortNotice(
+        `Updated ${formatPortSettingsSummary(result.portSettings)}. Wrote ${result.updatedFiles.map((path) => path.split('/').slice(-1)[0]).join(', ')}. Restart the node so the new ports take effect.`,
+      );
+    } catch (applyError) {
+      setPortNoticeTone('bad');
+      setPortNotice(`Failed to update this node's ports: ${String(applyError)}`);
+    } finally {
+      setPortBusy(false);
+    }
+  }, [fetchData, loadConfigArtifacts, node, portForm]);
+
   if (loading) {
     return (
       <div className="nodedetail-shell">
@@ -366,7 +439,6 @@ function TestnetBetaNodeDetail() {
     );
   }
 
-  const nodeTomlPath = node.config_paths?.find((p) => p.endsWith('/node.toml')) || node.config_paths?.[0];
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'connectivity', label: 'Connectivity' },
@@ -737,24 +809,75 @@ function TestnetBetaNodeDetail() {
 
   const renderConfig = () => (
     <div className="nodedetail-tab-stack">
-      {portSettings ? (
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Port configuration</p>
-              <h3>Network Ports</h3>
-            </div>
+      <section className="nodecp-panel">
+        <div className="nodecp-panel-header">
+          <div>
+            <p className="nodecp-panel-kicker">Port configuration</p>
+            <h3>Managed Node Ports</h3>
           </div>
-          <div className="nodecp-summary-grid">
-            {Object.entries(portSettings).map(([key, val]) => (
-              <div key={key} className="nodecp-summary-block">
-                <span className="nodecp-summary-label">{key.toUpperCase()} Port</span>
-                <p>{val || 'Default'}</p>
-              </div>
-            ))}
+        </div>
+        <p className="nodecp-panel-copy">
+          Update the ports this specific node uses. This writes the workspace&apos;s
+          <code> node.toml </code>
+          directly and also updates the generated
+          <code> nginx.conf </code>
+          when that file exists for public RPC roles.
+        </p>
+        <div className="monitor-form-grid monitor-form-grid-wide">
+          {portFields.map((field) => (
+            <label key={field.key} className="monitor-field">
+              <span>{field.label} Port</span>
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                inputMode="numeric"
+                value={portForm[field.key] ?? ''}
+                onChange={(event) => handlePortFieldChange(field.key, event.target.value)}
+              />
+              <span className="nodecp-settings-field-detail">{field.detail}</span>
+              {portErrors[field.key] ? (
+                <span className="nodecp-settings-field-error">{portErrors[field.key]}</span>
+              ) : null}
+            </label>
+          ))}
+        </div>
+        <div className="nodecp-controls-status">
+          <span>Current profile: {portSettings ? formatPortSettingsSummary(portSettings) : 'Reading node ports...'}</span>
+          <span>Managed files: {nginxConfPath ? 'node.toml + nginx.conf' : 'node.toml'}</span>
+        </div>
+        <div className="nodecp-settings-actions nodecp-settings-actions-tight">
+          <SNRGButton
+            variant="lime"
+            size="sm"
+            disabled={portBusy}
+            onClick={handleApplyNodePorts}
+          >
+            {portBusy ? 'Saving...' : 'Save Ports'}
+          </SNRGButton>
+          <SNRGButton
+            variant="blue"
+            size="sm"
+            disabled={portBusy}
+            onClick={() => {
+              setPortErrors({});
+              setPortNotice('');
+              setPortNoticeTone('good');
+              setPortForm(formatPortSettingsForForm(portSettings || {}));
+            }}
+          >
+            Reload Current
+          </SNRGButton>
+        </div>
+        {portNotice ? (
+          <div className="nodecp-controls-status">
+            <span className={`nodecp-health-pill nodecp-health-${portNoticeTone}`}>
+              {portNoticeTone === 'good' ? 'Saved' : 'Error'}
+            </span>
+            <span>{portNotice}</span>
           </div>
-        </section>
-      ) : null}
+        ) : null}
+      </section>
 
       <section className="nodecp-panel">
         <div className="nodecp-panel-header">
