@@ -83,11 +83,15 @@ function deriveSetupStatus(phase, running, hasProvisionedNode) {
   return { label: 'In Progress', tone: 'success' };
 }
 
+// Phases where the text input is disabled because the only valid interaction
+// is clicking one of the rendered choice buttons or the dropdown select.
+// NOTE: 'confirm_public_host' and 'review_directory' are intentionally absent
+// here — both phases need the text input enabled so the user can type a custom
+// server IP or folder path.  The choice buttons are offered as shortcuts, not
+// as the only option.
 const promptKindsWithSelections = new Set([
   'await_node_type',
   'review_device',
-  'confirm_public_host',
-  'review_directory',
   'ready_provision',
   'error',
 ]);
@@ -570,7 +574,6 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       const nextDirectory = suggestedDirectory(deviceProfile?.home_directory || '~', nextRole.id);
       setSelectedRoleId(nextRole.id);
       setDirectoryChoice(nextDirectory);
-      setPhase('review_device');
 
       await queueJarvisMessages([
         {
@@ -583,6 +586,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           typingMs: 1040,
         },
       ]);
+      // Phase set AFTER messages so "Continue / Refresh Detection" buttons only
+      // appear once Jarvis has finished introducing the review step.
+      setPhase('review_device');
       return;
     }
 
@@ -618,14 +624,17 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           const detectedNote = detected
             ? `I detected this machine's IP as ${detected}.`
             : "I couldn't auto-detect an IP for this machine.";
-          setPhase('confirm_public_host');
+          // Deliver the message BEFORE switching phase so the "Use Detected"
+          // button only appears after Jarvis has finished speaking.
           await queueJarvisMessage(
             `${detectedNote} This node type is built to run on a dedicated public server. ` +
             `Enter that server's IP address now (e.g. 74.208.227.23), or choose "Use Detected" to keep the value above.`
           );
+          setPhase('confirm_public_host');
         } else {
-          setPhase('review_directory');
+          // Same: message first, then phase so the directory buttons follow the prompt.
           await queueJarvisMessage(`The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`);
+          setPhase('review_directory');
         }
         return;
       }
@@ -647,8 +656,8 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             : 'No IP available — you can edit node.toml manually after provisioning.'
         );
       }
-      setPhase('review_directory');
       await queueJarvisMessage(`The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`);
+      setPhase('review_directory');
       return;
     }
 
@@ -670,8 +679,8 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         }
         setDirectoryChoice(String(value).trim());
       }
-      setPhase('ready_provision');
       await queueJarvisMessage('Everything is ready. I will create the private folder, generate the node wallet, write the setup files, and prepare the required 5,000 SNRG stake for this node.');
+      setPhase('ready_provision');
       return;
     }
 
@@ -873,7 +882,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             </div>
 
             <div className="jarvis-chat-controls">
-              {promptConfig.kind === 'choices' ? (
+              {!typing && promptConfig.kind === 'choices' ? (
                 <div className="jarvis-choice-list">
                   {promptConfig.options.map((option) => (
                     <SNRGButton
