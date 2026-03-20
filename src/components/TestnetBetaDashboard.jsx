@@ -13,6 +13,8 @@ const COMMON_TABS = [
   { id: 'connectivity', label: 'Connectivity' },
   { id: 'wallet', label: 'Rewards' },
   { id: 'files', label: 'Files' },
+  { id: 'chain', label: 'Chain' },
+  { id: 'logs', label: 'Logs' },
 ];
 const MAX_NODE_SLOTS = 4;
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
@@ -335,6 +337,8 @@ function tabsForRole(_role) {
     { id: 'connectivity', label: 'Connectivity' },
     { id: 'wallet', label: 'Wallet & Rewards' },
     { id: 'files', label: 'Files' },
+    { id: 'chain', label: 'Chain' },
+    { id: 'logs', label: 'Logs' },
   ];
 }
 
@@ -387,6 +391,19 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [copiedNotice, setCopiedNotice] = useState('');
   const [controlBusy, setControlBusy] = useState('');
   const [controlMessage, setControlMessage] = useState('');
+
+  // Logs tab state
+  const [nodeLogs, setNodeLogs] = useState('');
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logFilter, setLogFilter] = useState('all');
+  const [logSearch, setLogSearch] = useState('');
+  const [logsAutoScroll, setLogsAutoScroll] = useState(true);
+
+  // Chain explorer tab state
+  const [chainBlocks, setChainBlocks] = useState([]);
+  const [chainLoading, setChainLoading] = useState(false);
+  const [chainError, setChainError] = useState('');
+  const [expandedBlock, setExpandedBlock] = useState(null);
 
   const fetchDashboard = async (silent = false) => {
     if (!silent) {
@@ -529,6 +546,55 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       setActiveTab('overview');
     }
   }, [activeTab, dashboardTabs]);
+
+  // Fetch logs when the logs tab is active
+  useEffect(() => {
+    if (activeTab !== 'logs' || !selectedNode) return undefined;
+
+    const fetchLogs = async () => {
+      setLogsLoading(true);
+      try {
+        const content = await invoke('testbeta_get_node_logs', {
+          nodeId: selectedNode.id,
+          lines: 500,
+        });
+        setNodeLogs(content || '');
+      } catch (err) {
+        setNodeLogs(`Error loading logs: ${err}`);
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+
+    fetchLogs();
+    const logsInterval = window.setInterval(fetchLogs, 2000);
+    return () => window.clearInterval(logsInterval);
+  }, [activeTab, selectedNode?.id]);
+
+  // Fetch canonical chain blocks when chain tab is active
+  useEffect(() => {
+    if (activeTab !== 'chain' || !selectedNode) return undefined;
+
+    const fetchChain = async () => {
+      setChainLoading(true);
+      setChainError('');
+      try {
+        const blocks = await invoke('testbeta_get_chain_blocks', {
+          nodeId: selectedNode.id,
+          count: 30,
+        });
+        setChainBlocks(blocks || []);
+      } catch (err) {
+        setChainError(String(err));
+      } finally {
+        setChainLoading(false);
+      }
+    };
+
+    fetchChain();
+    const chainInterval = window.setInterval(fetchChain, 5000);
+    return () => window.clearInterval(chainInterval);
+  }, [activeTab, selectedNode?.id]);
 
   const nodeLiveById = useMemo(() => {
     const items = liveStatus?.nodes || [];
@@ -1396,6 +1462,270 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     </div>
   );
 
+  const renderChain = () => {
+    const formatTs = (ts) => {
+      if (!ts) return '—';
+      const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
+      return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
+    };
+    const shortHash = (h) => (h && h.length > 16 ? `${h.slice(0, 8)}…${h.slice(-6)}` : (h || '—'));
+    const shortAddr = (a) => (a && a.length > 16 ? `${a.slice(0, 10)}…${a.slice(-6)}` : (a || '—'));
+
+    return (
+      <div className="nodecp-tab-stack">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div>
+            <h4 style={{ margin: 0, fontSize: '1rem' }}>Recent Blocks</h4>
+            <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--snrg-text-secondary)' }}>
+              Live from your node's local chain · syncs from canonical network · refreshes every 5s
+            </p>
+          </div>
+          <SNRGButton
+            variant="blue"
+            size="sm"
+            disabled={chainLoading}
+            onClick={() => {
+              if (!selectedNode) return;
+              setChainLoading(true);
+              invoke('testbeta_get_chain_blocks', { nodeId: selectedNode.id, count: 30 })
+                .then((b) => { setChainBlocks(b || []); setChainError(''); })
+                .catch((e) => setChainError(String(e)))
+                .finally(() => setChainLoading(false));
+            }}
+          >
+            {chainLoading ? 'Loading…' : 'Refresh'}
+          </SNRGButton>
+        </div>
+
+        {chainError && (
+          <div style={{ padding: '0.75rem', background: 'rgba(248,113,113,0.1)', border: '1px solid var(--snrg-status-error,#f87171)', borderRadius: '6px', color: 'var(--snrg-status-error,#f87171)', fontSize: '0.82rem', marginBottom: '0.75rem' }}>
+            {selectedNode?.is_running === false
+              ? 'Node is not running — start it to see chain data.'
+              : `Could not fetch chain data: ${chainError}`}
+          </div>
+        )}
+
+        {chainLoading && chainBlocks.length === 0 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '2rem', justifyContent: 'center', color: 'var(--snrg-text-secondary)' }}>
+            <div className="spinner" style={{ width: '20px', height: '20px' }}></div>
+            <span>Fetching blocks…</span>
+          </div>
+        ) : chainBlocks.length === 0 ? (
+          <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--snrg-text-secondary)', fontSize: '0.9rem' }}>
+            No blocks yet. {!selectedNode ? 'Select a node.' : 'Start the node to begin block production.'}
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--snrg-border)', textAlign: 'left' }}>
+                  <th style={{ padding: '0.4rem 0.6rem', color: 'var(--snrg-text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Height</th>
+                  <th style={{ padding: '0.4rem 0.6rem', color: 'var(--snrg-text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Time</th>
+                  <th style={{ padding: '0.4rem 0.6rem', color: 'var(--snrg-text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Validator</th>
+                  <th style={{ padding: '0.4rem 0.6rem', color: 'var(--snrg-text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Hash</th>
+                  <th style={{ padding: '0.4rem 0.6rem', color: 'var(--snrg-text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Txns</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chainBlocks.map((block) => {
+                  const blockId = block.block_index ?? block.height ?? '?';
+                  const isExpanded = expandedBlock === blockId;
+                  return [
+                    <tr
+                      key={blockId}
+                      onClick={() => setExpandedBlock(isExpanded ? null : blockId)}
+                      style={{ borderBottom: '1px solid var(--snrg-border)', cursor: 'pointer', transition: 'background 0.1s' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = ''; }}
+                    >
+                      <td style={{ padding: '0.5rem 0.6rem', fontWeight: 700, color: 'var(--snrg-status-success,#4ade80)', fontFamily: 'monospace' }}>
+                        #{blockId}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.6rem', color: 'var(--snrg-text-secondary)', whiteSpace: 'nowrap' }}>
+                        {formatTs(block.timestamp)}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.6rem', fontFamily: 'monospace', fontSize: '0.78rem' }}>
+                        {shortAddr(block.validator_id || block.validator)}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.6rem', fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--snrg-text-secondary)' }}>
+                        {shortHash(block.hash)}
+                      </td>
+                      <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right' }}>
+                        {block.tx_count ?? (block.transactions?.length ?? 0)}
+                      </td>
+                    </tr>,
+                    isExpanded && (
+                      <tr key={`${blockId}-detail`} style={{ background: 'rgba(255,255,255,0.03)' }}>
+                        <td colSpan={5} style={{ padding: '0.75rem 1rem' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.3rem 1rem', fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                            <span style={{ color: 'var(--snrg-text-secondary)' }}>Hash</span>
+                            <span style={{ wordBreak: 'break-all' }}>{block.hash || '—'}</span>
+                            <span style={{ color: 'var(--snrg-text-secondary)' }}>Parent</span>
+                            <span style={{ wordBreak: 'break-all' }}>{block.previous_hash || block.parent_hash || '—'}</span>
+                            <span style={{ color: 'var(--snrg-text-secondary)' }}>Validator</span>
+                            <span style={{ wordBreak: 'break-all' }}>{block.validator_id || block.validator || '—'}</span>
+                            <span style={{ color: 'var(--snrg-text-secondary)' }}>Nonce</span>
+                            <span>{block.nonce ?? '—'}</span>
+                          </div>
+                          {block.transactions?.length > 0 && (
+                            <div style={{ marginTop: '0.6rem' }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.8rem', marginBottom: '0.3rem', color: 'var(--snrg-text-secondary)' }}>
+                                Transactions ({block.transactions.length})
+                              </div>
+                              {block.transactions.map((tx, i) => (
+                                <div key={i} style={{ fontSize: '0.76rem', fontFamily: 'monospace', color: 'var(--snrg-text-secondary)', padding: '0.2rem 0', borderTop: i > 0 ? '1px solid var(--snrg-border)' : 'none' }}>
+                                  {tx.hash || tx.tx_hash || JSON.stringify(tx)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ),
+                  ];
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderLogs = () => {
+    const logPath = selectedNode
+      ? `${selectedNode.workspace_directory}/logs/synergy-testbeta.log`
+      : null;
+
+    const filteredLines = (() => {
+      const lines = nodeLogs.split('\n');
+      return lines
+        .filter((line) => {
+          if (!line.trim()) return false;
+          if (logFilter !== 'all') {
+            const lc = line.toLowerCase();
+            if (logFilter === 'error' && !lc.includes('error') && !lc.includes('failed')) return false;
+            if (logFilter === 'warn' && !lc.includes('warn')) return false;
+            if (logFilter === 'info' && !lc.includes('info')) return false;
+            if (logFilter === 'block' && !lc.includes('block') && !lc.includes('commit') && !lc.includes('height')) return false;
+          }
+          if (logSearch && !line.toLowerCase().includes(logSearch.toLowerCase())) return false;
+          return true;
+        })
+        .join('\n');
+    })();
+
+    return (
+      <div className="nodecp-tab-stack">
+        <div className="nodecp-logs-header" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          <select
+            className="log-filter-select"
+            value={logFilter}
+            onChange={(e) => setLogFilter(e.target.value)}
+            style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--snrg-border)', background: 'var(--snrg-surface)', color: 'var(--snrg-text)', fontSize: '0.85rem' }}
+          >
+            <option value="all">All Lines</option>
+            <option value="block">Block / Commit</option>
+            <option value="error">Errors</option>
+            <option value="warn">Warnings</option>
+            <option value="info">Info</option>
+          </select>
+          <input
+            type="text"
+            placeholder="Search logs…"
+            value={logSearch}
+            onChange={(e) => setLogSearch(e.target.value)}
+            style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--snrg-border)', background: 'var(--snrg-surface)', color: 'var(--snrg-text)', fontSize: '0.85rem', flex: '1', minWidth: '160px' }}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none' }}>
+            <input
+              type="checkbox"
+              checked={logsAutoScroll}
+              onChange={(e) => setLogsAutoScroll(e.target.checked)}
+            />
+            Auto-scroll
+          </label>
+          <SNRGButton
+            variant="blue"
+            size="sm"
+            disabled={logsLoading}
+            onClick={() => selectedNode && invoke('testbeta_get_node_logs', { nodeId: selectedNode.id, lines: 500 }).then(setNodeLogs).catch(() => {})}
+          >
+            {logsLoading ? 'Loading…' : 'Refresh'}
+          </SNRGButton>
+          {logPath && (
+            <SNRGButton
+              variant="blue"
+              size="sm"
+              onClick={() => openPath(`${selectedNode.workspace_directory}/logs`)}
+            >
+              Open Folder
+            </SNRGButton>
+          )}
+        </div>
+
+        {logPath && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--snrg-text-secondary)', marginBottom: '0.5rem', wordBreak: 'break-all' }}>
+            {logPath}
+          </p>
+        )}
+
+        <div
+          style={{
+            background: 'var(--snrg-surface-dark, #0d0d0d)',
+            border: '1px solid var(--snrg-border)',
+            borderRadius: '6px',
+            padding: '0.75rem',
+            height: '520px',
+            overflowY: 'auto',
+            fontFamily: 'monospace',
+            fontSize: '0.78rem',
+            lineHeight: '1.5',
+            color: 'var(--snrg-text)',
+          }}
+          ref={(el) => {
+            if (el && logsAutoScroll) {
+              el.scrollTop = el.scrollHeight;
+            }
+          }}
+        >
+          {logsLoading && !nodeLogs ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--snrg-text-secondary)' }}>
+              <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
+              <span>Loading logs…</span>
+            </div>
+          ) : filteredLines ? (
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {filteredLines.split('\n').map((line, i) => {
+                const lc = line.toLowerCase();
+                let color = 'inherit';
+                if (lc.includes('error') || lc.includes('failed')) color = 'var(--snrg-status-error, #f87171)';
+                else if (lc.includes('warn')) color = 'var(--snrg-status-warning, #fbbf24)';
+                else if (lc.includes('✅') || lc.includes('committed') || lc.includes('block #') || lc.includes('produced block')) color = 'var(--snrg-status-success, #4ade80)';
+                else if (lc.includes('🔧') || lc.includes('info')) color = 'var(--snrg-text-secondary, #94a3b8)';
+                return (
+                  <span key={i} style={{ display: 'block', color }}>
+                    {line}
+                  </span>
+                );
+              })}
+            </pre>
+          ) : (
+            <span style={{ color: 'var(--snrg-text-secondary)' }}>
+              {selectedNode ? 'No log output yet. Start the node to see logs.' : 'Select a node to view logs.'}
+            </span>
+          )}
+        </div>
+
+        <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--snrg-text-secondary)' }}>
+          {filteredLines ? `${filteredLines.split('\n').filter(Boolean).length} lines` : '0 lines'}
+          {logFilter !== 'all' || logSearch ? ' (filtered)' : ''}
+          {' · '}refreshes every 2s
+        </div>
+      </div>
+    );
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'connectivity':
@@ -1404,6 +1734,10 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
         return renderWallet();
       case 'files':
         return renderFiles();
+      case 'chain':
+        return renderChain();
+      case 'logs':
+        return renderLogs();
       case 'overview':
       default:
         return renderOverview();

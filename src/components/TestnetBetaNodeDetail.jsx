@@ -234,6 +234,10 @@ function TestnetBetaNodeDetail() {
   const [portNoticeTone, setPortNoticeTone] = useState('good');
   const [configContents, setConfigContents] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
+  const [registerBusy, setRegisterBusy] = useState(false);
+  const [registerMessage, setRegisterMessage] = useState('');
+  const [registerTone, setRegisterTone] = useState('good');
+  const [registerRestartFirst, setRegisterRestartFirst] = useState(false);
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
 
   const fetchData = useCallback(async (silent = false) => {
@@ -418,6 +422,29 @@ function TestnetBetaNodeDetail() {
       setPortBusy(false);
     }
   }, [fetchData, loadConfigArtifacts, node, portForm]);
+
+  const handleRegisterWithSeeds = async () => {
+    if (!node) return;
+    setRegisterBusy(true);
+    setRegisterMessage('');
+    try {
+      if (registerRestartFirst) {
+        await invoke('testbeta_node_control', { input: { nodeId: node.id, action: 'stop' } });
+        await new Promise((resolve) => { window.setTimeout(resolve, 2000); });
+        await invoke('testbeta_node_control', { input: { nodeId: node.id, action: 'start' } });
+        await new Promise((resolve) => { window.setTimeout(resolve, 3000); });
+      }
+      const result = await invoke('testbeta_run_register_with_seeds', { nodeId: node.id });
+      setRegisterTone('good');
+      setRegisterMessage(result || 'Registered successfully with all seed servers.');
+      await fetchData(true);
+    } catch (e) {
+      setRegisterTone('bad');
+      setRegisterMessage(String(e));
+    } finally {
+      setRegisterBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -875,6 +902,50 @@ function TestnetBetaNodeDetail() {
               {portNoticeTone === 'good' ? 'Saved' : 'Error'}
             </span>
             <span>{portNotice}</span>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="nodecp-panel">
+        <div className="nodecp-panel-header">
+          <div>
+            <p className="nodecp-panel-kicker">P2P seed discovery</p>
+            <h3>Register with Seeds</h3>
+          </div>
+        </div>
+        <p className="nodecp-panel-copy">
+          Re-register this node&apos;s public endpoint with the network&apos;s seed servers. Seed
+          servers distribute your node&apos;s address to peers discovering the network. Run this
+          after changing your P2P port or public IP address, or if this node is not appearing in
+          peer lists.
+        </p>
+        <div className="nodecp-settings-actions nodecp-settings-actions-tight" style={{ marginBottom: '0.75rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={registerRestartFirst}
+              onChange={(e) => setRegisterRestartFirst(e.target.checked)}
+              disabled={registerBusy}
+            />
+            Stop and restart node before registering
+          </label>
+        </div>
+        <div className="nodecp-settings-actions nodecp-settings-actions-tight">
+          <SNRGButton
+            variant="lime"
+            size="sm"
+            disabled={registerBusy}
+            onClick={handleRegisterWithSeeds}
+          >
+            {registerBusy ? 'Registering...' : 'Register with Seeds'}
+          </SNRGButton>
+        </div>
+        {registerMessage ? (
+          <div className="nodecp-controls-status" style={{ marginTop: '0.75rem' }}>
+            <span className={`nodecp-health-pill nodecp-health-${registerTone}`}>
+              {registerTone === 'good' ? 'Done' : 'Error'}
+            </span>
+            <span>{registerMessage}</span>
           </div>
         ) : null}
       </section>

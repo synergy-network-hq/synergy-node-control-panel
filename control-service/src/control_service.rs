@@ -17,8 +17,9 @@ use crate::monitor::{
     MonitorOperatorInput, MonitorSshBindingInput, MonitorSshProfileInput,
 };
 use crate::testnet_beta::{
-    testbeta_get_catalog, testbeta_get_device_profile, testbeta_get_live_status,
-    testbeta_get_state, testbeta_node_control, testbeta_remove_node, testbeta_setup_node,
+    testbeta_get_catalog, testbeta_get_chain_blocks, testbeta_get_device_profile,
+    testbeta_get_live_status, testbeta_get_node_logs, testbeta_get_state, testbeta_node_control,
+    testbeta_remove_node, testbeta_run_register_with_seeds, testbeta_setup_node,
     TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
 };
 use async_stream::stream;
@@ -142,6 +143,28 @@ struct TestnetBetaNodeControlArgs {
 #[derive(Debug, Deserialize)]
 struct TestnetBetaRemoveNodeArgs {
     input: TestnetBetaRemoveNodeInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaNodeLogsArgs {
+    node_id: String,
+    #[serde(default)]
+    lines: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaChainBlocksArgs {
+    node_id: String,
+    #[serde(default)]
+    count: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaRegisterWithSeedsArgs {
+    node_id: String,
 }
 
 pub async fn serve(port: u16, token: String, app_context: AppContext) -> Result<(), String> {
@@ -355,6 +378,18 @@ async fn dispatch_command(
         "testbeta_remove_node" => {
             let args: TestnetBetaRemoveNodeArgs = parse_args(request.args)?;
             to_value(testbeta_remove_node(&state.app_context, args.input).await?)
+        }
+        "testbeta_get_node_logs" => {
+            let args: TestnetBetaNodeLogsArgs = parse_args(request.args)?;
+            to_value(testbeta_get_node_logs(args.node_id, args.lines)?)
+        }
+        "testbeta_get_chain_blocks" => {
+            let args: TestnetBetaChainBlocksArgs = parse_args(request.args)?;
+            to_value(testbeta_get_chain_blocks(args.node_id, args.count).await?)
+        }
+        "testbeta_run_register_with_seeds" => {
+            let args: TestnetBetaRegisterWithSeedsArgs = parse_args(request.args)?;
+            to_value(testbeta_run_register_with_seeds(args.node_id).await?)
         }
         "monitor_mark_setup_complete" => {
             let args: SetupCompleteArgs = parse_args(request.args)?;

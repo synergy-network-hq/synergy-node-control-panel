@@ -616,6 +616,96 @@ pub fn testbeta_reset_deferred_bootstrap_note() -> Result<String, String> {
     Ok("Bootnodes, dnsaddr bootstrap records, and seed services are configured as the active multi-source discovery path.".to_string())
 }
 
+/// Returns recent blocks from the node's local chain via its JSON-RPC endpoint.
+/// Fetches the last `count` blocks (default 20, max 100) using synergy_getBlockRange.
+pub async fn testbeta_get_chain_blocks(
+    node_id: String,
+    count: Option<u64>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let root = ensure_testnet_beta_root()?;
+    let registry = load_registry(&root)?;
+    let node = registry
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .ok_or_else(|| format!("Node not found: {}", node_id))?;
+
+    let workspace = PathBuf::from(&node.workspace_directory);
+    let config_path = workspace.join("config").join("node.toml");
+    let rpc_endpoint = parse_testbeta_rpc_endpoint(&config_path)
+        .unwrap_or_else(|| format!("http://127.0.0.1:{TESTNET_BETA_RPC_PORT}"));
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    // Get current block height
+    let height_val =
+        query_rpc_value(&client, &rpc_endpoint, "synergy_blockNumber", json!([])).await?;
+    let height = parse_rpc_u64(height_val)?;
+
+    let fetch_count = count.unwrap_or(20).min(100);
+    let start = if height >= fetch_count {
+        height - fetch_count + 1
+    } else {
+        0
+    };
+    let end = height;
+
+    let result =
+        query_rpc_value(&client, &rpc_endpoint, "synergy_getBlockRange", json!([start, end]))
+            .await?;
+
+    let blocks = result
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    // Return newest first
+    let mut ordered = blocks;
+    ordered.reverse();
+    Ok(ordered)
+}
+
+/// Returns the last `lines` lines from a node's main log file.
+/// Reads `{workspace_directory}/logs/synergy-testbeta.log`.
+pub async fn testbeta_run_register_with_seeds(node_id: String) -> Result<String, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {}", node_id))?;
+
+    register_node_with_seeds_async(&state.network_profile, &node).await?;
+    Ok(format!(
+        "Node '{}' registered with all configured seed servers.",
+        node.display_label
+    ))
+}
+
+pub fn testbeta_get_node_logs(node_id: String, lines: Option<usize>) -> Result<String, String> {
+    let root = ensure_testnet_beta_root()?;
+    let registry = load_registry(&root)?;
+    let node = registry
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .ok_or_else(|| format!("Node not found: {}", node_id))?;
+
+    let workspace = PathBuf::from(&node.workspace_directory);
+    let log_path = workspace.join("logs").join("synergy-testbeta.log");
+
+    if !log_path.exists() {
+        return Ok(String::new());
+    }
+
+    let max_lines = lines.unwrap_or(500);
+    Ok(log_tail_excerpt(&log_path, max_lines).unwrap_or_default())
+}
+
 pub async fn testbeta_setup_node(
     input: TestnetBetaSetupInput,
 ) -> Result<TestnetBetaSetupResult, String> {
