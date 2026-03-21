@@ -13,24 +13,6 @@ TESTBETA_AGENT_PORT="${SYNERGY_TESTBETA_AGENT_PORT:-47990}"
 REBUILD_INSTALLERS="false"
 SKIP_RESTART="false"
 
-START_ORDER=(
-  node-01
-  node-02
-  node-03
-  node-04
-  node-05
-  node-10
-  node-11
-  node-06
-  node-07
-  node-08
-  node-09
-  node-12
-  node-13
-  node-14
-  node-15
-)
-
 usage() {
   cat <<USAGE
 Usage: $0 [--hosts-file <path>] [--rebuild-installers] [--skip-restart]
@@ -166,6 +148,57 @@ inventory_node_slot_ids() {
   awk -F, 'NR > 1 {print $1}' "$INVENTORY_FILE"
 }
 
+is_bootnode_slot() {
+  local node_slot_id="$1"
+  [[ "$node_slot_id" == "node-01" || "$node_slot_id" == "node-02" ]]
+}
+
+bootstrap_validator_slots() {
+  awk -F, '
+    NR > 1 {
+      role_group = tolower($3)
+      role = tolower($4)
+      node_type = tolower($5)
+      if (role_group == "consensus" && (role == "validator" || node_type == "validator")) {
+        print $1
+      }
+    }
+  ' "$INVENTORY_FILE"
+}
+
+derived_start_order() {
+  local -a bootnodes=()
+  local -a bootstrap_validators=()
+  local -a remaining=()
+  local -A seen=()
+
+  while IFS= read -r node_slot_id; do
+    [[ -z "$node_slot_id" ]] && continue
+    if is_bootnode_slot "$node_slot_id"; then
+      bootnodes+=("$node_slot_id")
+      seen["$node_slot_id"]=1
+    fi
+  done < <(bootstrap_validator_slots)
+
+  while IFS= read -r node_slot_id; do
+    [[ -z "$node_slot_id" ]] && continue
+    if [[ -z "${seen[$node_slot_id]:-}" ]]; then
+      bootstrap_validators+=("$node_slot_id")
+      seen["$node_slot_id"]=1
+    fi
+  done < <(bootstrap_validator_slots)
+
+  while IFS= read -r node_slot_id; do
+    [[ -z "$node_slot_id" ]] && continue
+    if [[ -z "${seen[$node_slot_id]:-}" ]]; then
+      remaining+=("$node_slot_id")
+      seen["$node_slot_id"]=1
+    fi
+  done < <(inventory_node_slot_ids)
+
+  printf '%s\n' "${bootnodes[@]}" "${bootstrap_validators[@]}" "${remaining[@]}"
+}
+
 stop_cluster() {
   echo "Stopping testbeta nodes..."
   while IFS= read -r node_slot_id; do
@@ -273,11 +306,27 @@ restart_cluster() {
     return
   fi
 
-  # Bootnodes are the first two entries in START_ORDER (node-01, node-02).
-  local bootnodes=("${START_ORDER[@]:0:2}")
-  local remaining=("${START_ORDER[@]:2}")
+  mapfile -t start_order < <(derived_start_order)
+  local -a bootnodes=()
+  local -a remaining=()
 
-  echo "Starting bootnode(s) first: ${bootnodes[*]}"
+  for node_slot_id in "${start_order[@]}"; do
+    [[ -z "$node_slot_id" ]] && continue
+    if is_bootnode_slot "$node_slot_id"; then
+      bootnodes+=("$node_slot_id")
+    else
+      remaining+=("$node_slot_id")
+    fi
+  done
+
+  if [[ "${#bootnodes[@]}" -eq 0 ]]; then
+    echo "WARNING: No bootstrap bootnodes found in inventory; starting all nodes in inventory order."
+    remaining=("${start_order[@]}")
+  fi
+
+  if [[ "${#bootnodes[@]}" -gt 0 ]]; then
+    echo "Starting bootnode(s) first: ${bootnodes[*]}"
+  fi
   for node_slot_id in "${bootnodes[@]}"; do
     start_machine "$node_slot_id"
     sleep 1
