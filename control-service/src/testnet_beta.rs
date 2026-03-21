@@ -1,13 +1,16 @@
 use crate::app_context::AppContext;
 use chrono::Utc;
 use futures_util::future::join_all;
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use synergy_address_engine::{generate_identity, AddressType, SynergyIdentity};
 use sysinfo::{Disks, Pid, System};
@@ -32,6 +35,15 @@ const TOKEN_SCALE: u64 = 1_000_000_000;
 const MINIMUM_STAKE_SNRG: u64 = 5_000;
 const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
+
+static NODE_LIVE_CACHE: Lazy<Mutex<HashMap<String, CachedNodeLiveSnapshot>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone)]
+struct CachedNodeLiveSnapshot {
+    local_chain_height: Option<u64>,
+    local_peer_count: Option<usize>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestnetBetaBootstrapEndpoint {
@@ -201,9 +213,12 @@ pub struct TestnetBetaNodeLiveStatus {
     pub local_rpc_ready: bool,
     pub local_rpc_status: String,
     pub pid: Option<u32>,
+    pub process_uptime_secs: Option<u64>,
     pub local_chain_height: Option<u64>,
     pub local_peer_count: Option<usize>,
     pub sync_gap: Option<u64>,
+    pub log_local_chain_height: Option<u64>,
+    pub best_observed_peer_height: Option<u64>,
     pub synergy_score: Option<f64>,
     pub synergy_score_status: String,
 }
@@ -293,7 +308,7 @@ pub fn testbeta_get_catalog() -> Result<Vec<TestnetBetaRoleProfile>, String> {
 pub async fn testbeta_get_live_status() -> Result<TestnetBetaLiveStatus, String> {
     let state = build_state()?;
     let client = Client::builder()
-        .timeout(Duration::from_secs(4))
+        .timeout(Duration::from_secs(8))
         .build()
         .map_err(|error| format!("Failed to create live-status HTTP client: {error}"))?;
 
@@ -465,6 +480,51 @@ pub async fn testbeta_node_control(
             })
         }
         "sync" => {
+            if role_supports_validator_registration(&node.role_id) {
+                if is_running {
+                    run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
+                }
+
+                if let Err(e) = write_genesis_json_for_workspace(&state.nodes, &workspace_directory) {
+                    eprintln!(
+                        "Warning: could not write genesis.json for {}: {e}",
+                        node.display_label
+                    );
+                }
+
+                {
+                    let peers_toml_path = workspace_directory.join("config").join("peers.toml");
+                    let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
+                    for sibling in local_sibling_dial_targets(&state.nodes, &node.id) {
+                        if !targets.contains(&sibling) {
+                            targets.push(sibling);
+                        }
+                    }
+                    let peers_contents =
+                        build_peers_toml_with_additional(&state.network_profile, &targets);
+                    if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
+                        eprintln!(
+                            "Warning: could not refresh peers.toml for {}: {e}",
+                            node.display_label
+                        );
+                    }
+                }
+
+                launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
+                wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
+                if let Err(error) = register_node_with_seeds_async(&state.network_profile, &node).await
+                {
+                    eprintln!("Warning: {error}");
+                }
+
+                return Ok(TestnetBetaNodeControlResult {
+                    node_id: node.id,
+                    action: "sync".to_string(),
+                    status: "ok".to_string(),
+                    message: "Validator rejoin completed. Validator nodes use restart-based peer rejoin instead of offline fast-sync.".to_string(),
+                });
+            }
+
             if is_running {
                 run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
             }
@@ -1019,7 +1079,16 @@ fn build_state() -> Result<TestnetBetaState, String> {
     let node_catalog = node_catalog();
     let device_profile = detect_device_profile();
     let total_nodes = registry.nodes.len();
-    let total_sponsored_stake = total_nodes as u64 * MINIMUM_STAKE_SNRG;
+    let total_sponsored_stake_nwei = network_profile
+        .funding_manifests
+        .iter()
+        .filter_map(|manifest| manifest.amount_nwei.parse::<u64>().ok())
+        .fold(0_u64, |sum, amount| sum.saturating_add(amount));
+    let total_sponsored_stake = if total_sponsored_stake_nwei > 0 {
+        total_sponsored_stake_nwei / TOKEN_SCALE
+    } else {
+        total_nodes as u64 * MINIMUM_STAKE_SNRG
+    };
 
     Ok(TestnetBetaState {
         environment_id: TESTNET_BETA_ENVIRONMENT_ID.to_string(),
@@ -1032,7 +1101,11 @@ fn build_state() -> Result<TestnetBetaState, String> {
             total_nodes,
             active_role_profiles: node_catalog.len(),
             total_sponsored_stake_snrg: format_amount(total_sponsored_stake),
-            total_sponsored_stake_nwei: amount_to_nwei_string(total_sponsored_stake),
+            total_sponsored_stake_nwei: if total_sponsored_stake_nwei > 0 {
+                total_sponsored_stake_nwei.to_string()
+            } else {
+                amount_to_nwei_string(total_sponsored_stake)
+            },
             connectivity_policy: network_profile.bootstrap_policy.note,
         },
     })
@@ -1198,20 +1271,21 @@ async fn build_node_live_status(
     let rpc_endpoint = parse_testbeta_rpc_endpoint(&config_path)
         .unwrap_or_else(|| format!("http://127.0.0.1:{TESTNET_BETA_RPC_PORT}"));
     let public_chain_height = query_public_chain_height(client).await.ok();
-    let pid = running_pid_for_workspace(&workspace_directory);
-    let is_running = pid.is_some();
-    let (local_chain_height, local_chain_error) = if is_running {
-        match query_rpc_value(client, &rpc_endpoint, "synergy_blockNumber", json!([])).await {
-            Ok(value) => match parse_rpc_u64(value) {
-                Ok(height) => (Some(height), None),
-                Err(error) => (None, Some(error)),
-            },
+    let process_info = running_process_for_workspace(&workspace_directory);
+    let pid = process_info.as_ref().map(|info| info.pid);
+    let process_uptime_secs = process_info.as_ref().map(|info| info.uptime_secs);
+    let is_running = process_info.is_some();
+    let (log_local_chain_height, best_observed_peer_height) =
+        recent_chain_hints_from_log(&workspace_directory);
+    let (fresh_local_chain_height, local_chain_error) = if is_running {
+        match query_local_chain_height(client, &rpc_endpoint).await {
+            Ok(height) => (Some(height), None),
             Err(error) => (None, Some(error)),
         }
     } else {
         (None, None)
     };
-    let (local_peer_count, local_peer_error) = if is_running {
+    let (fresh_local_peer_count, local_peer_error) = if is_running {
         match query_rpc_value(client, &rpc_endpoint, "synergy_getPeerInfo", json!([])).await {
             Ok(value) => match parse_rpc_peer_count(value) {
                 Ok(count) => (Some(count), None),
@@ -1222,19 +1296,50 @@ async fn build_node_live_status(
     } else {
         (None, None)
     };
+    let cached_snapshot = {
+        let cache = NODE_LIVE_CACHE.lock().unwrap();
+        cache.get(&node.id).cloned()
+    };
+    let local_chain_height = fresh_local_chain_height
+        .or_else(|| cached_snapshot.as_ref().and_then(|entry| entry.local_chain_height))
+        .or(log_local_chain_height);
+    let local_peer_count = fresh_local_peer_count
+        .or_else(|| cached_snapshot.as_ref().and_then(|entry| entry.local_peer_count));
+    let using_cached_snapshot = is_running
+        && ((fresh_local_chain_height.is_none() && local_chain_height.is_some())
+            || (fresh_local_peer_count.is_none() && local_peer_count.is_some()));
+    let using_log_height = is_running
+        && fresh_local_chain_height.is_none()
+        && log_local_chain_height.is_some();
     let local_rpc_ready =
-        is_running && (local_chain_height.is_some() || local_peer_count.is_some());
+        is_running && (fresh_local_chain_height.is_some() || fresh_local_peer_count.is_some());
     let local_rpc_status = if !is_running {
+        let mut cache = NODE_LIVE_CACHE.lock().unwrap();
+        cache.remove(&node.id);
         "Local runtime is offline.".to_string()
     } else if local_rpc_ready {
+        let mut cache = NODE_LIVE_CACHE.lock().unwrap();
+        cache.insert(
+            node.id.clone(),
+            CachedNodeLiveSnapshot {
+                local_chain_height,
+                local_peer_count,
+            },
+        );
         format!("Local RPC responding on {rpc_endpoint}.")
     } else {
         let mut details = Vec::new();
         if let Some(error) = local_chain_error.as_ref() {
-            details.push(format!("synergy_blockNumber: {error}"));
+            details.push(error.clone());
         }
         if let Some(error) = local_peer_error.as_ref() {
             details.push(format!("synergy_getPeerInfo: {error}"));
+        }
+        if using_cached_snapshot {
+            details.push("showing last successful local snapshot".to_string());
+        }
+        if using_log_height {
+            details.push("showing last committed height from node log".to_string());
         }
         if details.is_empty() {
             format!("Local RPC is not responding on {rpc_endpoint}.")
@@ -1245,9 +1350,15 @@ async fn build_node_live_status(
             )
         }
     };
-    let sync_gap = match (public_chain_height, local_chain_height) {
-        (Some(public_height), Some(local_height)) => {
-            Some(public_height.saturating_sub(local_height))
+    let best_network_height = match (public_chain_height, best_observed_peer_height) {
+        (Some(public_height), Some(peer_height)) => Some(public_height.max(peer_height)),
+        (Some(public_height), None) => Some(public_height),
+        (None, Some(peer_height)) => Some(peer_height),
+        (None, None) => None,
+    };
+    let sync_gap = match (best_network_height, local_chain_height) {
+        (Some(network_height), Some(local_height)) => {
+            Some(network_height.saturating_sub(local_height))
         }
         _ => None,
     };
@@ -1272,15 +1383,23 @@ async fn build_node_live_status(
         local_rpc_ready,
         local_rpc_status,
         pid,
+        process_uptime_secs,
         local_chain_height,
         local_peer_count,
         sync_gap,
+        log_local_chain_height,
+        best_observed_peer_height,
         synergy_score,
         synergy_score_status,
     }
 }
 
-fn running_pid_for_workspace(workspace_directory: &Path) -> Option<u32> {
+struct RunningProcessInfo {
+    pid: u32,
+    uptime_secs: u64,
+}
+
+fn running_process_for_workspace(workspace_directory: &Path) -> Option<RunningProcessInfo> {
     let pid_path = workspace_directory
         .join("data")
         .join("synergy-testbeta.pid");
@@ -1288,7 +1407,15 @@ fn running_pid_for_workspace(workspace_directory: &Path) -> Option<u32> {
     let pid = pid_text.trim().parse::<u32>().ok()?;
     let mut system = System::new_all();
     system.refresh_all();
-    system.process(Pid::from_u32(pid)).map(|_| pid)
+    let process = system.process(Pid::from_u32(pid))?;
+    Some(RunningProcessInfo {
+        pid,
+        uptime_secs: process.run_time(),
+    })
+}
+
+fn running_pid_for_workspace(workspace_directory: &Path) -> Option<u32> {
+    running_process_for_workspace(workspace_directory).map(|info| info.pid)
 }
 
 fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Result<(), String> {
@@ -1496,6 +1623,64 @@ fn log_tail_excerpt(path: &Path, max_lines: usize) -> Option<String> {
     Some(lines.join("\n"))
 }
 
+fn recent_chain_hints_from_log(workspace_directory: &Path) -> (Option<u64>, Option<u64>) {
+    let log_path = workspace_directory.join("logs").join("synergy-testbeta.log");
+    let excerpt = match log_tail_excerpt(&log_path, 500) {
+        Some(value) => value,
+        None => return (None, None),
+    };
+
+    let mut log_local_chain_height = None;
+    let mut best_observed_peer_height = None;
+    let mut expect_commit_metadata = false;
+    let mut expect_status_metadata = false;
+
+    for line in excerpt.lines() {
+        if line.contains("[consensus] Block committed") {
+            expect_commit_metadata = true;
+            expect_status_metadata = false;
+            continue;
+        }
+        if line.contains("[p2p] Received status") {
+            expect_status_metadata = true;
+            expect_commit_metadata = false;
+            continue;
+        }
+        if line.starts_with('[') {
+            expect_commit_metadata = false;
+            expect_status_metadata = false;
+            continue;
+        }
+        if !line.contains("Metadata:") {
+            continue;
+        }
+
+        let Some(payload_text) = line.split("Metadata:").nth(1).map(str::trim) else {
+            continue;
+        };
+        let Ok(payload) = serde_json::from_str::<Value>(payload_text) else {
+            continue;
+        };
+
+        if expect_commit_metadata {
+            log_local_chain_height = payload.get("height").and_then(Value::as_u64);
+            expect_commit_metadata = false;
+        }
+        if expect_status_metadata {
+            if let Some(height) = payload.get("height").and_then(Value::as_u64) {
+                best_observed_peer_height = Some(
+                    best_observed_peer_height
+                        .map(|current: u64| current.max(height))
+                        .unwrap_or(height),
+                );
+            }
+            expect_status_metadata = false;
+        }
+    }
+
+    (log_local_chain_height, best_observed_peer_height)
+}
+
 fn recent_launch_failure_detail(workspace_directory: &Path, subcommand: &str) -> Option<String> {
     let candidates = [
         control_action_log_path(workspace_directory, subcommand, "stderr"),
@@ -1629,14 +1814,7 @@ fn parse_testbeta_rpc_endpoint(config_path: &Path) -> Option<String> {
 }
 
 async fn query_public_chain_height(client: &Client) -> Result<u64, String> {
-    let value = query_rpc_value(
-        client,
-        TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
-        "synergy_blockNumber",
-        json!([]),
-    )
-    .await?;
-    parse_rpc_u64(value)
+    query_local_chain_height(client, TESTNET_BETA_PUBLIC_RPC_ENDPOINT).await
 }
 
 async fn query_public_peer_count(client: &Client) -> Result<usize, String> {
@@ -1710,6 +1888,30 @@ async fn query_synergy_score_from_validator_activity(
         .ok_or_else(|| {
             "Validator activity RPC did not include a synergy score for this address.".to_string()
         })
+}
+
+async fn query_local_chain_height(client: &Client, endpoint: &str) -> Result<u64, String> {
+    let mut errors = Vec::new();
+
+    for method in ["synergy_blockNumber", "synergy_getBlockNumber"] {
+        match query_rpc_value(client, endpoint, method, json!([])).await {
+            Ok(value) => match parse_rpc_block_height(value) {
+                Ok(height) => return Ok(height),
+                Err(error) => errors.push(format!("{method}: {error}")),
+            },
+            Err(error) => errors.push(format!("{method}: {error}")),
+        }
+    }
+
+    match query_rpc_value(client, endpoint, "synergy_getLatestBlock", json!([])).await {
+        Ok(value) => match parse_rpc_block_height(value) {
+            Ok(height) => return Ok(height),
+            Err(error) => errors.push(format!("synergy_getLatestBlock: {error}")),
+        },
+        Err(error) => errors.push(format!("synergy_getLatestBlock: {error}")),
+    }
+
+    Err(errors.join(" | "))
 }
 
 async fn resolve_synergy_score_status(
@@ -1839,6 +2041,23 @@ fn parse_rpc_u64(value: Value) -> Result<u64, String> {
     }
 
     Err("RPC numeric payload was neither a number nor a string.".to_string())
+}
+
+fn parse_rpc_block_height(value: Value) -> Result<u64, String> {
+    if let Ok(height) = parse_rpc_u64(value.clone()) {
+        return Ok(height);
+    }
+
+    if let Some(height_value) = value
+        .get("block_index")
+        .cloned()
+        .or_else(|| value.get("number").cloned())
+        .or_else(|| value.get("height").cloned())
+    {
+        return parse_rpc_u64(height_value);
+    }
+
+    Err("RPC block-height payload did not contain a numeric height.".to_string())
 }
 
 fn parse_rpc_peer_count(value: Value) -> Result<usize, String> {

@@ -16,6 +16,8 @@ import { SNRGButton } from '../styles/SNRGButton';
 
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 const POLL_INTERVAL_MS = 8000;
+const P2P_REJOIN_GRACE_SECS = 45;
+const NWEI_PER_SNRG = 1000000000n;
 
 async function fetchExplorerJson(baseUrl, path) {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
@@ -135,6 +137,9 @@ function nodePeerCountDetail(nodeLive, liveStatus) {
   if (nodeLive.local_rpc_ready === false) {
     return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
   }
+  if (nodeIsRejoiningPeers(nodeLive)) {
+    return `Node restarted ${formatNumber(nodeLive?.process_uptime_secs)}s ago and is still rejoining the P2P mesh.`;
+  }
   if (
     liveStatus?.public_peer_count != null
     && nodeLive?.local_peer_count != null
@@ -143,6 +148,14 @@ function nodePeerCountDetail(nodeLive, liveStatus) {
     return `This node sees ${formatNumber(nodeLive.local_peer_count)} local peers; public RPC sees ${formatNumber(liveStatus.public_peer_count)} visible peers.`;
   }
   return 'Live connected peers';
+}
+
+function nodeIsRejoiningPeers(nodeLive) {
+  return Boolean(
+    nodeLive?.is_running
+      && (nodeLive?.local_peer_count ?? 0) === 0
+      && (nodeLive?.process_uptime_secs ?? Number.MAX_SAFE_INTEGER) < P2P_REJOIN_GRACE_SECS,
+  );
 }
 
 function formatTimestamp(utcString) {
@@ -182,6 +195,163 @@ function rewardProfileForRole(role) {
     case 5: return { tier: 'Service', multiplier: '0.85x base', summary: 'Access and indexing roles earn for uptime and service quality.' };
     default: return { tier: 'Standard', multiplier: '1.00x base', summary: 'This role earns SNRG when online and active.' };
   }
+}
+
+const ROLE_REWARD_STANDARD = Object.freeze({
+  validator: {
+    baseMonthlySnrg: '30,000',
+    fundingSource: 'Consensus emissions + fee share',
+    payoutEquation: 'P = floor((B + 12*PBk + 6*FQk + 0.04*SS) * U * Q * H * S * 1e9) - Pen',
+    bondSlash: '5,000 SNRG minimum bond; 15% slash for equivocation; 5% slash for invalid state vote',
+    minTier: 'T4 Sovereign',
+  },
+  witness: {
+    baseMonthlySnrg: '15,000',
+    fundingSource: 'Treasury subsidy + per-event service rewards',
+    payoutEquation: 'P = floor((B + 10*WEk + 4*CFk) * U * Q * H * 1e9) - Pen',
+    bondSlash: '1,250 SNRG bond; 8% slash cap for false witness evidence',
+    minTier: 'T2 Performance',
+  },
+  data_availability: {
+    baseMonthlySnrg: '10,000',
+    fundingSource: 'Capacity stipend + retrieval rewards',
+    payoutEquation: 'P = floor((B + 2*TBm + 0.6*RSk + 1.2*RPk) * U * Q * H * 1e9) - Pen',
+    bondSlash: '1,500 SNRG bond; 8% slash cap for durability breach',
+    minTier: 'T3 Performance',
+  },
+  rpc_gateway: {
+    baseMonthlySnrg: '8,000',
+    fundingSource: 'Usage fees + optional network rebate',
+    payoutEquation: 'P = floor((B + 0.9*RQM + 6*ENT) * U * Q * H * 1e9) - Pen',
+    bondSlash: '500 SNRG bond; 3% slash cap for persistent SLA abuse',
+    minTier: 'T2 Performance',
+  },
+  indexer: {
+    baseMonthlySnrg: '7,000',
+    fundingSource: 'Usage fees + ecosystem data-service revenue',
+    payoutEquation: 'P = floor((B + 0.8*QMk + 1.5*APIk) * U * Q * H * 1e9) - Pen',
+    bondSlash: '500 SNRG bond; 3% slash cap for corruption or lag breach',
+    minTier: 'T2 Performance',
+  },
+  archive_validator: {
+    baseMonthlySnrg: '6,000',
+    fundingSource: 'Capacity stipend + proof reconstruction fees',
+    payoutEquation: 'P = floor((B + 1.5*TBm + 3*PRk) * U * Q * H * 1e9) - Pen',
+    bondSlash: '750 SNRG bond; 4% slash cap for missing history segments',
+    minTier: 'T3 Performance',
+  },
+  audit_validator: {
+    baseMonthlySnrg: '5,000',
+    fundingSource: 'Treasury-funded audit pool + bounty payments',
+    payoutEquation: 'P = floor((B + 12*AN + 20*DV) * U * Q * H * 1e9) - Pen',
+    bondSlash: '750 SNRG bond; 4% slash cap for material missed divergence',
+    minTier: 'T2 Performance',
+  },
+  governance_auditor: {
+    baseMonthlySnrg: '3,500',
+    fundingSource: 'Treasury-funded governance assurance budget',
+    payoutEquation: 'P = floor((B + 30*GP + 12*EV) * U * Q * H * 1e9) - Pen',
+    bondSlash: '500 SNRG bond; 3% slash cap for scope-review failure',
+    minTier: 'T2 Standard+',
+  },
+  ai_inference: {
+    baseMonthlySnrg: '2,500',
+    fundingSource: 'Grant-style treasury budget + service contracts',
+    payoutEquation: 'P = floor((B + 8*SIMk + 25*AR) * U * Q * H * 1e9) - Pen',
+    bondSlash: '250 SNRG bond; 2% slash cap for repeated stale output',
+    minTier: 'T1 Standard',
+  },
+  observer: {
+    baseMonthlySnrg: '1,000',
+    fundingSource: 'Low-rate micro-reward pool',
+    payoutEquation: 'P = floor((B + 0.2*PVk + 0.05*HPk) * U * H * 1e9) - Pen',
+    bondSlash: 'No mandatory bond; optional reputation stake',
+    minTier: 'T0 Bootstrap',
+  },
+});
+
+function parseNwei(value) {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+
+  const text = String(value ?? '').replace(/,/g, '').trim();
+  if (!text) return 0n;
+
+  try {
+    return BigInt(text);
+  } catch {
+    if (!/^\d+(\.\d+)?$/.test(text)) return 0n;
+    const [whole = '0', fraction = ''] = text.split('.');
+    return (BigInt(whole || '0') * NWEI_PER_SNRG) + BigInt(`${fraction}000000000`.slice(0, 9));
+  }
+}
+
+function formatDigits(value) {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function formatSnrgFromNwei(value, options = {}) {
+  const { decimals = 3, suffix = true } = options;
+  const raw = parseNwei(value);
+  const negative = raw < 0n;
+  const abs = negative ? -raw : raw;
+  const whole = abs / NWEI_PER_SNRG;
+  const fraction = abs % NWEI_PER_SNRG;
+  const fractionText = decimals > 0
+    ? fraction.toString().padStart(9, '0').slice(0, decimals).replace(/0+$/, '')
+    : '';
+  const formatted = `${negative ? '-' : ''}${formatDigits(whole.toString())}${fractionText ? `.${fractionText}` : ''}`;
+  return suffix ? `${formatted} SNRG` : formatted;
+}
+
+function roleRewardStandard(roleId, fallbackDisplayName = 'Node') {
+  return ROLE_REWARD_STANDARD[roleId] || {
+    baseMonthlySnrg: 'Unavailable',
+    fundingSource: `${fallbackDisplayName} compensation standard not loaded.`,
+    payoutEquation: 'Not defined for this role in the current wallet view.',
+    bondSlash: 'Refer to the ratified rewards standard.',
+    minTier: 'N/A',
+  };
+}
+
+function totalReservedNweiForNetwork(networkProfile, fallbackValue) {
+  const manifests = Array.isArray(networkProfile?.funding_manifests) ? networkProfile.funding_manifests : [];
+  const manifestTotal = manifests.reduce(
+    (sum, manifest) => sum + parseNwei(manifest?.amount_nwei || manifest?.amount_snrg),
+    0n,
+  );
+  if (manifestTotal > 0n) return manifestTotal;
+  return parseNwei(fallbackValue);
+}
+
+function localRpcEndpointForNode(node, nodeLive) {
+  if (nodeLive?.rpc_endpoint) return nodeLive.rpc_endpoint;
+  const slot = Number(node?.port_slot || 0);
+  return `http://127.0.0.1:${48638 + slot}`;
+}
+
+async function queryLocalRpc(endpoint, method, params = []) {
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  if (!response.ok) throw new Error(`${method} returned HTTP ${response.status}`);
+  const payload = await response.json();
+  if (payload?.error) throw new Error(payload.error?.message || JSON.stringify(payload.error));
+  return payload?.result;
+}
+
+function computeCatchUpStatus(nodeLive, publicHeight) {
+  if (!nodeLive?.is_running) return 'Offline';
+  if (nodeLive.local_rpc_ready === false) return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
+  if (nodeIsRejoiningPeers(nodeLive)) {
+    return `Rejoining peers (${formatNumber(nodeLive?.process_uptime_secs)}s since restart)`;
+  }
+  if ((nodeLive?.sync_gap ?? 0) > 0) {
+    return `Catching up (${formatNumber(nodeLive?.sync_gap)} blocks behind ${formatNumber(publicHeight)})`;
+  }
+  return 'At chain head';
 }
 
 /* ----- Confirmation Modal ----- */
@@ -238,6 +408,8 @@ function TestnetBetaNodeDetail() {
   const [registerMessage, setRegisterMessage] = useState('');
   const [registerTone, setRegisterTone] = useState('good');
   const [registerRestartFirst, setRegisterRestartFirst] = useState(false);
+  const [walletSnapshot, setWalletSnapshot] = useState(null);
+  const [walletLoading, setWalletLoading] = useState(false);
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
 
   const fetchData = useCallback(async (silent = false) => {
@@ -284,7 +456,10 @@ function TestnetBetaNodeDetail() {
   const nodeLive = useMemo(() => (liveStatus?.nodes || []).find((e) => e.node_id === nodeId) || null, [liveStatus?.nodes, nodeId]);
   const role = useMemo(() => nodeCatalog.find((r) => r.id === node?.role_id) || null, [nodeCatalog, node?.role_id]);
   const fundingManifest = useMemo(() => (network?.funding_manifests || []).find((f) => f.id === node?.funding_manifest_id) || null, [network?.funding_manifests, node?.funding_manifest_id]);
-  const rewardProfile = useMemo(() => rewardProfileForRole(role), [role]);
+  const totalReservedNwei = useMemo(
+    () => totalReservedNweiForNetwork(network, state?.summary?.total_sponsored_stake_nwei),
+    [network, state?.summary?.total_sponsored_stake_nwei],
+  );
   const isRunning = Boolean(nodeLive?.is_running);
   const runtimeLabel = nodeRuntimeLabel(nodeLive);
   const runtimeTone = nodeRuntimeTone(nodeLive);
@@ -332,6 +507,85 @@ function TestnetBetaNodeDetail() {
     setPortNoticeTone('good');
     loadConfigArtifacts(node);
   }, [loadConfigArtifacts, node]);
+
+  useEffect(() => {
+    if (activeTab !== 'wallet' || !node) {
+      setWalletSnapshot(null);
+      setWalletLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadWalletSnapshot = async () => {
+      setWalletLoading(true);
+      const endpoint = localRpcEndpointForNode(node, nodeLive);
+      const reservedNwei = parseNwei(
+        fundingManifest?.amount_nwei || fundingManifest?.amount_snrg || 0,
+      );
+
+      let walletBalanceNwei = 0n;
+      let realizedEarnedNwei = 0n;
+      let pendingRewardsNwei = 0n;
+      let stakingEntryCount = 0;
+      let lastError = '';
+
+      try {
+        const balances = await queryLocalRpc(endpoint, 'synergy_getAllBalances', [node.node_address]);
+        walletBalanceNwei = parseNwei(balances?.SNRG);
+      } catch (walletError) {
+        lastError = String(walletError);
+      }
+
+      try {
+        const stakingInfo = await queryLocalRpc(endpoint, 'synergy_getStakingInfo', [node.node_address]);
+        const entries = Array.isArray(stakingInfo) ? stakingInfo : [];
+        stakingEntryCount = entries.length;
+        realizedEarnedNwei = entries.reduce(
+          (sum, entry) => sum + parseNwei(entry?.rewards_earned),
+          0n,
+        );
+      } catch (stakingError) {
+        if (!lastError) lastError = String(stakingError);
+      }
+
+      try {
+        const validatorStats = await queryLocalRpc(endpoint, 'synergy_getValidatorStats', []);
+        pendingRewardsNwei = parseNwei(validatorStats?.epoch_rewards?.[node.node_address]);
+      } catch (validatorError) {
+        if (!lastError) lastError = String(validatorError);
+      }
+
+      const derivedEarnedNwei = walletBalanceNwei > reservedNwei
+        ? walletBalanceNwei - reservedNwei
+        : 0n;
+      const earnedRewardsNwei = realizedEarnedNwei > derivedEarnedNwei
+        ? realizedEarnedNwei
+        : derivedEarnedNwei;
+      const lifetimeRewardsNwei = earnedRewardsNwei + pendingRewardsNwei;
+
+      if (!cancelled) {
+        setWalletSnapshot({
+          endpoint,
+          walletBalanceNwei: walletBalanceNwei.toString(),
+          reservedNwei: reservedNwei.toString(),
+          earnedRewardsNwei: earnedRewardsNwei.toString(),
+          pendingRewardsNwei: pendingRewardsNwei.toString(),
+          lifetimeRewardsNwei: lifetimeRewardsNwei.toString(),
+          stakingEntryCount,
+          lastError,
+        });
+        setWalletLoading(false);
+      }
+    };
+
+    loadWalletSnapshot();
+    const intervalId = window.setInterval(loadWalletSnapshot, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeTab, fundingManifest?.amount_nwei, fundingManifest?.amount_snrg, node, nodeLive]);
 
   const runNodeControl = async (action) => {
     if (!node) return;
@@ -473,12 +727,22 @@ function TestnetBetaNodeDetail() {
     { id: 'config', label: 'Configuration' },
     { id: 'files', label: 'Files' },
   ];
+  const syncLabel = node?.role_id === 'validator' ? 'Rejoin' : 'Speed Sync';
 
   const renderOverview = () => {
-    const zeroPeersRunning = isRunning && (nodeLive?.local_peer_count ?? 0) === 0;
+    const rejoiningPeers = nodeIsRejoiningPeers(nodeLive);
+    const zeroPeersRunning = isRunning && (nodeLive?.local_peer_count ?? 0) === 0 && !rejoiningPeers;
     const pubHeight = liveStatus?.public_chain_height;
     return (
     <div className="nodedetail-tab-stack">
+      {rejoiningPeers && (
+        <div className="nodecp-alert nodecp-alert-info">
+          <strong>Rejoining peers</strong> — this node restarted {formatNumber(nodeLive?.process_uptime_secs)} seconds ago and is still reconnecting to the P2P mesh.
+          {liveStatus?.public_peer_count != null
+            ? ` Public RPC currently reports ${formatNumber(liveStatus.public_peer_count)} visible peers while the local node catches back up.`
+            : ''}
+        </div>
+      )}
       {/* Zero-peer warning */}
       {zeroPeersRunning && (
         <div className="nodecp-alert nodecp-alert-warn">
@@ -758,81 +1022,159 @@ function TestnetBetaNodeDetail() {
     </div>
   );
 
-  const renderWallet = () => (
-    <div className="nodedetail-tab-stack">
-      <div className="nodecp-panel-grid">
+  const renderWallet = () => {
+    const rewardStandard = roleRewardStandard(node.role_id, node.role_display_name);
+    const catchUpStatus = computeCatchUpStatus(nodeLive, liveStatus?.public_chain_height);
+    const snapshot = walletSnapshot || {};
+
+    return (
+      <div className="nodedetail-tab-stack">
         <section className="nodecp-panel">
           <div className="nodecp-panel-header">
             <div>
-              <p className="nodecp-panel-kicker">Node wallet</p>
-              <h3>Address &amp; Identity</h3>
+              <p className="nodecp-panel-kicker">Wallet telemetry</p>
+              <h3>Rewards &amp; Catch-Up</h3>
             </div>
           </div>
-          <div className="nodecp-definition-list">
-            <div className="nodecp-definition-row">
-              <span>Node wallet address</span>
-              <strong className="nodedetail-mono">{node.node_address}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Reward payout address</span>
-              <strong className="nodedetail-mono">{node.reward_payout_address || node.node_address}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Public key file</span>
-              <strong className="nodedetail-mono nodedetail-break">{node.public_key_path}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Private key file</span>
-              <strong className="nodedetail-mono nodedetail-break">{node.private_key_path}</strong>
-            </div>
+          <div className="nodecp-inline-status">
+            <span className={`nodecp-health-pill nodecp-health-${walletLoading ? 'warn' : 'good'}`}>
+              {walletLoading ? 'Refreshing' : 'Live'}
+            </span>
+            <span>
+              {walletLoading
+                ? 'Refreshing wallet and reward telemetry from local node RPC.'
+                : 'Wallet and reward telemetry refreshed from local RPC and validator stats.'}
+            </span>
           </div>
         </section>
 
-        <section className="nodecp-panel">
+        <section className="nodecp-panel nodecp-wallet-slot">
           <div className="nodecp-panel-header">
             <div>
-              <p className="nodecp-panel-kicker">Staking &amp; live performance</p>
-              <h3>Stake &amp; Score</h3>
+              <p className="nodecp-panel-kicker">{node.display_label || node.role_display_name}</p>
+              <h3>{node.role_display_name}</h3>
             </div>
+            <span className={`nodecp-health-pill nodecp-health-${nodeRuntimeTone(nodeLive)}`}>
+              {nodeRuntimeLabel(nodeLive)}
+            </span>
           </div>
-          <div className="nodecp-definition-list">
-            <div className="nodecp-definition-row">
-              <span>Reserved stake</span>
-              <strong>{formatWholeSnrg(fundingManifest?.amount_snrg || 5000)} SNRG</strong>
+
+          <div className="nodecp-wallet-slot-grid">
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Identity & Catch-Up</span>
+              <div className="nodecp-definition-list">
+                <div className="nodecp-definition-row">
+                  <span>Node type</span>
+                  <strong>{node.role_display_name}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Full node address</span>
+                  <strong className="nodecp-wallet-address">{node.node_address}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Reward payout address</span>
+                  <strong className="nodecp-wallet-address">{node.reward_payout_address || node.node_address}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Catch-up status</span>
+                  <strong>{catchUpStatus}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Local / public height</span>
+                  <strong>{formatNumber(nodeLive?.local_chain_height)} / {formatNumber(liveStatus?.public_chain_height)}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Peer count / sync gap</span>
+                  <strong>{formatNumber(nodeLive?.local_peer_count)} peers / {formatNumber(nodeLive?.sync_gap)} blocks</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Synergy score</span>
+                  <strong>{formatScoreOutOfHundred(nodeLive?.synergy_score)}</strong>
+                </div>
+              </div>
             </div>
-            <div className="nodecp-definition-row">
-              <span>Total stake (this machine)</span>
-              <strong>{formatWholeSnrg(state?.summary?.total_sponsored_stake_snrg || 0)} SNRG</strong>
+
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Live Rewards</span>
+              <div className="nodecp-definition-list">
+                <div className="nodecp-definition-row">
+                  <span>Wallet balance</span>
+                  <strong>{formatSnrgFromNwei(snapshot.walletBalanceNwei)}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Reserved stake</span>
+                  <strong>{formatSnrgFromNwei(snapshot.reservedNwei || fundingManifest?.amount_nwei || fundingManifest?.amount_snrg || 0)}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Total reserved (network)</span>
+                  <strong>{formatSnrgFromNwei(totalReservedNwei)}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Earned rewards</span>
+                  <strong>{formatSnrgFromNwei(snapshot.earnedRewardsNwei)}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Pending rewards</span>
+                  <strong>{formatSnrgFromNwei(snapshot.pendingRewardsNwei)}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Lifetime rewards</span>
+                  <strong>{formatSnrgFromNwei(snapshot.lifetimeRewardsNwei)}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Reward telemetry</span>
+                  <strong>{snapshot.lastError ? `Partial data (${snapshot.lastError})` : 'Local RPC + validator stats'}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Funding manifest</span>
+                  <strong>{fundingManifest?.id || 'N/A'}</strong>
+                </div>
+              </div>
+              <div className="nodecp-settings-actions nodecp-settings-actions-tight">
+                <SNRGButton variant="yellow" size="sm" disabled title="Reward withdrawals are not enabled yet.">
+                  Withdraw Rewards
+                </SNRGButton>
+              </div>
             </div>
-            <div className="nodecp-definition-row">
-              <span>Synergy score</span>
-              <strong>{formatScoreOutOfHundred(nodeLive?.synergy_score)}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Score status</span>
-              <strong>{nodeLive?.synergy_score_status || 'Waiting for live chain data'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Funding manifest</span>
-              <strong>{fundingManifest?.id || 'N/A'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Funding status</span>
-              <strong>{fundingManifest?.status || 'N/A'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Stake vault wallet</span>
-              <strong className="nodedetail-mono">{truncateAddress(fundingManifest?.stake_vault_wallet)}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Source treasury</span>
-              <strong className="nodedetail-mono">{truncateAddress(fundingManifest?.source_wallet)}</strong>
+
+            <div className="nodecp-summary-block">
+              <span className="nodecp-summary-label">Role Economics</span>
+              <div className="nodecp-definition-list">
+                <div className="nodecp-definition-row">
+                  <span>Base monthly rewards</span>
+                  <strong>{rewardStandard.baseMonthlySnrg} SNRG</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Funding source</span>
+                  <strong>{rewardStandard.fundingSource}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Minimum tier</span>
+                  <strong>{rewardStandard.minTier}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Bond / slash</span>
+                  <strong>{rewardStandard.bondSlash}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Monthly payout equation</span>
+                  <strong className="nodecp-wallet-formula">{rewardStandard.payoutEquation}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Stake vault wallet</span>
+                  <strong className="nodecp-wallet-address">{fundingManifest?.stake_vault_wallet || 'N/A'}</strong>
+                </div>
+                <div className="nodecp-definition-row">
+                  <span>Source treasury</span>
+                  <strong className="nodecp-wallet-address">{fundingManifest?.source_wallet || 'N/A'}</strong>
+                </div>
+              </div>
             </div>
           </div>
         </section>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderConfig = () => (
     <div className="nodedetail-tab-stack">
@@ -1050,7 +1392,7 @@ function TestnetBetaNodeDetail() {
           </SNRGButton>
           <SNRGButton variant="yellow" size="sm" disabled={!!controlBusy} onClick={() => runNodeControl('sync')}>
             <span className="nodecp-action-icon">{ICONS.sync}</span>
-            <span>{controlBusy === 'sync' ? 'Syncing...' : 'Speed Sync'}</span>
+            <span>{controlBusy === 'sync' ? `${syncLabel}ing...` : syncLabel}</span>
           </SNRGButton>
           <SNRGButton variant="blue" size="sm" onClick={handleCopyAddress}>
             <span className="nodecp-action-icon">{ICONS.copy}</span>

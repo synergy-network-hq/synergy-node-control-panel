@@ -9,10 +9,10 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
+        fail-fast: false
+        matrix:
+          include:
+          - os: macos-14
             artifact_name: macos
             build_cmd: npx electron-builder --config electron-builder.yml --mac dmg zip --publish never
             artifact_glob: |
@@ -51,6 +51,13 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Checkout Testnet-Beta node source
+        uses: actions/checkout@v4
+        with:
+          repository: synergy-network-hq/testnet-beta
+          path: testnet-beta-source
+          ref: 35de521
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -66,6 +73,33 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
+
+      - name: Build fresh Testnet-Beta node binary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo build --manifest-path testnet-beta-source/src/Cargo.toml --release --bin synergy-testbeta
+
+          mkdir -p binaries
+          case "${{ matrix.artifact_name }}" in
+            macos)
+              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-darwin-arm64
+              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-macos-arm64
+              chmod +x binaries/synergy-testbeta-darwin-arm64 binaries/synergy-testbeta-macos-arm64
+              ;;
+            linux)
+              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-linux-amd64
+              chmod +x binaries/synergy-testbeta-linux-amd64
+              ;;
+            windows)
+              cp testnet-beta-source/target/release/synergy-testbeta.exe binaries/synergy-testbeta-windows-amd64.exe
+              ;;
+            *)
+              echo "Unsupported release target: ${{ matrix.artifact_name }}" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Create .env from testbeta example if missing
         shell: bash
