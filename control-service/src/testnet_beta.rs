@@ -230,6 +230,7 @@ pub struct TestnetBetaLiveStatus {
     pub public_rpc_online: bool,
     pub public_chain_height: Option<u64>,
     pub public_peer_count: Option<usize>,
+    pub network_peer_count: Option<usize>,
     pub discovery_status: String,
     pub discovery_detail: String,
     pub chain_status: String,
@@ -333,6 +334,8 @@ pub async fn testbeta_get_live_status() -> Result<TestnetBetaLiveStatus, String>
 
     let public_chain_height = query_public_chain_height(&client).await.ok();
     let public_peer_count = query_public_peer_count(&client).await.ok();
+    let network_peer_count =
+        query_seed_peer_count(&client, &state.network_profile.seed_servers).await.ok();
     let public_rpc_online = public_chain_height.is_some() || public_peer_count.is_some();
 
     let nodes = join_all(
@@ -366,6 +369,7 @@ pub async fn testbeta_get_live_status() -> Result<TestnetBetaLiveStatus, String>
         public_rpc_online,
         public_chain_height,
         public_peer_count,
+        network_peer_count,
         discovery_status,
         discovery_detail,
         chain_status,
@@ -1826,6 +1830,52 @@ async fn query_public_peer_count(client: &Client) -> Result<usize, String> {
     )
     .await?;
     parse_rpc_peer_count(value)
+}
+
+async fn query_seed_peer_count(
+    client: &Client,
+    seed_servers: &[TestnetBetaBootstrapEndpoint],
+) -> Result<usize, String> {
+    let mut unique_peers = HashMap::new();
+    let mut reachable_seed_count = 0usize;
+
+    for seed in seed_servers {
+        let url = format!("http://{}:{}/peers", seed.host, seed.port);
+        let response = match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => response,
+            Ok(_) => continue,
+            Err(_) => continue,
+        };
+
+        let payload: Value = match response.json().await {
+            Ok(payload) => payload,
+            Err(_) => continue,
+        };
+
+        let peers = match payload.get("peers").and_then(Value::as_array) {
+            Some(peers) => peers,
+            None => continue,
+        };
+
+        reachable_seed_count += 1;
+        for peer in peers {
+            let key = peer
+                .get("node_id")
+                .and_then(Value::as_str)
+                .or_else(|| peer.get("dial").and_then(Value::as_str))
+                .or_else(|| peer.get("wallet_address").and_then(Value::as_str));
+
+            if let Some(key) = key {
+                unique_peers.entry(key.to_string()).or_insert(());
+            }
+        }
+    }
+
+    if reachable_seed_count == 0 {
+        return Err("No seed services returned a peer registry.".to_string());
+    }
+
+    Ok(unique_peers.len())
 }
 
 async fn query_synergy_score(client: &Client, address: &str) -> Result<f64, String> {

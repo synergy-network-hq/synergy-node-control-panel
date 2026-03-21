@@ -894,6 +894,12 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     return 3 + Math.floor((activeValidatorCount - 15) / 5);
   }, [activeValidatorCount, chainSummary?.total_validator_clusters, localValidatorStats]);
 
+  const networkVisiblePeerCount = useMemo(() => {
+    if (liveStatus?.network_peer_count != null) return liveStatus.network_peer_count;
+    if (activeValidatorCount != null) return activeValidatorCount;
+    return liveStatus?.public_peer_count ?? null;
+  }, [activeValidatorCount, liveStatus?.network_peer_count, liveStatus?.public_peer_count]);
+
   const headerCopy = selectedNode
     ? `Live chain state, sync, and rewards for ${selectedNode.display_label || roleTypeLabel(selectedNode.role_display_name)}.`
     : 'Set up a node to begin tracking live chain state, peer connectivity, rewards, and service health.';
@@ -1115,9 +1121,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           icon: ICONS.chain,
         },
         {
-          label: 'Local Peer Count',
-          value: formatNumber(nodePeerCountValue(selectedNodeLive, liveStatus)),
-          detail: nodePeerCountDetail(selectedNodeLive, liveStatus),
+          label: 'Peers',
+          value: formatNumber(networkVisiblePeerCount),
+          detail: liveStatus?.network_peer_count != null
+            ? 'Active peers registered with seed services and currently reachable on the network.'
+            : 'Waiting for a live bootstrap peer count from the seed services.',
           icon: ICONS.peers,
         },
         {
@@ -1490,11 +1498,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           }`}>
             <div className="nodecp-status-head">
               <span className="nodecp-status-icon">{ICONS.peers}</span>
-              <span className="nodecp-status-label">Peer Connectivity</span>
+              <span className="nodecp-status-label">Peers</span>
             </div>
             <strong className="nodecp-status-value">
-              {selectedNodeLive?.local_peer_count != null
-                ? `${selectedNodeLive.local_peer_count} peers`
+              {networkVisiblePeerCount != null
+                ? `${networkVisiblePeerCount} peers`
                 : '—'}
             </strong>
             <p className="nodecp-status-detail">
@@ -1502,9 +1510,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                 ? `⚠ No local peers found. P2P port 38638 may be blocked.${liveStatus?.public_peer_count != null ? ` Public RPC reports ${formatNumber(liveStatus.public_peer_count)} visible peers.` : ''}`
                 : nodeIsRejoiningPeers(selectedNodeLive)
                   ? `Node restarted ${formatNumber(selectedNodeLive?.process_uptime_secs)}s ago and is still reconnecting to peers.`
-                : selectedNodeLive?.is_running
-                  ? 'Your node is connected to the network.'
-                  : 'Start a node to check peer connectivity.'}
+                : networkVisiblePeerCount != null
+                  ? 'Seed services currently report this many active, reachable peers on the network.'
+                  : 'Waiting for a live network peer count from the bootstrap layer.'}
             </p>
           </article>
 
@@ -1729,8 +1737,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
               <strong>{formatNumber(liveStatus?.public_chain_height)}</strong>
             </div>
             <div className="nodecp-definition-row">
-              <span>Visible peers</span>
-              <strong>{formatNumber(liveStatus?.public_peer_count)}</strong>
+              <span>Peers</span>
+              <strong>{formatNumber(networkVisiblePeerCount)}</strong>
             </div>
           </div>
         </section>

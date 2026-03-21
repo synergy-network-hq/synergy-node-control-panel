@@ -733,6 +733,10 @@ function TestnetBetaNodeDetail() {
     const rejoiningPeers = nodeIsRejoiningPeers(nodeLive);
     const zeroPeersRunning = isRunning && (nodeLive?.local_peer_count ?? 0) === 0 && !rejoiningPeers;
     const pubHeight = liveStatus?.public_chain_height;
+    const networkVisiblePeerCount = liveStatus?.network_peer_count
+      ?? explorerData?.total_validators
+      ?? liveStatus?.public_peer_count
+      ?? null;
     return (
     <div className="nodedetail-tab-stack">
       {rejoiningPeers && (
@@ -775,9 +779,13 @@ function TestnetBetaNodeDetail() {
         <article className="nodecp-stat-card">
           <div className="nodecp-stat-icon">{ICONS.peers}</div>
           <div className="nodecp-stat-copy">
-            <span className="nodecp-stat-label">Local Peer Count</span>
-            <strong className="nodecp-stat-value">{formatNumber(nodePeerCountValue(nodeLive, liveStatus))}</strong>
-            <span className="nodecp-stat-detail">{nodePeerCountDetail(nodeLive, liveStatus)}</span>
+            <span className="nodecp-stat-label">Peers</span>
+            <strong className="nodecp-stat-value">{formatNumber(networkVisiblePeerCount)}</strong>
+            <span className="nodecp-stat-detail">
+              {liveStatus?.network_peer_count != null
+                ? 'Active peers registered with seed services and currently reachable on the network.'
+                : 'Waiting for a live bootstrap peer count from the seed services.'}
+            </span>
           </div>
         </article>
         <article className="nodecp-stat-card">
@@ -881,8 +889,8 @@ function TestnetBetaNodeDetail() {
             </p>
           </div>
           <div className="nodecp-summary-block">
-            <span className="nodecp-summary-label">Public Visible Peers</span>
-            <p>{liveStatus?.public_peer_count != null ? formatNumber(liveStatus.public_peer_count) : 'N/A'}</p>
+            <span className="nodecp-summary-label">Peers</span>
+            <p>{networkVisiblePeerCount != null ? formatNumber(networkVisiblePeerCount) : 'N/A'}</p>
           </div>
           <div className="nodecp-summary-block">
             <span className="nodecp-summary-label">Local Peer Count</span>
@@ -1015,6 +1023,10 @@ function TestnetBetaNodeDetail() {
             <div className="nodecp-definition-row">
               <span>Block height</span>
               <strong>{formatNumber(liveStatus?.public_chain_height)}</strong>
+            </div>
+            <div className="nodecp-definition-row">
+              <span>Peers</span>
+              <strong>{formatNumber(networkVisiblePeerCount)}</strong>
             </div>
           </div>
         </section>
