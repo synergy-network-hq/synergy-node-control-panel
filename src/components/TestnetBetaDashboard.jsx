@@ -521,7 +521,7 @@ function totalReservedNweiForNetwork(networkProfile, fallbackValue) {
   return parseNwei(fallbackValue);
 }
 
-function computeCatchUpStatus(nodeLive, publicHeight) {
+function computeCatchUpStatus(nodeLive, networkHeight) {
   if (!nodeLive?.is_running) {
     return 'Offline';
   }
@@ -532,7 +532,7 @@ function computeCatchUpStatus(nodeLive, publicHeight) {
     return `Rejoining peers (${formatNumber(nodeLive?.process_uptime_secs)}s since restart)`;
   }
   if ((nodeLive?.sync_gap ?? 0) > 0) {
-    return `Catching up (${formatNumber(nodeLive?.sync_gap)} blocks behind ${formatNumber(publicHeight)})`;
+    return `Catching up (${formatNumber(nodeLive?.sync_gap)} blocks behind network tip ${formatNumber(networkHeight)})`;
   }
   return 'At chain head';
 }
@@ -779,6 +779,12 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   // Fetch canonical chain blocks when chain tab is active
   useEffect(() => {
     if (activeTab !== 'chain' || !selectedNode) return undefined;
+    if (!selectedNodeLive?.is_running || selectedNodeLive?.local_rpc_ready !== true) {
+      setChainLoading(false);
+      setChainBlocks([]);
+      setChainError('');
+      return undefined;
+    }
 
     const fetchChain = async () => {
       setChainLoading(true);
@@ -799,7 +805,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     fetchChain();
     const chainInterval = window.setInterval(fetchChain, 5000);
     return () => window.clearInterval(chainInterval);
-  }, [activeTab, selectedNode?.id]);
+  }, [activeTab, selectedNode?.id, selectedNodeLive?.is_running, selectedNodeLive?.local_rpc_ready]);
 
   const nodeLiveById = useMemo(() => {
     const items = liveStatus?.nodes || [];
@@ -809,23 +815,34 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     }, {});
   }, [liveStatus?.nodes]);
 
-  useEffect(() => {
-    const runningValidator = nodes.find((node) => {
-      const live = nodeLiveById[node.id];
-      return node.role_id === 'validator' && live?.is_running;
-    });
+  const syncedValidatorForNetworkStats = useMemo(() => nodes.find((node) => {
+    const live = nodeLiveById[node.id];
+    return (
+      node.role_id === 'validator'
+      && live?.is_running
+      && live?.local_rpc_ready
+      && (live?.sync_gap ?? Number.MAX_SAFE_INTEGER) <= 32
+    );
+  }) || null, [nodeLiveById, nodes]);
 
-    if (!runningValidator) {
+  useEffect(() => {
+    if (!syncedValidatorForNetworkStats) {
       setLocalValidatorStats(null);
       return undefined;
     }
 
+    const runningValidator = syncedValidatorForNetworkStats;
+    const live = nodeLiveById[runningValidator.id] || null;
+    if (!live?.local_rpc_ready) {
+      setLocalValidatorStats(null);
+      return undefined;
+    }
+
+    const endpoint = localRpcEndpointForNode(runningValidator, live);
     let cancelled = false;
 
     const fetchLocalValidatorStats = async () => {
       try {
-        const live = nodeLiveById[runningValidator.id] || null;
-        const endpoint = localRpcEndpointForNode(runningValidator, live);
         const stats = await queryLocalRpc(endpoint, 'synergy_getValidatorStats', []);
         if (!cancelled) {
           setLocalValidatorStats(stats || null);
@@ -843,7 +860,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [nodeLiveById, nodes]);
+  }, [nodeLiveById, syncedValidatorForNetworkStats]);
 
   const roleById = useMemo(() => {
     return nodeCatalog.reduce((accumulator, role) => {
@@ -863,18 +880,40 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     ...(liveStatus?.nodes || []).map((entry) => effectiveLocalChainHeight(entry)),
   ]), [liveStatus?.nodes, liveStatus?.public_chain_height]);
 
+  const networkChainTipDetail = useMemo(() => {
+    const parts = [];
+    if (liveStatus?.public_chain_height != null) {
+      parts.push(`Public RPC: ${formatNumber(liveStatus.public_chain_height)}`);
+    }
+    if (selectedNode && effectiveLocalChainHeight(selectedNodeLive) != null) {
+      parts.push(`Your node: ${formatNumber(effectiveLocalChainHeight(selectedNodeLive))}`);
+    }
+    if (
+      liveChainTip != null
+      && liveStatus?.public_chain_height != null
+      && liveChainTip > liveStatus.public_chain_height
+    ) {
+      parts.push('Public RPC is behind the peer-observed network tip');
+    }
+    return parts.join(' • ') || 'Best observed network tip';
+  }, [liveChainTip, liveStatus?.public_chain_height, selectedNode, selectedNodeLive]);
+
   const activeValidatorCount = useMemo(() => {
     if (chainSummary?.total_validators != null) return chainSummary.total_validators;
+    if (!syncedValidatorForNetworkStats) return null;
     if (localValidatorStats?.total_validators != null) return localValidatorStats.total_validators;
     if (Array.isArray(localValidatorStats?.active_validators)) {
       return localValidatorStats.active_validators.length;
     }
     return null;
-  }, [chainSummary?.total_validators, localValidatorStats]);
+  }, [chainSummary?.total_validators, localValidatorStats, syncedValidatorForNetworkStats]);
 
   const validatorClusterCount = useMemo(() => {
     if (chainSummary?.total_validator_clusters != null) {
       return chainSummary.total_validator_clusters;
+    }
+    if (!syncedValidatorForNetworkStats) {
+      return null;
     }
     if (Array.isArray(localValidatorStats?.active_validators) && localValidatorStats.active_validators.length > 0) {
       const clusterIds = new Set(
@@ -892,7 +931,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     if (activeValidatorCount <= 5) return 1;
     if (activeValidatorCount < 15) return 2;
     return 3 + Math.floor((activeValidatorCount - 15) / 5);
-  }, [activeValidatorCount, chainSummary?.total_validator_clusters, localValidatorStats]);
+  }, [activeValidatorCount, chainSummary?.total_validator_clusters, localValidatorStats, syncedValidatorForNetworkStats]);
 
   const networkVisiblePeerCount = useMemo(() => {
     if (liveStatus?.network_peer_count != null) return liveStatus.network_peer_count;
@@ -1356,12 +1395,14 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                   <div className="nodecp-chain-detail-item">
                     <span className="nodecp-chain-detail-label">Block Height</span>
                     <strong className="nodecp-chain-detail-value">
-                      {pubHeight != null ? formatNumber(pubHeight) : (effectiveLocalChainHeight(selectedNodeLive) != null ? formatNumber(effectiveLocalChainHeight(selectedNodeLive)) : '—')}
+                      {liveChainTip != null
+                        ? formatNumber(liveChainTip)
+                        : (effectiveLocalChainHeight(selectedNodeLive) != null
+                          ? formatNumber(effectiveLocalChainHeight(selectedNodeLive))
+                          : '—')}
                     </strong>
                     <span className="nodecp-chain-detail-sub">
-                      {selectedNode && effectiveLocalChainHeight(selectedNodeLive) != null
-                        ? `Your node: ${formatNumber(effectiveLocalChainHeight(selectedNodeLive))}`
-                        : 'Public network chain tip'}
+                      {networkChainTipDetail}
                     </span>
                   </div>
                   <div className="nodecp-chain-detail-item">
@@ -1793,7 +1834,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           ) || null;
           const rewardStandard = roleRewardStandard(node.role_id, node.role_display_name);
           const walletSnapshot = walletSnapshots[node.id] || {};
-          const catchUpStatus = computeCatchUpStatus(nodeLive, liveStatus?.public_chain_height);
+          const publicHeight = liveStatus?.public_chain_height;
+          const networkHeight = nodeLive?.best_network_height ?? publicHeight;
+          const catchUpStatus = computeCatchUpStatus(nodeLive, networkHeight);
 
           return (
             <section key={node.id} className="nodecp-panel nodecp-wallet-slot">
@@ -1828,13 +1871,19 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       <strong>{catchUpStatus}</strong>
                     </div>
                     <div className="nodecp-definition-row">
-                      <span>Local / public height</span>
-                      <strong>{formatNumber(nodeLive?.local_chain_height)} / {formatNumber(liveStatus?.public_chain_height)}</strong>
+                      <span>Local / public RPC / network tip</span>
+                      <strong>{formatNumber(nodeLive?.local_chain_height)} / {formatNumber(publicHeight)} / {formatNumber(networkHeight)}</strong>
                     </div>
                     <div className="nodecp-definition-row">
                       <span>Peer count / sync gap</span>
                       <strong>{formatNumber(nodeLive?.local_peer_count)} peers / {formatNumber(nodeLive?.sync_gap)} blocks</strong>
                     </div>
+                    {(publicHeight != null && networkHeight != null && networkHeight > publicHeight) && (
+                      <div className="nodecp-definition-row">
+                        <span>Network tip source</span>
+                        <strong>Peers report {formatNumber(networkHeight)} while public RPC is at {formatNumber(publicHeight)}</strong>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1963,9 +2012,14 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           <SNRGButton
             variant="blue"
             size="sm"
-            disabled={chainLoading}
+            disabled={chainLoading || !selectedNodeLive?.is_running || selectedNodeLive?.local_rpc_ready !== true}
             onClick={() => {
               if (!selectedNode) return;
+              if (!selectedNodeLive?.is_running || selectedNodeLive?.local_rpc_ready !== true) {
+                setChainBlocks([]);
+                setChainError('');
+                return;
+              }
               setChainLoading(true);
               invoke('testbeta_get_chain_blocks', { nodeId: selectedNode.id, count: 30 })
                 .then((b) => { setChainBlocks(b || []); setChainError(''); })
@@ -1979,8 +2033,10 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
 
         {chainError && (
           <div style={{ padding: '0.75rem', background: 'rgba(248,113,113,0.1)', border: '1px solid var(--snrg-status-error,#f87171)', borderRadius: '6px', color: 'var(--snrg-status-error,#f87171)', fontSize: '0.82rem', marginBottom: '0.75rem' }}>
-            {selectedNode?.is_running === false
+            {selectedNodeLive?.is_running === false
               ? 'Node is not running — start it to see chain data.'
+              : selectedNodeLive?.local_rpc_ready === false
+                ? (selectedNodeLive?.local_rpc_status || 'Local RPC is not responding yet.')
               : `Could not fetch chain data: ${chainError}`}
           </div>
         )}

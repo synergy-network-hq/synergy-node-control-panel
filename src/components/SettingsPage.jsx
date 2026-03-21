@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getVersion, invoke, openExternal, openPath } from '../lib/desktopClient';
 import {
@@ -14,6 +14,8 @@ import {
   validateTestnetBetaPortSettingsForm,
 } from '../lib/testnetBetaBootstrap';
 import { SNRGButton } from '../styles/SNRGButton';
+
+const TERMINAL_GREETING = 'Operator console ready. Use a guided action or run your own command below.';
 
 function formatPath(path) {
   return String(path || '').trim() || 'Not available';
@@ -33,6 +35,354 @@ function formatWholeNumber(value) {
   return number.toLocaleString();
 }
 
+function formatClock() {
+  return new Date().toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function normalizeOutputLines(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+}
+
+function createTerminalLine(kind, text) {
+  return {
+    id: `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    kind,
+    text,
+    at: formatClock(),
+  };
+}
+
+function shellQuote(value) {
+  return `'${String(value || '').replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function detectPlatformKind(operatingSystem) {
+  const text = String(operatingSystem || '').toLowerCase();
+  if (text.includes('windows')) return 'windows';
+  if (text.includes('linux')) return 'linux';
+  return 'unix';
+}
+
+function buildProcessAuditCommand() {
+  return [
+    'matches="$(ps -axo pid=,etime=,command= | grep -E \'synergy-testbeta|control-service|Synergy Node Control Panel\' | grep -v grep || true)"',
+    'echo "Synergy services currently running on this computer:"',
+    'if [ -z "$matches" ]; then',
+    '  echo "- No Synergy app or node services are running right now."',
+    'else',
+    '  echo "$matches" | while read -r pid etime command; do',
+    '    [ -z "$pid" ] && continue',
+    '    printf -- "- PID %s | Uptime %s | %s\\n" "$pid" "$etime" "$command"',
+    '  done',
+    'fi',
+  ].join('\n');
+}
+
+function buildWorkspaceAuditCommand(storageRoot) {
+  const root = storageRoot || '$HOME/.synergy/testnet-beta';
+  return [
+    `ROOT=${shellQuote(root)}`,
+    'echo "Inspecting local Testnet-Beta workspace folders:"',
+    'if [ ! -d "$ROOT/nodes" ]; then',
+    '  echo "- Workspace root not found: $ROOT/nodes"',
+    '  exit 0',
+    'fi',
+    'found=0',
+    'for dir in "$ROOT"/nodes/*; do',
+    '  [ -d "$dir" ] || continue',
+    '  found=1',
+    '  label="$(basename "$dir")"',
+    '  if [ -f "$dir/config/node.toml" ]; then',
+    '    echo "- $label: config present and ready for reuse."',
+    '  else',
+    '    echo "- $label: config missing. This folder looks incomplete or stale."',
+    '  fi',
+    'done',
+    'if [ "$found" -eq 0 ]; then',
+    '  echo "- No node workspaces are present yet."',
+    'fi',
+  ].join('\n');
+}
+
+function buildPortListenerCommand() {
+  return [
+    'listeners="$(lsof -nP -iTCP:38638-38650 -sTCP:LISTEN 2>/dev/null || true)"',
+    'rpcs="$(lsof -nP -iTCP:48638-48650 -sTCP:LISTEN 2>/dev/null || true)"',
+    'echo "Local Synergy network listeners:"',
+    'if [ -z "$listeners" ] && [ -z "$rpcs" ]; then',
+    '  echo "- No Synergy listener ports are open right now."',
+    '  exit 0',
+    'fi',
+    'if [ -n "$listeners" ]; then',
+    '  echo "- P2P listeners"',
+    '  echo "$listeners"',
+    'fi',
+    'if [ -n "$rpcs" ]; then',
+    '  echo "- RPC listeners"',
+    '  echo "$rpcs"',
+    'fi',
+  ].join('\n');
+}
+
+function buildLocalRpcCheckCommand(nodes, nodePortProfiles) {
+  const rows = (Array.isArray(nodes) ? nodes : []).map((node) => {
+    const port = nodePortProfiles?.[node.id]?.portSettings?.rpcPort
+      ?? (48638 + Number(node?.port_slot || 0));
+    const label = node.display_label || node.role_display_name || node.id;
+    return `${label}|${port}`;
+  });
+
+  return [
+    'echo "Checking local JSON-RPC endpoints for node workspaces on this computer:"',
+    'while IFS=\'|\' read -r label port; do',
+    '  [ -z "$label" ] && continue',
+    '  payload=\'{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}\'',
+    '  result="$(curl -s --max-time 3 -X POST "http://127.0.0.1:$port" -H "Content-Type: application/json" -d "$payload" 2>/dev/null || true)"',
+    '  if [ -n "$result" ]; then',
+    '    echo "- $label: RPC on port $port responded."',
+    '  else',
+    '    echo "- $label: RPC on port $port did not answer."',
+    '  fi',
+    "done <<'EOF'",
+    rows.join('\n'),
+    'EOF',
+  ].join('\n');
+}
+
+function buildBootstrapCheckCommand(networkProfile, publicRpcEndpoint) {
+  const endpoints = [
+    ...(Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : []).map((entry) => ({
+      label: `${entry.host}:${entry.port}`,
+      host: entry.host,
+      port: entry.port,
+      kind: 'bootnode',
+    })),
+    ...(Array.isArray(networkProfile?.seed_servers) ? networkProfile.seed_servers : []).map((entry) => ({
+      label: `${entry.host}:${entry.port}`,
+      host: entry.host,
+      port: entry.port,
+      kind: 'seed',
+    })),
+  ];
+
+  const payload = JSON.stringify({
+    publicRpcEndpoint: publicRpcEndpoint || 'https://testbeta-core-rpc.synergy-network.io',
+    endpoints,
+  }).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  return [
+    'python3 - <<\'PY\'',
+    'import json',
+    'import socket',
+    'import urllib.request',
+    'import urllib.error',
+    '',
+    `payload = json.loads('${payload}')`,
+    'print("Checking public bootstrap and discovery endpoints:")',
+    'for entry in payload.get("endpoints", []):',
+    '    host = entry.get("host", "")',
+    '    port = int(entry.get("port", 0) or 0)',
+    '    label = entry.get("label", host)',
+    '    kind = entry.get("kind", "endpoint")',
+    '    try:',
+    '        with socket.create_connection((host, port), timeout=3):',
+    '            print(f"- {label} ({kind}) is reachable.")',
+    '    except Exception as error:',
+    '        print(f"- {label} ({kind}) is NOT reachable: {error}")',
+    'rpc_url = payload.get("publicRpcEndpoint")',
+    'if rpc_url:',
+    '    try:',
+    '        request = urllib.request.Request(rpc_url, data=json.dumps({"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}).encode("utf-8"), headers={"Content-Type":"application/json"})',
+    '        with urllib.request.urlopen(request, timeout=4) as response:',
+    '            body = response.read().decode("utf-8", "replace")',
+    '        print(f"- Public RPC answered successfully: {rpc_url}")',
+    '        print(body[:220])',
+    '    except Exception as error:',
+    '        print(f"- Public RPC did not answer cleanly: {rpc_url} | {error}")',
+    'PY',
+  ].join('\n');
+}
+
+function buildStaleProcessInspectionCommand() {
+  return [
+    'echo "Looking for stale Synergy node processes:"',
+    'matches="$(ps -axo pid=,command= | grep \'synergy-testbeta\' | grep \' start --config \' | grep -v grep || true)"',
+    'if [ -z "$matches" ]; then',
+    '  echo "- No Synergy node runtimes are running."',
+    '  exit 0',
+    'fi',
+    'found=0',
+    'echo "$matches" | while read -r pid command; do',
+    '  [ -z "$pid" ] && continue',
+    '  config_path="${command#* --config }"',
+    '  config_path="${config_path%% *}"',
+    '  reason=""',
+    '  echo "$command" | grep -q \'/.Trash/\' && reason="running from Trash"',
+    '  if [ -z "$reason" ] && [ ! -f "$config_path" ]; then',
+    '    reason="config path missing"',
+    '  fi',
+    '  if [ -n "$reason" ]; then',
+    '    found=1',
+    '    echo "- PID $pid is stale: $reason | $config_path"',
+    '  fi',
+    'done',
+    'echo "If nothing was listed above, no stale processes were detected."',
+  ].join('\n');
+}
+
+function buildStaleProcessCleanupCommand() {
+  return [
+    'echo "Stopping stale Synergy node processes:"',
+    'matches="$(ps -axo pid=,command= | grep \'synergy-testbeta\' | grep \' start --config \' | grep -v grep || true)"',
+    'if [ -z "$matches" ]; then',
+    '  echo "- No Synergy node runtimes are running."',
+    '  exit 0',
+    'fi',
+    'stale_pids=""',
+    'echo "$matches" | while read -r pid command; do',
+    '  [ -z "$pid" ] && continue',
+    '  config_path="${command#* --config }"',
+    '  config_path="${config_path%% *}"',
+    '  if echo "$command" | grep -q \'/.Trash/\'; then',
+    '    echo "$pid" >> /tmp/synergy-stale-pids.$$',
+    '    echo "- Marked PID $pid for stop (running from Trash)."',
+    '  elif [ ! -f "$config_path" ]; then',
+    '    echo "$pid" >> /tmp/synergy-stale-pids.$$',
+    '    echo "- Marked PID $pid for stop (missing config path)."',
+    '  fi',
+    'done',
+    'if [ ! -f /tmp/synergy-stale-pids.$$ ]; then',
+    '  echo "- No stale processes were found."',
+    '  exit 0',
+    'fi',
+    'stale_pids="$(tr \'\\n\' \' \' < /tmp/synergy-stale-pids.$$)"',
+    'rm -f /tmp/synergy-stale-pids.$$',
+    'if [ -z "$stale_pids" ]; then',
+    '  echo "- No stale processes were found."',
+    '  exit 0',
+    'fi',
+    'kill $stale_pids',
+    'echo "- Requested shutdown for stale process IDs: $stale_pids"',
+  ].join('\n');
+}
+
+function buildCommandGroups({
+  platformKind,
+  networkProfile,
+  publicRpcEndpoint,
+  nodes,
+  nodePortProfiles,
+  storageRoot,
+}) {
+  if (platformKind === 'windows') {
+    return [
+      {
+        id: 'services',
+        title: 'Operator Console',
+        accent: 'violet',
+        description: 'Manual command mode is available. Guided buttons are currently tuned for Unix-style systems.',
+        actions: [],
+      },
+    ];
+  }
+
+  return [
+    {
+      id: 'services',
+      title: 'Services',
+      accent: 'violet',
+      description: 'See which Synergy app and node services are actually running on this machine.',
+      actions: [
+        {
+          id: 'process-audit',
+          label: 'Check Running Services',
+          variant: 'purple',
+          description: 'Lists control panel and node runtimes with uptime.',
+          command: buildProcessAuditCommand(),
+        },
+        {
+          id: 'listener-audit',
+          label: 'Show Port Listeners',
+          variant: 'blue',
+          description: 'Shows which P2P and RPC ports are in use locally.',
+          command: buildPortListenerCommand(),
+        },
+        {
+          id: 'workspace-audit',
+          label: 'Inspect Workspaces',
+          variant: 'lime',
+          description: 'Checks which local node folders are complete versus stale.',
+          command: buildWorkspaceAuditCommand(storageRoot),
+        },
+      ],
+    },
+    {
+      id: 'connectivity',
+      title: 'Connectivity',
+      accent: 'cyan',
+      description: 'Run readable checks for local RPC, bootstrap reachability, and network entry points.',
+      actions: [
+        {
+          id: 'local-rpc',
+          label: 'Test Local RPC',
+          variant: 'cyan',
+          description: 'Checks whether each local node RPC endpoint is responding.',
+          command: buildLocalRpcCheckCommand(nodes, nodePortProfiles),
+        },
+        {
+          id: 'bootstrap-test',
+          label: 'Test Bootstrap Network',
+          variant: 'architecture',
+          description: 'Checks bootnodes, seed servers, and the public RPC endpoint.',
+          command: buildBootstrapCheckCommand(networkProfile, publicRpcEndpoint),
+        },
+      ],
+    },
+    {
+      id: 'cleanup',
+      title: 'Cleanup',
+      accent: 'amber',
+      description: 'Find or stop obviously stale runtimes without asking the operator to parse process tables.',
+      actions: [
+        {
+          id: 'find-stale',
+          label: 'Find Stale Processes',
+          variant: 'yellow',
+          description: 'Looks for node processes running from Trash or missing configs.',
+          command: buildStaleProcessInspectionCommand(),
+        },
+        {
+          id: 'clear-stale',
+          label: 'Clear Stale Processes',
+          variant: 'red',
+          description: 'Stops only the stale processes that are safe to remove.',
+          command: buildStaleProcessCleanupCommand(),
+          refreshAfterRun: true,
+        },
+      ],
+    },
+  ];
+}
+
+function DefinitionRow({ label, value, detail }) {
+  return (
+    <div className="settings-shell-definition-row">
+      <span className="settings-shell-definition-label">{label}</span>
+      <div className="settings-shell-definition-value">
+        <strong>{value}</strong>
+        {detail ? <small>{detail}</small> : null}
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const [state, setState] = useState(null);
   const [liveStatus, setLiveStatus] = useState(null);
@@ -46,7 +396,13 @@ function SettingsPage() {
   const [portMessageTone, setPortMessageTone] = useState('good');
   const [portBusy, setPortBusy] = useState('');
   const [nodePortProfiles, setNodePortProfiles] = useState({});
+  const [terminalBusy, setTerminalBusy] = useState(false);
+  const [terminalInput, setTerminalInput] = useState('');
+  const [terminalLines, setTerminalLines] = useState([]);
+  const [terminalCwd, setTerminalCwd] = useState('');
+  const [activeTerminalAction, setActiveTerminalAction] = useState('');
 
+  const terminalScrollRef = useRef(null);
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
   const defaultPortSettings = useMemo(() => getTestnetBetaDefaultPortSettings(), []);
 
@@ -83,48 +439,37 @@ function SettingsPage() {
     return Object.fromEntries(results);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
+  const loadPage = useCallback(async (silent = false) => {
+    if (!silent) {
       setLoading(true);
-      try {
-        const [nextState, nextLiveStatus, nextVersion] = await Promise.all([
-          invoke('testbeta_get_state'),
-          invoke('testbeta_get_live_status'),
-          getVersion(),
-        ]);
+    }
 
-        if (cancelled) {
-          return;
-        }
+    try {
+      const [nextState, nextLiveStatus, nextVersion] = await Promise.all([
+        invoke('testbeta_get_state'),
+        invoke('testbeta_get_live_status'),
+        getVersion(),
+      ]);
 
-        const nextNodePortProfiles = await loadNodePortProfiles(nextState?.nodes);
-        if (cancelled) {
-          return;
-        }
+      const nextNodePortProfiles = await loadNodePortProfiles(nextState?.nodes);
 
-        setState(nextState);
-        setLiveStatus(nextLiveStatus);
-        setVersion(String(nextVersion || ''));
-        setNodePortProfiles(nextNodePortProfiles);
-        setError('');
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(String(loadError));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+      setState(nextState);
+      setLiveStatus(nextLiveStatus);
+      setVersion(String(nextVersion || ''));
+      setNodePortProfiles(nextNodePortProfiles);
+      setError('');
+    } catch (loadError) {
+      setError(String(loadError));
+    } finally {
+      if (!silent) {
+        setLoading(false);
       }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
+    }
   }, [loadNodePortProfiles]);
+
+  useEffect(() => {
+    loadPage();
+  }, [loadPage]);
 
   const storageRoot = useMemo(() => {
     const home = state?.device_profile?.home_directory;
@@ -133,6 +478,26 @@ function SettingsPage() {
     }
     return `${home.replace(/[\\/]+$/, '')}/.synergy/testnet-beta`;
   }, [state?.device_profile?.home_directory]);
+
+  useEffect(() => {
+    if (!terminalCwd) {
+      setTerminalCwd(storageRoot || state?.device_profile?.home_directory || '');
+    }
+  }, [state?.device_profile?.home_directory, storageRoot, terminalCwd]);
+
+  useEffect(() => {
+    if (loading || terminalLines.length > 0) {
+      return;
+    }
+    setTerminalLines([createTerminalLine('info', TERMINAL_GREETING)]);
+  }, [loading, terminalLines.length]);
+
+  useEffect(() => {
+    terminalScrollRef.current?.scrollTo({
+      top: terminalScrollRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [terminalLines]);
 
   const savedPortSummary = useMemo(
     () => formatPortSettingsSummary(savedPortSettings),
@@ -143,6 +508,10 @@ function SettingsPage() {
     [defaultPortSettings],
   );
   const provisionedNodes = Array.isArray(state?.nodes) ? state.nodes : [];
+  const platformKind = useMemo(
+    () => detectPlatformKind(state?.device_profile?.operating_system),
+    [state?.device_profile?.operating_system],
+  );
 
   const setPortNotice = useCallback((tone, message) => {
     setPortMessageTone(tone);
@@ -153,6 +522,79 @@ function SettingsPage() {
     const nextProfiles = await loadNodePortProfiles(nodesInput);
     setNodePortProfiles(nextProfiles);
   }, [loadNodePortProfiles]);
+
+  const addTerminalLine = useCallback((kind, text) => {
+    const lines = Array.isArray(text) ? text : [text];
+    const nextLines = lines
+      .map((line) => String(line || '').trimEnd())
+      .filter(Boolean)
+      .map((line) => createTerminalLine(kind, line));
+
+    if (!nextLines.length) {
+      return;
+    }
+
+    setTerminalLines((current) => [...current, ...nextLines]);
+  }, []);
+
+  const executeTerminalCommand = useCallback(async (command, cwdOverride = null) => {
+    const effectiveCwd = cwdOverride || terminalCwd || storageRoot || state?.device_profile?.home_directory || null;
+    const promptPrefix = effectiveCwd || '~';
+    addTerminalLine('prompt', `${promptPrefix} $ ${command}`);
+
+    const result = await invoke('monitor_run_terminal_command', {
+      command,
+      cwd: effectiveCwd,
+    });
+
+    if (result?.cwd) {
+      setTerminalCwd(String(result.cwd));
+    }
+
+    normalizeOutputLines(result?.stdout).forEach((line) => addTerminalLine('output', line));
+    normalizeOutputLines(result?.stderr).forEach((line) => addTerminalLine('error', line));
+
+    return result;
+  }, [addTerminalLine, state?.device_profile?.home_directory, storageRoot, terminalCwd]);
+
+  const runTerminalCommand = useCallback(async (rawCommand, options = {}) => {
+    const command = String(rawCommand || '').trim();
+    if (!command || terminalBusy) {
+      return;
+    }
+
+    setTerminalBusy(true);
+    setActiveTerminalAction(options.actionId || '');
+    try {
+      if (options.announceLabel) {
+        addTerminalLine('info', options.announceLabel);
+      }
+      const result = await executeTerminalCommand(command);
+      if (!result?.success && normalizeOutputLines(result?.stderr).length === 0) {
+        addTerminalLine('error', `Command failed with exit code ${result?.exit_code ?? 'unknown'}`);
+      } else if (result?.success && options.successMessage) {
+        addTerminalLine('success', options.successMessage);
+      }
+      if (options.refreshAfterRun) {
+        await loadPage(true);
+      }
+    } catch (commandError) {
+      addTerminalLine('error', String(commandError));
+    } finally {
+      setTerminalBusy(false);
+      setActiveTerminalAction('');
+    }
+  }, [addTerminalLine, executeTerminalCommand, loadPage, terminalBusy]);
+
+  const submitTerminal = useCallback(async (event) => {
+    event.preventDefault();
+    const command = terminalInput.trim();
+    if (!command) {
+      return;
+    }
+    setTerminalInput('');
+    await runTerminalCommand(command);
+  }, [runTerminalCommand, terminalInput]);
 
   const handlePortFieldChange = useCallback((key, value) => {
     setPortForm((current) => ({
@@ -269,7 +711,7 @@ function SettingsPage() {
     }
   }, [provisionedNodes, refreshPortProfiles, setPortNotice, validatePortForm]);
 
-  const settingsCards = useMemo(
+  const summaryCards = useMemo(
     () => [
       {
         label: 'App Version',
@@ -277,14 +719,19 @@ function SettingsPage() {
         detail: 'Installed desktop build',
       },
       {
-        label: 'Workspace Root',
-        value: storageRoot || 'Not available',
-        detail: 'Where node files are stored on this computer',
+        label: 'Machine',
+        value: state?.device_profile?.hostname || 'Unknown',
+        detail: state?.device_profile?.operating_system || 'Local operator host',
+      },
+      {
+        label: 'Provisioned Nodes',
+        value: String(provisionedNodes.length),
+        detail: 'Node workspaces on this computer',
       },
       {
         label: 'Saved Port Profile',
         value: savedPortSummary,
-        detail: 'Injected before setup, start, and sync',
+        detail: 'Applied as the base for every local node slot',
       },
       {
         label: 'Bootnodes Online',
@@ -292,12 +739,54 @@ function SettingsPage() {
         detail: 'Public bootstrap listeners responding',
       },
       {
-        label: 'Seed Services Online',
+        label: 'Seed Services',
         value: formatEndpointStatus(liveStatus?.seed_servers),
-        detail: 'Public discovery services responding',
+        detail: 'Discovery services responding',
+      },
+      {
+        label: 'Public Chain Tip',
+        value: formatWholeNumber(liveStatus?.public_chain_height),
+        detail: 'Latest height reported by the public RPC',
+      },
+      {
+        label: 'Peers',
+        value: formatWholeNumber(liveStatus?.network_peer_count ?? liveStatus?.public_peer_count),
+        detail: liveStatus?.network_peer_count != null
+          ? 'Active peers reported by the seed registry'
+          : 'Visible peers from the public RPC view',
       },
     ],
-    [liveStatus?.bootnodes, liveStatus?.seed_servers, savedPortSummary, storageRoot, version],
+    [
+      liveStatus?.bootnodes,
+      liveStatus?.network_peer_count,
+      liveStatus?.public_chain_height,
+      liveStatus?.public_peer_count,
+      liveStatus?.seed_servers,
+      provisionedNodes.length,
+      savedPortSummary,
+      state?.device_profile?.hostname,
+      state?.device_profile?.operating_system,
+      version,
+    ],
+  );
+
+  const commandGroups = useMemo(
+    () => buildCommandGroups({
+      platformKind,
+      networkProfile: state?.network_profile,
+      publicRpcEndpoint: liveStatus?.public_rpc_endpoint,
+      nodes: provisionedNodes,
+      nodePortProfiles,
+      storageRoot,
+    }),
+    [
+      liveStatus?.public_rpc_endpoint,
+      nodePortProfiles,
+      platformKind,
+      provisionedNodes,
+      state?.network_profile,
+      storageRoot,
+    ],
   );
 
   if (loading) {
@@ -312,25 +801,32 @@ function SettingsPage() {
   }
 
   return (
-    <section className="nodecp-settings-page">
-      <div className="nodecp-settings-hero">
-        <div>
+    <section className="nodecp-settings-page settings-shell-page">
+      <div className="settings-shell-hero">
+        <div className="settings-shell-hero-copy">
           <p className="nodecp-page-kicker">Settings</p>
-          <h2 className="nodecp-page-title">Simple Operator Settings</h2>
+          <h2 className="nodecp-page-title">Control Panel + Local Node Operations</h2>
           <p className="nodecp-page-copy">
-            This page keeps only the settings an operator actually needs:
-            where files live, what network this app is using, and whether the
-            public entry points are healthy.
+            Tune the desktop app, manage the machine-wide base port profile for every node on this computer,
+            and run guided diagnostics without dropping into a separate terminal window.
           </p>
         </div>
-        <div className="nodecp-settings-actions">
+        <div className="settings-shell-hero-actions">
           <SNRGButton as={Link} to="/" variant="purple" size="md">
             Back to Dashboard
           </SNRGButton>
-          <SNRGButton variant="blue" size="md" onClick={() => storageRoot && openPath(storageRoot)}>
+          <SNRGButton
+            variant="blue"
+            size="md"
+            onClick={() => storageRoot && openPath(storageRoot)}
+          >
             Open Workspace Folder
           </SNRGButton>
-          <SNRGButton variant="cyan" size="md" onClick={() => openExternal('https://testbeta-explorer.synergy-network.io')}>
+          <SNRGButton
+            variant="cyan"
+            size="md"
+            onClick={() => openExternal('https://testbeta-explorer.synergy-network.io')}
+          >
             Open Explorer
           </SNRGButton>
         </div>
@@ -338,249 +834,318 @@ function SettingsPage() {
 
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <div className="nodecp-stats-grid nodecp-settings-grid">
-        {settingsCards.map((card) => (
-          <article key={card.label} className="nodecp-stat-card">
-            <span className="nodecp-stat-label">{card.label}</span>
-            <strong className="nodecp-stat-value nodecp-stat-value-tight">{card.value}</strong>
-            <span className="nodecp-stat-detail">{card.detail}</span>
+      <div className="settings-shell-summary-grid">
+        {summaryCards.map((card) => (
+          <article key={card.label} className="settings-shell-summary-card">
+            <span className="settings-shell-summary-label">{card.label}</span>
+            <strong className="settings-shell-summary-value">{card.value}</strong>
+            <span className="settings-shell-summary-detail">{card.detail}</span>
           </article>
         ))}
       </div>
 
-      <div className="nodecp-settings-sections">
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Application</p>
-              <h3>What this app is using</h3>
+      <div className="settings-shell-main-grid">
+        <div className="settings-shell-column">
+          <section className="settings-shell-panel">
+            <div className="settings-shell-panel-header">
+              <div>
+                <p className="settings-shell-panel-kicker">Application</p>
+                <h3>Desktop control surface</h3>
+              </div>
             </div>
-          </div>
-          <div className="nodecp-definition-list">
-            <div className="nodecp-definition-row">
-              <span>Name</span>
-              <strong>Synergy Node Control Panel</strong>
+            <div className="settings-shell-definition-grid">
+              <DefinitionRow
+                label="App"
+                value="Synergy Node Control Panel"
+                detail={version || 'Version unavailable'}
+              />
+              <DefinitionRow
+                label="Environment"
+                value={state?.display_name || 'Testnet-Beta'}
+                detail={`Chain ID ${state?.network_profile?.chain_id || 338639}`}
+              />
+              <DefinitionRow
+                label="Machine"
+                value={state?.device_profile?.hostname || 'Unknown'}
+                detail={state?.device_profile?.operating_system || 'Operator machine'}
+              />
+              <DefinitionRow
+                label="Workspace Root"
+                value={formatPath(storageRoot)}
+                detail="All local node folders live here."
+              />
             </div>
-            <div className="nodecp-definition-row">
-              <span>Version</span>
-              <strong>{version || 'Not available'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Environment</span>
-              <strong>{state?.display_name || 'Testnet-Beta'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>This computer</span>
-              <strong>{state?.device_profile?.hostname || 'Unknown'}</strong>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Storage</p>
-              <h3>Files on this computer</h3>
+          <section className="settings-shell-panel">
+            <div className="settings-shell-panel-header">
+              <div>
+                <p className="settings-shell-panel-kicker">Global Node Settings</p>
+                <h3>Base port profile for this machine</h3>
+              </div>
             </div>
-          </div>
-          <div className="nodecp-definition-list">
-            <div className="nodecp-definition-row">
-              <span>Workspace root</span>
-              <strong>{formatPath(storageRoot)}</strong>
+            <p className="settings-shell-panel-copy">
+              Save one machine-wide base profile. Every node on this computer receives a stable slot offset so
+              local validators, RPC gateways, and indexers do not collide on P2P, RPC, WebSocket, discovery, or metrics ports.
+            </p>
+            <div className="settings-shell-port-grid">
+              {portFields.map((field) => (
+                <label key={field.key} className="settings-shell-port-field">
+                  <span className="settings-shell-port-label">{field.label}</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="65535"
+                    inputMode="numeric"
+                    value={portForm[field.key] ?? ''}
+                    onChange={(event) => handlePortFieldChange(field.key, event.target.value)}
+                  />
+                  <small>{field.detail}</small>
+                  {portErrors[field.key] ? (
+                    <span className="settings-shell-field-error">{portErrors[field.key]}</span>
+                  ) : null}
+                </label>
+              ))}
             </div>
-            <div className="nodecp-definition-row">
-              <span>Provisioned nodes</span>
-              <strong>{state?.nodes?.length || 0}</strong>
+            <div className="settings-shell-meta-row">
+              <span>Saved profile: {savedPortSummary}</span>
+              <span>Default profile: {defaultPortSummary}</span>
             </div>
-            <div className="nodecp-definition-row">
-              <span>Node folder</span>
-              <strong>{formatPath(storageRoot ? `${storageRoot}/nodes` : '')}</strong>
+            <div className="settings-shell-action-row">
+              <SNRGButton
+                variant="blue"
+                size="sm"
+                disabled={portBusy === 'apply'}
+                onClick={handleSavePortProfile}
+              >
+                Save Port Profile
+              </SNRGButton>
+              <SNRGButton
+                variant="yellow"
+                size="sm"
+                disabled={portBusy === 'apply'}
+                onClick={handleResetPortProfile}
+              >
+                Reset Defaults
+              </SNRGButton>
+              <SNRGButton
+                variant="lime"
+                size="sm"
+                disabled={portBusy === 'apply' || provisionedNodes.length === 0}
+                onClick={handleApplyPortProfileToExistingNodes}
+              >
+                {portBusy === 'apply' ? 'Applying...' : 'Apply To Existing Nodes'}
+              </SNRGButton>
             </div>
-          </div>
-        </section>
+            {portMessage ? (
+              <div className={`settings-shell-status settings-shell-status-${portMessageTone}`}>
+                <strong>{portMessageTone === 'good' ? 'Saved' : portMessageTone === 'warn' ? 'Attention' : 'Error'}</strong>
+                <span>{portMessage}</span>
+              </div>
+            ) : null}
+          </section>
 
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Ports</p>
-              <h3>Per-machine base port profile</h3>
+          <section className="settings-shell-panel">
+            <div className="settings-shell-panel-header">
+              <div>
+                <p className="settings-shell-panel-kicker">Workspace Inventory</p>
+                <h3>Current local node configs</h3>
+              </div>
             </div>
-          </div>
-          <p className="nodecp-panel-copy">
-            Save one base profile for this machine. Electron applies a stable
-            per-node offset before writing <code>node.toml</code> during
-            provisioning, start, and sync, so multiple local nodes do not
-            collide on the same P2P, RPC, WS, discovery, or metrics ports.
-          </p>
-          <div className="monitor-form-grid monitor-form-grid-wide">
-            {portFields.map((field) => (
-              <label key={field.key} className="monitor-field">
-                <span>{field.label} Port</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="65535"
-                  inputMode="numeric"
-                  value={portForm[field.key] ?? ''}
-                  onChange={(event) => handlePortFieldChange(field.key, event.target.value)}
-                />
-                <span className="nodecp-settings-field-detail">{field.detail}</span>
-                {portErrors[field.key] ? (
-                  <span className="nodecp-settings-field-error">{portErrors[field.key]}</span>
-                ) : null}
-              </label>
-            ))}
-          </div>
-          <div className="nodecp-controls-status">
-            <span>Saved profile: {savedPortSummary}</span>
-            <span>Default profile: {defaultPortSummary}</span>
-          </div>
-          <div className="nodecp-settings-actions nodecp-settings-actions-tight">
-            <SNRGButton
-              variant="blue"
-              size="sm"
-              disabled={portBusy === 'apply'}
-              onClick={handleSavePortProfile}
-            >
-              Save Port Profile
-            </SNRGButton>
-            <SNRGButton
-              variant="yellow"
-              size="sm"
-              disabled={portBusy === 'apply'}
-              onClick={handleResetPortProfile}
-            >
-              Reset Defaults
-            </SNRGButton>
-            <SNRGButton
-              variant="lime"
-              size="sm"
-              disabled={portBusy === 'apply' || provisionedNodes.length === 0}
-              onClick={handleApplyPortProfileToExistingNodes}
-            >
-              {portBusy === 'apply' ? 'Applying...' : 'Apply To Existing Nodes'}
-            </SNRGButton>
-          </div>
-          {portMessage ? (
-            <div className="nodecp-controls-status">
-              <span className={`nodecp-health-pill nodecp-health-${portMessageTone}`}>
-                {portMessageTone === 'good' ? 'Saved' : portMessageTone === 'warn' ? 'Attention' : 'Error'}
+            {provisionedNodes.length === 0 ? (
+              <div className="settings-shell-empty">
+                No node workspaces have been provisioned on this computer yet.
+              </div>
+            ) : (
+              <div className="settings-shell-workspace-list">
+                {provisionedNodes.map((node) => {
+                  const profile = nodePortProfiles[node.id];
+                  const nodeTomlPath = profile?.nodeTomlPath
+                    || node?.config_paths?.find((entry) => String(entry).endsWith('/node.toml'))
+                    || '';
+
+                  return (
+                    <article key={node.id} className="settings-shell-workspace-card">
+                      <div className="settings-shell-workspace-copy">
+                        <div className="settings-shell-workspace-title-row">
+                          <strong>{node.display_label || node.role_display_name || node.id}</strong>
+                          <span className={`settings-shell-badge ${profile?.ok ? 'good' : 'warn'}`}>
+                            {profile?.ok ? 'Config Ready' : 'Needs Review'}
+                          </span>
+                        </div>
+                        <span className="settings-shell-workspace-ports">
+                          {profile?.ok
+                            ? formatPortSettingsSummary(profile.portSettings)
+                            : (profile?.error || 'Reading node port config...')}
+                        </span>
+                        <code>{formatPath(nodeTomlPath || node.workspace_directory)}</code>
+                      </div>
+                      <div className="settings-shell-workspace-actions">
+                        <SNRGButton
+                          variant="blue"
+                          size="sm"
+                          disabled={!nodeTomlPath}
+                          onClick={() => nodeTomlPath && openPath(nodeTomlPath)}
+                        >
+                          Open Config
+                        </SNRGButton>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="settings-shell-column settings-shell-column-console">
+          <section className="settings-shell-panel settings-shell-network-panel">
+            <div className="settings-shell-panel-header">
+              <div>
+                <p className="settings-shell-panel-kicker">Network Snapshot</p>
+                <h3>What this machine sees right now</h3>
+              </div>
+            </div>
+            <div className="settings-shell-definition-grid">
+              <DefinitionRow
+                label="Public RPC"
+                value={liveStatus?.public_rpc_endpoint || 'Not available'}
+                detail={liveStatus?.public_rpc_online ? 'Responding' : 'Unavailable'}
+              />
+              <DefinitionRow
+                label="Discovery"
+                value={liveStatus?.discovery_status || 'Unknown'}
+                detail={liveStatus?.discovery_detail || 'Waiting for a live check'}
+              />
+              <DefinitionRow
+                label="Live Chain Height"
+                value={formatWholeNumber(liveStatus?.public_chain_height)}
+                detail="Latest height from the public RPC endpoint"
+              />
+              <DefinitionRow
+                label="Peers"
+                value={formatWholeNumber(liveStatus?.network_peer_count ?? liveStatus?.public_peer_count)}
+                detail={liveStatus?.network_peer_count != null
+                  ? 'Active peers reported by the seed registry'
+                  : 'Visible peers from the public RPC view'}
+              />
+            </div>
+            <div className="settings-shell-endpoint-list">
+              {[...(liveStatus?.bootnodes || []), ...(liveStatus?.seed_servers || [])].map((endpoint) => (
+                <div key={`${endpoint.kind}-${endpoint.host}-${endpoint.port}`} className="settings-shell-endpoint-row">
+                  <div>
+                    <strong>{endpoint.host}</strong>
+                    <span>{endpoint.ip_address}:{endpoint.port}</span>
+                  </div>
+                  <span className={`settings-shell-badge ${endpoint.reachable ? 'good' : 'bad'}`}>
+                    {endpoint.kind}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="settings-shell-panel settings-shell-terminal-panel">
+            <div className="settings-shell-panel-header">
+              <div>
+                <p className="settings-shell-panel-kicker">Operator Console</p>
+                <h3>Guided machine diagnostics</h3>
+              </div>
+              <span className={`settings-shell-badge ${terminalBusy ? 'warn' : 'good'}`}>
+                {terminalBusy ? 'Running' : 'Ready'}
               </span>
-              <span>{portMessage}</span>
             </div>
-          ) : null}
-        </section>
+            <p className="settings-shell-panel-copy">
+              The buttons below run readable local checks for services, connectivity, and cleanup.
+              The console still behaves like a normal terminal if you want to run your own command.
+            </p>
 
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Network</p>
-              <h3>Network health</h3>
-            </div>
-          </div>
-          <div className="nodecp-definition-list">
-            <div className="nodecp-definition-row">
-              <span>Chain ID</span>
-              <strong>{state?.network_profile?.chain_id || 'Unknown'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Public RPC</span>
-              <strong>{liveStatus?.public_rpc_endpoint || 'Not available'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Discovery health</span>
-              <strong>{liveStatus?.discovery_status || 'Unknown'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Live chain height</span>
-              <strong>{formatWholeNumber(liveStatus?.public_chain_height)}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Endpoints</p>
-              <h3>What new nodes will use</h3>
-            </div>
-          </div>
-          <div className="nodecp-endpoint-stack">
-            {(state?.network_profile?.bootnodes || []).map((endpoint) => (
-              <div key={endpoint.host} className="nodecp-endpoint-row">
-                <div>
-                  <span className="nodecp-endpoint-name">{endpoint.host}</span>
-                  <span className="nodecp-endpoint-meta">{endpoint.ip_address}:{endpoint.port}</span>
-                </div>
-                <span className="nodecp-endpoint-badge">Bootnode</span>
-              </div>
-            ))}
-            {(state?.network_profile?.seed_servers || []).map((endpoint) => (
-              <div key={endpoint.host} className="nodecp-endpoint-row">
-                <div>
-                  <span className="nodecp-endpoint-name">{endpoint.host}</span>
-                  <span className="nodecp-endpoint-meta">{endpoint.ip_address}:{endpoint.port}</span>
-                </div>
-                <span className="nodecp-endpoint-badge nodecp-endpoint-badge-alt">Seed</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Node Ports</p>
-              <h3>Current workspace configs</h3>
-            </div>
-          </div>
-          <p className="nodecp-panel-copy">
-            These values are read from each workspace&apos;s <code>node.toml</code>.
-            If a node is already running, stop and start it after applying a new
-            profile so the updated ports take effect.
-          </p>
-          {provisionedNodes.length === 0 ? (
-            <div className="nodecp-empty-inline">
-              No node workspaces have been created on this computer yet.
-            </div>
-          ) : (
-            <div className="monitor-record-list">
-              {provisionedNodes.map((node) => {
-                const profile = nodePortProfiles[node.id];
-                const nodeTomlPath = profile?.nodeTomlPath
-                  || node?.config_paths?.find((entry) => String(entry).endsWith('/node.toml'))
-                  || '';
-
-                return (
-                  <div key={node.id} className="monitor-record-row">
-                    <div className="monitor-record-copy">
-                      <strong>{node.display_label || node.label || node.id}</strong>
-                      <span>
-                        {profile?.ok
-                          ? formatPortSettingsSummary(profile.portSettings)
-                          : (profile?.error || 'Reading node port config...')}
-                      </span>
-                      <span>{formatPath(nodeTomlPath || node.workspace_directory)}</span>
-                    </div>
-                    <div className="monitor-record-actions">
-                      <span className={`nodecp-health-pill nodecp-health-${profile?.ok ? 'good' : 'warn'}`}>
-                        {profile?.ok ? 'Config Ready' : 'Needs Review'}
-                      </span>
-                      <SNRGButton
-                        variant="blue"
-                        size="sm"
-                        disabled={!nodeTomlPath}
-                        onClick={() => nodeTomlPath && openPath(nodeTomlPath)}
-                      >
-                        Open Config
-                      </SNRGButton>
+            <div className="settings-shell-command-groups">
+              {commandGroups.map((group) => (
+                <section
+                  key={group.id}
+                  className={`settings-shell-command-group settings-shell-command-group-${group.accent}`}
+                >
+                  <div className="settings-shell-command-group-header">
+                    <div>
+                      <strong>{group.title}</strong>
+                      <span>{group.description}</span>
                     </div>
                   </div>
-                );
-              })}
+                  {group.actions.length === 0 ? (
+                    <div className="settings-shell-empty settings-shell-empty-tight">
+                      Use the terminal input below for custom commands on this platform.
+                    </div>
+                  ) : (
+                    <div className="settings-shell-command-grid">
+                      {group.actions.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          className="settings-shell-command-card"
+                          disabled={terminalBusy}
+                          onClick={() => runTerminalCommand(action.command, {
+                            actionId: action.id,
+                            announceLabel: `${action.label}: ${action.description}`,
+                            refreshAfterRun: action.refreshAfterRun,
+                            successMessage: action.refreshAfterRun ? 'Local state refreshed after cleanup.' : '',
+                          })}
+                        >
+                          <SNRGButton
+                            as="span"
+                            variant={action.variant}
+                            size="sm"
+                            className="settings-shell-command-chip"
+                          >
+                            {activeTerminalAction === action.id && terminalBusy ? 'Running...' : action.label}
+                          </SNRGButton>
+                          <small>{action.description}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ))}
             </div>
-          )}
-        </section>
+
+            <div className="settings-shell-terminal">
+              <div className="settings-shell-terminal-header">
+                <div className="settings-shell-terminal-dots">
+                  <span className="settings-shell-terminal-dot red"></span>
+                  <span className="settings-shell-terminal-dot yellow"></span>
+                  <span className="settings-shell-terminal-dot green"></span>
+                </div>
+                <code>{terminalCwd || '~'}</code>
+              </div>
+              <div className="settings-shell-terminal-body" ref={terminalScrollRef}>
+                {terminalLines.map((line) => (
+                  <div key={line.id} className={`settings-shell-terminal-line ${line.kind}`}>
+                    <span className="settings-shell-terminal-time">{line.at}</span>
+                    <span className="settings-shell-terminal-text">{line.text}</span>
+                  </div>
+                ))}
+              </div>
+              <form className="settings-shell-terminal-input-row" onSubmit={submitTerminal}>
+                <span className="settings-shell-terminal-prompt">$</span>
+                <input
+                  value={terminalInput}
+                  onChange={(event) => setTerminalInput(event.target.value)}
+                  placeholder="Run your own local command (example: pwd)"
+                  disabled={terminalBusy}
+                />
+                <SNRGButton
+                  as="button"
+                  type="submit"
+                  variant="blue"
+                  size="sm"
+                  disabled={terminalBusy || !terminalInput.trim()}
+                >
+                  Run
+                </SNRGButton>
+              </form>
+            </div>
+          </section>
+        </div>
       </div>
     </section>
   );

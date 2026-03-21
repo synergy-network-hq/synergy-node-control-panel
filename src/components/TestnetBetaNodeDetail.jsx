@@ -112,8 +112,9 @@ function nodeBlockHeightValue(nodeLive, liveStatus) {
 }
 
 function nodeBlockHeightDetail(nodeLive, liveStatus) {
+  const networkHeight = nodeLive?.best_network_height ?? liveStatus?.public_chain_height;
   if (!nodeLive?.is_running) {
-    return `Public chain: ${formatNumber(liveStatus?.public_chain_height)}`;
+    return `Best observed network tip: ${formatNumber(networkHeight)}`;
   }
   if (nodeLive.local_rpc_ready === false) {
     return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
@@ -342,14 +343,14 @@ async function queryLocalRpc(endpoint, method, params = []) {
   return payload?.result;
 }
 
-function computeCatchUpStatus(nodeLive, publicHeight) {
+function computeCatchUpStatus(nodeLive, networkHeight) {
   if (!nodeLive?.is_running) return 'Offline';
   if (nodeLive.local_rpc_ready === false) return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
   if (nodeIsRejoiningPeers(nodeLive)) {
     return `Rejoining peers (${formatNumber(nodeLive?.process_uptime_secs)}s since restart)`;
   }
   if ((nodeLive?.sync_gap ?? 0) > 0) {
-    return `Catching up (${formatNumber(nodeLive?.sync_gap)} blocks behind ${formatNumber(publicHeight)})`;
+    return `Catching up (${formatNumber(nodeLive?.sync_gap)} blocks behind network tip ${formatNumber(networkHeight)})`;
   }
   return 'At chain head';
 }
@@ -732,7 +733,8 @@ function TestnetBetaNodeDetail() {
   const renderOverview = () => {
     const rejoiningPeers = nodeIsRejoiningPeers(nodeLive);
     const zeroPeersRunning = isRunning && (nodeLive?.local_peer_count ?? 0) === 0 && !rejoiningPeers;
-    const pubHeight = liveStatus?.public_chain_height;
+    const publicHeight = liveStatus?.public_chain_height;
+    const networkHeight = nodeLive?.best_network_height ?? publicHeight;
     const networkVisiblePeerCount = liveStatus?.network_peer_count
       ?? explorerData?.total_validators
       ?? liveStatus?.public_peer_count
@@ -1036,7 +1038,7 @@ function TestnetBetaNodeDetail() {
 
   const renderWallet = () => {
     const rewardStandard = roleRewardStandard(node.role_id, node.role_display_name);
-    const catchUpStatus = computeCatchUpStatus(nodeLive, liveStatus?.public_chain_height);
+    const catchUpStatus = computeCatchUpStatus(nodeLive, networkHeight);
     const snapshot = walletSnapshot || {};
 
     return (
@@ -1092,13 +1094,19 @@ function TestnetBetaNodeDetail() {
                   <strong>{catchUpStatus}</strong>
                 </div>
                 <div className="nodecp-definition-row">
-                  <span>Local / public height</span>
-                  <strong>{formatNumber(nodeLive?.local_chain_height)} / {formatNumber(liveStatus?.public_chain_height)}</strong>
+                  <span>Local / public RPC / network tip</span>
+                  <strong>{formatNumber(nodeLive?.local_chain_height)} / {formatNumber(publicHeight)} / {formatNumber(networkHeight)}</strong>
                 </div>
                 <div className="nodecp-definition-row">
                   <span>Peer count / sync gap</span>
                   <strong>{formatNumber(nodeLive?.local_peer_count)} peers / {formatNumber(nodeLive?.sync_gap)} blocks</strong>
                 </div>
+                {(publicHeight != null && networkHeight != null && networkHeight > publicHeight) && (
+                  <div className="nodecp-definition-row">
+                    <span>Network tip source</span>
+                    <strong>Peers report {formatNumber(networkHeight)} while public RPC is at {formatNumber(publicHeight)}</strong>
+                  </div>
+                )}
                 <div className="nodecp-definition-row">
                   <span>Synergy score</span>
                   <strong>{formatScoreOutOfHundred(nodeLive?.synergy_score)}</strong>

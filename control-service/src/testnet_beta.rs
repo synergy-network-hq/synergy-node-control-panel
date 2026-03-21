@@ -219,6 +219,7 @@ pub struct TestnetBetaNodeLiveStatus {
     pub sync_gap: Option<u64>,
     pub log_local_chain_height: Option<u64>,
     pub best_observed_peer_height: Option<u64>,
+    pub best_network_height: Option<u64>,
     pub synergy_score: Option<f64>,
     pub synergy_score_status: String,
 }
@@ -705,9 +706,17 @@ pub async fn testbeta_get_chain_blocks(
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
     // Get current block height
-    let height_val =
-        query_rpc_value(&client, &rpc_endpoint, "synergy_blockNumber", json!([])).await?;
-    let height = parse_rpc_u64(height_val)?;
+    let height = match query_local_chain_height(&client, &rpc_endpoint).await {
+        Ok(height) => height,
+        Err(error) if rpc_error_is_transport_unavailable(&error) => {
+            return Ok(Vec::new());
+        }
+        Err(error) => {
+            return Err(format!(
+                "Local chain RPC is unavailable on {rpc_endpoint}: {error}"
+            ));
+        }
+    };
 
     let fetch_count = count.unwrap_or(20).min(100);
     let start = if height >= fetch_count {
@@ -717,9 +726,22 @@ pub async fn testbeta_get_chain_blocks(
     };
     let end = height;
 
-    let result =
-        query_rpc_value(&client, &rpc_endpoint, "synergy_getBlockRange", json!([start, end]))
-            .await?;
+    let result = match query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getBlockRange",
+        json!([start, end]),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) if rpc_error_is_transport_unavailable(&error) => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(format!(
+                "Local chain RPC is unavailable on {rpc_endpoint}: {error}"
+            ));
+        }
+    };
 
     let blocks = result
         .as_array()
@@ -1393,6 +1415,7 @@ async fn build_node_live_status(
         sync_gap,
         log_local_chain_height,
         best_observed_peer_height,
+        best_network_height,
         synergy_score,
         synergy_score_status,
     }
@@ -2073,6 +2096,15 @@ async fn query_rpc_value(
         .get("result")
         .cloned()
         .ok_or_else(|| format!("RPC response for {method} did not contain a result."))
+}
+
+fn rpc_error_is_transport_unavailable(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("error sending request")
+        || lower.contains("connection refused")
+        || lower.contains("tcp connect error")
+        || lower.contains("dns error")
+        || lower.contains("timed out")
 }
 
 fn parse_rpc_u64(value: Value) -> Result<u64, String> {

@@ -59,10 +59,10 @@ export async function downloadAndInstallUpdate() {
   try {
     if (hasNativeUpdater()) {
       const bridge = getBridge();
-      await bridge.checkForUpdate();
+      await bridge.downloadUpdate();
       return {
         status: 'downloading',
-        message: 'Checking for an update and downloading it in the background. The app will restart automatically when ready.',
+        message: 'Downloading update in the background. The app will restart automatically when ready.',
       };
     }
 
