@@ -51,7 +51,7 @@ jobs:
         with:
           repository: synergy-network-hq/testnet-beta
           path: testnet-beta-source
-          ref: 35de52135b0af944856e6a667d1fa71dba0e4ff0
+          ref: 445aadbf9f8b1481ca93e9e2fb75b58ee577e725
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
