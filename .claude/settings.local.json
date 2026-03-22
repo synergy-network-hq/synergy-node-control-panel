@@ -53,7 +53,11 @@
       "Bash(tail -200 ~/.synergy/testnet-beta/nodes/validator-workspace/logs/*.log)",
       "Bash(tail -200 ~/.synergy/testnet-beta/nodes/validator-workspace-f7b1ef0a/logs/*.log)",
       "Bash(gh workflow:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(cp /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/target/release/synergy-testbeta /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel/binaries/synergy-testbeta-darwin-arm64)",
+      "Bash(cp /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/target/release/synergy-testbeta /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel/binaries/synergy-testbeta-macos-arm64)",
+      "Bash(gh repo:*)",
+      "Bash(gh api:*)"
     ],
     "deny": [],
     "ask": []

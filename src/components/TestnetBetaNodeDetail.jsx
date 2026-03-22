@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { invoke, openPath, readTextFile } from '../lib/desktopClient';
 import {
@@ -396,8 +396,13 @@ function TestnetBetaNodeDetail() {
 
     if (atlasAvailable.current) {
       try {
-        const chain = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/api/v1/network/summary');
-        setExplorerData(chain);
+        const raw = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/api/v1/network/summary');
+        setExplorerData({
+          total_validators: raw?.total_validators ?? raw?.totalValidators ?? raw?.activeValidators ?? null,
+          total_transactions: raw?.total_transactions ?? raw?.totalTransactions ?? null,
+          avg_block_time: raw?.avg_block_time ?? raw?.avgBlockTimeSeconds ?? raw?.avgBlockTime ?? null,
+          ...raw,
+        });
       } catch {
         atlasAvailable.current = false;
       }
@@ -1561,4 +1566,34 @@ function TestnetBetaNodeDetail() {
   );
 }
 
-export default TestnetBetaNodeDetail;
+class NodeDetailErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: '2rem', color: '#ff9999', fontFamily: 'monospace' }}>
+          <h2>Node Detail render error</h2>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{String(this.state.error)}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', opacity: 0.7 }}>{this.state.error?.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function TestnetBetaNodeDetailWithBoundary() {
+  return (
+    <NodeDetailErrorBoundary>
+      <TestnetBetaNodeDetail />
+    </NodeDetailErrorBoundary>
+  );
+}
+
+export default TestnetBetaNodeDetailWithBoundary;

@@ -633,7 +633,19 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       }
 
       if (chainResult.status === 'fulfilled') {
-        setChainSummary(chainResult.value);
+        const raw = chainResult.value || {};
+        setChainSummary({
+          total_validators: raw.total_validators ?? raw.totalValidators ?? raw.activeValidators ?? null,
+          active_validators: raw.active_validators ?? raw.activeValidators ?? null,
+          total_validator_clusters: raw.total_validator_clusters ?? raw.totalValidatorClusters ?? null,
+          total_transactions: raw.total_transactions ?? raw.totalTransactions ?? null,
+          total_stake_snrg: raw.total_stake_snrg ?? raw.totalStakeSnrg ?? null,
+          avg_block_time: raw.avg_block_time ?? raw.avgBlockTimeSeconds ?? raw.avgBlockTime ?? null,
+          peer_count: raw.peer_count ?? raw.peerCount ?? null,
+          latest_block: raw.latest_block ?? raw.latestBlock ?? null,
+          average_synergy_score: raw.average_synergy_score ?? raw.averageSynergyScore ?? null,
+          ...raw,
+        });
       } else {
         setChainSummary(null);
       }
