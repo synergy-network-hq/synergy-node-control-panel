@@ -43,6 +43,9 @@ static NODE_LIVE_CACHE: Lazy<Mutex<HashMap<String, CachedNodeLiveSnapshot>>> =
 struct CachedNodeLiveSnapshot {
     local_chain_height: Option<u64>,
     local_peer_count: Option<usize>,
+    previous_chain_height: Option<u64>,
+    height_sampled_at: Option<Instant>,
+    previous_sampled_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,6 +225,41 @@ pub struct TestnetBetaNodeLiveStatus {
     pub best_network_height: Option<u64>,
     pub synergy_score: Option<f64>,
     pub synergy_score_status: String,
+    pub wallet_ready: bool,
+    pub seed_registered: bool,
+    pub seed_registration_count: usize,
+    pub sync_trending: String,
+    pub blocks_per_second: Option<f64>,
+    pub estimated_sync_eta_secs: Option<u64>,
+    pub readiness: Option<NodeReadinessReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeReadinessCheck {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub detail: String,
+    pub suggestion: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeReadinessReport {
+    pub node_id: String,
+    pub generated_at_utc: String,
+    pub overall_status: String,
+    pub checks: Vec<NodeReadinessCheck>,
+    pub ready_count: usize,
+    pub total_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcceleratedSyncResult {
+    pub node_id: String,
+    pub peers_injected: usize,
+    pub seeds_queried: usize,
+    pub unique_dial_targets: usize,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -770,6 +808,106 @@ pub async fn testbeta_run_register_with_seeds(node_id: String) -> Result<String,
         "Node '{}' registered with all configured seed servers.",
         node.display_label
     ))
+}
+
+pub async fn testbeta_get_node_readiness(node_id: String) -> Result<NodeReadinessReport, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {node_id}"))?;
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let live = build_node_live_status(&client, &node).await;
+    let report = build_node_readiness_report(
+        &client,
+        &node,
+        &live,
+        &state.network_profile.seed_servers,
+    )
+    .await;
+
+    Ok(report)
+}
+
+pub async fn testbeta_boost_sync(
+    app_context: &AppContext,
+    node_id: String,
+) -> Result<AcceleratedSyncResult, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {node_id}"))?;
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    // 1. Query all seed servers for their full peer lists.
+    let seed_peers =
+        fetch_all_seed_peer_dial_targets(&client, &state.network_profile.seed_servers).await;
+    let seeds_queried = state.network_profile.seed_servers.len();
+
+    // 2. Merge with local sibling targets.
+    let siblings = local_sibling_dial_targets(&state.nodes, &node.id);
+
+    // 3. Read existing peers.toml targets and merge all unique targets.
+    let workspace_directory = PathBuf::from(&node.workspace_directory);
+    let peers_toml_path = workspace_directory.join("config").join("peers.toml");
+    let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
+    for peer in seed_peers.iter().chain(siblings.iter()) {
+        if !targets.contains(peer) {
+            targets.push(peer.clone());
+        }
+    }
+
+    // 4. Write enriched peers.toml.
+    let peers_contents =
+        build_peers_toml_with_additional(&state.network_profile, &targets);
+    if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
+        return Err(format!("Failed to write peers.toml: {e}"));
+    }
+
+    // 5. Refresh genesis.json.
+    write_genesis_json_for_workspace(&state.nodes, &workspace_directory).ok();
+
+    // 6. Stop node if running, then restart.
+    let config_path = workspace_directory.join("config").join("node.toml");
+    let runner = resolve_testbeta_runner(app_context, &node.role_id)?;
+
+    if running_pid_for_workspace(&workspace_directory).is_some() {
+        run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
+    }
+
+    launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
+    wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
+
+    // 7. Re-register with seeds.
+    register_node_with_seeds_best_effort(&state.network_profile, &node).await;
+
+    let unique_dial_targets = targets.len();
+    Ok(AcceleratedSyncResult {
+        node_id: node.id.clone(),
+        peers_injected: unique_dial_targets,
+        seeds_queried,
+        unique_dial_targets,
+        message: format!(
+            "Injected {} peer dial targets from {} seed server(s) and restarted '{}'. The node will now sync from all available peers.",
+            unique_dial_targets,
+            seeds_queried,
+            node.display_label
+        ),
+    })
 }
 
 pub fn testbeta_get_node_logs(node_id: String, lines: Option<usize>) -> Result<String, String> {
@@ -1345,11 +1483,15 @@ async fn build_node_live_status(
         "Local runtime is offline.".to_string()
     } else if local_rpc_ready {
         let mut cache = NODE_LIVE_CACHE.lock().unwrap();
+        let previous = cache.get(&node.id).cloned();
         cache.insert(
             node.id.clone(),
             CachedNodeLiveSnapshot {
                 local_chain_height,
                 local_peer_count,
+                previous_chain_height: previous.as_ref().and_then(|s| s.local_chain_height),
+                height_sampled_at: Some(Instant::now()),
+                previous_sampled_at: previous.as_ref().and_then(|s| s.height_sampled_at),
             },
         );
         format!("Local RPC responding on {rpc_endpoint}.")
@@ -1399,6 +1541,18 @@ async fn build_node_live_status(
     )
     .await;
 
+    // Compute sync trending from cached snapshots.
+    let (sync_trending, blocks_per_second, estimated_sync_eta_secs) = {
+        let cache = NODE_LIVE_CACHE.lock().unwrap();
+        if let Some(snapshot) = cache.get(&node.id) {
+            compute_sync_trending(snapshot, sync_gap)
+        } else {
+            ("unknown".to_string(), None, None)
+        }
+    };
+
+    let wallet_ready = workspace_directory.join("keys").join("identity.json").is_file();
+
     TestnetBetaNodeLiveStatus {
         node_id: node.id.clone(),
         rpc_endpoint,
@@ -1418,7 +1572,45 @@ async fn build_node_live_status(
         best_network_height,
         synergy_score,
         synergy_score_status,
+        wallet_ready,
+        seed_registered: false,
+        seed_registration_count: 0,
+        sync_trending,
+        blocks_per_second,
+        estimated_sync_eta_secs,
+        readiness: None,
     }
+}
+
+fn compute_sync_trending(
+    snapshot: &CachedNodeLiveSnapshot,
+    sync_gap: Option<u64>,
+) -> (String, Option<f64>, Option<u64>) {
+    if let Some(gap) = sync_gap {
+        if gap <= 5 {
+            return ("synced".to_string(), None, None);
+        }
+    }
+    let (current, prev, now_ts, prev_ts) = match (
+        snapshot.local_chain_height,
+        snapshot.previous_chain_height,
+        snapshot.height_sampled_at,
+        snapshot.previous_sampled_at,
+    ) {
+        (Some(c), Some(p), Some(n), Some(pt)) => (c, p, n, pt),
+        _ => return ("unknown".to_string(), None, None),
+    };
+    let elapsed = now_ts.duration_since(prev_ts).as_secs_f64();
+    if elapsed < 0.5 {
+        return ("unknown".to_string(), None, None);
+    }
+    let gained = current.saturating_sub(prev) as f64;
+    let bps = gained / elapsed;
+    if bps < 0.01 {
+        return ("stalled".to_string(), Some(0.0), None);
+    }
+    let eta = sync_gap.map(|gap| (gap as f64 / bps).ceil() as u64);
+    ("improving".to_string(), Some(bps), eta)
 }
 
 struct RunningProcessInfo {
@@ -1899,6 +2091,390 @@ async fn query_seed_peer_count(
     }
 
     Ok(unique_peers.len())
+}
+
+async fn verify_node_seed_registration(
+    client: &Client,
+    seed_servers: &[TestnetBetaBootstrapEndpoint],
+    node_id: &str,
+    wallet_address: &str,
+) -> (bool, usize) {
+    let mut registered_count = 0usize;
+
+    for seed in seed_servers {
+        let url = format!("http://{}:{}/peers", seed.host, seed.port);
+        let response = match client.get(&url).send().await {
+            Ok(r) if r.status().is_success() => r,
+            _ => continue,
+        };
+        let payload: Value = match response.json().await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let peers = match payload.get("peers").and_then(Value::as_array) {
+            Some(p) => p,
+            None => continue,
+        };
+        let found = peers.iter().any(|peer| {
+            let matches_node_id = peer
+                .get("node_id")
+                .and_then(Value::as_str)
+                .map_or(false, |id| id == node_id);
+            let matches_wallet = peer
+                .get("wallet_address")
+                .and_then(Value::as_str)
+                .map_or(false, |addr| addr == wallet_address);
+            matches_node_id || matches_wallet
+        });
+        if found {
+            registered_count += 1;
+        }
+    }
+
+    (registered_count > 0, registered_count)
+}
+
+async fn fetch_all_seed_peer_dial_targets(
+    client: &Client,
+    seed_servers: &[TestnetBetaBootstrapEndpoint],
+) -> Vec<String> {
+    let mut unique_dials: HashMap<String, ()> = HashMap::new();
+
+    for seed in seed_servers {
+        let url = format!("http://{}:{}/peers", seed.host, seed.port);
+        let response = match client.get(&url).send().await {
+            Ok(r) if r.status().is_success() => r,
+            _ => continue,
+        };
+        let payload: Value = match response.json().await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let peers = match payload.get("peers").and_then(Value::as_array) {
+            Some(p) => p,
+            None => continue,
+        };
+        for peer in peers {
+            // Try to extract a usable dial target.  The `dial` field is preferred
+            // (format: `snr://address@host:port`).  If absent, build one from
+            // the peer's `public_host` and default P2P port.
+            if let Some(dial) = peer.get("dial").and_then(Value::as_str) {
+                // Convert snr:// dial to plain host:port for additional_dial_targets.
+                if let Some(host_port) = dial.split('@').last() {
+                    unique_dials.entry(host_port.to_string()).or_insert(());
+                }
+            } else if let Some(host) = peer.get("public_host").and_then(Value::as_str) {
+                let port = peer
+                    .get("p2p_port")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(u64::from(TESTNET_BETA_P2P_PORT));
+                unique_dials
+                    .entry(format!("{host}:{port}"))
+                    .or_insert(());
+            }
+        }
+    }
+
+    unique_dials.into_keys().collect()
+}
+
+async fn build_node_readiness_report(
+    client: &Client,
+    node: &TestnetBetaProvisionedNode,
+    live: &TestnetBetaNodeLiveStatus,
+    seed_servers: &[TestnetBetaBootstrapEndpoint],
+) -> NodeReadinessReport {
+    let mut checks = Vec::new();
+    let p2p_port = TESTNET_BETA_P2P_PORT + node.port_slot.unwrap_or(0);
+
+    // 1. Workspace Ready
+    checks.push(NodeReadinessCheck {
+        id: "workspace_ready".to_string(),
+        label: "Workspace Ready".to_string(),
+        status: if live.workspace_ready { "pass" } else { "fail" }.to_string(),
+        detail: if live.workspace_ready {
+            "Node workspace directory exists.".to_string()
+        } else {
+            "Workspace directory is missing.".to_string()
+        },
+        suggestion: if live.workspace_ready {
+            None
+        } else {
+            Some("Re-run node setup to create the workspace.".to_string())
+        },
+    });
+
+    // 2. Config Ready
+    checks.push(NodeReadinessCheck {
+        id: "config_ready".to_string(),
+        label: "Config Ready".to_string(),
+        status: if live.config_ready { "pass" } else { "fail" }.to_string(),
+        detail: if live.config_ready {
+            "node.toml configuration file exists.".to_string()
+        } else {
+            "Configuration file is missing.".to_string()
+        },
+        suggestion: if live.config_ready {
+            None
+        } else {
+            Some("Re-run node setup to generate configuration.".to_string())
+        },
+    });
+
+    // 3. Wallet Generated
+    checks.push(NodeReadinessCheck {
+        id: "wallet_generated".to_string(),
+        label: "Wallet Generated".to_string(),
+        status: if live.wallet_ready { "pass" } else { "fail" }.to_string(),
+        detail: if live.wallet_ready {
+            format!("Identity file present. Address: {}", node.node_address)
+        } else {
+            "identity.json is missing from keys directory.".to_string()
+        },
+        suggestion: if live.wallet_ready {
+            None
+        } else {
+            Some("Re-run node setup to generate wallet keys.".to_string())
+        },
+    });
+
+    // 4. Genesis Included
+    let genesis_included = {
+        let genesis_path = PathBuf::from(&node.workspace_directory)
+            .join("config")
+            .join("genesis.json");
+        if let Ok(contents) = fs::read_to_string(&genesis_path) {
+            contents.contains(&node.node_address)
+        } else {
+            false
+        }
+    };
+    checks.push(NodeReadinessCheck {
+        id: "genesis_included".to_string(),
+        label: "Genesis Included".to_string(),
+        status: if genesis_included { "pass" } else { "fail" }.to_string(),
+        detail: if genesis_included {
+            "Node address is present in genesis.json.".to_string()
+        } else {
+            "Node address not found in genesis.json.".to_string()
+        },
+        suggestion: if genesis_included {
+            None
+        } else {
+            Some("Restart the node to refresh genesis.json with all validators.".to_string())
+        },
+    });
+
+    // 5. Process Running
+    checks.push(NodeReadinessCheck {
+        id: "process_running".to_string(),
+        label: "Process Running".to_string(),
+        status: if live.is_running { "pass" } else { "fail" }.to_string(),
+        detail: if live.is_running {
+            format!(
+                "Node process is running (PID {}).",
+                live.pid.map_or("?".to_string(), |p| p.to_string())
+            )
+        } else {
+            "Node process is not running.".to_string()
+        },
+        suggestion: if live.is_running {
+            None
+        } else {
+            Some("Start the node.".to_string())
+        },
+    });
+
+    // 6. RPC Responding
+    checks.push(NodeReadinessCheck {
+        id: "rpc_responding".to_string(),
+        label: "RPC Responding".to_string(),
+        status: if live.local_rpc_ready {
+            "pass"
+        } else if live.is_running {
+            "in_progress"
+        } else {
+            "fail"
+        }
+        .to_string(),
+        detail: live.local_rpc_status.clone(),
+        suggestion: if live.local_rpc_ready {
+            None
+        } else if live.is_running {
+            Some("Node is starting up. RPC may take a moment to become ready.".to_string())
+        } else {
+            Some("Start the node first.".to_string())
+        },
+    });
+
+    // 7. Peers Connected
+    let peer_count = live.local_peer_count.unwrap_or(0);
+    let peers_status = if peer_count >= 3 {
+        "pass"
+    } else if peer_count >= 1 {
+        "warn"
+    } else if live.is_running {
+        "fail"
+    } else {
+        "skip"
+    };
+    checks.push(NodeReadinessCheck {
+        id: "peers_connected".to_string(),
+        label: "Peers Connected".to_string(),
+        status: peers_status.to_string(),
+        detail: if peer_count > 0 {
+            format!("Connected to {peer_count} peer(s).")
+        } else if live.is_running {
+            "No peers connected.".to_string()
+        } else {
+            "Node is offline.".to_string()
+        },
+        suggestion: if peer_count >= 3 {
+            None
+        } else if peer_count >= 1 {
+            Some(format!(
+                "Only {peer_count} peer(s). Use Boost Sync to inject more peer addresses, or check firewall on port {p2p_port}."
+            ))
+        } else if live.is_running {
+            Some(format!(
+                "No peers found. Use Boost Sync to inject peer addresses, or verify firewall allows P2P traffic on port {p2p_port}."
+            ))
+        } else {
+            None
+        },
+    });
+
+    // 8. Seed Registered
+    let (seed_registered, seed_count) = if live.is_running {
+        verify_node_seed_registration(client, seed_servers, &node.id, &node.node_address).await
+    } else {
+        (false, 0)
+    };
+    checks.push(NodeReadinessCheck {
+        id: "seed_registered".to_string(),
+        label: "Seed Registered".to_string(),
+        status: if seed_registered {
+            "pass"
+        } else if live.is_running {
+            "fail"
+        } else {
+            "skip"
+        }
+        .to_string(),
+        detail: if seed_registered {
+            format!("Registered with {seed_count} seed server(s).")
+        } else if live.is_running {
+            "Not found in any seed server peer registry.".to_string()
+        } else {
+            "Node is offline.".to_string()
+        },
+        suggestion: if seed_registered {
+            None
+        } else if live.is_running {
+            Some("Re-register with seed servers.".to_string())
+        } else {
+            None
+        },
+    });
+
+    // 9. Syncing / Synced
+    let sync_status = match live.sync_gap {
+        Some(gap) if gap <= 5 => "pass",
+        Some(_) if live.sync_trending == "improving" => "in_progress",
+        Some(_) => "warn",
+        None if live.is_running => "in_progress",
+        _ => "skip",
+    };
+    let sync_detail = match live.sync_gap {
+        Some(gap) if gap <= 5 => "Node is fully synced with the network.".to_string(),
+        Some(gap) => {
+            let mut parts = vec![format!("{gap} blocks behind")];
+            if let Some(bps) = live.blocks_per_second {
+                if bps > 0.01 {
+                    parts.push(format!("{bps:.1} blocks/sec"));
+                }
+            }
+            if let Some(eta) = live.estimated_sync_eta_secs {
+                let mins = (eta + 59) / 60;
+                parts.push(format!("~{mins} min remaining"));
+            }
+            parts.join(" \u{2022} ")
+        }
+        None if live.is_running => "Waiting for chain height data.".to_string(),
+        _ => "Node is offline.".to_string(),
+    };
+    checks.push(NodeReadinessCheck {
+        id: "synced".to_string(),
+        label: "Synced".to_string(),
+        status: sync_status.to_string(),
+        detail: sync_detail,
+        suggestion: match sync_status {
+            "warn" => Some(
+                "Sync appears stalled. Try Boost Sync to inject fresh peers and restart."
+                    .to_string(),
+            ),
+            "in_progress" => Some("Sync is in progress. Blocks are being downloaded.".to_string()),
+            _ => None,
+        },
+    });
+
+    // 10. Scoring (validators only)
+    let is_validator = role_supports_validator_registration(&node.role_id);
+    if is_validator {
+        let score_status = if live.synergy_score.unwrap_or(0.0) > 0.0 {
+            "pass"
+        } else if live.sync_gap.map_or(false, |g| g <= 5) {
+            "warn"
+        } else if live.is_running {
+            "in_progress"
+        } else {
+            "skip"
+        };
+        checks.push(NodeReadinessCheck {
+            id: "scoring".to_string(),
+            label: "Scoring".to_string(),
+            status: score_status.to_string(),
+            detail: if live.synergy_score.unwrap_or(0.0) > 0.0 {
+                format!(
+                    "Synergy score: {:.2}/100. {}",
+                    live.synergy_score.unwrap_or(0.0),
+                    live.synergy_score_status
+                )
+            } else if live.is_running {
+                "Waiting for synergy score. Node must be fully synced first.".to_string()
+            } else {
+                "Node is offline.".to_string()
+            },
+            suggestion: if score_status == "warn" {
+                Some("Node is synced but score is zero. It may take a few epochs to register."
+                    .to_string())
+            } else {
+                None
+            },
+        });
+    }
+
+    let ready_count = checks.iter().filter(|c| c.status == "pass").count();
+    let total_count = checks.len();
+    let overall_status = if ready_count == total_count {
+        "ready"
+    } else if checks.iter().any(|c| c.status == "fail") {
+        "issues"
+    } else if checks.iter().any(|c| c.status == "in_progress") {
+        "progressing"
+    } else {
+        "issues"
+    }
+    .to_string();
+
+    NodeReadinessReport {
+        node_id: node.id.clone(),
+        generated_at_utc: Utc::now().to_rfc3339(),
+        overall_status,
+        checks,
+        ready_count,
+        total_count,
+    }
 }
 
 async fn query_synergy_score(client: &Client, address: &str) -> Result<f64, String> {

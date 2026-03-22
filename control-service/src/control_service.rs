@@ -17,10 +17,11 @@ use crate::monitor::{
     MonitorOperatorInput, MonitorSshBindingInput, MonitorSshProfileInput,
 };
 use crate::testnet_beta::{
-    testbeta_get_catalog, testbeta_get_chain_blocks, testbeta_get_device_profile,
-    testbeta_get_live_status, testbeta_get_node_logs, testbeta_get_state, testbeta_node_control,
-    testbeta_remove_node, testbeta_run_register_with_seeds, testbeta_setup_node,
-    TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
+    testbeta_boost_sync, testbeta_get_catalog, testbeta_get_chain_blocks,
+    testbeta_get_device_profile, testbeta_get_live_status, testbeta_get_node_logs,
+    testbeta_get_node_readiness, testbeta_get_state, testbeta_node_control, testbeta_remove_node,
+    testbeta_run_register_with_seeds, testbeta_setup_node, TestnetBetaNodeControlInput,
+    TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -164,6 +165,18 @@ struct TestnetBetaChainBlocksArgs {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TestnetBetaRegisterWithSeedsArgs {
+    node_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaReadinessArgs {
+    node_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaBoostSyncArgs {
     node_id: String,
 }
 
@@ -390,6 +403,14 @@ async fn dispatch_command(
         "testbeta_run_register_with_seeds" => {
             let args: TestnetBetaRegisterWithSeedsArgs = parse_args(request.args)?;
             to_value(testbeta_run_register_with_seeds(args.node_id).await?)
+        }
+        "testbeta_get_node_readiness" => {
+            let args: TestnetBetaReadinessArgs = parse_args(request.args)?;
+            to_value(testbeta_get_node_readiness(args.node_id).await?)
+        }
+        "testbeta_boost_sync" => {
+            let args: TestnetBetaBoostSyncArgs = parse_args(request.args)?;
+            to_value(testbeta_boost_sync(&state.app_context, args.node_id).await?)
         }
         "monitor_mark_setup_complete" => {
             let args: SetupCompleteArgs = parse_args(request.args)?;

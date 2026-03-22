@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { invoke, openPath } from '../lib/desktopClient';
 import {
@@ -18,7 +18,6 @@ const COMMON_TABS = [
 ];
 const MAX_NODE_SLOTS = 4;
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
-const P2P_REJOIN_GRACE_SECS = 45;
 const NWEI_PER_SNRG = 1000000000n;
 
 async function fetchExplorerJson(baseUrl, path) {
@@ -233,12 +232,6 @@ function nodeBlockHeightValue(nodeLive, liveStatus) {
   return effectiveLocalChainHeight(nodeLive) ?? liveStatus?.public_chain_height;
 }
 
-function nodePeerCountValue(nodeLive, liveStatus) {
-  if (nodeLive?.is_running) {
-    return nodeLive?.local_peer_count;
-  }
-  return nodeLive?.local_peer_count ?? liveStatus?.public_peer_count;
-}
 
 function nodeBlockHeightDetail(nodeLive, liveStatus) {
   if (!nodeLive?.is_running) {
@@ -250,35 +243,6 @@ function nodeBlockHeightDetail(nodeLive, liveStatus) {
   return `${formatNumber(nodeLive?.sync_gap ?? 0)} blocks behind the live chain`;
 }
 
-function nodePeerCountDetail(nodeLive, liveStatus) {
-  if (!nodeLive?.is_running) {
-    return liveStatus?.public_peer_count != null
-      ? `Public RPC reports ${formatNumber(liveStatus.public_peer_count)} visible peers.`
-      : 'Visible network peers from the public control-plane view';
-  }
-  if (nodeLive.local_rpc_ready === false) {
-    return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
-  }
-  if (nodeIsRejoiningPeers(nodeLive)) {
-    return `Node restarted ${formatNumber(nodeLive?.process_uptime_secs)}s ago and is still rejoining the P2P mesh.`;
-  }
-  if (
-    liveStatus?.public_peer_count != null
-    && nodeLive?.local_peer_count != null
-    && liveStatus.public_peer_count !== nodeLive.local_peer_count
-  ) {
-    return `This node sees ${formatNumber(nodeLive.local_peer_count)} local peers; public RPC sees ${formatNumber(liveStatus.public_peer_count)} visible peers.`;
-  }
-  return 'Live peers currently connected to this node';
-}
-
-function nodeIsRejoiningPeers(nodeLive) {
-  return Boolean(
-    nodeLive?.is_running
-      && (nodeLive?.local_peer_count ?? 0) === 0
-      && (nodeLive?.process_uptime_secs ?? Number.MAX_SAFE_INTEGER) < P2P_REJOIN_GRACE_SECS,
-  );
-}
 
 function latencyLabel(entry) {
   if (!entry?.reachable || entry?.latency_ms == null) {
@@ -528,9 +492,6 @@ function computeCatchUpStatus(nodeLive, networkHeight) {
   if (nodeLive.local_rpc_ready === false) {
     return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
   }
-  if (nodeIsRejoiningPeers(nodeLive)) {
-    return `Rejoining peers (${formatNumber(nodeLive?.process_uptime_secs)}s since restart)`;
-  }
   if ((nodeLive?.sync_gap ?? 0) > 0) {
     return `Catching up (${formatNumber(nodeLive?.sync_gap)} blocks behind network tip ${formatNumber(networkHeight)})`;
   }
@@ -601,6 +562,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [walletSnapshots, setWalletSnapshots] = useState({});
   const [walletLoading, setWalletLoading] = useState(false);
 
+  const atlasAvailable = useRef(true);
+
   // Logs tab state
   const [nodeLogs, setNodeLogs] = useState('');
   const [logsLoading, setLogsLoading] = useState(false);
@@ -638,31 +601,42 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       nextErrors.push(String(liveResult.reason));
     }
 
-    const explorerBase = DEFAULT_ATLAS_API_BASE;
-    const [relayerResult, sxcpResult, chainResult] = await Promise.allSettled([
-      fetchExplorerJson(explorerBase, '/relayers/health'),
-      fetchExplorerJson(explorerBase, '/sxcp/status'),
-      fetchExplorerJson(explorerBase, '/chain/summary'),
-    ]);
+    if (atlasAvailable.current) {
+      const explorerBase = DEFAULT_ATLAS_API_BASE;
+      const [relayerResult, sxcpResult, chainResult] = await Promise.allSettled([
+        fetchExplorerJson(explorerBase, '/relayers/health'),
+        fetchExplorerJson(explorerBase, '/sxcp/status'),
+        fetchExplorerJson(explorerBase, '/api/v1/network/summary'),
+      ]);
 
-    if (relayerResult.status === 'fulfilled') {
-      setRelayerHealth(relayerResult.value?.health || null);
-    } else {
-      setRelayerHealth(null);
-    }
+      const allFailed =
+        relayerResult.status === 'rejected' &&
+        sxcpResult.status === 'rejected' &&
+        chainResult.status === 'rejected';
 
-    if (sxcpResult.status === 'fulfilled') {
-      setSxcpStatus(sxcpResult.value?.status || null);
-      setSxcpError('');
-    } else {
-      setSxcpStatus(null);
-      setSxcpError('SXCP status unavailable');
-    }
+      if (allFailed) {
+        atlasAvailable.current = false;
+      }
 
-    if (chainResult.status === 'fulfilled') {
-      setChainSummary(chainResult.value);
-    } else {
-      setChainSummary(null);
+      if (relayerResult.status === 'fulfilled') {
+        setRelayerHealth(relayerResult.value?.health || null);
+      } else {
+        setRelayerHealth(null);
+      }
+
+      if (sxcpResult.status === 'fulfilled') {
+        setSxcpStatus(sxcpResult.value?.status || null);
+        setSxcpError('');
+      } else {
+        setSxcpStatus(null);
+        setSxcpError('SXCP status unavailable');
+      }
+
+      if (chainResult.status === 'fulfilled') {
+        setChainSummary(chainResult.value);
+      } else {
+        setChainSummary(null);
+      }
     }
 
     setError(nextErrors.join(' '));
@@ -1160,11 +1134,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           icon: ICONS.chain,
         },
         {
-          label: 'Peers',
+          label: 'Network Peers',
           value: formatNumber(networkVisiblePeerCount),
           detail: liveStatus?.network_peer_count != null
-            ? 'Active peers registered with seed services and currently reachable on the network.'
-            : 'Waiting for a live bootstrap peer count from the seed services.',
+            ? 'Active peers currently registered with the seed services.'
+            : 'Waiting for a live peer count from the seed services.',
           icon: ICONS.peers,
         },
         {
@@ -1215,9 +1189,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       detail: selectedNodeLive?.is_running
         ? (selectedNodeLive?.local_rpc_ready === false
           ? (selectedNodeLive?.local_rpc_status || 'Local RPC is not responding.')
-          : (liveStatus?.public_peer_count != null && selectedNodeLive?.local_peer_count != null && liveStatus.public_peer_count !== selectedNodeLive.local_peer_count
-            ? `Local node sees ${formatNumber(selectedNodeLive.local_peer_count)} peers; public RPC sees ${formatNumber(liveStatus.public_peer_count)} visible peers.`
-            : `Local node sees ${formatNumber(selectedNodeLive?.local_peer_count)} peers.`))
+          : `${formatNumber(selectedNodeLive?.sync_gap ?? 0)} blocks behind the live chain`)
         : (liveStatus?.chain_status || 'Chain data unavailable'),
       tone: selectedNodeLive?.is_running
         ? nodeRuntimeTone(selectedNodeLive)
@@ -1230,7 +1202,13 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       detail: selectedNodeLive?.is_running
         ? (selectedNodeLive?.local_rpc_ready === false
           ? (selectedNodeLive?.local_rpc_status || 'Local RPC is not responding.')
-          : 'Blocks remaining before this node fully catches up.')
+          : selectedNodeLive?.sync_trending === 'synced'
+            ? 'Fully synced with the network.'
+            : [
+                selectedNodeLive?.blocks_per_second > 0 ? `${selectedNodeLive.blocks_per_second.toFixed(1)} blocks/sec` : null,
+                selectedNodeLive?.estimated_sync_eta_secs > 0 ? `~${Math.ceil(selectedNodeLive.estimated_sync_eta_secs / 60)} min remaining` : null,
+                selectedNodeLive?.sync_trending === 'stalled' ? 'Sync stalled \u2014 try Boost Sync' : null,
+              ].filter(Boolean).join(' \u2022 ') || 'Blocks remaining before this node fully catches up.')
         : 'Start the node to measure its local sync position.',
       tone: selectedNodeLive?.local_rpc_ready === false
         ? 'warn'
@@ -1337,11 +1315,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
 
   const renderOverview = () => {
     const pubHeight = liveChainTip;
-    const zeroPeerRunningNodes = nodes.filter((n) => {
-      const live = nodeLiveById[n.id];
-      return live?.is_running && (live?.local_peer_count ?? 0) === 0 && !nodeIsRejoiningPeers(live);
-    });
-    const rejoiningNodes = nodes.filter((n) => nodeIsRejoiningPeers(nodeLiveById[n.id]));
     const healthyBootnodes = (liveStatus?.bootnodes || []).filter((b) => b.reachable).length;
     const totalBootnodes = (liveStatus?.bootnodes || []).length;
     const healthySeeds = (liveStatus?.seed_servers || []).filter((s) => s.reachable).length;
@@ -1362,27 +1335,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           </div>
         ) : (
           <>
-            {rejoiningNodes.length > 0 && (
-              <div className="nodecp-alert nodecp-alert-info">
-                <strong>Rejoining peers</strong>{' '}
-                — {rejoiningNodes.map((n) => n.display_label || n.id).join(', ')}{' '}
-                restarted recently and are still reconnecting to the P2P mesh.
-              </div>
-            )}
-            {/* Zero-peer warning */}
-            {zeroPeerRunningNodes.length > 0 && (
-              <div className="nodecp-alert nodecp-alert-warn">
-                <strong>⚠ 0 local peers detected</strong>{' '}
-                — {zeroPeerRunningNodes.map((n) => n.display_label || n.id).join(', ')}{' '}
-                cannot sync because the node is not connected to its own P2P mesh.
-                {liveStatus?.public_peer_count != null
-                  ? ` Public RPC still reports ${formatNumber(liveStatus.public_peer_count)} visible peers, which means the wider network is up but this node is isolated.`
-                  : ''}
-                Verify that each validator&apos;s configured P2P port is open and reachable from the internet,
-                then check bootnode and seed connectivity in the Connectivity tab.
-              </div>
-            )}
-
             {/* First section: Node Controls + Chain Details side-by-side */}
             <div className="nodecp-overview-first-section">
               {/* Left: Node Controls */}
@@ -1453,7 +1405,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       <th>PID</th>
                       <th>Local Block</th>
                       <th>Public Block</th>
-                      <th>Local Peers</th>
                       <th>Sync Gap</th>
                       <th>Score</th>
                     </tr>
@@ -1463,8 +1414,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       const live = nodeLiveById[node.id];
                       const status = nodeRuntimeLabel(live);
                       const tone = nodeRuntimeTone(live);
-                      const peerCount = live?.local_peer_count ?? null;
-                      const zeroPeersRunning = live?.is_running && peerCount === 0 && !nodeIsRejoiningPeers(live);
                       const isSelected = selectedNode?.id === node.id;
                       return (
                         <tr
@@ -1486,13 +1435,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                           <td className="nodecp-nodes-mono">{formatNumber(effectiveLocalChainHeight(live))}</td>
                           <td className="nodecp-nodes-mono">{formatNumber(pubHeight)}</td>
                           <td className="nodecp-nodes-mono">
-                            {peerCount != null ? (
-                              <span className={zeroPeersRunning ? 'nodecp-warn-text' : ''}>
-                                {zeroPeersRunning ? '⚠ ' : ''}{peerCount}
-                              </span>
-                            ) : '—'}
+                            {formatNumber(live?.sync_gap)}
+                            {live?.sync_trending === 'improving' ? ' \u2191' : live?.sync_trending === 'stalled' ? ' \u26A0' : live?.sync_trending === 'synced' ? ' \u2713' : ''}
                           </td>
-                          <td className="nodecp-nodes-mono">{formatNumber(live?.sync_gap)}</td>
                           <td className="nodecp-nodes-mono">{formatScoreOutOfHundred(live?.synergy_score)}</td>
                         </tr>
                       );
@@ -1533,13 +1478,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           </article>
 
           <article className={`nodecp-status-card nodecp-status-${
-            zeroPeerRunningNodes.length === 0 && nodes.some((n) => nodeLiveById[n.id]?.is_running)
-              ? 'ok'
-              : zeroPeerRunningNodes.length > 0 ? 'error' : 'warn'
+            networkVisiblePeerCount != null && networkVisiblePeerCount > 0 ? 'ok' : 'warn'
           }`}>
             <div className="nodecp-status-head">
               <span className="nodecp-status-icon">{ICONS.peers}</span>
-              <span className="nodecp-status-label">Peers</span>
+              <span className="nodecp-status-label">Network Peers</span>
             </div>
             <strong className="nodecp-status-value">
               {networkVisiblePeerCount != null
@@ -1547,13 +1490,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                 : '—'}
             </strong>
             <p className="nodecp-status-detail">
-              {zeroPeerRunningNodes.length > 0
-                ? `⚠ No local peers found. P2P port 38638 may be blocked.${liveStatus?.public_peer_count != null ? ` Public RPC reports ${formatNumber(liveStatus.public_peer_count)} visible peers.` : ''}`
-                : nodeIsRejoiningPeers(selectedNodeLive)
-                  ? `Node restarted ${formatNumber(selectedNodeLive?.process_uptime_secs)}s ago and is still reconnecting to peers.`
-                : networkVisiblePeerCount != null
-                  ? 'Seed services currently report this many active, reachable peers on the network.'
-                  : 'Waiting for a live network peer count from the bootstrap layer.'}
+              {networkVisiblePeerCount != null
+                ? 'Active peers currently registered with the seed services.'
+                : 'Waiting for a live network peer count from the seed services.'}
             </p>
           </article>
 
@@ -1875,8 +1814,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       <strong>{formatNumber(nodeLive?.local_chain_height)} / {formatNumber(publicHeight)} / {formatNumber(networkHeight)}</strong>
                     </div>
                     <div className="nodecp-definition-row">
-                      <span>Peer count / sync gap</span>
-                      <strong>{formatNumber(nodeLive?.local_peer_count)} peers / {formatNumber(nodeLive?.sync_gap)} blocks</strong>
+                      <span>Sync gap</span>
+                      <strong>{formatNumber(nodeLive?.sync_gap)} blocks</strong>
                     </div>
                     {(publicHeight != null && networkHeight != null && networkHeight > publicHeight) && (
                       <div className="nodecp-definition-row">

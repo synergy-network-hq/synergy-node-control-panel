@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { invoke, openPath, readTextFile } from '../lib/desktopClient';
 import {
@@ -16,7 +16,7 @@ import { SNRGButton } from '../styles/SNRGButton';
 
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 const POLL_INTERVAL_MS = 8000;
-const P2P_REJOIN_GRACE_SECS = 45;
+
 const NWEI_PER_SNRG = 1000000000n;
 
 async function fetchExplorerJson(baseUrl, path) {
@@ -122,42 +122,6 @@ function nodeBlockHeightDetail(nodeLive, liveStatus) {
   return `${formatNumber(nodeLive?.sync_gap ?? 0)} blocks behind`;
 }
 
-function nodePeerCountValue(nodeLive, liveStatus) {
-  if (nodeLive?.is_running) {
-    return nodeLive?.local_peer_count;
-  }
-  return nodeLive?.local_peer_count ?? liveStatus?.public_peer_count;
-}
-
-function nodePeerCountDetail(nodeLive, liveStatus) {
-  if (!nodeLive?.is_running) {
-    return liveStatus?.public_peer_count != null
-      ? `Public RPC reports ${formatNumber(liveStatus.public_peer_count)} visible peers.`
-      : 'Public network peers';
-  }
-  if (nodeLive.local_rpc_ready === false) {
-    return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
-  }
-  if (nodeIsRejoiningPeers(nodeLive)) {
-    return `Node restarted ${formatNumber(nodeLive?.process_uptime_secs)}s ago and is still rejoining the P2P mesh.`;
-  }
-  if (
-    liveStatus?.public_peer_count != null
-    && nodeLive?.local_peer_count != null
-    && liveStatus.public_peer_count !== nodeLive.local_peer_count
-  ) {
-    return `This node sees ${formatNumber(nodeLive.local_peer_count)} local peers; public RPC sees ${formatNumber(liveStatus.public_peer_count)} visible peers.`;
-  }
-  return 'Live connected peers';
-}
-
-function nodeIsRejoiningPeers(nodeLive) {
-  return Boolean(
-    nodeLive?.is_running
-      && (nodeLive?.local_peer_count ?? 0) === 0
-      && (nodeLive?.process_uptime_secs ?? Number.MAX_SAFE_INTEGER) < P2P_REJOIN_GRACE_SECS,
-  );
-}
 
 function formatTimestamp(utcString) {
   if (!utcString) return 'N/A';
@@ -346,9 +310,6 @@ async function queryLocalRpc(endpoint, method, params = []) {
 function computeCatchUpStatus(nodeLive, networkHeight) {
   if (!nodeLive?.is_running) return 'Offline';
   if (nodeLive.local_rpc_ready === false) return nodeLive?.local_rpc_status || 'Local RPC is not responding.';
-  if (nodeIsRejoiningPeers(nodeLive)) {
-    return `Rejoining peers (${formatNumber(nodeLive?.process_uptime_secs)}s since restart)`;
-  }
   if ((nodeLive?.sync_gap ?? 0) > 0) {
     return `Catching up (${formatNumber(nodeLive?.sync_gap)} blocks behind network tip ${formatNumber(networkHeight)})`;
   }
@@ -411,6 +372,10 @@ function TestnetBetaNodeDetail() {
   const [registerRestartFirst, setRegisterRestartFirst] = useState(false);
   const [walletSnapshot, setWalletSnapshot] = useState(null);
   const [walletLoading, setWalletLoading] = useState(false);
+  const [readinessReport, setReadinessReport] = useState(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [boostBusy, setBoostBusy] = useState(false);
+  const atlasAvailable = useRef(true);
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
 
   const fetchData = useCallback(async (silent = false) => {
@@ -429,10 +394,14 @@ function TestnetBetaNodeDetail() {
     if (liveResult.status === 'rejected') errors.push(String(liveResult.reason));
     setError(errors.join(' '));
 
-    try {
-      const chain = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/chain/summary');
-      setExplorerData(chain);
-    } catch { /* explorer optional */ }
+    if (atlasAvailable.current) {
+      try {
+        const chain = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/api/v1/network/summary');
+        setExplorerData(chain);
+      } catch {
+        atlasAvailable.current = false;
+      }
+    }
 
     if (!silent) setLoading(false);
   }, []);
@@ -632,6 +601,33 @@ function TestnetBetaNodeDetail() {
     setCopiedNotice('Address copied');
   };
 
+  const fetchReadiness = async () => {
+    if (!node) return;
+    setReadinessLoading(true);
+    try {
+      const report = await invoke('testbeta_get_node_readiness', { nodeId: node.id });
+      setReadinessReport(report);
+    } catch (e) {
+      setError(`Readiness check failed: ${String(e)}`);
+    } finally {
+      setReadinessLoading(false);
+    }
+  };
+
+  const handleBoostSync = async () => {
+    if (!node) return;
+    setBoostBusy(true);
+    try {
+      const result = await invoke('testbeta_boost_sync', { nodeId: node.id });
+      setControlMessage(result?.message || 'Boost sync completed.');
+      await fetchData(true);
+    } catch (e) {
+      setError(`Boost sync failed: ${String(e)}`);
+    } finally {
+      setBoostBusy(false);
+    }
+  };
+
   const handlePortFieldChange = useCallback((key, value) => {
     setPortForm((current) => ({
       ...current,
@@ -723,6 +719,7 @@ function TestnetBetaNodeDetail() {
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
+    { id: 'readiness', label: 'Readiness' },
     { id: 'connectivity', label: 'Connectivity' },
     { id: 'wallet', label: 'Wallet & Rewards' },
     { id: 'config', label: 'Configuration' },
@@ -731,8 +728,6 @@ function TestnetBetaNodeDetail() {
   const syncLabel = node?.role_id === 'validator' ? 'Rejoin' : 'Speed Sync';
 
   const renderOverview = () => {
-    const rejoiningPeers = nodeIsRejoiningPeers(nodeLive);
-    const zeroPeersRunning = isRunning && (nodeLive?.local_peer_count ?? 0) === 0 && !rejoiningPeers;
     const publicHeight = liveStatus?.public_chain_height;
     const networkHeight = nodeLive?.best_network_height ?? publicHeight;
     const networkVisiblePeerCount = liveStatus?.network_peer_count
@@ -741,25 +736,6 @@ function TestnetBetaNodeDetail() {
       ?? null;
     return (
     <div className="nodedetail-tab-stack">
-      {rejoiningPeers && (
-        <div className="nodecp-alert nodecp-alert-info">
-          <strong>Rejoining peers</strong> — this node restarted {formatNumber(nodeLive?.process_uptime_secs)} seconds ago and is still reconnecting to the P2P mesh.
-          {liveStatus?.public_peer_count != null
-            ? ` Public RPC currently reports ${formatNumber(liveStatus.public_peer_count)} visible peers while the local node catches back up.`
-            : ''}
-        </div>
-      )}
-      {/* Zero-peer warning */}
-      {zeroPeersRunning && (
-        <div className="nodecp-alert nodecp-alert-warn">
-          <strong>⚠ 0 local peers detected</strong> — this node is running but sees no P2P connections and cannot sync.
-          {liveStatus?.public_peer_count != null
-            ? ` Public RPC still reports ${formatNumber(liveStatus.public_peer_count)} visible peers, which means the wider network is up but this node is isolated.`
-            : ''}
-          Verify that port 38638 is open in your firewall and reachable from the internet.
-          Check the Connectivity tab for bootnode and seed server health.
-        </div>
-      )}
       {/* Metrics grid */}
       <div className="nodecp-stats-grid nodedetail-stats-grid">
         <article className="nodecp-stat-card">
@@ -781,12 +757,12 @@ function TestnetBetaNodeDetail() {
         <article className="nodecp-stat-card">
           <div className="nodecp-stat-icon">{ICONS.peers}</div>
           <div className="nodecp-stat-copy">
-            <span className="nodecp-stat-label">Peers</span>
+            <span className="nodecp-stat-label">Network Peers</span>
             <strong className="nodecp-stat-value">{formatNumber(networkVisiblePeerCount)}</strong>
             <span className="nodecp-stat-detail">
               {liveStatus?.network_peer_count != null
-                ? 'Active peers registered with seed services and currently reachable on the network.'
-                : 'Waiting for a live bootstrap peer count from the seed services.'}
+                ? 'Active peers currently registered with the seed services.'
+                : 'Waiting for a live peer count from the seed services.'}
             </span>
           </div>
         </article>
@@ -815,7 +791,13 @@ function TestnetBetaNodeDetail() {
               {isRunning
                 ? (nodeLive?.local_rpc_ready === false
                   ? (nodeLive?.local_rpc_status || 'Local RPC is not responding.')
-                  : 'Blocks remaining to catch up')
+                  : nodeLive?.sync_trending === 'synced'
+                    ? 'Fully synced with network'
+                    : [
+                        nodeLive?.blocks_per_second > 0 ? `${nodeLive.blocks_per_second.toFixed(1)} blocks/sec` : null,
+                        nodeLive?.estimated_sync_eta_secs > 0 ? `~${Math.ceil(nodeLive.estimated_sync_eta_secs / 60)} min remaining` : null,
+                        nodeLive?.sync_trending === 'stalled' ? 'Sync stalled' : null,
+                      ].filter(Boolean).join(' \u2022 ') || 'Blocks remaining to catch up')
                 : 'Start node to measure sync'}
             </span>
           </div>
@@ -893,16 +875,6 @@ function TestnetBetaNodeDetail() {
           <div className="nodecp-summary-block">
             <span className="nodecp-summary-label">Peers</span>
             <p>{networkVisiblePeerCount != null ? formatNumber(networkVisiblePeerCount) : 'N/A'}</p>
-          </div>
-          <div className="nodecp-summary-block">
-            <span className="nodecp-summary-label">Local Peer Count</span>
-            <p>
-              {nodeLive?.local_peer_count != null ? (
-                <span className={zeroPeersRunning ? 'nodecp-warn-text' : ''}>
-                  {zeroPeersRunning ? '⚠ ' : ''}{nodeLive.local_peer_count}
-                </span>
-              ) : '—'}
-            </p>
           </div>
           <div className="nodecp-summary-block">
             <span className="nodecp-summary-label">Public RPC Status</span>
@@ -986,15 +958,11 @@ function TestnetBetaNodeDetail() {
         <section className="nodecp-panel">
           <div className="nodecp-panel-header">
             <div>
-              <p className="nodecp-panel-kicker">Local peer connections</p>
+              <p className="nodecp-panel-kicker">Network connectivity</p>
               <h3>Node P2P Status</h3>
             </div>
           </div>
           <div className="nodecp-definition-list">
-            <div className="nodecp-definition-row">
-              <span>Local peer count</span>
-              <strong>{isRunning ? formatNumber(nodeLive?.local_peer_count) : 'Offline'}</strong>
-            </div>
             <div className="nodecp-definition-row">
               <span>Public host</span>
               <strong>{node.public_host || 'Auto-detect'}</strong>
@@ -1098,8 +1066,8 @@ function TestnetBetaNodeDetail() {
                   <strong>{formatNumber(nodeLive?.local_chain_height)} / {formatNumber(publicHeight)} / {formatNumber(networkHeight)}</strong>
                 </div>
                 <div className="nodecp-definition-row">
-                  <span>Peer count / sync gap</span>
-                  <strong>{formatNumber(nodeLive?.local_peer_count)} peers / {formatNumber(nodeLive?.sync_gap)} blocks</strong>
+                  <span>Sync gap</span>
+                  <strong>{formatNumber(nodeLive?.sync_gap)} blocks</strong>
                 </div>
                 {(publicHeight != null && networkHeight != null && networkHeight > publicHeight) && (
                   <div className="nodecp-definition-row">
@@ -1366,8 +1334,129 @@ function TestnetBetaNodeDetail() {
     </div>
   );
 
+  const renderReadiness = () => {
+    const report = readinessReport;
+    const readinessIcon = (status) => {
+      switch (status) {
+        case 'pass': return '\u2713';
+        case 'in_progress': return '\u25CB';
+        case 'warn': return '\u26A0';
+        case 'fail': return '\u2717';
+        default: return '\u2014';
+      }
+    };
+    const readinessTone = (status) => {
+      switch (status) {
+        case 'pass': return 'good';
+        case 'in_progress': return 'warn';
+        case 'warn': return 'warn';
+        case 'fail': return 'bad';
+        default: return '';
+      }
+    };
+    const overallTone = report
+      ? (report.overall_status === 'ready' ? 'good' : report.overall_status === 'progressing' ? 'warn' : 'bad')
+      : '';
+    const overallLabel = report
+      ? (report.overall_status === 'ready' ? 'Ready' : report.overall_status === 'progressing' ? 'Progressing' : 'Issues Detected')
+      : 'Not Checked';
+    return (
+      <div className="nodedetail-tab-stack">
+        <section className="nodecp-panel">
+          <div className="nodecp-panel-header">
+            <h3>Node Readiness Checklist</h3>
+            <SNRGButton variant="blue" size="sm" onClick={fetchReadiness} disabled={readinessLoading}>
+              <span className="nodecp-action-icon">{ICONS.refresh}</span>
+              <span>{readinessLoading ? 'Checking...' : 'Run Check'}</span>
+            </SNRGButton>
+          </div>
+          {report ? (
+            <>
+              <div className="nodecp-readiness-summary">
+                <span className={`nodecp-health-pill nodecp-health-${overallTone}`}>{overallLabel}</span>
+                <span className="nodecp-readiness-ratio">{report.ready_count}/{report.total_count} checks passed</span>
+              </div>
+              <div className="nodecp-readiness-list">
+                {report.checks.map((check) => (
+                  <div key={check.id} className={`nodecp-readiness-item nodecp-readiness-${check.status}`}>
+                    <span className={`nodecp-readiness-icon nodecp-health-${readinessTone(check.status)}`}>
+                      {readinessIcon(check.status)}
+                    </span>
+                    <div className="nodecp-readiness-content">
+                      <strong className="nodecp-readiness-label">{check.label}</strong>
+                      <span className="nodecp-readiness-detail">{check.detail}</span>
+                      {check.suggestion ? (
+                        <div className="nodecp-readiness-suggestion">
+                          <span>{check.suggestion}</span>
+                          {check.id === 'process_running' && check.status === 'fail' ? (
+                            <SNRGButton variant="lime" size="sm" disabled={!!controlBusy} onClick={() => runNodeControl('start')}>Start</SNRGButton>
+                          ) : null}
+                          {(check.id === 'peers_connected' || check.id === 'synced') && (check.status === 'fail' || check.status === 'warn') ? (
+                            <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+                              {boostBusy ? 'Boosting...' : 'Boost Sync'}
+                            </SNRGButton>
+                          ) : null}
+                          {check.id === 'seed_registered' && check.status === 'fail' ? (
+                            <SNRGButton variant="blue" size="sm" disabled={registerBusy} onClick={async () => {
+                              setRegisterBusy(true);
+                              try {
+                                await invoke('testbeta_run_register_with_seeds', { nodeId: node.id });
+                                setControlMessage('Re-registered with seed servers.');
+                                fetchReadiness();
+                              } catch (e) {
+                                setError(String(e));
+                              } finally {
+                                setRegisterBusy(false);
+                              }
+                            }}>Re-register</SNRGButton>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="nodecp-readiness-empty">Click "Run Check" to verify this node's setup, connectivity, and sync status.</p>
+          )}
+        </section>
+
+        {/* Sync acceleration section */}
+        <section className="nodecp-panel">
+          <div className="nodecp-panel-header">
+            <h3>Sync Acceleration</h3>
+          </div>
+          <p className="nodecp-panel-body-text">
+            Boost Sync queries all seed servers for known peer addresses, injects them into this node's
+            peer configuration, and restarts the node. This gives the node maximum peer sources for
+            parallel block download, helping it catch up to the chain head faster.
+          </p>
+          {nodeLive?.sync_trending === 'improving' && nodeLive?.blocks_per_second > 0 ? (
+            <div className="nodecp-sync-progress-bar">
+              <span className="nodecp-sync-speed">{nodeLive.blocks_per_second.toFixed(1)} blocks/sec</span>
+              {nodeLive.estimated_sync_eta_secs > 0 ? (
+                <span className="nodecp-sync-eta">~{Math.ceil(nodeLive.estimated_sync_eta_secs / 60)} min remaining</span>
+              ) : null}
+            </div>
+          ) : null}
+          {nodeLive?.sync_trending === 'stalled' ? (
+            <p className="nodecp-sync-stalled-notice">Sync appears stalled. No new blocks received since last check.</p>
+          ) : null}
+          <div className="nodecp-readiness-actions">
+            <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+              <span className="nodecp-action-icon">{ICONS.sync}</span>
+              <span>{boostBusy ? 'Boosting...' : 'Boost Sync'}</span>
+            </SNRGButton>
+          </div>
+        </section>
+      </div>
+    );
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
+      case 'readiness': return renderReadiness();
       case 'connectivity': return renderConnectivity();
       case 'wallet': return renderWallet();
       case 'config': return renderConfig();
@@ -1414,6 +1503,10 @@ function TestnetBetaNodeDetail() {
             <span className="nodecp-action-icon">{ICONS.sync}</span>
             <span>{controlBusy === 'sync' ? `${syncLabel}ing...` : syncLabel}</span>
           </SNRGButton>
+          <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+            <span className="nodecp-action-icon">{ICONS.peers}</span>
+            <span>{boostBusy ? 'Boosting...' : 'Boost Sync'}</span>
+          </SNRGButton>
           <SNRGButton variant="blue" size="sm" onClick={handleCopyAddress}>
             <span className="nodecp-action-icon">{ICONS.copy}</span>
             <span>{copiedNotice || 'Copy Address'}</span>
@@ -1444,7 +1537,7 @@ function TestnetBetaNodeDetail() {
             || (isRunning
               ? (nodeLive?.local_rpc_ready === false
                 ? `Degraded: ${nodeLive?.local_rpc_status || 'Local RPC is not responding.'}`
-                : `Running (PID ${nodeLive?.pid || '?'}) \u2022 ${formatNumber(nodeLive?.local_peer_count ?? 0)} local peers \u2022 Block ${formatNumber(nodeLive?.local_chain_height)}`)
+                : `Running (PID ${nodeLive?.pid || '?'}) \u2022 Block ${formatNumber(nodeLive?.local_chain_height)}`)
               : 'Node is not running.')}
         </span>
       </div>
