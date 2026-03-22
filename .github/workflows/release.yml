@@ -17,10 +17,9 @@ jobs:
           include:
           - os: macos-14
             artifact_name: macos
-            build_cmd: npx electron-builder --config electron-builder.yml --mac dmg zip --publish never
+            build_cmd: npx electron-builder --config electron-builder.yml --mac dmg --publish never
             artifact_glob: |
               electron-dist/*.dmg
-              electron-dist/*.zip
               electron-dist/*.yml
               electron-dist/*.yaml
               electron-dist/*.blockmap

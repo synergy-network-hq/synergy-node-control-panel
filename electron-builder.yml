@@ -21,8 +21,6 @@ publish:
   owner: synergy-network-hq
   repo: synergy-node-control-panel-releases
 
-afterPack: scripts/electron/afterPack.cjs
-
 mac:
   category: public.app-category.developer-tools
   icon: control-service/icons/icon.icns
@@ -30,7 +28,6 @@ mac:
   artifactName: "Synergy.Node.Control.Panel-${version}-${arch}.${ext}"
   target:
     - dmg
-    - zip
 
 win:
   icon: control-service/icons/icon.ico
