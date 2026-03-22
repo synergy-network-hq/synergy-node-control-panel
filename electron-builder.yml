@@ -25,6 +25,7 @@ mac:
   category: public.app-category.developer-tools
   icon: control-service/icons/icon.icns
   identity: null
+  artifactName: "Synergy.Node.Control.Panel-${version}-${arch}.${ext}"
   target:
     - dmg
     - zip
