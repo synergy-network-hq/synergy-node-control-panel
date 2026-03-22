@@ -33,14 +33,6 @@ jobs:
               electron-dist/*.yml
               electron-dist/*.yaml
               electron-dist/*.blockmap
-          - os: windows-latest
-            artifact_name: windows
-            build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
-            artifact_glob: |
-              electron-dist/*.exe
-              electron-dist/*.yml
-              electron-dist/*.yaml
-              electron-dist/*.blockmap
 
     runs-on: ${{ matrix.os }}
     env:
@@ -94,9 +86,6 @@ jobs:
             linux)
               cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-linux-amd64
               chmod +x binaries/synergy-testbeta-linux-amd64
-              ;;
-            windows)
-              cp testnet-beta-source/target/release/synergy-testbeta.exe binaries/synergy-testbeta-windows-amd64.exe
               ;;
             *)
               echo "Unsupported release target: ${{ matrix.artifact_name }}" >&2
@@ -188,7 +177,6 @@ jobs:
           files=(
             artifacts/**/*.dmg
             artifacts/**/*.zip
-            artifacts/**/*.exe
             artifacts/**/*.deb
             artifacts/**/*.AppImage
             artifacts/**/*.yml
