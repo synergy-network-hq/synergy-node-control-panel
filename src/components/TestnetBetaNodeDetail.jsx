@@ -874,7 +874,7 @@ function TestnetBetaNodeDetail() {
             <p>
               {formatNumber(nodeLive?.local_chain_height)}
               {' / '}
-              {pubHeight != null ? formatNumber(pubHeight) : 'N/A'}
+              {publicHeight != null ? formatNumber(publicHeight) : 'N/A'}
             </p>
           </div>
           <div className="nodecp-summary-block">
