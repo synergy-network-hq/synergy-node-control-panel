@@ -1,6 +1,5 @@
 // Ad-hoc codesign for macOS unsigned builds.
-// Signs inside-out (helpers → framework → main app) to avoid
-// the corruption that --deep causes with Electron framework signatures.
+// Signs inside-out: all nested bundles first, then the main app.
 const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -22,27 +21,21 @@ exports.default = async function afterPack(context) {
     );
   };
 
-  // 1. Sign all helper .app bundles inside Frameworks
+  // 1. Sign ALL bundles inside Frameworks (.app helpers, .framework libs)
   if (fs.existsSync(frameworksDir)) {
     const entries = fs.readdirSync(frameworksDir);
     for (const entry of entries) {
       const fullPath = path.join(frameworksDir, entry);
-      if (entry.endsWith('.app')) {
+      if (entry.endsWith('.app') || entry.endsWith('.framework')) {
         sign(fullPath);
       }
     }
-
-    // 2. Sign Electron Framework.framework
-    const framework = path.join(frameworksDir, 'Electron Framework.framework');
-    if (fs.existsSync(framework)) {
-      sign(framework);
-    }
   }
 
-  // 3. Sign the main app bundle last
+  // 2. Sign the main app bundle last
   sign(appPath);
 
-  // 4. Verify the signature
+  // 3. Verify the signature
   console.log('[afterPack] Verifying signature...');
   try {
     execSync(`codesign --verify --deep --strict "${appPath}"`, { stdio: 'inherit' });
