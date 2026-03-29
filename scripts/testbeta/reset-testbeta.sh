@@ -279,7 +279,7 @@ wait_for_bootnode_rpc() {
   # Use the node's RPC port from inventory (column 8, 0-indexed col 7)
   local rpc_port
   rpc_port=$(awk -F, -v id="$node_slot_id" 'NR > 1 && tolower($1) == tolower(id) { print $8; exit }' "$INVENTORY_FILE")
-  rpc_port="${rpc_port:-48638}"
+  rpc_port="${rpc_port:-5730}"
   local rpc_url="http://${vpn_ip}:${rpc_port}"
 
   echo "Waiting for bootnode $node_slot_id RPC at $rpc_url to become ready..."

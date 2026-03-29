@@ -437,7 +437,7 @@ function formatSnrgFromNwei(value, options = {}) {
 function localRpcEndpointForNode(node, nodeLive) {
   if (nodeLive?.rpc_endpoint) return nodeLive.rpc_endpoint;
   const slot = Number(node?.port_slot || 0);
-  return `http://127.0.0.1:${48638 + slot}`;
+  return `http://127.0.0.1:${5730 + slot}`;
 }
 
 async function queryLocalRpc(endpoint, method, params = []) {

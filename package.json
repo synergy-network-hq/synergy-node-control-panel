@@ -1,6 +1,6 @@
 {
   "name": "synergy-node-control-panel",
-  "version": "5.6.0",
+  "version": "5.7.0",
   "description": "Synergy Node Control Panel",
   "author": "Synergy Network <support@synergy-network.io>",
   "type": "module",
@@ -12,7 +12,7 @@
     "dev:desktop": "node scripts/electron/dev-desktop.mjs",
     "build": "vite build",
     "build:control-service": "cargo build --manifest-path control-service/Cargo.toml --bin control-service --release --no-default-features",
-    "build:electron": "npm run build:bundle-prep && npm run build:control-service && node scripts/electron/prepare-runtime.mjs",
+    "build:electron": "npm run build && npm run build:control-service && node scripts/electron/prepare-runtime.mjs",
     "dist:electron": "npm run build:electron && electron-builder --config electron-builder.yml",
     "build:sidecars": "bash scripts/build-sidecars.sh",
     "build:bundle-prep": "bash scripts/release/build-bundle-prep.sh",

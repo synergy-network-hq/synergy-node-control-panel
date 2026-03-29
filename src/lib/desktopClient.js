@@ -178,6 +178,14 @@ export async function showSaveDialog(options = {}) {
   return bridge.showSaveDialog(options);
 }
 
+export async function showOpenDialog(options = {}) {
+  const bridge = getBridge();
+  if (!bridge?.showOpenDialog) {
+    return null;
+  }
+  return bridge.showOpenDialog(options);
+}
+
 export async function fetchSeedPeerTargets(seedServers = []) {
   const bridge = getBridge();
   if (bridge?.fetchSeedPeerTargets) {

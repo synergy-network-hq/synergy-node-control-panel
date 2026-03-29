@@ -99,9 +99,9 @@ This document provides a comprehensive index of all available node setup guides 
 - [config/bootnode3.toml](config/bootnode3.toml) - Bootnode 3
 
 **Bootnode DNS:**
-- `bootnode1.synergy-network.io:38638`
-- `bootnode2.synergy-network.io:38638`
-- `bootnode3.synergy-network.io:38638`
+- `bootnode1.synergynode.xyz:5620`
+- `bootnode2.synergynode.xyz:5620`
+- `bootnode3.synergynode.xyz:5620`
 
 **Initial Cluster:**
 - Cluster ID: `syngrp116xlcwtcuwd8cdkqrftdww5dpqvm699uanux4mc`
@@ -169,9 +169,9 @@ This document provides a comprehensive index of all available node setup guides 
 - Public API endpoints
 
 **Ports:**
-- **HTTP RPC**: 48638
-- **WebSocket**: 58638
-- **P2P**: 38638 (sync only, not consensus)
+- **HTTP RPC**: 5730
+- **WebSocket**: 5830
+- **P2P**: 5630 (sync only, not consensus)
 
 **Performance Considerations:**
 - Recommended: 8+ CPU cores, 32+ GB RAM
@@ -239,9 +239,9 @@ Message Execution
 - Split among cluster members
 
 **Ports:**
-- **Relayer P2P (SXCP)**: 39638
-- **Relayer RPC (SXCP)**: 49638
-- **Relayer WS (SXCP)**: 59638
+- **Relayer P2P (SXCP)**: 5630 + slot
+- **Relayer RPC (SXCP)**: 5730 + slot
+- **Relayer WS (SXCP)**: 5830 + slot
 
 ---
 
@@ -314,13 +314,13 @@ Message Execution
 
 | Service | Port | Protocol |
 |---------|------|----------|
-| **P2P** | 38638 | TCP |
-| **RPC HTTP** | 48638 | HTTP |
-| **WebSocket** | 58638 | WebSocket |
-| **Metrics** | 9090 | HTTP (Prometheus) |
-| **SXCP Relayer P2P** | 39638 | TCP |
-| **SXCP Relayer RPC** | 49638 | HTTP |
-| **SXCP Relayer WS** | 59638 | WebSocket |
+| **P2P** | 5630 | TCP |
+| **RPC HTTP** | 5730 | HTTP |
+| **WebSocket** | 5830 | WebSocket |
+| **Metrics** | 6030 | HTTP (Prometheus) |
+| **Discovery** | 5930 | TCP |
+| **Bootnode listener** | 5620 | TCP |
+| **Seed-service listener** | 5621 | HTTP |
 
 **Reference**: [SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt](SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt)
 
@@ -381,7 +381,7 @@ All node type templates available in [templates/](templates/) directory:
 | **Faucet** | synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07 | 2,000,000,000 | Token distribution |
 | **Treasury** | synw14lswrh8z7kremft633xym9wtr5l9vkm3rd6lvd | 9,997,000,000 | DAO governance |
 
-**Total**: 12,000,000,000 SNRG
+**Total**: 1,150,000 SNRG
 
 **Burn Address**: `synergy00000000000000000000000burn`
 
@@ -441,7 +441,7 @@ All network operations use NIST-standardized post-quantum cryptography:
 - [ ] Generate validator identity with address engine
 - [ ] Share `validator-info.txt` with coordinator
 - [ ] Wait for coordinator to register and send SNRG
-- [ ] Configure firewall (ports 38638, 48638, 58638)
+- [ ] Configure firewall (ports 5630, 5730, 5830)
 - [ ] Start validator node and sync blockchain
 - [ ] Monitor Synergy Score and participation
 - [ ] Join team communication channels
@@ -465,7 +465,7 @@ All network operations use NIST-standardized post-quantum cryptography:
 
 **Check Network Height:**
 ```bash
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"chain_getBlockHeight","id":1}' | jq
 ```
@@ -477,7 +477,7 @@ curl -s -X POST http://localhost:48638/rpc \
 
 **Check Validator Info:**
 ```bash
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -489,7 +489,7 @@ curl -s -X POST http://localhost:48638/rpc \
 
 **Check Synergy Score:**
 ```bash
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -501,7 +501,7 @@ curl -s -X POST http://localhost:48638/rpc \
 
 **Check Cluster Status:**
 ```bash
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"consensus_getClusterInfo","id":1}' | jq
 ```
@@ -526,7 +526,7 @@ curl -s -X POST http://localhost:48638/rpc \
 **Solution**: Check Synergy Score > 0, verify cluster assignment, ensure >67% quorum
 
 **Issue**: Cannot connect to bootnodes
-**Solution**: Verify DNS resolution, check firewall allows port 38638, test with `nc -zv bootnode1.synergy-network.io 38638`
+**Solution**: Verify DNS resolution, check firewall allows port 5630, test with `nc -zv bootnode1.synergynode.xyz 5630`
 
 **Issue**: Blockchain sync is slow
 **Solution**: Increase peer connections, verify SSD storage, check network bandwidth
@@ -535,7 +535,7 @@ curl -s -X POST http://localhost:48638/rpc \
 **Solution**: Increase `request_timeout_secs`, check database performance, monitor CPU/RAM
 
 **Issue**: Relayer cluster quorum not met
-**Solution**: Ensure all relayers online, verify relayer-to-relayer connectivity, and confirm SXCP relayer ports are open (**39638 P2P**, **49638 RPC**, **59638 WS**)
+**Solution**: Ensure all relayers online, verify relayer-to-relayer connectivity, and confirm the assigned Synergy node slot is reachable on its frozen beta ports (**5630 + slot P2P**, **5730 + slot RPC**, **5830 + slot WS**).
 
 **Issue**: SXCP not detecting messages
 **Solution**: Verify source chain RPC endpoint responding, check event topics match contract events, review relayer logs

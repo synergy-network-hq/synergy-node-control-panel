@@ -183,12 +183,12 @@ for allocation in genesis_allocations:
 
 genesis = {
     "metadata": {
-        "network_name": "Synergy Closed Testnet-Beta",
-        "network_id": "synergy-testbeta-closed-001",
+        "network_name": "Synergy Testnet-Beta",
+        "network_id": "synergy-testnet-beta",
         "genesis_time": genesis_time,
         "chain_id": str(chain_id),
         "version": "2.1.0-testbeta",
-        "description": "Closed, WireGuard-only deterministic testbeta genesis",
+        "description": "Canonical Synergy Testnet-Beta genesis",
     },
     "consensus": {
         "algorithm": "PoSy",
@@ -212,14 +212,14 @@ genesis = {
     },
     "network": {
         "chain_id": chain_id,
-        "rpc_endpoint": "http://10.50.0.7:48650",
-        "websocket_endpoint": "ws://10.50.0.7:58650",
-        "api_endpoint": "http://10.50.0.7:48650",
+        "rpc_endpoint": "https://testbeta-core-rpc.synergy-network.io",
+        "websocket_endpoint": "wss://testbeta-core-ws.synergy-network.io",
+        "api_endpoint": "https://testbeta-api.synergy-network.io",
         "explorer_endpoint": "https://testbeta-explorer.synergy-network.io",
-        "rpc_port": 48650,
-        "p2p_port": 38638,
-        "websocket_port": 58650,
-        "metrics_port": 9090,
+        "rpc_port": 5730,
+        "p2p_port": 5630,
+        "websocket_port": 5830,
+        "metrics_port": 6030,
         "bootnodes": bootnodes,
     },
     "supply": {

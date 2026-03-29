@@ -7303,7 +7303,7 @@ fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(),
     }
     let rpc_bind = format!(
         "{vpn_ip}:{}",
-        rpc_port.clone().unwrap_or_else(|| "48638".to_string())
+        rpc_port.clone().unwrap_or_else(|| "5730".to_string())
     );
 
     upsert_key_value_line(&mut lines, "HOST", vpn_ip);
@@ -7341,8 +7341,8 @@ fn apply_topology_to_installer_node_toml(path: &Path, vpn_ip: &str) -> Result<()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
-    let mut rpc_port = "48638".to_string();
-    let mut p2p_port = "38638".to_string();
+    let mut rpc_port = "5730".to_string();
+    let mut p2p_port = "5630".to_string();
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.starts_with("rpc_port =") {

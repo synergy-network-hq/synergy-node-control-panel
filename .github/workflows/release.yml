@@ -8,6 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  TESTNET_BETA_REF: "a5018a13a59d3707e254745c99bb1b7ebca5d1e6"
 
 jobs:
   build:
@@ -32,6 +33,14 @@ jobs:
               electron-dist/*.yml
               electron-dist/*.yaml
               electron-dist/*.blockmap
+          - os: windows-latest
+            artifact_name: windows
+            build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
+            artifact_glob: |
+              electron-dist/*.exe
+              electron-dist/*.yml
+              electron-dist/*.yaml
+              electron-dist/*.blockmap
 
     runs-on: ${{ matrix.os }}
     env:
@@ -50,7 +59,7 @@ jobs:
         with:
           repository: synergy-network-hq/testnet-beta
           path: testnet-beta-source
-          ref: 445aadbf9f8b1481ca93e9e2fb75b58ee577e725
+          ref: ${{ env.TESTNET_BETA_REF }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -85,6 +94,9 @@ jobs:
             linux)
               cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-linux-amd64
               chmod +x binaries/synergy-testbeta-linux-amd64
+              ;;
+            windows)
+              cp testnet-beta-source/target/release/synergy-testbeta.exe binaries/synergy-testbeta-windows-amd64.exe
               ;;
             *)
               echo "Unsupported release target: ${{ matrix.artifact_name }}" >&2
@@ -178,6 +190,7 @@ jobs:
             artifacts/**/*.zip
             artifacts/**/*.deb
             artifacts/**/*.AppImage
+            artifacts/**/*.exe
             artifacts/**/*.yml
             artifacts/**/*.yaml
             artifacts/**/*.blockmap

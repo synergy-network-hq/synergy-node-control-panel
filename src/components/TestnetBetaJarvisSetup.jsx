@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { invoke } from '../lib/desktopClient';
+import { invoke, showOpenDialog } from '../lib/desktopClient';
 import {
   applyStoredTestnetBetaPortSettings,
   formatPortSettingsSummary,
@@ -58,6 +58,14 @@ function suggestedDirectory(homeDirectory, roleId) {
   return `${base}/.synergy/testnet-beta/nodes/${sanitizeSlug(roleId || 'node')}-workspace`;
 }
 
+function suggestedCeremonyDirectory(homeDirectory, roleId) {
+  const base = String(homeDirectory || '~').replace(/[\\/]+$/, '');
+  if (roleId === 'bootnode' || roleId === 'seed_server') {
+    return `${base}/.synergy/testnet-beta/ceremony/${sanitizeSlug(roleId)}-bundle`;
+  }
+  return `${base}/.synergy/testnet-beta/nodes/${sanitizeSlug(roleId || 'node')}-workspace`;
+}
+
 function formatStake(value) {
   const text = String(value ?? '').trim();
   if (!text) return '5,000 SNRG';
@@ -83,18 +91,10 @@ function deriveSetupStatus(phase, running, hasProvisionedNode) {
   return { label: 'In Progress', tone: 'success' };
 }
 
-// Phases where the text input is disabled because the only valid interaction
-// is clicking one of the rendered choice buttons or the dropdown select.
-// NOTE: 'confirm_public_host' and 'review_directory' are intentionally absent
-// here — both phases need the text input enabled so the user can type a custom
-// server IP or folder path.  The choice buttons are offered as shortcuts, not
-// as the only option.
-const promptKindsWithSelections = new Set([
-  'await_node_type',
-  'review_device',
-  'ready_provision',
-  'error',
-]);
+// Most phases still allow free-form chat input so Jarvis can switch modes
+// or accept typed overrides. The package picker is the one stage that is
+// intentionally button-driven.
+const promptKindsWithSelections = new Set(['select_ceremony_package']);
 
 // Roles that are designed to run on a dedicated public server rather than the
 // user's own machine.  For these roles the setup wizard asks for the server IP
@@ -112,6 +112,74 @@ const SETUP_ALLOWED_ROLE_IDS = new Set([
   'ai_inference',
   'observer',
 ]);
+const CEREMONY_REMOTE_DEPLOYMENT_ROLES = new Set(['rpc_gateway', 'indexer']);
+const CEREMONY_ROLE_OPTIONS = [
+  {
+    id: 'bootnode',
+    display_name: 'Bootnode',
+    class_name: 'Bootstrap',
+    summary: 'Imports the approved bootstrap-only discovery bundle for one of the three beta bootnodes.',
+    responsibilities: [
+      'Stage the approved bootnode bundle.',
+      'Keep the assigned hostname, IP, and discovery port aligned with the beta manifest.',
+      'Run only the bootstrap-only runtime from the imported bundle.',
+    ],
+    service_surface: ['p2p', 'discovery', 'bootstrap-only'],
+    package_hint: 'Select the bootnode bundle archive downloaded from the Genesis Dashboard.',
+  },
+  {
+    id: 'seed_server',
+    display_name: 'Seed Server',
+    class_name: 'Bootstrap',
+    summary: 'Imports the approved peer-registry bundle for one of the three beta seed services.',
+    responsibilities: [
+      'Stage the approved seed-service bundle.',
+      'Publish the signed peer list on the assigned beta hostname and port.',
+      'Keep the bootstrap DNS and peer registry aligned with the operational manifest.',
+    ],
+    service_surface: ['peer-registry', 'http', 'bootstrap-support'],
+    package_hint: 'Select the seed-server bundle archive downloaded from the Genesis Dashboard.',
+  },
+  {
+    id: 'validator',
+    display_name: 'Genesis Validator Node',
+    class_name: 'Consensus',
+    summary: 'Imports the approved validator ceremony package and provisions the runtime workspace with the assigned validator identity.',
+    responsibilities: [
+      'Load the assigned validator ceremony package.',
+      'Provision the workspace with the approved validator identity and canonical beta manifests.',
+      'Start only after the canonical launch data is present in the workspace.',
+    ],
+    service_surface: ['p2p', 'consensus', 'wallet', 'telemetry'],
+    package_hint: 'Select the validator ceremony package downloaded from the Genesis Dashboard.',
+  },
+  {
+    id: 'rpc_gateway',
+    display_name: 'RPC Gateway Node',
+    class_name: 'Service / Access',
+    summary: 'Imports the public RPC gateway package and provisions the read-only public RPC surface for beta.',
+    responsibilities: [
+      'Load the approved RPC gateway package.',
+      'Provision nginx and runtime config for the canonical beta RPC and WS endpoints.',
+      'Keep signing keys off the public gateway host.',
+    ],
+    service_surface: ['rpc', 'ws', 'gateway', 'nginx'],
+    package_hint: 'Select the RPC gateway package downloaded from the Genesis Dashboard.',
+  },
+  {
+    id: 'indexer',
+    display_name: 'Indexer & Explorer Node',
+    class_name: 'Service / Access',
+    summary: 'Imports the explorer/indexer package and provisions the beta ingest and query workspace.',
+    responsibilities: [
+      'Load the approved explorer/indexer package.',
+      'Keep ingest and query services aligned with the canonical beta manifests.',
+      'Remain non-authoritative while indexing the live beta chain.',
+    ],
+    service_surface: ['indexer', 'query-api', 'explorer'],
+    package_hint: 'Select the explorer/indexer package downloaded from the Genesis Dashboard.',
+  },
+];
 
 function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const initializedRef = useRef(false);
@@ -124,6 +192,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [phase, setPhase] = useState('booting');
+  const [setupMode, setSetupMode] = useState('standard');
   const [running, setRunning] = useState(false);
   const [typing, setTyping] = useState(false);
   const [shellReady, setShellReady] = useState(false);
@@ -138,19 +207,25 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const [publicHost, setPublicHost] = useState('');
   const [directoryChoice, setDirectoryChoice] = useState('');
   const [provisionResult, setProvisionResult] = useState(null);
+  const [ceremonyPackagePath, setCeremonyPackagePath] = useState('');
+  const [ceremonyImportResult, setCeremonyImportResult] = useState(null);
 
   const [terminalCwd, setTerminalCwd] = useState('');
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalLines, setTerminalLines] = useState([]);
 
+  const activeRoleCatalog = useMemo(
+    () => (setupMode === 'ceremony' ? CEREMONY_ROLE_OPTIONS : nodeCatalog),
+    [nodeCatalog, setupMode],
+  );
   const selectedRole = useMemo(
-    () => nodeCatalog.find((entry) => entry.id === selectedRoleId) || null,
-    [nodeCatalog, selectedRoleId],
+    () => activeRoleCatalog.find((entry) => entry.id === selectedRoleId) || null,
+    [activeRoleCatalog, selectedRoleId],
   );
   const setupStatus = useMemo(
-    () => deriveSetupStatus(phase, running, Boolean(provisionResult?.node)),
-    [phase, provisionResult?.node, running],
+    () => deriveSetupStatus(phase, running, Boolean(provisionResult?.node || ceremonyImportResult?.node)),
+    [ceremonyImportResult?.node, phase, provisionResult?.node, running],
   );
   const chatInputLocked = useMemo(
     () => running || phase === 'booting' || promptKindsWithSelections.has(phase),
@@ -160,9 +235,10 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const statusItems = useMemo(() => ([
     { label: 'Environment', value: networkProfile?.display_name || TESTNET_FALLBACK_DISPLAY },
     { label: 'Detected host', value: deviceProfile?.hostname || 'Detecting...' },
+    { label: 'Setup mode', value: setupMode === 'ceremony' ? 'Genesis import' : 'Standard setup' },
     { label: 'Provisioned nodes', value: existingNodes.length ? String(existingNodes.length) : '0' },
     { label: 'Selected node type', value: selectedRole?.display_name || 'Awaiting selection' },
-  ]), [deviceProfile?.hostname, existingNodes.length, networkProfile?.display_name, selectedRole?.display_name]);
+  ]), [deviceProfile?.hostname, existingNodes.length, networkProfile?.display_name, selectedRole?.display_name, setupMode]);
 
   const networkBootnodes = networkProfile?.bootnodes || [];
   const networkSeeds = networkProfile?.seed_servers || [];
@@ -433,6 +509,165 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     bootstrap();
   }, [bootstrap]);
 
+  const selectCeremonyPackage = useCallback(async () => {
+    try {
+      const selectedPath = await showOpenDialog({
+        title: 'Select Genesis Ceremony Package',
+        buttonLabel: 'Select Package',
+        properties: ['openFile', 'openDirectory'],
+        filters: [
+          { name: 'Ceremony Packages', extensions: ['json', 'zip', 'tgz', 'gz'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+
+      if (!selectedPath) {
+        return;
+      }
+
+      setCeremonyPackagePath(selectedPath);
+      addTerminalLine('info', `Selected ceremony package: ${selectedPath}`);
+      await queueJarvisMessage(`Package selected: ${selectedPath}. Choose Import Package when you are ready.`);
+    } catch (error) {
+      addTerminalLine('error', `Package selection failed: ${String(error)}`);
+      await queueJarvisMessage('I could not open the package selector on this machine.');
+    }
+  }, [addTerminalLine, queueJarvisMessage]);
+
+  const runCeremonyImport = useCallback(async () => {
+    if (!selectedRole) {
+      await queueJarvisMessage('Choose the ceremony role for this machine before importing a package.');
+      return;
+    }
+
+    if (!ceremonyPackagePath) {
+      await queueJarvisMessage('Select the approved ceremony package from the Genesis Dashboard first.');
+      return;
+    }
+
+    setRunning(true);
+    addTerminalLine('info', `Importing ${selectedRole.display_name} from ${ceremonyPackagePath}...`);
+
+    try {
+      const result = await invoke('testbeta_import_ceremony_package', {
+        input: {
+          setupRoleId: selectedRole.id,
+          packagePath: ceremonyPackagePath,
+          intendedDirectory: directoryChoice || null,
+          publicHost: publicHost || null,
+        },
+      });
+
+      setCeremonyImportResult(result);
+      if (result?.node) {
+        setProvisionResult({
+          node: result.node,
+          network_profile: result.network_profile || null,
+        });
+      }
+      setTerminalCwd(result?.workspace_directory || terminalCwd);
+      addTerminalLine('success', result?.message || 'Ceremony package imported.');
+      (result?.staged_paths || []).forEach((path) => addTerminalLine('output', `Staged: ${path}`));
+
+      if (result?.node) {
+        addTerminalLine('output', `Reward wallet: ${result?.node?.node_address || 'unknown address'}`);
+        addTerminalLine('info', `Funding manifest: ${result?.node?.funding_manifest_id || 'pending'}`);
+        try {
+          const portConfig = await applyStoredTestnetBetaPortSettings(result?.node);
+          addTerminalLine(
+            'info',
+            `Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`,
+          );
+        } catch (portError) {
+          addTerminalLine('info', `Electron port profile update skipped: ${String(portError)}`);
+        }
+        try {
+          const bootstrapConfig = await refreshTestnetBetaBootstrapConfig(
+            result?.node,
+            result?.network_profile,
+          );
+          addTerminalLine(
+            'info',
+            `Electron refreshed peers.toml with ${bootstrapConfig.additionalDialTargets.length} seed-discovered dial target(s).`,
+          );
+          if (bootstrapConfig.failures.length > 0) {
+            addTerminalLine('info', `Seed preload warnings: ${bootstrapConfig.failures.join(' | ')}`);
+          }
+        } catch (bootstrapError) {
+          addTerminalLine('info', `Electron bootstrap refresh skipped: ${String(bootstrapError)}`);
+        }
+
+        addTerminalLine('info', 'Starting the imported node runtime and joining the bootstrap network...');
+        const startResult = await invoke('testbeta_node_control', {
+          input: {
+            nodeId: result?.node?.id,
+            action: 'start',
+          },
+        });
+        addTerminalLine('success', startResult?.message || 'Imported node runtime started.');
+
+        await queueJarvisMessages([
+          {
+            text: `${selectedRole.display_name} import is complete.`,
+            typingMs: 700,
+            pauseMs: 220,
+          },
+          {
+            text: 'I staged the approved package, applied the canonical beta manifests, and started the node runtime for this role.',
+            typingMs: 1060,
+          },
+        ]);
+
+        await refreshState(false);
+        if (typeof onComplete === 'function') {
+          onComplete();
+        }
+        navigate('/');
+        return;
+      }
+
+      await queueJarvisMessages([
+        {
+          text: `${selectedRole.display_name} package import is complete.`,
+          typingMs: 720,
+          pauseMs: 220,
+        },
+        {
+          text: result?.message || 'The approved bundle is staged and ready for the assigned beta host.',
+          typingMs: 1040,
+        },
+      ]);
+    } catch (error) {
+      addTerminalLine('error', `Ceremony import failed: ${String(error)}`);
+      await queueJarvisMessages([
+        {
+          text: 'I hit a problem while importing the approved ceremony package.',
+          typingMs: 760,
+          pauseMs: 220,
+        },
+        {
+          text: 'You can select the package again, choose a different folder, or restart setup.',
+          typingMs: 980,
+        },
+      ]);
+      setPhase('error');
+    } finally {
+      setRunning(false);
+    }
+  }, [
+    addTerminalLine,
+    ceremonyPackagePath,
+    directoryChoice,
+    navigate,
+    onComplete,
+    publicHost,
+    queueJarvisMessage,
+    queueJarvisMessages,
+    refreshState,
+    selectedRole,
+    terminalCwd,
+  ]);
+
   const runProvision = useCallback(async () => {
     if (!selectedRole) {
       await queueJarvisMessage('Select a node role before provisioning.');
@@ -548,32 +783,74 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const handleResponseValue = useCallback(async (value) => {
     if (!value || running) return;
 
-    if (/^(dashboard|not now jarvis|not now|later)$/i.test(String(value).trim())) {
+    const trimmedValue = String(value).trim();
+
+    if (/^(dashboard|not now jarvis|not now|later)$/i.test(trimmedValue)) {
       await handoffToDashboard();
       return;
     }
 
-    if (/^(restart|start over|reset)$/i.test(String(value).trim())) {
+    if (/^genesis[\s-]*setup$/i.test(trimmedValue)) {
+      resetMessageQueue();
+      setSetupMode('ceremony');
+      setSelectedRoleId('');
+      setPublicHost('');
+      setDirectoryChoice('');
+      setProvisionResult(null);
+      setCeremonyPackagePath('');
+      setCeremonyImportResult(null);
+      setRunning(true);
+      try {
+        await refreshState(false);
+      } finally {
+        setRunning(false);
+      }
+      await queueJarvisMessages([
+        {
+          text: 'Genesis setup mode is active.',
+          typingMs: 620,
+          pauseMs: 220,
+        },
+        {
+          text: 'Choose the ceremony role for this machine and I will import the approved package from the Genesis Dashboard.',
+          typingMs: 1040,
+        },
+      ]);
+      setPhase('await_ceremony_role');
+      return;
+    }
+
+    if (/^(restart|start over|reset)$/i.test(trimmedValue)) {
+      const nextPhase = setupMode === 'ceremony' ? 'await_ceremony_role' : 'await_node_type';
       resetMessageQueue();
       setSelectedRoleId('');
       setPublicHost('');
       setDirectoryChoice('');
       setProvisionResult(null);
-      setPhase('await_node_type');
-      await queueJarvisMessage('I cleared the previous setup steps. Choose the kind of node you want to set up.');
+      setCeremonyPackagePath('');
+      setCeremonyImportResult(null);
+      setPhase(nextPhase);
+      await queueJarvisMessage(
+        setupMode === 'ceremony'
+          ? 'I cleared the previous setup steps. Choose the ceremony role for this machine.'
+          : 'I cleared the previous setup steps. Choose the kind of node you want to set up.',
+      );
       return;
     }
 
     if (phase === 'await_node_type') {
-      const nextRole = nodeCatalog.find((entry) => entry.id === value);
+      const nextRole = nodeCatalog.find((entry) => entry.id === trimmedValue);
       if (!nextRole) {
-        await queueJarvisMessage('Choose one of the node types in the list and I will load the right setup for it.');
+        await queueJarvisMessage('Choose one of the node types in the list or type "genesis setup" to switch into ceremony mode.');
         return;
       }
 
       const nextDirectory = suggestedDirectory(deviceProfile?.home_directory || '~', nextRole.id);
+      setSetupMode('standard');
       setSelectedRoleId(nextRole.id);
       setDirectoryChoice(nextDirectory);
+      setCeremonyPackagePath('');
+      setCeremonyImportResult(null);
 
       await queueJarvisMessages([
         {
@@ -586,14 +863,41 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           typingMs: 1040,
         },
       ]);
-      // Phase set AFTER messages so "Continue / Refresh Detection" buttons only
-      // appear once Jarvis has finished introducing the review step.
+      setPhase('review_device');
+      return;
+    }
+
+    if (phase === 'await_ceremony_role') {
+      const nextRole = CEREMONY_ROLE_OPTIONS.find((entry) => entry.id === trimmedValue);
+      if (!nextRole) {
+        await queueJarvisMessage('Choose one of the ceremony roles in the list and I will load the approved import flow for it.');
+        return;
+      }
+
+      const nextDirectory = suggestedCeremonyDirectory(deviceProfile?.home_directory || '~', nextRole.id);
+      setSelectedRoleId(nextRole.id);
+      setDirectoryChoice(nextDirectory);
+      setCeremonyPackagePath('');
+      setCeremonyImportResult(null);
+      setProvisionResult(null);
+
+      await queueJarvisMessages([
+        {
+          text: `${nextRole.display_name} selected. I will prepare this machine for the approved ceremony package.`,
+          typingMs: 820,
+          pauseMs: 220,
+        },
+        {
+          text: 'Take a quick look at the computer details on the right. If they look right, continue. If not, refresh and I will check again.',
+          typingMs: 1040,
+        },
+      ]);
       setPhase('review_device');
       return;
     }
 
     if (phase === 'review_device') {
-      if (/^refresh/i.test(String(value).trim())) {
+      if (/^refresh/i.test(trimmedValue)) {
         setRunning(true);
         try {
           await refreshState(true);
@@ -603,7 +907,11 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         return;
       }
 
-      if (isContinueValue(value)) {
+      if (isContinueValue(trimmedValue)) {
+        const remoteDeploymentRoles = setupMode === 'ceremony'
+          ? CEREMONY_REMOTE_DEPLOYMENT_ROLES
+          : REMOTE_DEPLOYMENT_ROLES;
+
         setRunning(true);
         let detected = '';
         try {
@@ -617,24 +925,20 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           setRunning(false);
         }
 
-        // For server-side roles (RPC gateway, indexer) ask the user to confirm
-        // or override the IP so node.toml and nginx.conf get the server's real
-        // address rather than this machine's IP.
-        if (REMOTE_DEPLOYMENT_ROLES.has(selectedRoleId)) {
+        if (remoteDeploymentRoles.has(selectedRoleId)) {
           const detectedNote = detected
             ? `I detected this machine's IP as ${detected}.`
             : "I couldn't auto-detect an IP for this machine.";
-          // Deliver the message BEFORE switching phase so the "Use Detected"
-          // button only appears after Jarvis has finished speaking.
           await queueJarvisMessage(
-            `${detectedNote} This node type is built to run on a dedicated public server. ` +
-            `Enter that server's IP address now (e.g. 74.208.227.23), or choose "Use Detected" to keep the value above.`
+            `${detectedNote} This role is built to run on a dedicated public server. ` +
+            `Enter that server's IP address now (e.g. 74.208.227.23), or choose "Use Detected" to keep the value above.`,
           );
-          setPhase('confirm_public_host');
+          setPhase(setupMode === 'ceremony' ? 'confirm_ceremony_public_host' : 'confirm_public_host');
         } else {
-          // Same: message first, then phase so the directory buttons follow the prompt.
-          await queueJarvisMessage(`The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`);
-          setPhase('review_directory');
+          await queueJarvisMessage(
+            `The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`,
+          );
+          setPhase(setupMode === 'ceremony' ? 'review_ceremony_directory' : 'review_directory');
         }
         return;
       }
@@ -643,28 +947,27 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       return;
     }
 
-    if (phase === 'confirm_public_host') {
-      const trimmed = String(value || '').trim();
-      if (!/^use[\s-]*detected$/i.test(trimmed) && trimmed) {
-        // User typed an explicit server IP — use it.
-        setPublicHost(trimmed);
-        await queueJarvisMessage(`Server IP set to ${trimmed}. This will be written into node.toml and the generated nginx.conf.`);
+    if (phase === 'confirm_public_host' || phase === 'confirm_ceremony_public_host') {
+      if (!/^use[\s-]*detected$/i.test(trimmedValue) && trimmedValue) {
+        setPublicHost(trimmedValue);
+        await queueJarvisMessage(`Server IP set to ${trimmedValue}. This will be written into the runtime config for this node.`);
       } else {
         await queueJarvisMessage(
           publicHost
             ? `Using auto-detected IP: ${publicHost}.`
-            : 'No IP available — you can edit node.toml manually after provisioning.'
+            : 'No IP available. You can update the runtime config manually after setup.',
         );
       }
-      await queueJarvisMessage(`The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`);
-      setPhase('review_directory');
+      await queueJarvisMessage(
+        `The private folder I plan to use is ${directoryChoice}. Type "use default" to keep it, or paste a different folder path.`,
+      );
+      setPhase(phase === 'confirm_ceremony_public_host' ? 'review_ceremony_directory' : 'review_directory');
       return;
     }
 
     if (phase === 'review_directory') {
-      const trimmed = String(value || '').trim();
-      if (!isContinueValue(value) && trimmed) {
-        if (/^auto[\s-]*detect$/i.test(trimmed)) {
+      if (!isContinueValue(trimmedValue) && trimmedValue) {
+        if (/^auto[\s-]*detect$/i.test(trimmedValue)) {
           setRunning(true);
           try {
             const detected = await refreshPublicHost({ announce: true });
@@ -676,16 +979,56 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           } finally {
             setRunning(false);
           }
+        } else {
+          setDirectoryChoice(trimmedValue);
         }
-        setDirectoryChoice(String(value).trim());
       }
       await queueJarvisMessage('Everything is ready. I will create the private folder, generate the node wallet, write the setup files, and prepare the required 5,000 SNRG stake for this node.');
       setPhase('ready_provision');
       return;
     }
 
+    if (phase === 'review_ceremony_directory') {
+      if (!isContinueValue(trimmedValue) && trimmedValue) {
+        if (/^auto[\s-]*detect$/i.test(trimmedValue)) {
+          setRunning(true);
+          try {
+            const detected = await refreshPublicHost({ announce: true });
+            await queueJarvisMessage(
+              detected
+                ? `Updated public endpoint: ${detected}.`
+                : 'Public endpoint is still unavailable. Continuing without it.',
+            );
+          } finally {
+            setRunning(false);
+          }
+        } else {
+          setDirectoryChoice(trimmedValue);
+        }
+      }
+      await queueJarvisMessage(
+        selectedRole?.package_hint
+          || 'Select the approved ceremony package from the Genesis Dashboard, then import it into this workspace.',
+      );
+      setPhase('select_ceremony_package');
+      return;
+    }
+
+    if (phase === 'select_ceremony_package') {
+      if (/^select/i.test(trimmedValue)) {
+        await selectCeremonyPackage();
+        return;
+      }
+      if (/^import/i.test(trimmedValue)) {
+        await runCeremonyImport();
+        return;
+      }
+      await queueJarvisMessage('Use Select Package to choose the approved file or folder, then choose Import Package.');
+      return;
+    }
+
     if (phase === 'ready_provision') {
-      if (isContinueValue(value)) {
+      if (isContinueValue(trimmedValue)) {
         await runProvision();
         return;
       }
@@ -695,7 +1038,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     }
 
     if (phase === 'error') {
-      await queueJarvisMessage('Type restart to try setup again, or say "not now jarvis" and I will take you to the dashboard.');
+      await queueJarvisMessage('Type restart to try setup again, say "genesis setup" to switch into ceremony mode, or say "not now jarvis" and I will take you to the dashboard.');
     }
   }, [
     deviceProfile?.home_directory,
@@ -709,9 +1052,13 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     refreshPublicHost,
     refreshState,
     resetMessageQueue,
+    runCeremonyImport,
     runProvision,
     running,
+    selectCeremonyPackage,
+    selectedRole?.package_hint,
     selectedRoleId,
+    setupMode,
   ]);
 
   const submitChat = useCallback(async (event) => {
@@ -734,10 +1081,10 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     event.preventDefault();
     if (!selectValue || running) return;
 
-      const label = nodeCatalog.find((entry) => entry.id === selectValue)?.display_name || selectValue;
+    const label = activeRoleCatalog.find((entry) => entry.id === selectValue)?.display_name || selectValue;
     addMessage('user', label);
     await handleResponseValue(selectValue);
-  }, [addMessage, handleResponseValue, nodeCatalog, running, selectValue]);
+  }, [activeRoleCatalog, addMessage, handleResponseValue, running, selectValue]);
 
   const promptConfig = useMemo(() => {
     if (phase === 'await_node_type') {
@@ -749,6 +1096,18 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           label: `${entry.display_name} / ${entry.class_name}`,
         })),
         placeholder: 'Choose a node type to continue',
+      };
+    }
+
+    if (phase === 'await_ceremony_role') {
+      return {
+        kind: 'select',
+        hint: '',
+        options: CEREMONY_ROLE_OPTIONS.map((entry) => ({
+          value: entry.id,
+          label: `${entry.display_name} / ${entry.class_name}`,
+        })),
+        placeholder: 'Choose a ceremony role to continue',
       };
     }
 
@@ -764,7 +1123,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       };
     }
 
-    if (phase === 'confirm_public_host') {
+    if (phase === 'confirm_public_host' || phase === 'confirm_ceremony_public_host') {
       return {
         kind: 'choices',
         hint: publicHost
@@ -788,6 +1147,26 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           { value: 'use default', label: 'Use This Folder' },
         ],
         placeholder: 'Paste a different folder path or use this one',
+      };
+    }
+
+    if (phase === 'review_ceremony_directory') {
+      return {
+        kind: 'choices',
+        hint: `Workspace path: ${directoryChoice}. You can paste a custom path or use this one.`,
+        options: [
+          { value: 'use default', label: 'Use This Folder' },
+        ],
+        placeholder: 'Paste a different folder path or use this one',
+      };
+    }
+
+    if (phase === 'select_ceremony_package') {
+      return {
+        kind: 'package',
+        hint: selectedRole?.package_hint || 'Select the approved ceremony package from the Genesis Dashboard.',
+        packagePath: ceremonyPackagePath,
+        placeholder: 'Use the package controls below',
       };
     }
 
@@ -818,7 +1197,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       hint: 'Setup Assistant is getting things ready.',
       placeholder: 'Setup Assistant is warming up...',
     };
-  }, [directoryChoice, nodeCatalog, phase, publicHost]);
+  }, [ceremonyPackagePath, directoryChoice, nodeCatalog, phase, publicHost, selectedRole?.package_hint]);
 
   useEffect(() => {
     if (promptConfig.kind !== 'select') {
@@ -836,12 +1215,19 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
   const selectedRoleHighlights = selectedRole ? [
     ...((selectedRole.responsibilities || []).slice(0, 3)),
+    ...(setupMode === 'ceremony' && selectedRole.package_hint ? [selectedRole.package_hint] : []),
   ] : [];
   const selectedRoleServices = selectedRole ? (selectedRole.service_surface || []) : [];
   const hidePromptHint = promptConfig.kind === 'select' || promptConfig.kind === 'choices';
   const setupNote = phase === 'error'
     ? 'Something interrupted setup. Resolve the issue and restart the setup flow.'
-    : 'I will walk you through setup, place the node in its own private folder, and keep every step aligned with the selected node role.';
+    : setupMode === 'ceremony'
+      ? 'I will import an approved genesis package, place it in a dedicated workspace, and keep this machine aligned with the canonical beta manifests.'
+      : 'I will walk you through setup, place the node in its own private folder, and keep every step aligned with the selected node role.';
+  const previewStatus = ceremonyImportResult ? 'Imported' : provisionResult?.node ? 'Created' : 'Pending';
+  const previewNotes = ceremonyImportResult?.next_steps?.length
+    ? ceremonyImportResult.next_steps.slice(0, 3)
+    : ['Jarvis will append a unique suffix automatically if the requested workspace path is already in use.'];
 
   return (
     <section className={`jarvis-shell ${shellReady ? 'is-ready' : ''}`}>
@@ -915,8 +1301,53 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
                 </form>
               ) : null}
 
+              {promptConfig.kind === 'package' ? (
+                <div className="jarvis-choice-list">
+                  <SNRGButton
+                    as="button"
+                    variant="blue"
+                    size="sm"
+                    className="jarvis-choice-pill"
+                    onClick={() => {
+                      void selectCeremonyPackage();
+                    }}
+                    disabled={running}
+                  >
+                    Select Package
+                  </SNRGButton>
+                  <SNRGButton
+                    as="button"
+                    variant="blue"
+                    size="sm"
+                    className="jarvis-choice-pill"
+                    onClick={() => {
+                      void runCeremonyImport();
+                    }}
+                    disabled={running || !ceremonyPackagePath}
+                  >
+                    Import Package
+                  </SNRGButton>
+                  <SNRGButton
+                    as="button"
+                    variant="blue"
+                    size="sm"
+                    className="jarvis-choice-pill"
+                    onClick={() => {
+                      void handoffToDashboard();
+                    }}
+                    disabled={running}
+                  >
+                    Return to Dashboard
+                  </SNRGButton>
+                </div>
+              ) : null}
+
               {!hidePromptHint && promptConfig.hint ? (
                 <p className="jarvis-chat-hint">{promptConfig.hint}</p>
+              ) : null}
+
+              {promptConfig.kind === 'package' && ceremonyPackagePath ? (
+                <p className="jarvis-chat-hint">Selected package: {ceremonyPackagePath}</p>
               ) : null}
 
               <form className="jarvis-chat-form" onSubmit={submitChat}>
@@ -955,7 +1386,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           <section className="jarvis-detail-card">
             <div className="jarvis-detail-header">
               <h3>Selected node type</h3>
-              <span>{selectedRole?.class_name || 'Choose a node type'}</span>
+              <span>{selectedRole?.class_name || 'Choose a role'}</span>
             </div>
             <p className="jarvis-detail-copy">{selectedRole?.summary || 'Choose a node type and its job details will appear here.'}</p>
             <div className="jarvis-plan-list">
@@ -1002,16 +1433,28 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           <section className="jarvis-detail-card">
             <div className="jarvis-detail-header">
               <h3>Provision preview</h3>
-              <span>{provisionResult?.node ? 'Created' : 'Pending'}</span>
+              <span>{previewStatus}</span>
             </div>
             <div className="jarvis-status-list">
               <div className="jarvis-status-row">
                 <span>Isolated path</span>
                 <strong>{directoryChoice || 'Will be generated after role selection'}</strong>
               </div>
+              {setupMode === 'ceremony' ? (
+                <div className="jarvis-status-row">
+                  <span>Approved package</span>
+                  <strong>{ceremonyPackagePath || 'Choose a package from the Genesis Dashboard'}</strong>
+                </div>
+              ) : null}
+              {ceremonyImportResult?.workspace_directory ? (
+                <div className="jarvis-status-row">
+                  <span>Imported workspace</span>
+                  <strong>{ceremonyImportResult.workspace_directory}</strong>
+                </div>
+              ) : null}
             </div>
             <div className="jarvis-plan-list">
-              <p>Jarvis will append a unique suffix automatically if the requested workspace path is already in use.</p>
+              {previewNotes.map((line) => <p key={line}>{line}</p>)}
             </div>
           </section>
         </aside>

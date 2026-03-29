@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('synergyDesktop', {
   openExternal: (url) => ipcRenderer.invoke('desktop:open-external', url),
   openPath: (targetPath) => ipcRenderer.invoke('desktop:open-path', targetPath),
   showSaveDialog: (options) => ipcRenderer.invoke('desktop:show-save-dialog', options),
+  showOpenDialog: (options) => ipcRenderer.invoke('desktop:show-open-dialog', options),
   fetchSeedPeerTargets: (seedServers) =>
     ipcRenderer.invoke('desktop:fetch-seed-peer-targets', seedServers),
   readTextFile: (path) => ipcRenderer.invoke('desktop:read-text-file', path),

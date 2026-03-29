@@ -101,7 +101,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 1. **Verify Initial State**
    ```bash
    # Check cluster formation
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -124,7 +124,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 2. **Monitor Block Proposal**
    ```bash
    # Watch block production
-   watch -n 2 'curl -s -X POST http://localhost:48638/rpc \
+   watch -n 2 'curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{\"jsonrpc\":\"2.0\",\"method\":\"chain_getBlockHeight\",\"id\":1}" \
      | jq -r ".result.height"'
@@ -133,12 +133,12 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 3. **Verify Dual-Quorum**
    ```bash
    # Check quorum status for recent block
-   BLOCK_HEIGHT=$(curl -s -X POST http://localhost:48638/rpc \
+   BLOCK_HEIGHT=$(curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"chain_getBlockHeight","id":1}' \
      | jq -r '.result.height')
 
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{
        \"jsonrpc\": \"2.0\",
@@ -174,7 +174,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    sudo systemctl stop synergy-validator
 
    # Verify network continues producing blocks
-   watch -n 2 'curl -s -X POST http://localhost:48638/rpc \
+   watch -n 2 'curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{\"jsonrpc\":\"2.0\",\"method\":\"chain_getBlockHeight\",\"id\":1}" \
      | jq'
@@ -201,7 +201,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 1. **Verify Cluster Distribution**
    ```bash
    # List all validators and their clusters
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -213,7 +213,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 2. **Check Cluster Statistics**
    ```bash
    # Get cluster distribution
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -241,7 +241,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 3. **Monitor Leader Selection**
    ```bash
    # Get current leader
-   LEADER=$(curl -s -X POST http://localhost:48638/rpc \
+   LEADER=$(curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"consensus_getCurrentLeader","id":1}' \
      | jq -r '.result.address')
@@ -249,7 +249,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    echo "Current Leader: $LEADER"
 
    # Get leader's Synergy Score
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{
        \"jsonrpc\": \"2.0\",
@@ -264,7 +264,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # Leaders rotate in round-robin within epoch
    # Monitor for 10 blocks
    for i in {1..10}; do
-     LEADER=$(curl -s -X POST http://localhost:48638/rpc \
+     LEADER=$(curl -s -X POST http://localhost:5730/rpc \
        -H "Content-Type: application/json" \
        -d '{"jsonrpc":"2.0","method":"consensus_getCurrentLeader","id":1}' \
        | jq -r '.result.address')
@@ -292,7 +292,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 1. **Monitor Current Epoch**
    ```bash
    # Get current epoch
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -315,7 +315,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 2. **Record Pre-Rotation State**
    ```bash
    # Before epoch boundary, record validator cluster assignments
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -328,7 +328,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 3. **Wait for Epoch Boundary**
    ```bash
    # Monitor for epoch transition
-   watch -n 5 'curl -s -X POST http://localhost:48638/rpc \
+   watch -n 5 'curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{\"jsonrpc\":\"2.0\",\"method\":\"consensus_getEpoch\",\"id\":1}" \
      | jq'
@@ -346,7 +346,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 4. **Record Post-Rotation State**
    ```bash
    # After epoch boundary, record new cluster assignments
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -362,7 +362,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 5. **Verify Entropy Beacon**
    ```bash
    # Get entropy beacon value for new epoch
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -415,7 +415,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # For a specific validator
    VALIDATOR="synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv"  # Bootnode 1
 
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{
        \"jsonrpc\": \"2.0\",
@@ -447,7 +447,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # With 3 validators @ 1M each, total = 3M
    # Expected: 1M / 3M = 0.333
 
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{
        \"jsonrpc\": \"2.0\",
@@ -461,7 +461,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    ```bash
    # Reputation formula: uptime_factor × accuracy_factor × (1 - slashing_penalty)
 
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{
        \"jsonrpc\": \"2.0\",
@@ -486,7 +486,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # Contribution formula: α×proposals + β×relay_assists + γ×network_score
    # Default: α=0.5, β=0.3, γ=0.2
 
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{
        \"jsonrpc\": \"2.0\",
@@ -511,7 +511,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # Synergy Scores update every block (local) and every epoch (global)
 
    for i in {1..5}; do
-     SCORE=$(curl -s -X POST http://localhost:48638/rpc \
+     SCORE=$(curl -s -X POST http://localhost:5730/rpc \
        -H "Content-Type: application/json" \
        -d "{\"jsonrpc\":\"2.0\",\"method\":\"synergy_getScore\",\"params\":[\"$VALIDATOR\"],\"id\":1}" \
        | jq -r '.result.synergyScore')
@@ -543,7 +543,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # This should trigger cartel detection after ~100 blocks
 
    # Monitor voting patterns
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -556,7 +556,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 2. **Check Correlation Analysis**
    ```bash
    # Get pairwise correlation matrix
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -579,7 +579,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 3. **Check Timing Similarity**
    ```bash
    # Validators in cartel vote nearly simultaneously
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -591,7 +591,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 4. **Verify Cartel Detection**
    ```bash
    # After 100+ blocks of coordinated behavior, cartel should be detected
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -624,7 +624,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # For 3 validators with ρ̄ = 0.90: P_v = 1 + 0.90 × 3 × 0.1 = 1.27
    # Score reduction: ~27%
 
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -659,7 +659,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # Bridge validators selected based on highest Synergy Scores
    # in overlapping cluster pairs
 
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -695,7 +695,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 3. **Verify Message Authentication**
    ```bash
    # All inter-cluster messages must be ML-DSA signed
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -739,7 +739,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 1. **Block Production Rate**
    ```bash
    # Blocks per minute (should be ~10 for 6-second blocks)
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"consensus_getBlockRate","id":1}' | jq
    ```
@@ -747,7 +747,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 2. **Validator Participation**
    ```bash
    # Percentage of validators participating in recent blocks
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"consensus_getParticipationRate","id":1}' | jq
    ```
@@ -755,7 +755,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 3. **Cluster Health**
    ```bash
    # Check health of all clusters
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"consensus_getClusterHealth","id":1}' | jq
    ```
@@ -763,7 +763,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 4. **Synergy Score Distribution**
    ```bash
    # Histogram of Synergy Scores
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"synergy_getScoreDistribution","id":1}' | jq
    ```
@@ -771,7 +771,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 5. **Leader Rotation Frequency**
    ```bash
    # Track how often leaders change
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{"jsonrpc":"2.0","method":"consensus_getLeaderRotationStats","id":1}' | jq
    ```
@@ -786,7 +786,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    ```bash
    # Example: Increase target cluster size from 30 to 40
 
-   curl -X POST http://localhost:48638/rpc \
+   curl -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -807,7 +807,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    ```bash
    # Validators vote with their Synergy Score as weight
 
-   curl -X POST http://localhost:48638/rpc \
+   curl -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -823,7 +823,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 
 3. **Check Voting Status**
    ```bash
-   curl -s -X POST http://localhost:48638/rpc \
+   curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d '{
        "jsonrpc": "2.0",
@@ -839,7 +839,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
    # change takes effect at next epoch
 
    # Monitor parameter update
-   watch -n 5 'curl -s -X POST http://localhost:48638/rpc \
+   watch -n 5 'curl -s -X POST http://localhost:5730/rpc \
      -H "Content-Type: application/json" \
      -d "{\"jsonrpc\":\"2.0\",\"method\":\"consensus_getParameter\",\"params\":[\"target_cluster_size\"],\"id\":1}" \
      | jq'
@@ -863,7 +863,7 @@ When additional validators join via the [VALIDATOR_ONBOARDING_GUIDE.md](VALIDATO
 tail -f data/logs/bootnode1.log | grep "Slashing"
 
 # Verify reputation decrease
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -884,7 +884,7 @@ curl -s -X POST http://localhost:48638/rpc \
 tail -f data/logs/bootnode1.log | grep "Double-sign"
 
 # Verify slashing penalty
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -955,7 +955,7 @@ curl -s -X POST http://localhost:48638/rpc \
 
 **Diagnosis:**
 ```bash
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"consensus_getQuorumStatus","id":1}' | jq
 ```
@@ -972,7 +972,7 @@ curl -s -X POST http://localhost:48638/rpc \
 **Diagnosis:**
 ```bash
 # Check entropy beacon
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"consensus_getEntropyBeacon","id":1}' | jq
 ```
@@ -989,7 +989,7 @@ curl -s -X POST http://localhost:48638/rpc \
 **Diagnosis:**
 ```bash
 # Check detection threshold
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"consensus_getCartelDetectionParams","id":1}' | jq
 ```

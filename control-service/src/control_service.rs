@@ -19,8 +19,9 @@ use crate::monitor::{
 use crate::testnet_beta::{
     testbeta_boost_sync, testbeta_get_catalog, testbeta_get_chain_blocks,
     testbeta_get_device_profile, testbeta_get_live_status, testbeta_get_node_logs,
-    testbeta_get_node_readiness, testbeta_get_state, testbeta_node_control, testbeta_remove_node,
-    testbeta_run_register_with_seeds, testbeta_setup_node, TestnetBetaNodeControlInput,
+    testbeta_get_node_readiness, testbeta_get_state, testbeta_import_ceremony_package,
+    testbeta_node_control, testbeta_remove_node, testbeta_run_register_with_seeds,
+    testbeta_setup_node, TestnetBetaImportCeremonyPackageInput, TestnetBetaNodeControlInput,
     TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
 };
 use async_stream::stream;
@@ -134,6 +135,11 @@ struct TerminalCommandArgs {
 #[derive(Debug, Deserialize)]
 struct TestnetBetaSetupArgs {
     input: TestnetBetaSetupInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaImportCeremonyPackageArgs {
+    input: TestnetBetaImportCeremonyPackageInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -383,6 +389,10 @@ async fn dispatch_command(
         "testbeta_setup_node" => {
             let args: TestnetBetaSetupArgs = parse_args(request.args)?;
             to_value(testbeta_setup_node(args.input).await?)
+        }
+        "testbeta_import_ceremony_package" => {
+            let args: TestnetBetaImportCeremonyPackageArgs = parse_args(request.args)?;
+            to_value(testbeta_import_ceremony_package(args.input).await?)
         }
         "testbeta_node_control" => {
             let args: TestnetBetaNodeControlArgs = parse_args(request.args)?;

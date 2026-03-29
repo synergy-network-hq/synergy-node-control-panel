@@ -26,10 +26,10 @@ This guide is specifically for Synergy team members who want to set up their own
 - **Network**: Stable internet connection, static IP or dynamic DNS
 
 ### Required Open Ports
-- **38638/tcp** - P2P (SNR Gossip Protocol)
-- **48638/tcp** - RPC (optional, for monitoring)
-- **58638/tcp** - WebSocket (optional)
-- **9090/tcp** - Metrics (optional, localhost only)
+- **5630/tcp** - P2P (SNR Gossip Protocol)
+- **5730/tcp** - RPC (optional, for monitoring)
+- **5830/tcp** - WebSocket (optional)
+- **6030/tcp** - Metrics (optional, localhost only)
 
 ---
 
@@ -165,12 +165,12 @@ Create your node configuration file:
 cat > config/my-validator-config.toml <<'EOF'
 [network]
 node_name = "my-validator"
-listen_address = "0.0.0.0:38638"
-public_address = "YOUR_IP_OR_DOMAIN:38638"  # CHANGE THIS!
+listen_address = "0.0.0.0:5630"
+public_address = "YOUR_IP_OR_DOMAIN:5630"  # CHANGE THIS!
 bootnodes = [
-  "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638",
-  "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergy-network.io:38638",
-  "snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergy-network.io:38638"
+  "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergynode.xyz:5620",
+  "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergynode.xyz:5620",
+  "snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergynode.xyz:5620"
 ]
 
 [validator]
@@ -184,7 +184,7 @@ min_stake = 0  # No stake required for testbeta onboarding
 [consensus]
 algorithm = "PoSy"
 block_time_secs = 3
-max_validators = 100
+max_validators = 4
 synergetic_mode = true
 vrf_enabled = true
 
@@ -194,8 +194,8 @@ sync_mode = "fast"  # Fast sync from existing blockchain
 start_from_genesis = false
 
 [rpc]
-http_port = 48638
-ws_port = 58638
+http_port = 5730
+ws_port = 5830
 enable_cors = true
 external_http = "https://testbeta-core-rpc.synergy-network.io"
 external_ws = "wss://testbeta-core-ws.synergy-network.io"
@@ -209,7 +209,7 @@ enable_console = true
 role = "validator"
 enable_rpc = true
 enable_metrics = true
-metrics_port = 9090
+metrics_port = 6030
 
 [synergy_score]
 enabled = true
@@ -244,13 +244,13 @@ sudo ufw enable
 sudo ufw allow ssh
 
 # Allow Synergy P2P port (required)
-sudo ufw allow 38638/tcp comment 'Synergy P2P'
+sudo ufw allow 5630/tcp comment 'Synergy P2P'
 
 # Optional: Allow RPC for remote monitoring
-sudo ufw allow from YOUR_MONITORING_IP to any port 48638 proto tcp
+sudo ufw allow from YOUR_MONITORING_IP to any port 5730 proto tcp
 
 # Optional: Allow WebSocket
-sudo ufw allow from YOUR_MONITORING_IP to any port 58638 proto tcp
+sudo ufw allow from YOUR_MONITORING_IP to any port 5830 proto tcp
 
 # Check firewall status
 sudo ufw status verbose
@@ -336,7 +336,7 @@ journalctl -u synergy-validator -f
 
 ```bash
 # Check sync status via RPC
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 
@@ -353,12 +353,12 @@ curl -s -X POST http://localhost:48638/rpc \
 # }
 
 # Check peer connections
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_peers","id":1}' | jq
 
 # Check your validator info
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_validatorInfo","id":1}' | jq
 ```
@@ -398,7 +398,7 @@ After your validator is registered, the coordinator will send you SNRG tokens fr
 
 ```bash
 # Check your balance
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"account_getBalance\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
@@ -429,7 +429,7 @@ Your Synergy Score is calculated based on:
 
 ```bash
 # Check your Synergy Score
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"synergy_getScore\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
@@ -451,7 +451,7 @@ curl -s -X POST http://localhost:48638/rpc \
 # }
 
 # Monitor your score over time
-watch -n 60 "curl -s -X POST http://localhost:48638/rpc \
+watch -n 60 "curl -s -X POST http://localhost:5730/rpc \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_getScore\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}' | jq '.result.synergyScore'"
 ```
@@ -473,12 +473,12 @@ journalctl -u synergy-validator -n 100
 journalctl -u synergy-validator -f
 
 # Check sync status
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 
 # Check peer count
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"net_peerCount","id":1}' | jq
 ```
@@ -493,10 +493,10 @@ htop
 df -h ~/synergy/synergy-testbeta/data/
 
 # Monitor network connections
-ss -tuln | grep -E '38638|48638|58638'
+ss -tuln | grep -E '5630|5730|5830'
 
 # View metrics (if enabled)
-curl -s http://localhost:9090/metrics
+curl -s http://localhost:6030/metrics
 ```
 
 ### Restart/Update Procedures
@@ -528,18 +528,18 @@ journalctl -u synergy-validator -f
 
 ```bash
 # Check bootnode connectivity
-ping bootnode1.synergy-network.io
-ping bootnode2.synergy-network.io
+ping bootnode1.synergynode.xyz
+ping bootnode2.synergynode.xyz
 
-# Check if port 38638 is open
-sudo netstat -tuln | grep 38638
+# Check if port 5630 is open
+sudo netstat -tuln | grep 5630
 
 # Check for firewall issues
 sudo ufw status
 
 # Try manual bootnode connection
 ./target/release/synergy-testbeta peers add \
-  snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638
+  snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergynode.xyz:5620
 ```
 
 ### Low Synergy Score
@@ -560,7 +560,7 @@ echo $VALIDATOR_ADDRESS
 # Contact coordinator with your address
 
 # Verify blockchain is synced
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 ```
@@ -578,8 +578,8 @@ curl -s -X POST http://localhost:48638/rpc \
 2. **Restrict RPC Access**
    ```bash
    # Only allow RPC from specific IPs
-   sudo ufw delete allow 48638/tcp
-   sudo ufw allow from YOUR_MONITORING_IP to any port 48638
+   sudo ufw delete allow 5730/tcp
+   sudo ufw allow from YOUR_MONITORING_IP to any port 5730
    ```
 
 3. **Enable Automatic Updates**
@@ -618,15 +618,15 @@ sudo systemctl restart synergy-validator
 journalctl -u synergy-validator -f
 
 # Check balance
-curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"account_getBalance\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
 # Check Synergy Score
-curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"synergy_getScore\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
 # Check sync status
-curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 ```
 
@@ -637,7 +637,7 @@ curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
 Before contacting the coordinator, ensure:
 
 - [ ] Node is fully synced (`isSyncing: false`)
-- [ ] Firewall allows port 38638
+- [ ] Firewall allows port 5630
 - [ ] Connected to at least 3 peers
 - [ ] `validator-info.txt` has been shared
 - [ ] Identity file has proper permissions (600)

@@ -42,7 +42,7 @@ for node_dir in testbeta/lean15/installers/node-*; do
     fi
   done
 
-  if ! grep -q '^min_validators = 5$' "$node_dir/config/node.toml"; then
+  if ! grep -q '^min_validators = 4$' "$node_dir/config/node.toml"; then
     echo "Installer config is missing the enforced minimum validator count in $node_dir/config/node.toml" >&2
     exit 1
   fi

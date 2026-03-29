@@ -18,7 +18,7 @@ This guide is for the testbeta coordinator who manages:
 - Access to the testbeta server running bootnodes
 - Faucet wallet keys: `config/faucet/identity.json`
 - Treasury wallet keys: `config/treasury/identity.json`
-- RPC access to the testbeta (localhost:48638)
+- RPC access to the testbeta (localhost:5730)
 
 ---
 
@@ -108,7 +108,7 @@ Generated: 2025-12-06 14:30:00
 echo "synv1abc123..." | grep -qE '^synv1[0-9a-z]{38,42}$' && echo "✅ Valid" || echo "❌ Invalid"
 
 # Verify they're not already registered
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"validator_getInfo","params":["synv1abc123..."],"id":1}' | jq
 ```
@@ -158,7 +158,7 @@ Need more tokens? Just ask!
 
 ```bash
 # Check faucet balance
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"account_getBalance","params":["synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07"],"id":1}' | jq
 
@@ -197,12 +197,12 @@ done
 ./scripts/list-validators.sh
 
 # Check specific validator
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"validator_getInfo","params":["synv1abc123..."],"id":1}' | jq
 
 # Check their Synergy Score
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getScore","params":["synv1abc123..."],"id":1}' | jq
 ```
@@ -211,17 +211,17 @@ curl -s -X POST http://localhost:48638/rpc \
 
 ```bash
 # Check latest block
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"chain_getBlockHeight","id":1}' | jq
 
 # Check peer count
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"net_peerCount","id":1}' | jq
 
 # Check network consensus
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"consensus_getStatus","id":1}' | jq
 ```
@@ -230,7 +230,7 @@ curl -s -X POST http://localhost:48638/rpc \
 
 ```bash
 # Get faucet transactions
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"account_getTransactions","params":["synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07",{"limit":20}],"id":1}' | jq
 ```
@@ -294,7 +294,7 @@ tail -20 token-distribution-log.txt
 
 ```bash
 # Check existing validator
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"validator_getInfo","params":["synv1abc123..."],"id":1}' | jq
 
@@ -326,11 +326,11 @@ Ask team member to regenerate with latest address engine.
 ./scripts/list-validators.sh
 
 # Check balance
-curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"account_getBalance","params":["<address>"],"id":1}' | jq
 
 # Check Synergy Score
-curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getScore","params":["<address>"],"id":1}' | jq
 ```
 
@@ -362,7 +362,7 @@ Create a simple monitoring script:
 echo "=== Synergy Testnet-Beta Status ==="
 echo ""
 echo "Block Height:"
-curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"chain_getBlockHeight","id":1}' | jq -r '.result'
 
 echo ""
@@ -371,7 +371,7 @@ echo "Active Validators:"
 
 echo ""
 echo "Faucet Balance:"
-curl -s -X POST http://localhost:48638/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"account_getBalance","params":["synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07"],"id":1}' \
   | jq -r '.result.balance'
 ```

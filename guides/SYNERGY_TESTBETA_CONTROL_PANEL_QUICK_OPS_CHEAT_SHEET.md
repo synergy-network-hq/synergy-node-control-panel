@@ -1,178 +1,85 @@
 # Synergy Node Control Panel Quick Ops Cheat Sheet
 
-Version: 2026-02-28
-Scope: Daily operations for Synergy closed testbeta (`lean15`)
+Version: 2026-03-28
+Scope: Synergy Testnet-Beta genesis ceremony and first-start operations
 
 ## 1. Core Facts
 
 - Chain ID: `338639`
-- Private subnet: `10.50.0.0/24`
-- Primary private RPC: `http://10.50.0.13:48650`
-- Primary private WS: `ws://10.50.0.13:58650`
+- Network ID: `synergy-testnet-beta`
+- Token: `SNRG`
+- Core RPC: `https://testbeta-core-rpc.synergy-network.io`
+- Core WS: `wss://testbeta-core-ws.synergy-network.io`
+- API: `https://testbeta-api.synergy-network.io`
 - Explorer: `https://testbeta-explorer.synergy-network.io`
-- Bootnode peers:
-  - `10.50.0.1:38638`
-  - `10.50.0.2:38639`
+- Atlas API: `https://testbeta-atlas-api.synergy-network.io`
+- Bootnodes: `bootnode1.synergynode.xyz:5620`, `bootnode2.synergynode.xyz:5620`, `bootnode3.synergynode.xyz:5620`
+- Seeds: `http://seed1.synergynode.xyz:5621`, `http://seed2.synergynode.xyz:5621`, `http://seed3.synergynode.xyz:5621`
 
-## 2. Where Things Live
+## 2. Genesis Setup Command
 
-- App workspace (macOS): `~/.synergy-node-control-panel/monitor-workspace`
-- App workspace (Linux): `~/.synergy-node-control-panel/monitor-workspace`
-- App workspace (Windows): `%USERPROFILE%\.synergy-node-control-panel\monitor-workspace`
+Open Jarvis and send:
 
-Critical files:
-
-- Inventory: `testbeta/lean15/node-inventory.csv`
-- Host overrides + Atlas URL: `testbeta/lean15/hosts.env`
-- VPN topology reference: `testbeta/lean15/wireguard/deployed-topology.json`
-- Security/RBAC: `config/security.json`
-- Audit log: `audit/control-actions.jsonl`
-
-Hard rules:
-
-- The control panel does not create or manage WireGuard.
-- `MACHINE_XX_HOST` must be bootstrap-reachable (LAN/public/DNS), not a placeholder.
-- `MACHINE_XX_VPN_IP` stays in `10.50.0.0/24` for overlay traffic.
-- Keep deployed VPN details external to node provisioning workflows.
-
-## 3. First Operator Fast Path
-
-From workspace root:
-
-```bash
-./scripts/testbeta/generate-monitor-hosts-env.sh
+```text
+genesis setup
 ```
 
-Important:
+Jarvis switches into ceremony mode and asks for the node role to install.
 
-- Saving an SSH profile does not generate SSH keys.
-- Generate your operator key first: `ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C "synergy-testbeta-ops" -N ""`
-- If only machine-01 exists, set machine-01 host/user first and avoid `scope=all`.
-- For machine-01 on operator machine: set `MACHINE_01_HOST=127.0.0.1` (or LAN IP) and local SSH user.
+## 3. Package To Select
 
-In app (Settings -> Operator Configuration):
+- `bootnode`: download the matching `bootnode*.tar.gz` bundle from the Genesis Dashboard.
+- `seed_server`: download the matching `seed*.tar.gz` bundle from the Genesis Dashboard.
+- `validator`: download the assigned `validator-*-setup-package.json` file from the Genesis Dashboard.
+- `rpc_gateway`: download `rpc-gateway-setup-package.json`.
+- `indexer`: download `indexer-explorer-setup-package.json`.
 
-1. Set active operator to `admin`.
-2. Configure SSH profile + SSH bindings.
-3. Confirm agents are reachable over the existing VPN.
-4. Start nodes by groups:
-   - consensus core (`node-01`,`node-02`,`node-04`,`node-06`,`node-08`,`node-09`,`node-16`,`node-17`)
-   - governance (`node-10`,`node-24`,`node-25`)
-   - interop (`node-05`,`node-07`,`node-11`,`node-12`,`node-22`)
-   - services (`node-03`,`node-13`,`node-14`)
-   - compute/pqc (`node-15`,`node-18`,`node-20`,`node-23`)
+## 4. Expected Local Ports
 
-## 4. Daily Health Checks (App)
+- Bootnode: `5620`
+- Seed service: `5621`
+- Role P2P: `5630 + slot`
+- Role RPC: `5730 + slot`
+- Role WebSocket: `5830 + slot`
+- Role discovery: `5930 + slot`
+- Role metrics: `6030 + slot`
 
-Run these bulk actions:
+## 5. Minimum Role Checks
 
-1. `status` on `all`
-2. `rpc:get_sync_status` on `all`
-3. `rpc:get_peer_info` on `all`
-4. `rpc:get_latest_block` on `all`
-5. `rpc:get_validator_activity` on `role_group:consensus`
-6. `rpc:get_sxcp_status` and `rpc:get_relayer_set` on `role_group:interop`
+- Bootnode: bootstrap-only workspace imported, `config/node.toml` present, port `5620` reachable.
+- Seed server: `seed-service.json` present, `/peer-list.json` reachable on `5621`.
+- Genesis validator: `config/genesis.json`, `config/operational-manifest.json`, and validator identity all staged before first start.
+- RPC gateway: package imported with the canonical beta manifests and public host set for `testbeta-core-rpc` and `testbeta-core-ws`.
+- Indexer and explorer: package imported with the canonical beta manifests and public host set for `testbeta-explorer` and `testbeta-atlas-api`.
 
-Node page checks:
+## 6. Bring-Up Order
 
-- `Role Execution Status` should be `healthy` or `degraded` (investigate `critical` immediately).
-- `Atlas Explorer Bridge` should show `connected`.
+1. Bootnodes
+2. Seed services
+3. Genesis validators
+4. Public RPC and API
+5. Atlas and explorer
+6. Wallet, faucet, and public service checks
+7. SXCP runtime
 
-## 5. VPN Quick Checks
+## 7. Immediate Health Checks
 
-Linux/macOS:
-
-```bash
-sudo wg show
-```
-
-macOS interface check:
-
-```bash
-ifconfig | rg utun
-ifconfig <utunX> | rg 10.50
-```
-
-Windows PowerShell:
-
-```powershell
-Get-Service WireGuardManager
-```
-
-If private-network reachability fails:
-
-1. Confirm the machine already has its expected `10.50.0.x` VPN IP.
-2. Confirm UDP WG ports `51820-51834` are open between node hosts and the hub.
-3. Confirm `MACHINE_XX_HOST` is not an unresolved placeholder.
-4. Use the control panel only after the VPN path is already healthy.
-
-If `wg-quick up` says `Address already in use` (macOS):
-
-```bash
-sudo wg-quick down synergy-testbeta >/dev/null 2>&1 || true
-sudo pkill wireguard-go || true
-sudo chmod 600 /etc/wireguard/synergy-testbeta.conf
-sudo wg-quick up synergy-testbeta
-sudo wg show
-```
-
-If `sudo wg show synergy-testbeta` says `No such file or directory` on macOS:
-
-- Run `sudo wg show` and inspect the active `utunX` interface instead.
-
-## 6. Determinism + Test Shortcuts
-
-```bash
-./scripts/testbeta/check-determinism.sh
-./scripts/testbeta/run-testbeta-test-phases.sh --rpc-url http://10.50.0.13:48650
-./scripts/testbeta/load-generator.sh --rpc-url http://10.50.0.13:48650 --rpm 10000 --minutes 1
-```
-
-## 7. Reset Testnet-Beta (Deterministic)
-
-```bash
-./scripts/reset-testbeta.sh
-```
-
-Does: stop -> clear state -> re-render configs -> regenerate genesis -> restart.
-
-## 8. Most Used Node Actions
-
-Single node page:
-
-- `start`
-- `stop`
-- `restart`
 - `status`
-- `setup`
-- `export_logs`
-- `view_chain_data`
-- `export_chain_data`
+- `rpc:get_sync_status`
+- `rpc:get_peer_info`
+- `rpc:get_latest_block`
+- `rpc:get_validator_activity`
+- `rpc:get_sxcp_status`
 
-Custom operations (admin):
+## 8. Workspace Locations
 
-- `install_node`
-- `bootstrap_node`
+- macOS: `~/.synergy-node-control-panel/monitor-workspace`
+- Linux: `~/.synergy-node-control-panel/monitor-workspace`
+- Windows: `%USERPROFILE%\.synergy-node-control-panel\monitor-workspace`
 
-## 9. RBAC Reminder
+## 9. Fast Failure Checks
 
-- `admin`: all actions
-- `operator`: no admin-only install/bootstrap/reset actions
-- `viewer`: read-only
-
-## 10. Troubleshooting 60-Second Triage
-
-1. Node offline:
-   - bulk `status` -> node page `node_logs`
-2. Sync stuck:
-   - check peer count + bootnode reachability
-3. Atlas links missing:
-   - set `ATLAS_BASE_URL` in `hosts.env`
-4. Exports missing:
-   - check `testbeta/lean15/reports/node-monitor-exports/`
-   - check `testbeta/lean15/reports/remote-exports/<machine-id>/`
-
-## 11. macOS Installer Output
-
-- App: `tools/testbeta-control-panel/control-service/target/release/bundle/macos/Synergy Node Control Panel.app`
-- DMG: `tools/testbeta-control-panel/control-service/target/release/bundle/dmg/Synergy Node Control Panel_<version>_aarch64.dmg`
+- Import rejected: re-download the package from the Genesis Dashboard and import the exact assigned role package.
+- Bootstrap missing: confirm all three bootnodes and at least one seed service respond before starting validators.
+- Wrong public host: re-run `genesis setup` and enter the canonical hostname for the role being installed.
+- Stale manifests: delete the failed workspace and import the ceremony package again.

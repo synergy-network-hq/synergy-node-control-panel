@@ -14,25 +14,25 @@ DISPLAY_LABEL="${DISPLAY_LABEL:-Validator RPC ${PUBLIC_HOST}}"
 SERVICE_NAME="${SERVICE_NAME:-synergy-validator-rpc}"
 
 CHAIN_ID="${CHAIN_ID:-338639}"
-P2P_PORT="${P2P_PORT:-39638}"
-RPC_PORT="${RPC_PORT:-49638}"
-WS_PORT="${WS_PORT:-59638}"
-METRICS_PORT="${METRICS_PORT:-9190}"
-DISCOVERY_PORT="${DISCOVERY_PORT:-31301}"
+P2P_PORT="${P2P_PORT:-5634}"
+RPC_PORT="${RPC_PORT:-5734}"
+WS_PORT="${WS_PORT:-5834}"
+METRICS_PORT="${METRICS_PORT:-6034}"
+DISCOVERY_PORT="${DISCOVERY_PORT:-5934}"
 
 BINARY_SOURCE="$ROOT_DIR/binaries/synergy-testbeta-linux-amd64"
 ADDRESS_ENGINE_MANIFEST="$ROOT_DIR/synergy-address-engine/Cargo.toml"
 
 BOOTNODES=(
-  "bootnode1.synergynode.xyz:38638"
-  "bootnode2.synergynode.xyz:38638"
-  "bootnode3.synergynode.xyz:38638"
+  "bootnode1.synergynode.xyz:5620"
+  "bootnode2.synergynode.xyz:5620"
+  "bootnode3.synergynode.xyz:5620"
 )
 
 SEEDS=(
-  "http://seed1.synergynode.xyz:18080"
-  "http://seed2.synergynode.xyz:18080"
-  "http://seed3.synergynode.xyz:18080"
+  "http://seed1.synergynode.xyz:5621"
+  "http://seed2.synergynode.xyz:5621"
+  "http://seed3.synergynode.xyz:5621"
 )
 
 require_file() {
@@ -517,9 +517,9 @@ JSON
 )"
 
 for seed_url in \
-  "http://seed1.synergynode.xyz:18080/peers/register" \
-  "http://seed2.synergynode.xyz:18080/peers/register" \
-  "http://seed3.synergynode.xyz:18080/peers/register"
+  "http://seed1.synergynode.xyz:5621/peers/register" \
+  "http://seed2.synergynode.xyz:5621/peers/register" \
+  "http://seed3.synergynode.xyz:5621/peers/register"
 do
   if curl -fsS --max-time 5 -H "Content-Type: application/json" -d "$PAYLOAD" "$seed_url" >/dev/null; then
     echo "Registered with $seed_url"
@@ -627,7 +627,7 @@ This bundle is a portable Linux \`x86_64\` validator + RPC workspace for **Syner
 
 ## Why these ports
 
-\`74.208.227.23\` already answers as \`bootnode1.synergynode.xyz\` on \`38638/tcp\` and as \`seed1.synergynode.xyz\` on \`18080/tcp\`. To avoid collisions on that VPS, this validator bundle uses:
+\`74.208.227.23\` already answers as \`bootnode1.synergynode.xyz\` on \`5620/tcp\` and as \`seed1.synergynode.xyz\` on \`5621/tcp\`. To avoid collisions on that VPS, this validator bundle uses:
 
 - P2P: \`$P2P_PORT\`
 - RPC: \`$RPC_PORT\`

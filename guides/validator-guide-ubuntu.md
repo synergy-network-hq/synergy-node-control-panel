@@ -42,10 +42,10 @@ As a validator, you will:
 
 - **Static IP**: Required for P2P connectivity
 - **Open Ports**:
-  - **38638** (P2P/SNR gossip)
-  - **48638** (JSON-RPC)
-  - **58638** (WebSocket)
-  - **9090** (Prometheus metrics)
+  - **5630** (P2P/SNR gossip)
+  - **5730** (JSON-RPC)
+  - **5830** (WebSocket)
+  - **6030** (Prometheus metrics)
 - **Firewall**: Properly configured for node communication
 - **Domain/Static IP**: For reliable peer connectivity
 
@@ -98,22 +98,22 @@ cargo build --release --bin synergy-testbeta
 [network]
 id = 338639
 name = "Synergy Testnet-Beta"
-p2p_port = 38638
-rpc_port = 48638
-ws_port = 58638
+p2p_port = 5630
+rpc_port = 5730
+ws_port = 5830
 max_peers = 50
 bootnodes = [
-  "snr://sYnV5um22g62fwrnq6zh92msp9ek7lqrjrw3hpukd@bootnode1.synergy-network.io:38638",
-  "snr://sYnV5um22g62fwrnq6zh92msp9ek7lqrjrw3hpukd@bootnode2.synergy-network.io:38638"
+  "snr://sYnV5um22g62fwrnq6zh92msp9ek7lqrjrw3hpukd@bootnode1.synergynode.xyz:5620",
+  "snr://sYnV5um22g62fwrnq6zh92msp9ek7lqrjrw3hpukd@bootnode2.synergynode.xyz:5620"
 ]
 
 [network.listen]
-p2p = "0.0.0.0:38638"
-rpc = "0.0.0.0:48638"
-ws  = "0.0.0.0:58638"
+p2p = "0.0.0.0:5630"
+rpc = "0.0.0.0:5730"
+ws  = "0.0.0.0:5830"
 
 [rpc]
-bind_address = "0.0.0.0:48638"
+bind_address = "0.0.0.0:5730"
 external_http = "https://testbeta-core-rpc.synergy-network.io"
 external_ws = "wss://testbeta-core-ws.synergy-network.io"
 
@@ -128,14 +128,14 @@ path = "data/chain"
 
 [api]
 enable_http = true
-http_port = 48638
+http_port = 5730
 enable_ws = true
-ws_port = 58638
+ws_port = 5830
 enable_grpc = true
 grpc_port = 50051
 
 [metrics]
-bind_address = "0.0.0.0:9090"
+bind_address = "0.0.0.0:6030"
 ```
 
 #### Using Node Templates
@@ -148,10 +148,10 @@ Synergy testbeta uses template-based configuration. Simply start a validator nod
 
 The validator template (`templates/validator.toml`) contains all necessary configuration matching the correct Testnet-Beta ports specified in SYNERGY_TESTBETA_PORTS_AND_PROTOCOLS.txt:
 
-- **P2P Port**: 38638
-- **RPC Port**: 48638
-- **WebSocket Port**: 58638
-- **Metrics Port**: 9090
+- **P2P Port**: 5630
+- **RPC Port**: 5730
+- **WebSocket Port**: 5830
+- **Metrics Port**: 6030
 
 ### 4. Validator Registration
 
@@ -280,8 +280,8 @@ Public Key: $(jq -r '.public_key' config/validator/validator_identity.json)
 Algorithm: FN-DSA-1024
 Node Type: Class 1 (Consensus Validator)
 Server IP: <your-server-ip>
-P2P Port: 38638
-RPC Port: 48638
+P2P Port: 5630
+RPC Port: 5730
 Operator: <your-name-or-organization>
 EOF
 ```
@@ -418,23 +418,23 @@ sudo ufw enable
 sudo ufw allow ssh
 
 # Allow Synergy validator ports
-sudo ufw allow 38638/tcp comment 'Synergy P2P'
+sudo ufw allow 5630/tcp comment 'Synergy P2P'
 
 # Allow RPC and WebSocket (restrict to localhost or specific IPs for security)
 # For localhost only:
-sudo ufw allow from 127.0.0.1 to any port 48638 proto tcp comment 'Synergy RPC (localhost)'
-sudo ufw allow from 127.0.0.1 to any port 58638 proto tcp comment 'Synergy WebSocket (localhost)'
+sudo ufw allow from 127.0.0.1 to any port 5730 proto tcp comment 'Synergy RPC (localhost)'
+sudo ufw allow from 127.0.0.1 to any port 5830 proto tcp comment 'Synergy WebSocket (localhost)'
 
 # Or, if you need to allow from specific IP:
-# sudo ufw allow from YOUR_IP to any port 48638 proto tcp
-# sudo ufw allow from YOUR_IP to any port 58638 proto tcp
+# sudo ufw allow from YOUR_IP to any port 5730 proto tcp
+# sudo ufw allow from YOUR_IP to any port 5830 proto tcp
 
 # Or, to allow from anywhere (NOT RECOMMENDED for production):
-# sudo ufw allow 48638/tcp comment 'Synergy RPC'
-# sudo ufw allow 58638/tcp comment 'Synergy WebSocket'
+# sudo ufw allow 5730/tcp comment 'Synergy RPC'
+# sudo ufw allow 5830/tcp comment 'Synergy WebSocket'
 
 # Allow metrics (localhost only)
-sudo ufw allow from 127.0.0.1 to any port 9090 proto tcp comment 'Synergy Metrics'
+sudo ufw allow from 127.0.0.1 to any port 6030 proto tcp comment 'Synergy Metrics'
 
 # Check firewall status
 sudo ufw status verbose
@@ -446,16 +446,16 @@ For more granular control, use iptables directly:
 
 ```bash
 # Allow P2P connections
-sudo iptables -A INPUT -p tcp --dport 38638 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 5630 -j ACCEPT
 
 # Allow RPC (localhost only)
-sudo iptables -A INPUT -s 127.0.0.1 -p tcp --dport 48638 -j ACCEPT
+sudo iptables -A INPUT -s 127.0.0.1 -p tcp --dport 5730 -j ACCEPT
 
 # Allow WebSocket (localhost only)
-sudo iptables -A INPUT -s 127.0.0.1 -p tcp --dport 58638 -j ACCEPT
+sudo iptables -A INPUT -s 127.0.0.1 -p tcp --dport 5830 -j ACCEPT
 
 # Allow metrics (localhost only)
-sudo iptables -A INPUT -s 127.0.0.1 -p tcp --dport 9090 -j ACCEPT
+sudo iptables -A INPUT -s 127.0.0.1 -p tcp --dport 6030 -j ACCEPT
 
 # Save iptables rules (Ubuntu/Debian)
 sudo apt install -y iptables-persistent
@@ -483,7 +483,7 @@ tail -f ~/synergy/synergy-testbeta/data/logs/synergy-validator-error.log
 # Check node info via RPC
 curl -X POST -H "Content-Type: application/json" \
   --data '{"jsonrpc":"2.0","method":"synergy_nodeInfo","id":1}' \
-  http://localhost:48638
+  http://localhost:5730
 
 # Monitor system resources
 top
@@ -492,8 +492,8 @@ df -h
 free -h
 
 # Monitor network activity
-ss -tuln | grep -E '38638|48638|58638'
-netstat -an | grep -E '38638|48638|58638'
+ss -tuln | grep -E '5630|5730|5830'
+netstat -an | grep -E '5630|5730|5830'
 ```
 
 ### Performance Monitoring
@@ -503,10 +503,10 @@ netstat -an | grep -E '38638|48638|58638'
 sudo apt install -y htop iotop sysstat
 
 # Monitor network connections
-sudo lsof -i :38638
-sudo lsof -i :48638
-sudo lsof -i :58638
-ss -tn | grep -E '38638|48638|58638'
+sudo lsof -i :5630
+sudo lsof -i :5730
+sudo lsof -i :5830
+ss -tn | grep -E '5630|5730|5830'
 
 # Check disk usage
 du -sh ~/synergy/synergy-testbeta/data/
@@ -644,10 +644,10 @@ sudo logrotate -f /etc/logrotate.d/synergy-validator
 
 ```bash
 # Check for port conflicts
-sudo lsof -i :38638
-sudo lsof -i :48638
-sudo lsof -i :58638
-sudo ss -tuln | grep -E '38638|48638|58638'
+sudo lsof -i :5630
+sudo lsof -i :5730
+sudo lsof -i :5830
+sudo ss -tuln | grep -E '5630|5730|5830'
 
 # Check available disk space
 df -h ~/synergy/synergy-testbeta/
@@ -667,7 +667,7 @@ journalctl -u synergy-validator -n 50 --no-pager
 # Check peer connections
 curl -X POST -H "Content-Type: application/json" \
   --data '{"jsonrpc":"2.0","method":"synergy_syncing","id":1}' \
-  http://localhost:48638
+  http://localhost:5730
 
 # Restart with fresh sync
 sudo systemctl stop synergy-validator

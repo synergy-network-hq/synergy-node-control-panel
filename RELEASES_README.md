@@ -220,10 +220,13 @@ The control panel connects to the Synergy Testnet Beta network:
 
 | Port | Purpose |
 |------|---------|
-| `38638` | P2P |
-| `48638` | RPC |
-| `58638` | WebSocket |
-| `9090` | Metrics |
+| `5620` | Bootnode listener |
+| `5621` | Seed-service listener |
+| `5630 + slot` | Node P2P |
+| `5730 + slot` | Node RPC |
+| `5830 + slot` | Node WebSocket |
+| `5930 + slot` | Node discovery |
+| `6030 + slot` | Node metrics |
 
 ---
 

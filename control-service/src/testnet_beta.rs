@@ -1,5 +1,6 @@
 use crate::app_context::AppContext;
 use chrono::Utc;
+use flate2::read::GzDecoder;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
 use reqwest::Client;
@@ -7,27 +8,33 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
+use std::fs::File;
+use std::io;
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use synergy_address_engine::{generate_identity, AddressType, SynergyIdentity};
 use sysinfo::{Disks, Pid, System};
+use tar::Archive;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use uuid::Uuid;
+use zip::read::ZipArchive;
 
 const STATE_VERSION: u32 = 1;
 const TESTNET_BETA_ENVIRONMENT_ID: &str = "testbeta";
 const TESTNET_BETA_DISPLAY_NAME: &str = "Testnet-Beta";
 const TESTNET_BETA_CHAIN_NAME: &str = "synergy-testnet-beta";
 const TESTNET_BETA_CHAIN_ID: u64 = 338639;
-const TESTNET_BETA_P2P_PORT: u16 = 38638;
-const TESTNET_BETA_RPC_PORT: u16 = 48638;
-const TESTNET_BETA_WS_PORT: u16 = 58638;
-const TESTNET_BETA_DISCOVERY_PORT: u16 = 30301;
-const TESTNET_BETA_METRICS_PORT: u16 = 9090;
+const TESTNET_BETA_BOOTNODE_PORT: u16 = 5620;
+const TESTNET_BETA_SEED_PORT: u16 = 5621;
+const TESTNET_BETA_P2P_PORT: u16 = 5630;
+const TESTNET_BETA_RPC_PORT: u16 = 5730;
+const TESTNET_BETA_WS_PORT: u16 = 5830;
+const TESTNET_BETA_DISCOVERY_PORT: u16 = 5930;
+const TESTNET_BETA_METRICS_PORT: u16 = 6030;
 const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergy-network.io";
 const TOKEN_SYMBOL: &str = "SNRG";
 const TOKEN_DECIMALS: u32 = 9;
@@ -303,6 +310,71 @@ pub struct TestnetBetaSetupResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TestnetBetaImportCeremonyPackageInput {
+    pub setup_role_id: String,
+    pub package_path: String,
+    pub intended_directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestnetBetaImportCeremonyPackageResult {
+    pub import_mode: String,
+    pub role_id: String,
+    pub display_name: String,
+    pub workspace_directory: String,
+    pub package_path: String,
+    pub staged_paths: Vec<String>,
+    pub message: String,
+    pub next_steps: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<TestnetBetaProvisionedNode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_profile: Option<TestnetBetaNetworkProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestnetBetaCeremonyPackageArtifacts {
+    pub genesis: Value,
+    pub operational_manifest: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestnetBetaCeremonyRuntimeIdentity {
+    pub label: String,
+    pub address: String,
+    pub address_type: String,
+    pub algorithm: String,
+    pub created_at: String,
+    pub public_key: String,
+    pub private_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestnetBetaCeremonyPackage {
+    pub format: String,
+    pub package_type: String,
+    pub role_id: String,
+    pub display_name: String,
+    pub chain_id: u64,
+    pub network_id: String,
+    pub token_symbol: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator_slot: Option<u8>,
+    pub artifacts: TestnetBetaCeremonyPackageArtifacts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_identity: Option<TestnetBetaCeremonyRuntimeIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator_public: Option<Value>,
+    #[serde(default)]
+    pub public_host_required: bool,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TestnetBetaNodeControlInput {
     pub node_id: String,
     pub action: String,
@@ -335,6 +407,107 @@ struct GeneratedWalletFiles {
 
 pub fn testbeta_get_state() -> Result<TestnetBetaState, String> {
     build_state()
+}
+
+pub async fn testbeta_import_ceremony_package(
+    input: TestnetBetaImportCeremonyPackageInput,
+) -> Result<TestnetBetaImportCeremonyPackageResult, String> {
+    let requested_role = input.setup_role_id.trim().to_string();
+    if requested_role.is_empty() {
+        return Err("A ceremony setup role is required.".to_string());
+    }
+
+    let package_path = PathBuf::from(input.package_path.trim());
+    if !package_path.exists() {
+        return Err(format!(
+            "Ceremony package not found: {}",
+            package_path.display()
+        ));
+    }
+
+    if matches!(requested_role.as_str(), "bootnode" | "seed_server") {
+        return import_bootstrap_bundle(requested_role, package_path, input.intended_directory).await;
+    }
+
+    let package = load_ceremony_package(&package_path)?;
+    validate_ceremony_package(&package, &requested_role)?;
+
+    let mut setup_result = testbeta_setup_node(TestnetBetaSetupInput {
+        role_id: package.role_id.clone(),
+        display_label: Some(package.display_name.clone()),
+        intended_directory: input.intended_directory.clone(),
+        public_host: input.public_host.clone(),
+    })
+    .await?;
+
+    let root = ensure_testnet_beta_root()?;
+    let workspace_directory = PathBuf::from(&setup_result.node.workspace_directory);
+    let staged_package_path = workspace_directory
+        .join("manifests")
+        .join("ceremony-package.json");
+    write_json_file(
+        &staged_package_path,
+        &serde_json::to_value(&package)
+            .map_err(|error| format!("Failed to serialize ceremony package: {error}"))?,
+    )?;
+    write_package_artifacts_to_workspace(&workspace_directory, &package.artifacts)?;
+
+    let mut staged_paths = vec![
+        staged_package_path.to_string_lossy().to_string(),
+        workspace_directory
+            .join("config")
+            .join("genesis.json")
+            .to_string_lossy()
+            .to_string(),
+        workspace_directory
+            .join("config")
+            .join("operational-manifest.json")
+            .to_string_lossy()
+            .to_string(),
+    ];
+
+    if let Some(runtime_identity) = package.runtime_identity.as_ref() {
+        let identity_paths = apply_imported_runtime_identity(
+            &root,
+            &mut setup_result,
+            runtime_identity,
+            &package,
+            input.public_host.as_deref(),
+        )?;
+        staged_paths.extend(identity_paths);
+    }
+
+    let message = if package.runtime_identity.is_some() {
+        format!(
+            "{} package imported into {}. The workspace now carries the approved validator identity and canonical beta manifests.",
+            package.display_name,
+            workspace_directory.display()
+        )
+    } else {
+        format!(
+            "{} package imported into {}. The workspace now carries the canonical beta manifests and approved role metadata.",
+            package.display_name,
+            workspace_directory.display()
+        )
+    };
+
+    let mut next_steps = setup_result.next_steps.clone();
+    if !package.notes.is_empty() {
+        next_steps.extend(package.notes.iter().cloned());
+    }
+
+    Ok(TestnetBetaImportCeremonyPackageResult {
+        import_mode: "runtime-role".to_string(),
+        role_id: package.role_id,
+        display_name: package.display_name,
+        workspace_directory: workspace_directory.to_string_lossy().to_string(),
+        package_path: package_path.to_string_lossy().to_string(),
+        staged_paths,
+        message,
+        next_steps,
+        node: Some(setup_result.node),
+        network_profile: Some(setup_result.network_profile),
+    })
 }
 
 pub fn testbeta_get_device_profile() -> Result<TestnetBetaDeviceProfile, String> {
@@ -457,13 +630,9 @@ pub async fn testbeta_node_control(
                 });
             }
 
-            // Refresh genesis.json before launch so all currently provisioned
-            // validator nodes are in the validator manager when the binary boots.
-            // Without this each node self-registers only itself (1 validator)
-            // which is below min_validators=3 and blocks block production.
-            if let Err(e) = write_genesis_json_for_workspace(&state.nodes, &workspace_directory) {
+            if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
                 eprintln!(
-                    "Warning: could not write genesis.json for {}: {e}",
+                    "Warning: could not refresh launch manifests for {}: {e}",
                     node.display_label
                 );
             }
@@ -528,9 +697,9 @@ pub async fn testbeta_node_control(
                     run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
                 }
 
-                if let Err(e) = write_genesis_json_for_workspace(&state.nodes, &workspace_directory) {
+                if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
                     eprintln!(
-                        "Warning: could not write genesis.json for {}: {e}",
+                        "Warning: could not refresh launch manifests for {}: {e}",
                         node.display_label
                     );
                 }
@@ -572,10 +741,9 @@ pub async fn testbeta_node_control(
                 run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
             }
 
-            // Refresh genesis.json before relaunching after sync.
-            if let Err(e) = write_genesis_json_for_workspace(&state.nodes, &workspace_directory) {
+            if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
                 eprintln!(
-                    "Warning: could not write genesis.json for {}: {e}",
+                    "Warning: could not refresh launch manifests for {}: {e}",
                     node.display_label
                 );
             }
@@ -878,8 +1046,7 @@ pub async fn testbeta_boost_sync(
         return Err(format!("Failed to write peers.toml: {e}"));
     }
 
-    // 5. Refresh genesis.json.
-    write_genesis_json_for_workspace(&state.nodes, &workspace_directory).ok();
+    write_canonical_workspace_manifests(&workspace_directory).ok();
 
     // 6. Stop node if running, then restart.
     let config_path = workspace_directory.join("config").join("node.toml");
@@ -1016,18 +1183,16 @@ pub async fn testbeta_setup_node(
         role_overlay.as_str(),
         port_slot,
     );
-    let manifest_contents = serde_json::to_string_pretty(&serde_json::json!({
-        "node_id": node_id,
-        "environment_id": TESTNET_BETA_ENVIRONMENT_ID,
-        "display_name": label,
-        "role": role.display_name,
-        "node_address": node_identity.wallet.address,
-        "public_host": detected_public_host,
-        "funding_manifest": funding_manifest,
-        "device_profile": device_profile,
-        "bootstrap_policy": network_profile.bootstrap_policy,
-    }))
-    .map_err(|error| format!("Failed to serialize bootstrap manifest: {error}"))?;
+    let manifest_contents = build_bootstrap_manifest_contents(
+        &node_id,
+        &label,
+        &role,
+        &node_identity.wallet.address,
+        detected_public_host.as_deref(),
+        &funding_manifest,
+        &device_profile,
+        &network_profile.bootstrap_policy,
+    )?;
     let readme_contents = build_node_readme(
         &label,
         &role,
@@ -1048,6 +1213,7 @@ pub async fn testbeta_setup_node(
     write_file(&aegis_toml_path, &aegis_contents)?;
     write_file(&manifest_path, &manifest_contents)?;
     write_file(&readme_path, &readme_contents)?;
+    write_canonical_workspace_manifests(&workspace_directory)?;
 
     // Generate an nginx reverse-proxy config for roles that expose a public RPC surface.
     if matches!(role.id.as_str(), "rpc_gateway" | "indexer") {
@@ -1063,7 +1229,12 @@ pub async fn testbeta_setup_node(
         let ws_subdomain = if role.id == "rpc_gateway" {
             "testbeta-core-ws.synergy-network.io"
         } else {
-            "testbeta-indexer-ws.synergy-network.io"
+            "testbeta-indexer.synergy-network.io"
+        };
+        let certbot_domains = if ws_subdomain == rpc_subdomain {
+            format!("-d {rpc_subdomain}")
+        } else {
+            format!("-d {rpc_subdomain} -d {ws_subdomain}")
         };
         let nginx_contents = format!(
             "# Nginx reverse proxy for {role_display} ({node_id})\n\
@@ -1076,7 +1247,7 @@ pub async fn testbeta_setup_node(
              #   3. Deploy HTTP-only first so certbot can complete the ACME challenge:\n\
              #      sudo nginx -t && sudo systemctl reload nginx\n\
              #   4. Obtain SSL certificate (certbot will update this file automatically):\n\
-             #      sudo certbot --nginx -d {rpc_subdomain} -d {ws_subdomain}\n\
+             #      sudo certbot --nginx {certbot_domains}\n\
              #   5. sudo nginx -t && sudo systemctl reload nginx\n\
              #\n\
              # NOTE: certbot names the cert after the first domain.  Cert paths after\n\
@@ -1188,18 +1359,14 @@ pub async fn testbeta_setup_node(
     save_registry(&root, &registry)?;
     save_network_profile(&root, &network_profile)?;
 
-    // Write/refresh genesis.json for every validator workspace so that when
-    // any node starts it sees ALL provisioned validators in its validator manager.
-    for n in registry
-        .nodes
-        .iter()
-        .filter(|n| role_supports_validator_registration(&n.role_id))
-    {
+    // Refresh the canonical launch manifests everywhere so each managed workspace
+    // carries the same beta genesis and operational manifest data.
+    for n in &registry.nodes {
         let ws = PathBuf::from(&n.workspace_directory);
         if ws.is_dir() {
-            if let Err(e) = write_genesis_json_for_workspace(&registry.nodes, &ws) {
+            if let Err(e) = write_canonical_workspace_manifests(&ws) {
                 eprintln!(
-                    "Warning: could not write genesis.json for {}: {e}",
+                    "Warning: could not refresh launch manifests for {}: {e}",
                     n.display_label
                 );
             }
@@ -2751,6 +2918,23 @@ fn ensure_testnet_beta_root() -> Result<PathBuf, String> {
     Ok(root)
 }
 
+fn canonical_testnet_beta_repo_root() -> Result<PathBuf, String> {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .map_err(|error| format!("Failed to resolve canonical Testnet-Beta repo root: {error}"))
+}
+
+fn canonical_testnet_beta_genesis_path() -> Result<PathBuf, String> {
+    Ok(canonical_testnet_beta_repo_root()?.join("config").join("genesis.json"))
+}
+
+fn canonical_testnet_beta_operational_manifest_path() -> Result<PathBuf, String> {
+    Ok(canonical_testnet_beta_repo_root()?
+        .join("config")
+        .join("operational-manifest.json"))
+}
+
 fn network_profile_path(root: &Path) -> PathBuf {
     root.join("network").join("profile.json")
 }
@@ -2759,78 +2943,30 @@ fn registry_path(root: &Path) -> PathBuf {
     root.join("network").join("registry.json")
 }
 
-/// Build a genesis.json that lists every provisioned validator node so that the
-/// binary's validator manager is seeded correctly when it boots.  The binary
-/// reads "config/genesis.json" relative to its working directory
-/// (the workspace_directory).  Without this file each node falls back to an
-/// empty validator set, self-registers only itself, and block production stalls
-/// because active_validators.len() < min_validators.
-///
-/// The binary accepts either a file path (`public_key_file`) or a fallback
-/// of "genesis_key".  We use absolute paths so the read succeeds even when a
-/// validator's key lives in a different workspace directory.
-fn build_genesis_json_for_workspace(
-    all_nodes: &[TestnetBetaProvisionedNode],
-    target_workspace: &Path,
-) -> String {
-    // Collect validator nodes from the registry.
-    let validators: Vec<_> = all_nodes
-        .iter()
-        .filter(|n| role_supports_validator_registration(&n.role_id))
-        .collect();
-
-    let validator_entries: Vec<String> = validators
-        .iter()
-        .enumerate()
-        .map(|(i, node)| {
-            // Resolve the public key file as an absolute path so the binary can
-            // read it regardless of which workspace it is currently running from.
-            let key_abs = PathBuf::from(&node.public_key_path);
-            let key_str = if key_abs.is_file() {
-                key_abs.to_string_lossy().into_owned()
-            } else {
-                // Fallback: derive from workspace directory.
-                PathBuf::from(&node.workspace_directory)
-                    .join("keys")
-                    .join("identity.json")
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            let name = if node.display_label.is_empty() {
-                format!("Validator {}", i + 1)
-            } else {
-                node.display_label.clone()
-            };
-            // Escape the strings for JSON.
-            let addr = node.node_address.replace('"', "\\\"");
-            let key_str_escaped = key_str.replace('\\', "\\\\").replace('"', "\\\"");
-            let name_escaped = name.replace('"', "\\\"");
-            format!(
-                "    {{\n      \"address\": \"{addr}\",\n      \"public_key_file\": \"{key_str_escaped}\",\n      \"details\": {{ \"name\": \"{name_escaped}\" }}\n    }}"
-            )
-        })
-        .collect();
-
-    let validators_json = validator_entries.join(",\n");
-
-    // Compute the workspace path for context (unused at runtime; included as a comment).
-    let ws_note = target_workspace.to_string_lossy();
-
-    format!(
-        "{{\n  \"_note\": \"Auto-generated by Synergy Node Control Panel for workspace {ws_note}\",\n  \"validators\": [\n{validators_json}\n  ]\n}}\n"
-    )
-}
-
-/// Write (or refresh) the genesis.json inside a workspace config directory.
 fn write_genesis_json_for_workspace(
-    all_nodes: &[TestnetBetaProvisionedNode],
+    _all_nodes: &[TestnetBetaProvisionedNode],
     workspace_directory: &Path,
 ) -> Result<(), String> {
     let config_dir = workspace_directory.join("config");
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
-    let genesis_path = config_dir.join("genesis.json");
-    let contents = build_genesis_json_for_workspace(all_nodes, workspace_directory);
-    write_file(&genesis_path, &contents)
+    copy_file(
+        &canonical_testnet_beta_genesis_path()?,
+        &config_dir.join("genesis.json"),
+    )
+}
+
+fn write_operational_manifest_for_workspace(workspace_directory: &Path) -> Result<(), String> {
+    let config_dir = workspace_directory.join("config");
+    fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
+    copy_file(
+        &canonical_testnet_beta_operational_manifest_path()?,
+        &config_dir.join("operational-manifest.json"),
+    )
+}
+
+fn write_canonical_workspace_manifests(workspace_directory: &Path) -> Result<(), String> {
+    write_genesis_json_for_workspace(&[], workspace_directory)?;
+    write_operational_manifest_for_workspace(workspace_directory)
 }
 
 fn load_or_create_network_profile(root: &Path) -> Result<TestnetBetaNetworkProfile, String> {
@@ -3087,9 +3223,9 @@ fn build_seed_registration(
     public_host: &str,
 ) -> SeedPeerRegistration {
     // Use the slot-adjusted P2P port so the seed server publishes the correct
-    // address for this node.  Without this, every node on the same machine
-    // (slots 0-3) registers as port 38638 and the seed-server peer list is
-    // useless for slots 1-3.
+    // address for this node. Without this, every node on the same machine
+    // would advertise the slot-0 base port and the seed-server peer list would
+    // be wrong for higher slots.
     let p2p_port = TESTNET_BETA_P2P_PORT.saturating_add(node.port_slot.unwrap_or(0));
     let dial = format!("snr://{}@{}:{}", node.node_address, public_host, p2p_port);
     SeedPeerRegistration {
@@ -3204,7 +3340,11 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
         "bootnode"
     };
     let is_seed = kind.eq_ignore_ascii_case("seed");
-    let port = if is_seed { 18080 } else { 38638 };
+    let port = if is_seed {
+        TESTNET_BETA_SEED_PORT
+    } else {
+        TESTNET_BETA_BOOTNODE_PORT
+    };
     let dns_mode = if is_seed {
         "A / SRV / HTTP".to_string()
     } else {
@@ -3295,6 +3435,474 @@ fn persist_identity(
         public_key_path: public_key_path.to_string_lossy().to_string(),
         private_key_path: private_key_path.to_string_lossy().to_string(),
     })
+}
+
+fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.is_file() {
+        return Err(format!("Required file is missing: {}", source.display()));
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+    }
+    fs::copy(source, destination).map_err(|error| {
+        format!(
+            "Failed to copy {} to {}: {error}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn write_json_file(path: &Path, value: &Value) -> Result<(), String> {
+    let contents = serde_json::to_string_pretty(value)
+        .map_err(|error| format!("Failed to serialize {}: {error}", path.display()))?;
+    write_file(path, &contents)
+}
+
+fn build_bootstrap_manifest_contents(
+    node_id: &str,
+    display_name: &str,
+    role: &TestnetBetaRoleProfile,
+    node_address: &str,
+    public_host: Option<&str>,
+    funding_manifest: &TestnetBetaFundingManifest,
+    device_profile: &TestnetBetaDeviceProfile,
+    bootstrap_policy: &TestnetBetaConnectivityPolicy,
+) -> Result<String, String> {
+    serde_json::to_string_pretty(&json!({
+        "node_id": node_id,
+        "environment_id": TESTNET_BETA_ENVIRONMENT_ID,
+        "display_name": display_name,
+        "role": role.display_name,
+        "node_address": node_address,
+        "public_host": public_host,
+        "funding_manifest": funding_manifest,
+        "device_profile": device_profile,
+        "bootstrap_policy": bootstrap_policy,
+    }))
+    .map_err(|error| format!("Failed to serialize bootstrap manifest: {error}"))
+}
+
+fn load_ceremony_package(package_path: &Path) -> Result<TestnetBetaCeremonyPackage, String> {
+    let contents = fs::read_to_string(package_path)
+        .map_err(|error| format!("Failed to read {}: {error}", package_path.display()))?;
+    serde_json::from_str(&contents)
+        .map_err(|error| format!("Failed to parse {}: {error}", package_path.display()))
+}
+
+fn validate_ceremony_package(
+    package: &TestnetBetaCeremonyPackage,
+    requested_role: &str,
+) -> Result<(), String> {
+    if package.format != "synergy-testbeta-ceremony-package/v1" {
+        return Err(format!(
+            "Unsupported ceremony package format: {}",
+            package.format
+        ));
+    }
+    if package.role_id != requested_role {
+        return Err(format!(
+            "Ceremony package role mismatch. Expected {}, got {}.",
+            requested_role, package.role_id
+        ));
+    }
+    if package.chain_id != TESTNET_BETA_CHAIN_ID {
+        return Err(format!(
+            "Ceremony package chain ID mismatch. Expected {}, got {}.",
+            TESTNET_BETA_CHAIN_ID, package.chain_id
+        ));
+    }
+    if package.network_id != TESTNET_BETA_CHAIN_NAME {
+        return Err(format!(
+            "Ceremony package network ID mismatch. Expected {}, got {}.",
+            TESTNET_BETA_CHAIN_NAME, package.network_id
+        ));
+    }
+    if package.token_symbol != TOKEN_SYMBOL {
+        return Err(format!(
+            "Ceremony package token mismatch. Expected {}, got {}.",
+            TOKEN_SYMBOL, package.token_symbol
+        ));
+    }
+    Ok(())
+}
+
+fn write_package_artifacts_to_workspace(
+    workspace_directory: &Path,
+    artifacts: &TestnetBetaCeremonyPackageArtifacts,
+) -> Result<(), String> {
+    let config_dir = workspace_directory.join("config");
+    write_json_file(&config_dir.join("genesis.json"), &artifacts.genesis)?;
+    write_json_file(
+        &config_dir.join("operational-manifest.json"),
+        &artifacts.operational_manifest,
+    )?;
+    Ok(())
+}
+
+fn write_imported_runtime_identity_files(
+    workspace_directory: &Path,
+    identity: &TestnetBetaCeremonyRuntimeIdentity,
+) -> Result<Vec<String>, String> {
+    let keys_directory = workspace_directory.join("keys");
+    let identity_path = keys_directory.join("identity.json");
+    let public_key_path = keys_directory.join("public.key");
+    let private_key_path = keys_directory.join("private.key");
+    let address_path = keys_directory.join("address.txt");
+
+    write_json_file(
+        &identity_path,
+        &json!({
+            "label": identity.label,
+            "address": identity.address,
+            "address_type": identity.address_type,
+            "algorithm": identity.algorithm,
+            "created_at": identity.created_at,
+            "public_key": identity.public_key,
+            "private_key": identity.private_key,
+        }),
+    )?;
+    write_file(&public_key_path, &identity.public_key)?;
+    write_file(&private_key_path, &identity.private_key)?;
+    write_file(&address_path, &identity.address)?;
+
+    Ok(vec![
+        identity_path.to_string_lossy().to_string(),
+        public_key_path.to_string_lossy().to_string(),
+        private_key_path.to_string_lossy().to_string(),
+        address_path.to_string_lossy().to_string(),
+    ])
+}
+
+fn apply_imported_runtime_identity(
+    root: &Path,
+    setup_result: &mut TestnetBetaSetupResult,
+    identity: &TestnetBetaCeremonyRuntimeIdentity,
+    package: &TestnetBetaCeremonyPackage,
+    public_host_override: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let workspace_directory = PathBuf::from(&setup_result.node.workspace_directory);
+    let identity_paths = write_imported_runtime_identity_files(&workspace_directory, identity)?;
+    write_package_artifacts_to_workspace(&workspace_directory, &package.artifacts)?;
+
+    let mut registry = load_registry(root)?;
+    let mut network_profile = load_or_create_network_profile(root)?;
+    let node_index = registry
+        .nodes
+        .iter()
+        .position(|entry| entry.id == setup_result.node.id)
+        .ok_or_else(|| format!("Provisioned node not found in registry: {}", setup_result.node.id))?;
+    let role_id = registry.nodes[node_index].role_id.clone();
+    let funding_manifest_id = registry.nodes[node_index].funding_manifest_id.clone();
+    let node_id = registry.nodes[node_index].id.clone();
+    let role = find_role_profile(&role_id)?;
+    let public_host = public_host_override
+        .and_then(normalize_public_host_candidate)
+        .or_else(|| registry.nodes[node_index].public_host.clone());
+    let role_overlay = role_overlay_for(&role.id);
+    let port_slot = registry.nodes[node_index].port_slot.unwrap_or(0);
+
+    {
+        let node_record = &mut registry.nodes[node_index];
+        node_record.display_label = package.display_name.clone();
+        node_record.node_address = identity.address.clone();
+        node_record.public_key_path = workspace_directory
+            .join("keys")
+            .join("public.key")
+            .to_string_lossy()
+            .to_string();
+        node_record.private_key_path = workspace_directory
+            .join("keys")
+            .join("private.key")
+            .to_string_lossy()
+            .to_string();
+        if public_host.is_some() {
+            node_record.public_host = public_host.clone();
+        }
+    }
+
+    if let Some(funding_manifest) = network_profile
+        .funding_manifests
+        .iter_mut()
+        .find(|entry| entry.id == funding_manifest_id)
+    {
+        funding_manifest.destination_wallet = identity.address.clone();
+        funding_manifest.destination_role = role.display_name.clone();
+    }
+    network_profile.updated_at_utc = Utc::now().to_rfc3339();
+
+    let manifest_for_node = network_profile
+        .funding_manifests
+        .iter()
+        .find(|entry| entry.id == funding_manifest_id)
+        .cloned()
+        .ok_or_else(|| format!("Funding manifest not found for imported node {node_id}"))?;
+
+    let node_contents = build_node_toml(
+        &node_id,
+        &package.display_name,
+        &role,
+        &identity.address,
+        &workspace_directory,
+        public_host.as_deref(),
+        &network_profile,
+        role_overlay.as_str(),
+        port_slot,
+    );
+    let manifest_contents = build_bootstrap_manifest_contents(
+        &node_id,
+        &package.display_name,
+        &role,
+        &identity.address,
+        public_host.as_deref(),
+        &manifest_for_node,
+        &setup_result.device_profile,
+        &network_profile.bootstrap_policy,
+    )?;
+    let readme_contents = build_node_readme(
+        &package.display_name,
+        &role,
+        &identity.address,
+        &workspace_directory,
+        &network_profile,
+        public_host.as_deref(),
+    );
+
+    write_file(
+        &workspace_directory.join("config").join("node.toml"),
+        &node_contents,
+    )?;
+    write_file(
+        &workspace_directory.join("manifests").join("bootstrap.json"),
+        &manifest_contents,
+    )?;
+    write_file(&workspace_directory.join("README.md"), &readme_contents)?;
+
+    let updated_node = registry.nodes[node_index].clone();
+    save_registry(root, &registry)?;
+    save_network_profile(root, &network_profile)?;
+    setup_result.node = updated_node;
+    setup_result.network_profile = network_profile;
+
+    Ok(identity_paths)
+}
+
+async fn import_bootstrap_bundle(
+    requested_role: String,
+    package_path: PathBuf,
+    intended_directory: Option<String>,
+) -> Result<TestnetBetaImportCeremonyPackageResult, String> {
+    let root = ensure_testnet_beta_root()?;
+    let default_directory = root
+        .join("ceremony")
+        .join("imports")
+        .join(format!("{}-bundle", sanitize_slug(&requested_role)));
+    let workspace_directory =
+        resolve_node_directory(intended_directory.as_deref(), &default_directory)?;
+    let bundle_directory = workspace_directory.join("bundle");
+    fs::create_dir_all(&bundle_directory)
+        .map_err(|error| format!("Failed to create {}: {error}", bundle_directory.display()))?;
+    let staged_paths = extract_import_source(&package_path, &bundle_directory)?;
+    let import_manifest_path = workspace_directory.join("import.json");
+    write_json_file(
+        &import_manifest_path,
+        &json!({
+            "import_mode": "bootstrap-bundle",
+            "role_id": requested_role,
+            "package_path": package_path,
+            "staged_at_utc": Utc::now().to_rfc3339(),
+            "bundle_directory": bundle_directory,
+            "staged_paths": staged_paths,
+        }),
+    )?;
+
+    let display_name = if requested_role == "bootnode" {
+        "Bootnode Bundle"
+    } else {
+        "Seed Server Bundle"
+    };
+
+    let mut next_steps = vec![
+        format!(
+            "Open {} and review the imported deployment guide.",
+            bundle_directory.display()
+        ),
+        "Move the staged bundle onto the target machine if this control panel is not running there."
+            .to_string(),
+    ];
+    if requested_role == "bootnode" {
+        next_steps.push(
+            "Run install_and_start.sh or install_and_start.ps1 from the imported bundle on the assigned beta bootstrap host."
+                .to_string(),
+        );
+    } else {
+        next_steps.push(
+            "Run install_and_start.sh or install_and_start.ps1 from the imported bundle on the assigned beta seed-service host."
+                .to_string(),
+        );
+    }
+
+    Ok(TestnetBetaImportCeremonyPackageResult {
+        import_mode: "bootstrap-bundle".to_string(),
+        role_id: requested_role,
+        display_name: display_name.to_string(),
+        workspace_directory: workspace_directory.to_string_lossy().to_string(),
+        package_path: package_path.to_string_lossy().to_string(),
+        staged_paths: {
+            let mut paths = vec![import_manifest_path.to_string_lossy().to_string()];
+            paths.extend(staged_paths);
+            paths
+        },
+        message: format!(
+            "{} imported into {}. The staged bundle is ready for deployment on the assigned beta host.",
+            display_name,
+            bundle_directory.display()
+        ),
+        next_steps,
+        node: None,
+        network_profile: None,
+    })
+}
+
+fn extract_import_source(source: &Path, destination: &Path) -> Result<Vec<String>, String> {
+    if source.is_dir() {
+        copy_directory_recursive(source, destination)?;
+        return collect_staged_paths(destination);
+    }
+
+    let file_name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| format!("Invalid package path: {}", source.display()))?;
+
+    if file_name.ends_with(".tar.gz") || file_name.ends_with(".tgz") {
+        extract_tar_gz(source, destination)?;
+        return collect_staged_paths(destination);
+    }
+    if source.extension().and_then(|value| value.to_str()) == Some("zip") {
+        extract_zip(source, destination)?;
+        return collect_staged_paths(destination);
+    }
+
+    let target_path = destination.join(file_name);
+    copy_file(source, &target_path)?;
+    Ok(vec![target_path.to_string_lossy().to_string()])
+}
+
+fn collect_staged_paths(destination: &Path) -> Result<Vec<String>, String> {
+    let mut staged = Vec::new();
+    for entry in fs::read_dir(destination)
+        .map_err(|error| format!("Failed to inspect {}: {error}", destination.display()))?
+    {
+        let entry = entry.map_err(|error| {
+            format!(
+                "Failed to read entry inside {}: {error}",
+                destination.display()
+            )
+        })?;
+        staged.push(entry.path().to_string_lossy().to_string());
+    }
+    staged.sort();
+    Ok(staged)
+}
+
+fn copy_directory_recursive(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination)
+        .map_err(|error| format!("Failed to create {}: {error}", destination.display()))?;
+    for entry in fs::read_dir(source)
+        .map_err(|error| format!("Failed to inspect {}: {error}", source.display()))?
+    {
+        let entry =
+            entry.map_err(|error| format!("Failed to read {}: {error}", source.display()))?;
+        let entry_path = entry.path();
+        let target_path = destination.join(entry.file_name());
+        if entry_path.is_dir() {
+            copy_directory_recursive(&entry_path, &target_path)?;
+        } else {
+            copy_file(&entry_path, &target_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn sanitize_archive_relative_path(path: &Path) -> Result<PathBuf, String> {
+    let mut sanitized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => sanitized.push(segment),
+            Component::CurDir => {}
+            Component::RootDir | Component::Prefix(_) | Component::ParentDir => {
+                return Err(format!(
+                    "Unsafe archive entry detected: {}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    if sanitized.as_os_str().is_empty() {
+        return Err("Archive entry resolved to an empty path.".to_string());
+    }
+    Ok(sanitized)
+}
+
+fn extract_tar_gz(source: &Path, destination: &Path) -> Result<(), String> {
+    let file = File::open(source)
+        .map_err(|error| format!("Failed to open {}: {error}", source.display()))?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = Archive::new(decoder);
+    let entries = archive
+        .entries()
+        .map_err(|error| format!("Failed to read {}: {error}", source.display()))?;
+    for entry in entries {
+        let mut entry =
+            entry.map_err(|error| format!("Failed to unpack {}: {error}", source.display()))?;
+        let raw_path = entry
+            .path()
+            .map_err(|error| format!("Failed to inspect archive entry: {error}"))?;
+        let relative = sanitize_archive_relative_path(&raw_path)?;
+        let output_path = destination.join(relative);
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+        }
+        entry
+            .unpack(&output_path)
+            .map_err(|error| format!("Failed to unpack {}: {error}", output_path.display()))?;
+    }
+    Ok(())
+}
+
+fn extract_zip(source: &Path, destination: &Path) -> Result<(), String> {
+    let file = File::open(source)
+        .map_err(|error| format!("Failed to open {}: {error}", source.display()))?;
+    let mut archive = ZipArchive::new(file)
+        .map_err(|error| format!("Failed to read {}: {error}", source.display()))?;
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("Failed to inspect {}: {error}", source.display()))?;
+        let relative = entry
+            .enclosed_name()
+            .map(PathBuf::from)
+            .ok_or_else(|| format!("Unsafe zip entry detected inside {}", source.display()))?;
+        let output_path = destination.join(relative);
+        if entry.is_dir() {
+            fs::create_dir_all(&output_path)
+                .map_err(|error| format!("Failed to create {}: {error}", output_path.display()))?;
+            continue;
+        }
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+        }
+        let mut output = File::create(&output_path)
+            .map_err(|error| format!("Failed to write {}: {error}", output_path.display()))?;
+        io::copy(&mut entry, &mut output)
+            .map_err(|error| format!("Failed to extract {}: {error}", output_path.display()))?;
+    }
+    Ok(())
 }
 
 fn write_file(path: &Path, contents: &str) -> Result<(), String> {
@@ -3460,7 +4068,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = 30000\nmin_validators = 3\nvalidator_cluster_size = 5\nmax_validators = 21\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = 30000\nmin_validators = 4\nvalidator_cluster_size = 4\nmax_validators = 4\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -3800,7 +4408,7 @@ mod tests {
                     .get("p2p")
                     .and_then(|section| section.get("public_address"))
                     .and_then(toml::Value::as_str),
-                Some("validator-alpha.synergynode.xyz:38638")
+                Some("validator-alpha.synergynode.xyz:5630")
             );
             assert_eq!(
                 node_value
@@ -3818,15 +4426,15 @@ mod tests {
             assert_eq!(bootnodes.len(), 3);
             assert_eq!(
                 bootnodes[0].as_str(),
-                Some("bootnode1.synergynode.xyz:38638")
+                Some("bootnode1.synergynode.xyz:5620")
             );
             assert_eq!(
                 bootnodes[1].as_str(),
-                Some("bootnode2.synergynode.xyz:38638")
+                Some("bootnode2.synergynode.xyz:5620")
             );
             assert_eq!(
                 bootnodes[2].as_str(),
-                Some("bootnode3.synergynode.xyz:38638")
+                Some("bootnode3.synergynode.xyz:5620")
             );
 
             let seeds = node_value
@@ -3837,15 +4445,15 @@ mod tests {
             assert_eq!(seeds.len(), 3);
             assert_eq!(
                 seeds[0].as_str(),
-                Some("http://seed1.synergynode.xyz:18080")
+                Some("http://seed1.synergynode.xyz:5621")
             );
             assert_eq!(
                 seeds[1].as_str(),
-                Some("http://seed2.synergynode.xyz:18080")
+                Some("http://seed2.synergynode.xyz:5621")
             );
             assert_eq!(
                 seeds[2].as_str(),
-                Some("http://seed3.synergynode.xyz:18080")
+                Some("http://seed3.synergynode.xyz:5621")
             );
 
             let dns_records = node_value
@@ -3880,7 +4488,7 @@ mod tests {
             assert_eq!(peer_bootnodes.len(), 3);
             assert_eq!(
                 peer_bootnodes[0].as_str(),
-                Some("bootnode1.synergynode.xyz:38638")
+                Some("bootnode1.synergynode.xyz:5620")
             );
 
             let peer_dns_records = peers_value
@@ -3902,7 +4510,7 @@ mod tests {
             assert_eq!(peer_seeds.len(), 3);
             assert_eq!(
                 peer_seeds[0].as_str(),
-                Some("http://seed1.synergynode.xyz:18080")
+                Some("http://seed1.synergynode.xyz:5621")
             );
 
             assert_eq!(

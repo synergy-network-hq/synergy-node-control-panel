@@ -3,10 +3,10 @@
 ## Network Configuration
 
 - **Chain ID**: 338639
-- **P2P Port**: 38638
-- **RPC Port**: 48638
-- **WebSocket Port**: 58638
-- **Metrics Port**: 9090
+- **P2P Port**: 5630
+- **RPC Port**: 5730
+- **WebSocket Port**: 5830
+- **Metrics Port**: 6030
 
 ## Endpoints
 
@@ -23,19 +23,19 @@
 
 ### Bootnode 1
 - **Address**: `synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv`
-- **P2P**: `snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638`
+- **P2P**: `snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergynode.xyz:5620`
 - **Config**: `config/bootnode1.toml` or `config/node_config.toml`
 - **Keys**: `config/bootnode1/identity.json`
 
 ### Bootnode 2
 - **Address**: `synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04`
-- **P2P**: `snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergy-network.io:38638`
+- **P2P**: `snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergynode.xyz:5620`
 - **Config**: `config/bootnode2.toml`
 - **Keys**: `config/bootnode2/identity.json`
 
 ### Bootnode 3
 - **Address**: `synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4`
-- **P2P**: `snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergy-network.io:38638`
+- **P2P**: `snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergynode.xyz:5620`
 - **Config**: `config/bootnode3.toml`
 - **Keys**: `config/bootnode3/identity.json`
 
@@ -59,7 +59,7 @@
 
 ## Network
 
-- **Total Supply**: 12,000,000,000 SNRG
+- **Total Supply**: 1,150,000 SNRG
 - **Burn Address**: `synergy00000000000000000000000burn`
 - **Chain ID**: `synergy-testbeta`
 

@@ -210,7 +210,7 @@ You can override configuration values with environment variables:
 
 ```bash
 export SYNERGY_LOG_LEVEL=debug
-export SYNERGY_RPC_PORT=58638
+export SYNERGY_RPC_PORT=5830
 export SYNERGY_P2P_PORT=30304
 ./target/release/synergy-testbeta start --node-type validator
 ```
@@ -252,14 +252,14 @@ To run multiple nodes simultaneously, use different ports:
 
 ### Terminal 1 - Validator Node
 ```bash
-export SYNERGY_RPC_PORT=48638
-export SYNERGY_P2P_PORT=38638
+export SYNERGY_RPC_PORT=5730
+export SYNERGY_P2P_PORT=5630
 ./target/release/synergy-testbeta start --node-type validator
 ```
 
 ### Terminal 2 - Oracle Node
 ```bash
-export SYNERGY_RPC_PORT=58638
+export SYNERGY_RPC_PORT=5830
 export SYNERGY_P2P_PORT=30304
 ./target/release/synergy-testbeta start --node-type oracle
 ```
@@ -288,7 +288,7 @@ cargo build --release
 
 **Solution**: Change the port using environment variables:
 ```bash
-export SYNERGY_RPC_PORT=58638
+export SYNERGY_RPC_PORT=5830
 ./testbeta.sh start validator
 ```
 
@@ -382,9 +382,9 @@ Output format (JSON):
 
 - **Network Name**: synergy-testbeta
 - **Chain ID**: 338639
-- **Default P2P Port**: 38638
-- **Default RPC Port**: 48638
-- **Default WS Port**: 58638
+- **Default P2P Port**: 5630
+- **Default RPC Port**: 5730
+- **Default WS Port**: 5830
 - **Consensus**: Proof of Synergy
 
 ## Support

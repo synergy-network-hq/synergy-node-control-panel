@@ -20,6 +20,6 @@ else
 fi
 
 echo "Observability stack started."
-echo "Prometheus: http://127.0.0.1:9090"
+echo "Prometheus: http://127.0.0.1:6030"
 echo "Grafana:    http://127.0.0.1:3000 (admin/admin)"
 echo "Loki:       http://127.0.0.1:3100"

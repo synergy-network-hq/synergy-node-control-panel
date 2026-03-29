@@ -32,11 +32,11 @@ This guide explains how to set up a dedicated RPC node on a remote system. RPC n
 ### Network Requirements
 
 **Incoming Ports:**
-- **48638**: HTTP RPC endpoint
-- **58638**: WebSocket endpoint
+- **5730**: HTTP RPC endpoint
+- **5830**: WebSocket endpoint
 
 **Outgoing Ports:**
-- **38638**: P2P connection to bootnodes
+- **5630**: P2P connection to bootnodes
 
 ---
 
@@ -100,23 +100,23 @@ data_dir = "./data/rpc-node"
 
 [network]
 id = 338639  # Testnet-Beta chain ID
-p2p_port = 38638
-rpc_port = 48638
-ws_port = 58638
+p2p_port = 5630
+rpc_port = 5730
+ws_port = 5830
 
 [p2p]
 # Listen on all interfaces for P2P sync
-listen_address = "0.0.0.0:38638"
+listen_address = "0.0.0.0:5630"
 
 # Your public IP or DNS (for peer discovery)
 # Replace with your actual public IP or domain
-public_address = "YOUR_PUBLIC_IP:38638"
+public_address = "YOUR_PUBLIC_IP:5630"
 
 # Connect to testbeta bootnodes
 bootnodes = [
-  "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638",
-  "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergy-network.io:38638",
-  "snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergy-network.io:38638"
+  "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergynode.xyz:5620",
+  "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergynode.xyz:5620",
+  "snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergynode.xyz:5620"
 ]
 
 # Peer limits
@@ -126,13 +126,13 @@ max_outbound_peers = 20
 [rpc]
 # Enable HTTP RPC
 enabled = true
-http_port = 48638
-bind_address = "0.0.0.0:48638"  # Bind to all interfaces
+http_port = 5730
+bind_address = "0.0.0.0:5730"  # Bind to all interfaces
 
 # Enable WebSocket
 ws_enabled = true
-ws_port = 58638
-ws_bind_address = "0.0.0.0:58638"
+ws_port = 5830
+ws_bind_address = "0.0.0.0:5830"
 
 # CORS settings (adjust for your use case)
 cors_origins = ["*"]  # For testbeta - restrict in production!
@@ -180,13 +180,13 @@ log_file = "./data/logs/rpc-node.log"
 sudo ufw allow 22/tcp
 
 # Allow P2P
-sudo ufw allow 38638/tcp
+sudo ufw allow 5630/tcp
 
 # Allow RPC HTTP
-sudo ufw allow 48638/tcp
+sudo ufw allow 5730/tcp
 
 # Allow RPC WebSocket
-sudo ufw allow 58638/tcp
+sudo ufw allow 5830/tcp
 
 # Enable firewall
 sudo ufw enable
@@ -213,12 +213,12 @@ mkdir -p data/rpc-node data/logs
 ```
 [INFO] Synergy RPC Node starting...
 [INFO] Chain ID: 338639 (Testnet-Beta)
-[INFO] P2P listening on 0.0.0.0:38638
-[INFO] RPC HTTP listening on 0.0.0.0:48638
-[INFO] RPC WebSocket listening on 0.0.0.0:58638
+[INFO] P2P listening on 0.0.0.0:5630
+[INFO] RPC HTTP listening on 0.0.0.0:5730
+[INFO] RPC WebSocket listening on 0.0.0.0:5830
 [INFO] Connecting to bootnodes...
-[INFO] Connected to bootnode1.synergy-network.io:38638
-[INFO] Connected to bootnode2.synergy-network.io:38638
+[INFO] Connected to bootnode1.synergynode.xyz:5620
+[INFO] Connected to bootnode2.synergynode.xyz:5620
 [INFO] Starting blockchain sync...
 [INFO] Current block: 0 / Network height: 15234
 [INFO] Syncing... (Block 1523 / 15234 - 10%)
@@ -234,7 +234,7 @@ mkdir -p data/rpc-node data/logs
 
 ```bash
 # Get current block height
-curl -X POST http://YOUR_PUBLIC_IP:48638/rpc \
+curl -X POST http://YOUR_PUBLIC_IP:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -260,7 +260,7 @@ cargo install websocat
 
 # Subscribe to new blocks
 echo '{"jsonrpc":"2.0","method":"chain_subscribeNewHeads","id":1}' | \
-  websocat ws://YOUR_PUBLIC_IP:58638
+  websocat ws://YOUR_PUBLIC_IP:5830
 
 # Expected: Stream of new block headers as they arrive
 ```
@@ -269,7 +269,7 @@ echo '{"jsonrpc":"2.0","method":"chain_subscribeNewHeads","id":1}' | \
 
 ```bash
 # Get account balance
-curl -s -X POST http://YOUR_PUBLIC_IP:48638/rpc \
+curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -279,7 +279,7 @@ curl -s -X POST http://YOUR_PUBLIC_IP:48638/rpc \
   }' | jq
 
 # Get transaction by hash
-curl -s -X POST http://YOUR_PUBLIC_IP:48638/rpc \
+curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -289,7 +289,7 @@ curl -s -X POST http://YOUR_PUBLIC_IP:48638/rpc \
   }' | jq
 
 # Get peer count
-curl -s -X POST http://YOUR_PUBLIC_IP:48638/rpc \
+curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -366,7 +366,7 @@ sudo journalctl -u synergy-rpc -f
 
 ```bash
 # Check sync status
-curl -s -X POST http://localhost:48638/rpc \
+curl -s -X POST http://localhost:5730/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"sync_status","id":1}' | jq
 ```
@@ -408,7 +408,7 @@ Create `scripts/rpc-health-check.sh`:
 #!/bin/bash
 # RPC Node Health Check
 
-RPC_ENDPOINT="http://localhost:48638/rpc"
+RPC_ENDPOINT="http://localhost:5730/rpc"
 
 # Check if RPC is responding
 HEIGHT=$(curl -s -X POST "$RPC_ENDPOINT" \
@@ -471,7 +471,7 @@ server {
     server_name YOUR_DOMAIN.com;
 
     location / {
-        proxy_pass http://localhost:48638;
+        proxy_pass http://localhost:5730;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -479,7 +479,7 @@ server {
     }
 
     location /ws {
-        proxy_pass http://localhost:58638;
+        proxy_pass http://localhost:5830;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -566,21 +566,21 @@ sudo certbot --nginx -d YOUR_DOMAIN.com
 
 **Check port availability:**
 ```bash
-sudo netstat -tulpn | grep -E "38638|48638|58638"
+sudo netstat -tulpn | grep -E "5630|5730|5830"
 ```
 
 ### Cannot Connect to Bootnodes
 
 **Check DNS resolution:**
 ```bash
-nslookup bootnode1.synergy-network.io
-nslookup bootnode2.synergy-network.io
-nslookup bootnode3.synergy-network.io
+nslookup bootnode1.synergynode.xyz
+nslookup bootnode2.synergynode.xyz
+nslookup bootnode3.synergynode.xyz
 ```
 
 **Test connectivity:**
 ```bash
-nc -zv bootnode1.synergy-network.io 38638
+nc -zv bootnode1.synergynode.xyz 5630
 ```
 
 ### Sync is Slow
@@ -601,7 +601,7 @@ nc -zv bootnode1.synergy-network.io 38638
 
 ## Security Best Practices
 
-1. **Firewall**: Only expose necessary ports (48638, 58638, 38638)
+1. **Firewall**: Only expose necessary ports (5730, 5830, 5630)
 2. **CORS**: Restrict `cors_origins` to trusted domains in production
 3. **Rate Limiting**: Configure `max_connections` and request limits
 4. **DDoS Protection**: Use Cloudflare or similar CDN for public endpoints

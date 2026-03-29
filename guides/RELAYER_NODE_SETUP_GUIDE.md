@@ -42,13 +42,13 @@ Relayers in SXCP:
 ### Network Requirements
 
 **Incoming Ports:**
-- **38638**: P2P (Synergy network)
+- **5630**: P2P (Synergy network)
 - **48648**: Relayer cluster communication
 - **58648**: Relayer RPC endpoint
 
 **Outgoing Connections:**
-- **Synergy Testnet-Beta**: Port 38638 to bootnodes
-- **Sepolia Testnet**: Port 38638 (Ethereum P2P)
+- **Synergy Testnet-Beta**: Port 5630 to bootnodes
+- **Sepolia Testnet**: Port 30303 (Ethereum P2P)
 - **Target Testnet**: Chain-specific ports
 
 ### Required Accounts
@@ -212,19 +212,19 @@ data_dir = "./data/relayer1"
 
 [network]
 id = 338639  # Synergy Testnet-Beta chain ID
-p2p_port = 38638
+p2p_port = 5630
 rpc_port = 48648
 ws_port = 58648
 
 [p2p]
-listen_address = "0.0.0.0:38638"
-public_address = "RELAYER1_PUBLIC_IP:38638"
+listen_address = "0.0.0.0:5630"
+public_address = "RELAYER1_PUBLIC_IP:5630"
 
 # Connect to Synergy bootnodes
 bootnodes = [
-  "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638",
-  "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergy-network.io:38638",
-  "snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergy-network.io:38638"
+  "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergynode.xyz:5620",
+  "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergynode.xyz:5620",
+  "snr://synv110y3fuyvqmjdp02j6m6y2rceqjp2dexwu3p6np4@bootnode3.synergynode.xyz:5620"
 ]
 
 max_inbound_peers = 50
@@ -291,7 +291,7 @@ rpc_endpoint = "https://testbeta-core-rpc.synergy-network.io"
 ws_endpoint = "wss://testbeta-core-ws.synergy-network.io"
 
 # Local RPC if running validator/RPC node
-local_rpc = "http://localhost:48638"
+local_rpc = "http://localhost:5730"
 
 # Message submission settings
 max_gas_price_gwei = 100  # Maximum gas to pay for submission
@@ -460,7 +460,7 @@ poll_interval_ms = 2000
 sudo ufw allow 22/tcp
 
 # Synergy P2P
-sudo ufw allow 38638/tcp
+sudo ufw allow 5630/tcp
 
 # Relayer cluster communication
 sudo ufw allow 48648/tcp
@@ -497,7 +497,7 @@ mkdir -p data/relayer1 data/logs
 [INFO] Cluster Members: 5 relayers
 [INFO] Cluster Threshold: 67% (4/5 signatures required)
 [INFO] Connecting to Synergy bootnodes...
-[INFO] Connected to bootnode1.synergy-network.io:38638
+[INFO] Connected to bootnode1.synergynode.xyz:5620
 [INFO] Syncing Synergy blockchain...
 [INFO] Current block: 15432
 [INFO] Starting SXCP monitoring...

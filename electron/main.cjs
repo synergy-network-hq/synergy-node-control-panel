@@ -383,6 +383,13 @@ function setupIpc() {
     const result = await dialog.showSaveDialog(mainWindow, options);
     return result.canceled ? null : result.filePath;
   });
+  ipcMain.handle('desktop:show-open-dialog', async (_event, options) => {
+    const result = await dialog.showOpenDialog(mainWindow, options);
+    if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
   ipcMain.handle('desktop:fetch-seed-peer-targets', async (_event, seedServers) =>
     fetchSeedPeerTargets(seedServers),
   );

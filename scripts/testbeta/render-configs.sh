@@ -11,7 +11,7 @@ TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
 TESTBETA_NETWORK_ID="${TESTBETA_NETWORK_ID:-338639}"
 TESTBETA_BLOCK_TIME_SECS="${TESTBETA_BLOCK_TIME_SECS:-2}"
 TESTBETA_EPOCH_LENGTH="${TESTBETA_EPOCH_LENGTH:-50}"
-TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-3}"
+TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-4}"
 ALLOW_WILDCARD_LISTEN="${ALLOW_WILDCARD_LISTEN:-false}"
 
 normalize_bool() {
@@ -121,12 +121,12 @@ compute_listen_address() {
   local p2p_port="$2"
 
   if [[ "$p2p_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    # Enforce private overlay listening for closed testbeta.
+    # Prefer private overlay listening when a private host/IP is supplied.
     if [[ "$p2p_host" =~ ^10\. ]] || [[ "$p2p_host" =~ ^192\.168\. ]] || [[ "$p2p_host" =~ ^172\.([1][6-9]|2[0-9]|3[0-1])\. ]] || [[ "$p2p_host" =~ ^127\. ]]; then
       echo "${p2p_host}:${p2p_port}"
       return
     fi
-    echo "Refusing non-private listen IP for closed testbeta: ${p2p_host}" >&2
+    echo "Refusing non-private direct listen IP: ${p2p_host}" >&2
     exit 1
   fi
 
@@ -274,7 +274,7 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port
 
 [network]
 id = ${TESTBETA_NETWORK_ID}
-name = "synergy-testbeta-closed"
+name = "synergy-testnet-beta"
 p2p_port = ${p2p_port}
 rpc_port = ${rpc_port}
 ws_port = ${ws_port}
@@ -291,8 +291,8 @@ algorithm = "Proof of Synergy"
 block_time_secs = ${TESTBETA_BLOCK_TIME_SECS}
 epoch_length = ${TESTBETA_EPOCH_LENGTH}
 min_validators = ${TESTBETA_MIN_VALIDATORS}
-validator_cluster_size = 5
-max_validators = 15
+validator_cluster_size = 4
+max_validators = 4
 synergy_score_decay_rate = 0.05
 vrf_enabled = ${vrf_enabled}
 vrf_seed_epoch_interval = 1000

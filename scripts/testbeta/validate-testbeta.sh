@@ -62,8 +62,8 @@ for config in "$CONFIG_DIR"/node-*.toml; do
   checked=$((checked + 1))
   name="$(basename "$config")"
 
-  if ! rg -q '^name = "synergy-testbeta-closed"$' "$config"; then
-    echo "[$name] network name is not synergy-testbeta-closed" >&2
+  if ! rg -q '^name = "synergy-testnet-beta"$' "$config"; then
+    echo "[$name] network name is not synergy-testnet-beta" >&2
     failures=$((failures + 1))
   fi
 

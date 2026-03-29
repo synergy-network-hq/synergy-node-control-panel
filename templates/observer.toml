@@ -1,13 +1,11 @@
 [network]
 id = 338639
-name = "synergy-testbeta"
-p2p_port = 38638
-rpc_port = 48638
-ws_port = 58638
+name = "synergy-testnet-beta"
+p2p_port = 5630
+rpc_port = 5730
+ws_port = 5830
 max_peers = 50
-bootnodes = [
-  "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergy-network.io:38638"
-]
+bootnodes = ["snr://bootstrap@bootnode1.synergynode.xyz:5620", "snr://bootstrap@bootnode2.synergynode.xyz:5620", "snr://bootstrap@bootnode3.synergynode.xyz:5620"]
 
 [blockchain]
 block_time = 5
@@ -19,8 +17,8 @@ enabled = false
 algorithm = "Proof of Synergy"
 block_time_secs = 5
 epoch_length = 30000
-validator_cluster_size = 7
-max_validators = 21
+validator_cluster_size = 4
+max_validators = 4
 synergy_score_decay_rate = 0.05
 vrf_enabled = false
 vrf_seed_epoch_interval = 1000
@@ -41,20 +39,20 @@ max_files = 5
 
 [rpc]
 enable_http = true
-http_port = 48638
+http_port = 5730
 enable_ws = true
-ws_port = 58638
+ws_port = 5830
 enable_grpc = true
-grpc_port = 48638
-cors_enabled = true
-cors_origins = ["*"]
+grpc_port = 5730
+cors_enabled = false
+cors_origins = []
 
 [p2p]
-listen_address = "0.0.0.0:38638"
-public_address = "YOUR_PUBLIC_IP_OR_DOMAIN:38638"
+listen_address = "0.0.0.0:5630"
+public_address = "127.0.0.1:5630"
 node_name = "observer-node-01"
-enable_discovery = true
-discovery_port = 30309
+enable_discovery = false
+discovery_port = 5930
 heartbeat_interval = 30
 
 [storage]

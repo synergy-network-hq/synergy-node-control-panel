@@ -89,15 +89,46 @@ EOF
 }
 
 sync_role_bound_binaries() {
-  local source_dir="$ROOT_DIR/../../../synergy-testnet-beta/binaries"
+  local source_dir=""
   local target_dir="$ROOT_DIR/binaries"
+  local candidate=""
+  local candidates=()
+
+  if [[ -n "${SYNERGY_TESTBETA_BINARY_SOURCE_DIR:-}" ]]; then
+    candidates+=("${SYNERGY_TESTBETA_BINARY_SOURCE_DIR}")
+  fi
+
+  if [[ -n "${SYNERGY_TESTBETA_SOURCE_REPO_ROOT:-}" ]]; then
+    candidates+=("${SYNERGY_TESTBETA_SOURCE_REPO_ROOT}/binaries")
+  fi
+
+  candidates+=(
+    "$ROOT_DIR/../binaries"
+    "$ROOT_DIR/../../synergy-testnet-beta/binaries"
+    "$ROOT_DIR/../../../synergy-testnet-beta/binaries"
+  )
 
   mkdir -p "$target_dir"
 
+  for candidate in "${candidates[@]}"; do
+    if [[ -d "$candidate" ]]; then
+      source_dir="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+
   if [[ ! -d "$source_dir" ]]; then
-    echo "Role binary source directory not found at $source_dir; keeping existing control-panel binaries."
+    echo "Role binary source directory not found; keeping existing control-panel binaries."
+    echo "Checked: ${candidates[*]}"
     return
   fi
+
+  if [[ "$source_dir" == "$target_dir" ]]; then
+    echo "Role binary source directory resolves to control-panel binaries; skipping sync."
+    return
+  fi
+
+  echo "Syncing role binaries from $source_dir"
 
   shopt -s nullglob
   for binary_path in "$source_dir"/synergy-*-node-* "$source_dir"/synergy-testbeta-*; do
