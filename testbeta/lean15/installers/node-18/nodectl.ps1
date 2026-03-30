@@ -166,7 +166,7 @@ function Info-Node {
   Write-Host "Address Class: $(Get-NodeEnvValue 'ADDRESS_CLASS')"
   Write-Host "Address: $(Get-NodeEnvValue 'NODE_ADDRESS')"
   Write-Host "Monitor Host: $(Get-NodeEnvValue 'MONITOR_HOST')"
-  Write-Host "VPN IP: $(Get-NodeEnvValue 'VPN_IP')"
+  Write-Host "Inventory Address: $(Get-NodeEnvValue 'VPN_IP')"
   Write-Host "Transport: $(Get-NodeEnvValue 'NETWORK_TRANSPORT')"
   Write-Host "P2P: $(Get-NodeEnvValue 'P2P_PORT')"
   Write-Host "RPC: $(Get-NodeEnvValue 'RPC_PORT')"

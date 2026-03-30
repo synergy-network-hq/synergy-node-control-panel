@@ -193,8 +193,8 @@ const doc = new Document({
       heading("Root Cause: No Bootnode Readiness Check", HeadingLevel.HEADING_2),
       para("The startup sequence in remote-node-orchestrator.sh starts dependent nodes immediately after issuing the bootnode start command. There is no health check or readiness gate to confirm that bootnodes (node-01, node-02) are fully running and accepting connections before starting the remaining 13 nodes. The pre-start sync attempts 12 retries with 5-second sleeps, but if bootnodes aren't ready within that 60-second window, the sync fails silently and the node starts anyway."),
 
-      heading("Root Cause: WireGuard Timing Race", HeadingLevel.HEADING_2),
-      para("In the bootstrap_node operation, WireGuard connect is called and the node starts immediately after. VPN route propagation may not be complete, meaning the node binary tries to connect to bootnode IPs (10.50.0.x) before the VPN tunnel is fully established. This causes initial peer discovery to fail."),
+      heading("Root Cause: Overlay Timing Race", HeadingLevel.HEADING_2),
+      para("In the bootstrap_node operation, the legacy overlay-connect step is followed immediately by node start. Route propagation may not be complete, meaning the node binary tries to connect to bootnode addresses before the network path is fully established. This causes initial peer discovery to fail."),
 
       heading("Root Cause: Peer Count Inconsistency", HeadingLevel.HEADING_2),
       para("The network_discovery.rs module queries RPC endpoints sequentially and uses the first successful response to determine peer counts. Different RPC nodes have different connected peer sets, and the HashMap used for deduplication has non-deterministic iteration. This means each status refresh can show different peer counts depending on which endpoint responds first."),
@@ -205,7 +205,7 @@ const doc = new Document({
       heading("Recommended Fixes", HeadingLevel.HEADING_2),
       ...bulletList([
         "Add an explicit bootnode readiness gate: after starting node-01 and node-02, poll their RPC endpoints until they return a valid block height and peer count before starting any other nodes.",
-        "Add a WireGuard connectivity check between wireguard_connect and node start: ping the bootnode VPN IPs and verify they respond before proceeding.",
+        "Add a network reachability check between bootstrap connectivity setup and node start: probe the bootnode addresses and verify they respond before proceeding.",
         "Implement peer count aggregation across all RPC endpoints with consensus (e.g., take the median peer count across all reachable nodes) instead of using the first response.",
         "Ensure both explorer and indexer point to the same authoritative RPC endpoint, or implement a fanout query that takes the highest confirmed block height across all nodes.",
         "Increase pre-start sync timeout from 60 seconds (12 x 5s) to at least 120 seconds, and fail hard for validator nodes if sync cannot be established.",
@@ -279,7 +279,7 @@ const doc = new Document({
         columnWidths: [500, 4860, 4000],
         rows: [
           new TableRow({ children: [headerCell("#", 500), headerCell("Action", 4860), headerCell("Files to Change", 4000)] }),
-          new TableRow({ children: [cell("6", 500), cell("Add WireGuard connectivity check before node start (ping bootnode VPN IPs)", 4860), cell("remote-node-orchestrator.sh", 4000)] }),
+          new TableRow({ children: [cell("6", 500), cell("Add a network reachability check before node start (probe bootnode addresses)", 4860), cell("remote-node-orchestrator.sh", 4000)] }),
           new TableRow({ children: [cell("7", 500), cell("Implement peer count consensus (aggregate across all RPC endpoints, take median)", 4860), cell("network_discovery.rs", 4000)] }),
           new TableRow({ children: [cell("8", 500), cell("Add block-height convergence monitoring with alert if any node falls >5 blocks behind", 4860), cell("monitor.rs, monitoring.rs", 4000)] }),
           new TableRow({ children: [cell("9", 500), cell("Increase pre-start sync timeout to 120s+ and fail hard for validators", 4860), cell("install_and_start.sh", 4000)] }),

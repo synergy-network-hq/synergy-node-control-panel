@@ -6,11 +6,11 @@ Type: security-council
 
 Ports
 -----
-P2P: 38647
-RPC: 48647
-WebSocket: 58647
-gRPC: 50060
-Discovery: 39647
+P2P: 5632
+RPC: 5650
+WebSocket: 5670
+gRPC: 5650
+Discovery: 5690
 
 Linux/macOS Commands
 --------------------

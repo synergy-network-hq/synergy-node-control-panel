@@ -305,6 +305,7 @@ async fn events_handler(
         .into_response()
 }
 
+#[allow(clippy::result_large_err)]
 fn authorize(
     state: &ControlServiceState,
     headers: &HeaderMap,

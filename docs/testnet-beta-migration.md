@@ -6,20 +6,20 @@
 
 ## Executive Summary
 
-The current control panel is built for a closed testbeta with WireGuard-only reachability, VPN-based machine identity, and agent trust derived from the private `10.50.0.0/24` network. That model is causing operational friction and does not fit a broader testnet-beta where each node publishes its own stable public endpoint.
+The current control panel is built for a closed testbeta with private-overlay reachability, VPN-based machine identity, and agent trust derived from the private `10.50.0.0/24` network. That model is causing operational friction and does not fit a broader testnet-beta where each node publishes its own stable public endpoint.
 
 The migration target is a public-endpoint testnet-beta where:
 - every node has a public RPC hostname such as `node0202.synergynode.net`
 - node health and status checks use public endpoints
 - local same-machine operations do not require VPN identity
-- remote control is no longer coupled to "must be on WireGuard"
+- remote control is no longer coupled to a private overlay
 
 ## Problem
 
 The current design assumes:
 - `host` and `vpn_ip` are effectively the same private address
 - local machine identity is derived from a `10.50.0.x` address
-- the testbeta agent is reachable only from WireGuard peers
+- the testbeta agent is reachable only from trusted private-network peers
 - installer generation rewrites config and inventory around private overlay addresses
 
 That is appropriate for a closed testbeta and inappropriate for a public testnet-beta.
@@ -35,7 +35,7 @@ That is appropriate for a closed testbeta and inappropriate for a public testnet
 
 - Exposing the current unauthenticated testbeta agent directly to the public internet.
 - Rewriting the entire testbeta/bootstrap pipeline in one cutover.
-- Removing every WireGuard code path in the same change.
+- Removing every legacy private-overlay code path in the same change.
 
 ## Transport Model
 
@@ -61,7 +61,7 @@ Control must be separated from public RPC:
 For testnet-beta and non-VPN deployments, local identity should be allowed via:
 - `SYNERGY_MACHINE_ID=<physical_machine_id>`
 
-This provides a deterministic local-machine mapping when no WireGuard address exists.
+This provides a deterministic local-machine mapping when no overlay address exists.
 
 ## First Slice Implemented
 
@@ -81,7 +81,7 @@ This is enough to begin migrating the read path to public node endpoints.
 
 ### P1
 
-- Replace WireGuard-only agent trust with authenticated control.
+- Replace private-overlay-only agent trust with authenticated control.
 - Add per-operator credentials or signed action tokens.
 - Allow agent reachability checks against authenticated public control endpoints.
 

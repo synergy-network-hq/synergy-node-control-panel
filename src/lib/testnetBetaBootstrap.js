@@ -10,10 +10,10 @@ const TESTNET_ENDPOINTS = {
 };
 
 const TESTNET_BETA_DEFAULT_PORT_SETTINGS = Object.freeze({
-  p2p: 5630,
-  rpc: 5730,
-  ws: 5830,
-  discovery: 5930,
+  p2p: 5622,
+  rpc: 5640,
+  ws: 5660,
+  discovery: 5680,
   metrics: 6030,
 });
 

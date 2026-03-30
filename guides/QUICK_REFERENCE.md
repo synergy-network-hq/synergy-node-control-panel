@@ -3,9 +3,9 @@
 ## Network Configuration
 
 - **Chain ID**: 338639
-- **P2P Port**: 5630
-- **RPC Port**: 5730
-- **WebSocket Port**: 5830
+- **P2P Port**: 5622
+- **RPC Port**: 5640
+- **WebSocket Port**: 5660
 - **Metrics Port**: 6030
 
 ## Endpoints

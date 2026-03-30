@@ -6,11 +6,11 @@ Type: relayer
 
 Ports
 -----
-P2P: 38644
-RPC: 48644
-WebSocket: 58644
-gRPC: 50057
-Discovery: 39644
+P2P: 5629
+RPC: 5647
+WebSocket: 5667
+gRPC: 5647
+Discovery: 5687
 
 Linux/macOS Commands
 --------------------

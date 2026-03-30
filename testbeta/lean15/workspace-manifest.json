@@ -1,7 +1,7 @@
 {
-  "workspace_resource_version": "5.6.0+d45c7787e4b2",
-  "app_version": "5.6.0",
-  "bundle_digest": "d45c7787e4b2a18f28eb5d8c102d04a5d78ae35722b469c7bcf7727164a16d37",
+  "workspace_resource_version": "5.8.0+8c45d7d45616",
+  "app_version": "5.8.0",
+  "bundle_digest": "8c45d7d45616acc70540a5756aafd0a698576697f4a4a7ba6ee9a8c71b931e7c",
   "required_paths": [
     "testbeta/lean15/node-inventory.csv",
     "testbeta/lean15/hosts.env.example",

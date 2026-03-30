@@ -6,11 +6,11 @@ Type: treasury-controller
 
 Ports
 -----
-P2P: 38656
-RPC: 48656
-WebSocket: 58656
-gRPC: 50074
-Discovery: 39661
+P2P: 5640
+RPC: 5658
+WebSocket: 5678
+gRPC: 5658
+Discovery: 5698
 
 Linux/macOS Commands
 --------------------

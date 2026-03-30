@@ -155,7 +155,7 @@ show_info() {
   echo "Address Class: $ADDRESS_CLASS"
   echo "Address: $NODE_ADDRESS"
   echo "Monitor Host: ${MONITOR_HOST:-$HOST}"
-  echo "VPN IP: ${VPN_IP:-not-set}"
+  echo "Inventory Address: ${VPN_IP:-not-set}"
   echo "Transport: ${NETWORK_TRANSPORT:-standard}"
   echo "P2P: $P2P_PORT"
   echo "RPC: $RPC_PORT"

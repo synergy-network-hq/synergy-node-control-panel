@@ -32,9 +32,6 @@ SYNERGY_TESTBETA_SSH_USER=ops
 SYNERGY_TESTBETA_SSH_PORT=22
 # Optional global SSH private key path:
 # SYNERGY_TESTBETA_SSH_KEY=/Users/you/.ssh/id_ed25519
-SYNERGY_TESTBETA_WG_HUB_PUBLIC_IP=64.227.107.57
-SYNERGY_TESTBETA_WG_HUB_VPN_IP=10.50.0.254
-SYNERGY_TESTBETA_WG_HUB_PORT=51820
 
 # Explorer bridge used by control panel Atlas links:
 ATLAS_BASE_URL=https://testbeta-explorer.synergy-network.io

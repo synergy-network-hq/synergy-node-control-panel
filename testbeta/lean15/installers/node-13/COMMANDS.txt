@@ -6,11 +6,11 @@ Type: rpc-gateway
 
 Ports
 -----
-P2P: 38650
-RPC: 48650
-WebSocket: 58650
-gRPC: 50063
-Discovery: 39650
+P2P: 5635
+RPC: 5653
+WebSocket: 5673
+gRPC: 5653
+Discovery: 5693
 
 Linux/macOS Commands
 --------------------

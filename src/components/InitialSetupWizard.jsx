@@ -19,7 +19,7 @@ const AUTOPILOT_PLAN = [
   { key: 'sshkey', label: 'Create SSH Key (if missing)' },
   { key: 'operator', label: 'Save Active Operator' },
   { key: 'sshprofile', label: 'Save SSH Profile' },
-  { key: 'binding', label: 'Bind Logical Nodes To VPN IP' },
+  { key: 'binding', label: 'Bind Logical Nodes To Machine Address' },
   { key: 'installers', label: 'Run Local Node Installers' },
   { key: 'validation', label: 'Validate Installed Node Registration' },
   { key: 'complete', label: 'Mark Setup Complete' },
@@ -418,11 +418,11 @@ function InitialSetupWizard({ onComplete }) {
             host_override: detectedVpnIp || prev.host_override,
           }));
           setVpnDetectionMessage(
-            `Detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Choose one node slot to install on this machine before running setup.`,
+            `Detected ${detectedMachine} from local address ${detectedVpnIp}. Choose one node slot to install on this machine before running setup.`,
           );
           addTerminalLine(
             'success',
-            `Auto-detected ${detectedMachine} from VPN IP ${detectedVpnIp}. Select one node slot, then start setup.`,
+            `Auto-detected ${detectedMachine} from local address ${detectedVpnIp}. Select one node slot, then start setup.`,
           );
           setStep(5);
         } else {
@@ -442,12 +442,12 @@ function InitialSetupWizard({ onComplete }) {
               node_slot_id: inferredMachine,
               host_override: vpnIp || prev.host_override,
             }));
-            const message = `VPN not detected. Inferred ${inferredMachine} from existing SSH bindings — ready to resume setup.`;
+            const message = `Local address not detected. Inferred ${inferredMachine} from existing SSH bindings — ready to resume setup.`;
             setVpnDetectionMessage(message);
             addTerminalLine('info', message);
             setStep(5);
           } else {
-            const message = String(identity?.message || 'VPN machine auto-detection unavailable. Select machine manually.');
+            const message = String(identity?.message || 'Machine auto-detection unavailable. Select machine manually.');
             setVpnDetectionMessage(message);
             addTerminalLine('info', message);
           }
@@ -1001,7 +1001,7 @@ function InitialSetupWizard({ onComplete }) {
         throw new Error(`This control panel is locked to ${lockedPhysicalMachineId}.`);
       }
       if (!vpnHost) {
-        throw new Error(`No VPN IP mapping found for ${selectedMachine}`);
+        throw new Error(`No machine address mapping found for ${selectedMachine}`);
       }
 
       setSelectedPhysicalMachine(selectedMachine);
@@ -1470,11 +1470,11 @@ function InitialSetupWizard({ onComplete }) {
               <h3>Step 4: Bind SSH Profile To This Machine</h3>
               <p>
                 Pick the physical machine you are sitting on, then bind the selected node slot to
-                that machine&apos;s VPN IP. This no longer assigns every inventory row automatically.
+                that machine&apos;s inventory address. This no longer assigns every inventory row automatically.
                 Machine options are loaded from
                 {' '}
                 <code>node-inventory.csv</code>
-                . When the VPN is detected, this binding defaults to the local machine&apos;s VPN IP.
+                . When the local machine address is detected, this binding defaults to that address.
               </p>
               <div className="wizard-form-grid">
                 <label>
@@ -1530,7 +1530,7 @@ function InitialSetupWizard({ onComplete }) {
                   <input
                     value={bindingForm.host_override}
                     onChange={(event) => setBindingForm((prev) => ({ ...prev, host_override: event.target.value }))}
-                    placeholder="10.50.0.x"
+                    placeholder="Machine host or inventory address"
                   />
                 </label>
                 <label>
@@ -1550,7 +1550,7 @@ function InitialSetupWizard({ onComplete }) {
                   {' '}
                   <code>{lockedPhysicalMachineId}</code>
                   {' '}
-                  because this control panel detected the local VPN identity.
+                  because this control panel detected the local machine identity.
                 </p>
               ) : null}
               <div className="wizard-action-row">
@@ -1645,7 +1645,7 @@ function InitialSetupWizard({ onComplete }) {
                 <p className="wizard-note">
                   <strong>Machine locked:</strong>
                   {' '}
-                  VPN detection bound this control panel to
+                  Local machine detection bound this control panel to
                   {' '}
                   <code>{lockedPhysicalMachineId}</code>
                   . Node selection is flexible, machine selection is not.
@@ -1752,7 +1752,7 @@ function InitialSetupWizard({ onComplete }) {
               <thead>
                 <tr>
                   <th>Machine</th>
-                  <th>VPN IP</th>
+                  <th>Inventory Address</th>
                   <th>Primary</th>
                   <th>Secondary</th>
                 </tr>

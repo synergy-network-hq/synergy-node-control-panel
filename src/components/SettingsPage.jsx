@@ -113,8 +113,8 @@ function buildWorkspaceAuditCommand(storageRoot) {
 
 function buildPortListenerCommand() {
   return [
-    'listeners="$(lsof -nP -iTCP:5620-5650 -sTCP:LISTEN 2>/dev/null || true)"',
-    'rpcs="$(lsof -nP -iTCP:5730-5750 -sTCP:LISTEN 2>/dev/null || true)"',
+    'listeners="$(lsof -nP -iTCP:5620-5699 -sTCP:LISTEN 2>/dev/null || true)"',
+    'rpcs="$(lsof -nP -iTCP:5640-5699 -sTCP:LISTEN 2>/dev/null || true)"',
     'echo "Local Synergy network listeners:"',
     'if [ -z "$listeners" ] && [ -z "$rpcs" ]; then',
     '  echo "- No Synergy listener ports are open right now."',
@@ -134,7 +134,7 @@ function buildPortListenerCommand() {
 function buildLocalRpcCheckCommand(nodes, nodePortProfiles) {
   const rows = (Array.isArray(nodes) ? nodes : []).map((node) => {
     const port = nodePortProfiles?.[node.id]?.portSettings?.rpcPort
-      ?? (5730 + Number(node?.port_slot || 0));
+      ?? (5640 + Number(node?.port_slot || 0));
     const label = node.display_label || node.role_display_name || node.id;
     return `${label}|${port}`;
   });

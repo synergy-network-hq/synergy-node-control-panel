@@ -2,7 +2,7 @@
 
 This app is the desktop operator console for the Synergy closed testbeta.
 
-It ships the active node-slot inventory in `testbeta/lean15/node-inventory.csv`, rendered node configs, installer bundles, WireGuard assets, and the in-app operator manual used by the Help window.
+It ships the active node-slot inventory in `testbeta/lean15/node-inventory.csv`, rendered node configs, installer bundles, and the in-app operator manual used by the Help window.
 
 ## Core Responsibilities
 
@@ -11,7 +11,7 @@ It ships the active node-slot inventory in `testbeta/lean15/node-inventory.csv`,
 - manage SSH/RBAC/operator bindings for the fleet
 - check published releases and open installer downloads
 
-## WireGuard Control Agent
+## Control Agent
 
 The control panel now ships a small local machine agent for the core fleet-control actions:
 
@@ -28,7 +28,7 @@ The control panel now ships a small local machine agent for the core fleet-contr
 Behavior:
 
 - On app launch, the control panel extracts the bundled agent into the monitor workspace and starts it locally.
-- The dashboard/node-control path now prefers the agent over the WireGuard VPN and falls back to SSH only if the agent is unavailable.
+- The dashboard/node-control path now prefers the agent and falls back to SSH only if the agent is unavailable.
 - `scripts/testbeta/reset-testbeta.sh` also prefers the agent for `stop`, `reset_chain`, and `start`.
 
 Operational requirement:
@@ -42,7 +42,7 @@ Operational requirement:
 - `electron/`: Electron main-process and preload bridge
 - `control-service/`: Rust control-service and shared native orchestration code
 - `control-service/src/bin/control-service.rs`: local Rust control-service used by Electron
-- `testbeta/lean15/`: inventory, rendered configs, installers, reports, WireGuard assets
+- `testbeta/lean15/`: inventory, rendered configs, installers, and reports
 - `guides/`: bundled operator manuals used by the app Help window
 - `docs/`: current project/reference docs not bundled into the app
 - `archive/`: superseded or generated material moved out of the root

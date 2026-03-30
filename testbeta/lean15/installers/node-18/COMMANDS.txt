@@ -6,11 +6,11 @@ Type: data-availability
 
 Ports
 -----
-P2P: 38658
-RPC: 48658
-WebSocket: 58658
-gRPC: 50068
-Discovery: 39655
+P2P: 5642
+RPC: 5660
+WebSocket: 5680
+gRPC: 5660
+Discovery: 5700
 
 Linux/macOS Commands
 --------------------

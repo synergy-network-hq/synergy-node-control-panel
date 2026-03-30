@@ -26,9 +26,9 @@ This guide is specifically for Synergy team members who want to set up their own
 - **Network**: Stable internet connection, static IP or dynamic DNS
 
 ### Required Open Ports
-- **5630/tcp** - P2P (SNR Gossip Protocol)
-- **5730/tcp** - RPC (optional, for monitoring)
-- **5830/tcp** - WebSocket (optional)
+- **5622/tcp** - P2P (SNR Gossip Protocol)
+- **5640/tcp** - RPC (optional, for monitoring)
+- **5660/tcp** - WebSocket (optional)
 - **6030/tcp** - Metrics (optional, localhost only)
 
 ---
@@ -165,8 +165,8 @@ Create your node configuration file:
 cat > config/my-validator-config.toml <<'EOF'
 [network]
 node_name = "my-validator"
-listen_address = "0.0.0.0:5630"
-public_address = "YOUR_IP_OR_DOMAIN:5630"  # CHANGE THIS!
+listen_address = "0.0.0.0:5622"
+public_address = "YOUR_IP_OR_DOMAIN:5622"  # CHANGE THIS!
 bootnodes = [
   "snr://synv11lylxla8qjcrk3ef8gjlyyhew3z4mjswwwsn6zv@bootnode1.synergynode.xyz:5620",
   "snr://synv11csyhf60yd6gp8n4wflz99km29g7fh8guxrmu04@bootnode2.synergynode.xyz:5620",
@@ -194,8 +194,8 @@ sync_mode = "fast"  # Fast sync from existing blockchain
 start_from_genesis = false
 
 [rpc]
-http_port = 5730
-ws_port = 5830
+http_port = 5640
+ws_port = 5660
 enable_cors = true
 external_http = "https://testbeta-core-rpc.synergy-network.io"
 external_ws = "wss://testbeta-core-ws.synergy-network.io"
@@ -244,13 +244,13 @@ sudo ufw enable
 sudo ufw allow ssh
 
 # Allow Synergy P2P port (required)
-sudo ufw allow 5630/tcp comment 'Synergy P2P'
+sudo ufw allow 5622/tcp comment 'Synergy P2P'
 
 # Optional: Allow RPC for remote monitoring
-sudo ufw allow from YOUR_MONITORING_IP to any port 5730 proto tcp
+sudo ufw allow from YOUR_MONITORING_IP to any port 5640 proto tcp
 
 # Optional: Allow WebSocket
-sudo ufw allow from YOUR_MONITORING_IP to any port 5830 proto tcp
+sudo ufw allow from YOUR_MONITORING_IP to any port 5660 proto tcp
 
 # Check firewall status
 sudo ufw status verbose
@@ -336,7 +336,7 @@ journalctl -u synergy-validator -f
 
 ```bash
 # Check sync status via RPC
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 
@@ -353,12 +353,12 @@ curl -s -X POST http://localhost:5730/rpc \
 # }
 
 # Check peer connections
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_peers","id":1}' | jq
 
 # Check your validator info
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_validatorInfo","id":1}' | jq
 ```
@@ -398,7 +398,7 @@ After your validator is registered, the coordinator will send you SNRG tokens fr
 
 ```bash
 # Check your balance
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"account_getBalance\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
@@ -429,7 +429,7 @@ Your Synergy Score is calculated based on:
 
 ```bash
 # Check your Synergy Score
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"synergy_getScore\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
@@ -451,7 +451,7 @@ curl -s -X POST http://localhost:5730/rpc \
 # }
 
 # Monitor your score over time
-watch -n 60 "curl -s -X POST http://localhost:5730/rpc \
+watch -n 60 "curl -s -X POST http://localhost:5640/rpc \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_getScore\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}' | jq '.result.synergyScore'"
 ```
@@ -473,12 +473,12 @@ journalctl -u synergy-validator -n 100
 journalctl -u synergy-validator -f
 
 # Check sync status
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 
 # Check peer count
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"net_peerCount","id":1}' | jq
 ```
@@ -493,7 +493,7 @@ htop
 df -h ~/synergy/synergy-testbeta/data/
 
 # Monitor network connections
-ss -tuln | grep -E '5630|5730|5830'
+ss -tuln | grep -E '5622|5640|5660'
 
 # View metrics (if enabled)
 curl -s http://localhost:6030/metrics
@@ -531,8 +531,8 @@ journalctl -u synergy-validator -f
 ping bootnode1.synergynode.xyz
 ping bootnode2.synergynode.xyz
 
-# Check if port 5630 is open
-sudo netstat -tuln | grep 5630
+# Check if port 5622 is open
+sudo netstat -tuln | grep 5622
 
 # Check for firewall issues
 sudo ufw status
@@ -560,7 +560,7 @@ echo $VALIDATOR_ADDRESS
 # Contact coordinator with your address
 
 # Verify blockchain is synced
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 ```
@@ -578,8 +578,8 @@ curl -s -X POST http://localhost:5730/rpc \
 2. **Restrict RPC Access**
    ```bash
    # Only allow RPC from specific IPs
-   sudo ufw delete allow 5730/tcp
-   sudo ufw allow from YOUR_MONITORING_IP to any port 5730
+   sudo ufw delete allow 5640/tcp
+   sudo ufw allow from YOUR_MONITORING_IP to any port 5640
    ```
 
 3. **Enable Automatic Updates**
@@ -618,15 +618,15 @@ sudo systemctl restart synergy-validator
 journalctl -u synergy-validator -f
 
 # Check balance
-curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5640/rpc -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"account_getBalance\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
 # Check Synergy Score
-curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5640/rpc -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"synergy_getScore\",\"params\":[\"$VALIDATOR_ADDRESS\"],\"id\":1}" | jq
 
 # Check sync status
-curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
+curl -s -X POST http://localhost:5640/rpc -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_syncStatus","id":1}' | jq
 ```
 
@@ -637,7 +637,7 @@ curl -s -X POST http://localhost:5730/rpc -H "Content-Type: application/json" \
 Before contacting the coordinator, ensure:
 
 - [ ] Node is fully synced (`isSyncing: false`)
-- [ ] Firewall allows port 5630
+- [ ] Firewall allows port 5622
 - [ ] Connected to at least 3 peers
 - [ ] `validator-info.txt` has been shared
 - [ ] Identity file has proper permissions (600)

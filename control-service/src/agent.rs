@@ -76,7 +76,7 @@ fn prepare_hosts_env_in_workspace(
     input: JarvisPrepareHostsEnvInput,
 ) -> Result<String, String> {
     let hosts_env_path = workspace.join("testbeta/lean15/hosts.env");
-    ensure_hosts_env_exists(&workspace, &hosts_env_path)?;
+    ensure_hosts_env_exists(workspace, &hosts_env_path)?;
 
     let mut updates = BTreeMap::<String, String>::new();
 
@@ -352,11 +352,11 @@ pub async fn ensure_local_testbeta_agent_in_workspace(workspace_root: &Path) -> 
         return Ok(());
     }
 
-    let binary_source = resolve_agent_resource_binary(&workspace_root)?;
-    let installed_binary = install_agent_binary(&workspace_root, &binary_source)?;
+    let binary_source = resolve_agent_resource_binary(workspace_root)?;
+    let installed_binary = install_agent_binary(workspace_root, &binary_source)?;
 
     if !local_agent_port_available() {
-        kill_local_agent_processes(&workspace_root);
+        kill_local_agent_processes(workspace_root);
         std::thread::sleep(std::time::Duration::from_millis(300));
         if !local_agent_port_available() && !local_agent_running().await {
             return Err(format!(
@@ -365,7 +365,7 @@ pub async fn ensure_local_testbeta_agent_in_workspace(workspace_root: &Path) -> 
         }
     }
 
-    let autostart_ok = match install_agent_autostart(&workspace_root, &installed_binary) {
+    let autostart_ok = match install_agent_autostart(workspace_root, &installed_binary) {
         Ok(()) => true,
         Err(error) => {
             eprintln!("testbeta agent autostart warning: {error}");
@@ -375,13 +375,13 @@ pub async fn ensure_local_testbeta_agent_in_workspace(workspace_root: &Path) -> 
 
     #[cfg(target_os = "windows")]
     {
-        spawn_local_agent(&workspace_root, &installed_binary)?;
+        spawn_local_agent(workspace_root, &installed_binary)?;
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         if !autostart_ok {
-            spawn_local_agent(&workspace_root, &installed_binary)?;
+            spawn_local_agent(workspace_root, &installed_binary)?;
         }
     }
 
@@ -402,10 +402,10 @@ pub async fn force_update_local_testbeta_agent_from_context(
 pub async fn force_update_local_testbeta_agent_in_workspace(
     workspace_root: &Path,
 ) -> Result<PathBuf, String> {
-    let binary_source = resolve_agent_resource_binary(&workspace_root)?;
-    let installed_binary = install_agent_binary(&workspace_root, &binary_source)?;
+    let binary_source = resolve_agent_resource_binary(workspace_root)?;
+    let installed_binary = install_agent_binary(workspace_root, &binary_source)?;
 
-    let autostart_ok = match install_agent_autostart(&workspace_root, &installed_binary) {
+    let autostart_ok = match install_agent_autostart(workspace_root, &installed_binary) {
         Ok(()) => true,
         Err(error) => {
             eprintln!("testbeta agent autostart warning during update: {error}");
@@ -413,7 +413,7 @@ pub async fn force_update_local_testbeta_agent_in_workspace(
         }
     };
 
-    restart_local_agent_runtime(&workspace_root, &installed_binary, autostart_ok)?;
+    restart_local_agent_runtime(workspace_root, &installed_binary, autostart_ok)?;
     for _ in 0..20 {
         sleep(Duration::from_millis(250)).await;
         if local_agent_running().await {

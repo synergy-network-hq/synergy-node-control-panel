@@ -203,11 +203,11 @@ function Dashboard() {
                 </div>
                 <div className="metric-item">
                   <span className="metric-label">RPC Port:</span>
-                  <span className="metric-value">5730</span>
+                  <span className="metric-value">5640</span>
                 </div>
                 <div className="metric-item">
                   <span className="metric-label">P2P Port:</span>
-                  <span className="metric-value">5630</span>
+                  <span className="metric-value">5622</span>
                 </div>
               </div>
             </div>

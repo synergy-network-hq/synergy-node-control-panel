@@ -8,7 +8,7 @@ GENESIS_FILE="$ROOT_DIR/testbeta/lean15/configs/genesis/genesis.json"
 KEYS_DIR="$ROOT_DIR/testbeta/lean15/keys"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/testbeta/lean15/installers}"
 TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
-TESTBETA_NETWORK_ID="${TESTBETA_NETWORK_ID:-338639}"
+TESTBETA_NETWORK_ID="${TESTBETA_NETWORK_ID:-synergy-testnet-beta}"
 SOURCE_REPO_ROOT="${SYNERGY_TESTBETA_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/../.." && pwd)}"
 PREFER_BUNDLED_BINARIES="${PREFER_BUNDLED_BINARIES:-1}"
 
@@ -247,9 +247,7 @@ PID_FILE="$DATA_DIR/node.pid"
 OUT_FILE="$LOG_DIR/node.out"
 ERR_FILE="$LOG_DIR/node.err"
 INSTALL_STAMP_FILE="$DATA_DIR/.installed_at"
-NETWORK_TRANSPORT="${NETWORK_TRANSPORT:-wireguard}"
-WIREGUARD_INTERFACE="${WIREGUARD_INTERFACE:-wg0}"
-VPN_CIDR="${VPN_CIDR:-10.50.0.0/24}"
+NETWORK_TRANSPORT="${NETWORK_TRANSPORT:-public}"
 PRIVILEGED_HELPER=""
 SUDO_KEEPALIVE_PID=""
 
@@ -337,27 +335,12 @@ run_privileged() {
 }
 
 open_ports_ufw() {
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
-      run_privileged ufw allow in on "$WIREGUARD_INTERFACE" from "$VPN_CIDR" to any port "$port" proto tcp >/dev/null || true
-    done
-    return
-  fi
-
   for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
     run_privileged ufw allow "${port}/tcp" >/dev/null || true
   done
 }
 
 open_ports_firewalld() {
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
-      run_privileged firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='${VPN_CIDR}' port protocol='tcp' port='${port}' accept" >/dev/null || true
-    done
-    run_privileged firewall-cmd --reload >/dev/null || true
-    return
-  fi
-
   for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
     run_privileged firewall-cmd --permanent --add-port="${port}/tcp" >/dev/null || true
   done
@@ -365,15 +348,6 @@ open_ports_firewalld() {
 }
 
 open_ports_iptables() {
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
-      if ! run_privileged iptables -C INPUT -i "$WIREGUARD_INTERFACE" -s "$VPN_CIDR" -p tcp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
-        run_privileged iptables -I INPUT -i "$WIREGUARD_INTERFACE" -s "$VPN_CIDR" -p tcp --dport "$port" -j ACCEPT >/dev/null || true
-      fi
-    done
-    return
-  fi
-
   for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
     if ! run_privileged iptables -C INPUT -p tcp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
       run_privileged iptables -I INPUT -p tcp --dport "$port" -j ACCEPT >/dev/null || true
@@ -403,10 +377,6 @@ open_ports() {
   trap cleanup_privileged_helper EXIT
   prepare_privileged_helper
 
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    echo "WireGuard mode: allowing node ports only from $VPN_CIDR on interface $WIREGUARD_INTERFACE..."
-  fi
-
   if [[ "$firewall_backend" == "ufw" ]]; then
     echo "Opening ports via ufw..."
     open_ports_ufw
@@ -431,7 +401,7 @@ is_running() {
 }
 
 is_bootnode_slot() {
-  [[ "$NODE_SLOT_ID" == "node-01" || "$NODE_SLOT_ID" == "node-02" ]]
+  [[ "${ROLE_GROUP:-}" == "bootstrap" || "${NODE_TYPE:-}" == "bootnode" ]]
 }
 
 sync_required_before_start() {
@@ -459,7 +429,7 @@ run_prestart_sync() {
   local configured_chain_id
   configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338639}}"
   local configured_network_id
-  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-$configured_chain_id}}"
+  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
 
@@ -533,7 +503,7 @@ start_node() {
   local configured_chain_id
   configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338639}}"
   local configured_network_id
-  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-$configured_chain_id}}"
+  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
   if [[ -z "$validator_address" ]]; then
@@ -765,7 +735,7 @@ show_info() {
   echo "Address Class: $ADDRESS_CLASS"
   echo "Address: $NODE_ADDRESS"
   echo "Monitor Host: ${MONITOR_HOST:-$HOST}"
-  echo "VPN IP: ${VPN_IP:-not-set}"
+  echo "Inventory Address: ${VPN_IP:-not-set}"
   echo "Transport: ${NETWORK_TRANSPORT:-standard}"
   echo "P2P: $P2P_PORT"
   echo "RPC: $RPC_PORT"
@@ -924,8 +894,9 @@ function Test-NodeRunning {
 }
 
 function Test-BootnodeSlot {
-  $nodeSlotId = Get-NodeEnvValue "NODE_SLOT_ID"
-  return $nodeSlotId -eq "node-01" -or $nodeSlotId -eq "node-02"
+  $roleGroup = (Get-NodeEnvValue "ROLE_GROUP").ToLower()
+  $nodeType = (Get-NodeEnvValue "NODE_TYPE").ToLower()
+  return $roleGroup -eq "bootstrap" -or $nodeType -eq "bootnode"
 }
 
 function Test-SyncRequired {
@@ -953,11 +924,6 @@ function Open-Ports {
     [int](Get-NodeEnvValue "DISCOVERY_PORT"),
     47990  # Testnet-Beta agent service port
   )
-  $networkTransport = (Get-NodeEnvValue "NETWORK_TRANSPORT").ToLower()
-  if ([string]::IsNullOrWhiteSpace($networkTransport)) { $networkTransport = "wireguard" }
-  $vpnCidr = Get-NodeEnvValue "VPN_CIDR"
-  if ([string]::IsNullOrWhiteSpace($vpnCidr)) { $vpnCidr = "10.50.0.0/24" }
-
   if (-not (Test-Admin)) {
     $canPromptForElevation = [Environment]::UserInteractive `
       -and [string]::IsNullOrWhiteSpace($env:SSH_CONNECTION) `
@@ -993,11 +959,7 @@ function Open-Ports {
     try {
       $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
       if (-not $existing) {
-        if ($networkTransport -eq "wireguard") {
-          New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -RemoteAddress $vpnCidr | Out-Null
-        } else {
-          New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port | Out-Null
-        }
+        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port | Out-Null
       }
     } catch {
       Write-Warning "Failed to create firewall rule for port ${port}: $_"
@@ -1329,7 +1291,7 @@ function Info-Node {
   Write-Host "Address Class: $(Get-NodeEnvValue 'ADDRESS_CLASS')"
   Write-Host "Address: $(Get-NodeEnvValue 'NODE_ADDRESS')"
   Write-Host "Monitor Host: $(Get-NodeEnvValue 'MONITOR_HOST')"
-  Write-Host "VPN IP: $(Get-NodeEnvValue 'VPN_IP')"
+  Write-Host "Inventory Address: $(Get-NodeEnvValue 'VPN_IP')"
   Write-Host "Transport: $(Get-NodeEnvValue 'NETWORK_TRANSPORT')"
   Write-Host "P2P: $(Get-NodeEnvValue 'P2P_PORT')"
   Write-Host "RPC: $(Get-NodeEnvValue 'RPC_PORT')"
@@ -1492,10 +1454,9 @@ Notes
 -----
 - The installer includes Linux x86_64, macOS arm64, and Windows x86_64 binaries.
 - Linux firewall automation supports ufw, firewalld, and iptables.
-- In WireGuard mode, firewall rules are scoped to VPN CIDR traffic.
 - Windows firewall automation prompts for elevation when needed and otherwise prints the required TCP ports.
 - This folder is self-contained for this node instance.
-- Public DNS should resolve to public hosts only; never point public DNS at private VPN IPs.
+- Public DNS should resolve only to approved public hosts.
 - See BINARY_STATUS.txt for bundled binary paths and SHA-256 checksums.
 TXT
 }
@@ -1573,9 +1534,7 @@ DISCOVERY_PORT=$discovery_port
 HOST=$host
 MONITOR_HOST=$host
 VPN_IP=$vpn_ip
-NETWORK_TRANSPORT=wireguard
-WIREGUARD_INTERFACE=wg0
-VPN_CIDR=10.50.0.0/24
+NETWORK_TRANSPORT=public
 CHAIN_ID=$TESTBETA_CHAIN_ID
 NETWORK_ID=$TESTBETA_NETWORK_ID
 AUTO_REGISTER_VALIDATOR=$auto_register

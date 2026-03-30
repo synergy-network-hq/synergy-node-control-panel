@@ -2,47 +2,47 @@
   "network": {
     "name": "Synergy Testnet-Beta",
     "version": "0.1.0",
-    "chainId": 9999,
+    "chainId": 338639,
     "vpnSubnet": "10.50.0.0/24",
     "controlPanelPort": 7770,
     "discoveryPort": 7771,
     "discoveryInterval": 15000,
     "heartbeatInterval": 10000,
     "heartbeatTimeout": 30000,
-    "rpcBaseUrl": "https://testbeta.synergy-network.io",
-    "wsBaseUrl": "wss://testbeta.synergy-network.io"
+    "rpcBaseUrl": "https://testbeta-core-rpc.synergy-network.io",
+    "wsBaseUrl": "wss://testbeta-core-ws.synergy-network.io"
   },
   "nodeClasses": {
     "Class I": {
-      "description": "Consensus Nodes — Secure the chain through PoSy consensus (block production, validation, cluster synchronization)",
+      "description": "Consensus Nodes \u2014 Secure the chain through PoSy consensus (block production, validation, cluster synchronization)",
       "addressPrefix": "synv1",
       "stakingRequirement": 5000,
       "rewardMultiplier": 1.0,
       "nodeCount": 4
     },
     "Class II": {
-      "description": "Interoperability Nodes — Execute SXCP and UMA operations (cross-chain bridging, relaying, witnessing)",
+      "description": "Interoperability Nodes \u2014 Execute SXCP and UMA operations (cross-chain bridging, relaying, witnessing)",
       "addressPrefix": "synv2",
       "stakingRequirement": 5000,
       "rewardMultiplier": 0.85,
       "nodeCount": 5
     },
     "Class III": {
-      "description": "Intelligence & Computation Nodes — Provide decentralized compute and AI services (AIVM off-chain tasks, analytics, PQC computation)",
+      "description": "Intelligence & Computation Nodes \u2014 Provide decentralized compute and AI services (AIVM off-chain tasks, analytics, PQC computation)",
       "addressPrefix": "synv3",
       "stakingRequirement": 5000,
       "rewardMultiplier": 0.75,
       "nodeCount": 4
     },
     "Class IV": {
-      "description": "Governance & Treasury Nodes — Manage DAO proposals and treasury execution (voting, enforcement, emergency rollback)",
+      "description": "Governance & Treasury Nodes \u2014 Manage DAO proposals and treasury execution (voting, enforcement, emergency rollback)",
       "addressPrefix": "synv4",
       "stakingRequirement": 5000,
       "rewardMultiplier": 1.1,
       "nodeCount": 3
     },
     "Class V": {
-      "description": "Service & Support Nodes — Operate ancillary infrastructure (API, RPC, archival, indexer, observer functionality)",
+      "description": "Service & Support Nodes \u2014 Operate ancillary infrastructure (API, RPC, archival, indexer, observer functionality)",
       "addressPrefix": "synv5",
       "stakingRequirement": 5000,
       "rewardMultiplier": 0.6,
@@ -66,18 +66,18 @@
       "vpnIp": "10.50.0.1",
       "nodes": [
         {
-          "nodeClass": "N/A",
-          "nodeType": "VPN Hub",
-          "p2pPort": null,
-          "rpcPort": null,
-          "wsPort": null
-        },
-        {
           "nodeClass": "Class I",
           "nodeType": "Validator",
-          "p2pPort": 38638,
-          "rpcPort": 48638,
-          "wsPort": 58638
+          "p2pPort": 5622,
+          "rpcPort": 5640,
+          "wsPort": 5660
+        },
+        {
+          "nodeClass": "Class V",
+          "nodeType": "Indexer",
+          "p2pPort": 5623,
+          "rpcPort": 5641,
+          "wsPort": 5661
         }
       ]
     },
@@ -92,16 +92,16 @@
         {
           "nodeClass": "Class I",
           "nodeType": "Validator",
-          "p2pPort": 38639,
-          "rpcPort": 48639,
-          "wsPort": 58639
+          "p2pPort": 5624,
+          "rpcPort": 5642,
+          "wsPort": 5662
         },
         {
           "nodeClass": "Class V",
           "nodeType": "Observer",
-          "p2pPort": 38640,
-          "rpcPort": 48640,
-          "wsPort": 58640
+          "p2pPort": 5625,
+          "rpcPort": 5643,
+          "wsPort": 5663
         }
       ]
     },
@@ -116,16 +116,16 @@
         {
           "nodeClass": "Class I",
           "nodeType": "Validator",
-          "p2pPort": 38641,
-          "rpcPort": 48641,
-          "wsPort": 58641
+          "p2pPort": 5626,
+          "rpcPort": 5644,
+          "wsPort": 5664
         },
         {
           "nodeClass": "Class II",
-          "nodeType": "Cross-Chain Verifier",
-          "p2pPort": 38642,
-          "rpcPort": 48642,
-          "wsPort": 58642
+          "nodeType": "Cross Chain Verifier",
+          "p2pPort": 5627,
+          "rpcPort": 5645,
+          "wsPort": 5665
         }
       ]
     },
@@ -140,16 +140,16 @@
         {
           "nodeClass": "Class I",
           "nodeType": "Validator",
-          "p2pPort": 38643,
-          "rpcPort": 48643,
-          "wsPort": 58643
+          "p2pPort": 5628,
+          "rpcPort": 5646,
+          "wsPort": 5666
         },
         {
           "nodeClass": "Class II",
           "nodeType": "Relayer",
-          "p2pPort": 38644,
-          "rpcPort": 48644,
-          "wsPort": 58644
+          "p2pPort": 5629,
+          "rpcPort": 5647,
+          "wsPort": 5667
         }
       ]
     },
@@ -163,23 +163,23 @@
       "nodes": [
         {
           "nodeClass": "Class I",
-          "nodeType": "Validator",
-          "p2pPort": 38645,
-          "rpcPort": 48645,
-          "wsPort": 58645
+          "nodeType": "Archive Validator",
+          "p2pPort": 5630,
+          "rpcPort": 5648,
+          "wsPort": 5668
         },
         {
           "nodeClass": "Class I",
           "nodeType": "Committee",
-          "p2pPort": 38646,
-          "rpcPort": 48646,
-          "wsPort": 58646
+          "p2pPort": 5631,
+          "rpcPort": 5649,
+          "wsPort": 5669
         }
       ]
     },
     "Machine-06": {
       "operator": "Network",
-      "device": "VPS",
+      "device": "Ionos VPS",
       "os": "Ubuntu 24.04 Server",
       "publicIp": "74.208.227.23",
       "localIp": null,
@@ -188,16 +188,16 @@
         {
           "nodeClass": "Class IV",
           "nodeType": "Security Council",
-          "p2pPort": 38647,
-          "rpcPort": 48647,
-          "wsPort": 58647
+          "p2pPort": 5632,
+          "rpcPort": 5650,
+          "wsPort": 5670
         },
         {
           "nodeClass": "Class II",
           "nodeType": "Oracle",
-          "p2pPort": 38648,
-          "rpcPort": 48648,
-          "wsPort": 58648
+          "p2pPort": 5633,
+          "rpcPort": 5651,
+          "wsPort": 5671
         }
       ]
     },
@@ -212,16 +212,16 @@
         {
           "nodeClass": "Class II",
           "nodeType": "Witness",
-          "p2pPort": 38649,
-          "rpcPort": 48649,
-          "wsPort": 58649
+          "p2pPort": 5634,
+          "rpcPort": 5652,
+          "wsPort": 5672
         },
         {
           "nodeClass": "Class V",
-          "nodeType": "RPC Gateway",
-          "p2pPort": 38650,
-          "rpcPort": 48650,
-          "wsPort": 58650
+          "nodeType": "Rpc Gateway",
+          "p2pPort": 5635,
+          "rpcPort": 5653,
+          "wsPort": 5673
         }
       ]
     },
@@ -234,107 +234,105 @@
       "vpnIp": "10.50.0.8",
       "nodes": [
         {
-          "nodeClass": "Class V",
-          "nodeType": "Indexer",
-          "p2pPort": 38651,
-          "rpcPort": 48651,
-          "wsPort": 58651
+          "nodeClass": "Class III",
+          "nodeType": "Uma Coordinator",
+          "p2pPort": 5636,
+          "rpcPort": 5654,
+          "wsPort": 5674
         },
         {
           "nodeClass": "Class III",
-          "nodeType": "PQC Crypto",
-          "p2pPort": 38652,
-          "rpcPort": 48652,
-          "wsPort": 58652
+          "nodeType": "Pqc Crypto",
+          "p2pPort": 5637,
+          "rpcPort": 5655,
+          "wsPort": 5675
         }
       ]
     },
     "Machine-09": {
       "operator": "David",
-      "device": null,
-      "os": null,
-      "publicIp": null,
+      "device": "VPS",
+      "os": "Ubuntu 24.04 Server",
+      "publicIp": "194.163.183.166",
       "localIp": null,
       "vpnIp": "10.50.0.9",
       "nodes": [
         {
           "nodeClass": "Class I",
           "nodeType": "Archive Validator",
-          "p2pPort": 38653,
-          "rpcPort": 48653,
-          "wsPort": 58653
+          "p2pPort": 5638,
+          "rpcPort": 5656,
+          "wsPort": 5676
         },
         {
           "nodeClass": "Class I",
           "nodeType": "Audit Validator",
-          "p2pPort": 38654,
-          "rpcPort": 48654,
-          "wsPort": 58654
+          "p2pPort": 5639,
+          "rpcPort": 5657,
+          "wsPort": 5677
         }
       ]
     },
     "Machine-10": {
-      "operator": "Mark",
-      "device": null,
-      "os": null,
-      "publicIp": null,
+      "operator": "Gunther",
+      "device": "Cracker MacPro 6.1",
+      "os": "Ubuntu 25.10 Desktop",
+      "publicIp": "78.23.204.168",
       "localIp": null,
       "vpnIp": "10.50.0.10",
-      "notes": "Requires GPU — node-18 is a Data Availability / AI node",
       "nodes": [
         {
-          "nodeClass": "Class III",
-          "nodeType": "Data Availability",
-          "p2pPort": 38655,
-          "rpcPort": 48655,
-          "wsPort": 58655
+          "nodeClass": "Class IV",
+          "nodeType": "Treasury Controller",
+          "p2pPort": 5640,
+          "rpcPort": 5658,
+          "wsPort": 5678
+        },
+        {
+          "nodeClass": "Class IV",
+          "nodeType": "Governance Auditor",
+          "p2pPort": 5641,
+          "rpcPort": 5659,
+          "wsPort": 5679
         }
       ]
     },
     "Machine-11": {
-      "operator": "Mark",
+      "operator": "TBD",
       "device": null,
       "os": null,
       "publicIp": null,
       "localIp": null,
       "vpnIp": "10.50.0.11",
-      "notes": "Requires GPU — node-20 is an AI Inference node",
       "nodes": [
         {
           "nodeClass": "Class III",
-          "nodeType": "AI Inference",
-          "p2pPort": 38657,
-          "rpcPort": 48657,
-          "wsPort": 58657
+          "nodeType": "Data Availability",
+          "p2pPort": 5642,
+          "rpcPort": 5660,
+          "wsPort": 5680
         }
       ]
     },
     "Machine-12": {
-      "operator": "Gunther",
-      "device": "Cracker MacPro 6,1",
-      "os": "Ubuntu 25.10 Desktop",
+      "operator": "TBD",
+      "device": null,
+      "os": null,
       "publicIp": null,
       "localIp": null,
       "vpnIp": "10.50.0.12",
       "nodes": [
         {
-          "nodeClass": "Class II",
-          "nodeType": "UMA Coordinator",
-          "p2pPort": 38659,
-          "rpcPort": 48659,
-          "wsPort": 58659
-        },
-        {
           "nodeClass": "Class III",
-          "nodeType": "Compute",
-          "p2pPort": 38660,
-          "rpcPort": 48660,
-          "wsPort": 58660
+          "nodeType": "Ai Inference",
+          "p2pPort": 5643,
+          "rpcPort": 5661,
+          "wsPort": 5681
         }
       ]
     },
     "Machine-13": {
-      "operator": "David?",
+      "operator": "TBD",
       "device": null,
       "os": null,
       "publicIp": null,
@@ -342,18 +340,11 @@
       "vpnIp": "10.50.0.13",
       "nodes": [
         {
-          "nodeClass": "Class IV",
-          "nodeType": "Treasury Controller",
-          "p2pPort": 38661,
-          "rpcPort": 48661,
-          "wsPort": 58661
-        },
-        {
-          "nodeClass": "Class IV",
-          "nodeType": "Governance Auditor",
-          "p2pPort": 38662,
-          "rpcPort": 48662,
-          "wsPort": 58662
+          "nodeClass": "Class III",
+          "nodeType": "Compute",
+          "p2pPort": 5644,
+          "rpcPort": 5662,
+          "wsPort": 5682
         }
       ]
     }

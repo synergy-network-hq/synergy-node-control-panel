@@ -1,7 +1,7 @@
 # Synergy Node Control Panel User Manual
 
-Version: 2026-03-28  
-Applies to: Synergy Node Control Panel `5.6.0` for Synergy Testnet-Beta
+Version: 2026-03-29
+Applies to: Synergy Node Control Panel `5.8.0` for Synergy Testnet-Beta
 
 ## 1. Network Baseline
 
@@ -34,7 +34,7 @@ Each role is installed from an approved ceremony package or bootstrap bundle dow
 
 ## 3. Install The Control Panel
 
-Install the current `Synergy.Node.Control.Panel-5.6.0` build for your platform.
+Install the current `Synergy.Node.Control.Panel-5.8.0` build for your platform.
 
 First launch creates the local workspace:
 
@@ -112,14 +112,13 @@ Bootnode and seed imports stage the files from the approved bootstrap bundles.
 
 - Bootnode: `5620`
 - Seed service: `5621`
-- Reserved: `5622`
-- Role P2P: `5630 + slot`
-- Role RPC: `5730 + slot`
-- Role WebSocket: `5830 + slot`
-- Role discovery: `5930 + slot`
+- Role P2P: `5622 + assignment`
+- Role RPC: `5640 + assignment`
+- Role WebSocket: `5660 + assignment`
+- Role discovery: `5680 + assignment`
 - Role metrics: `6030 + slot`
 
-Do not reintroduce `38638`, `48638`, `58638`, or `18080`.
+Do not reintroduce `38638`, `48638`, `58638`, `18080`, `5630`, `5730`, `5830`, or `5930`.
 
 ## 9. Bring-Up Order
 

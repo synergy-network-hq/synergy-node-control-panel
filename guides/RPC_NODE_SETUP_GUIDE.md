@@ -32,11 +32,11 @@ This guide explains how to set up a dedicated RPC node on a remote system. RPC n
 ### Network Requirements
 
 **Incoming Ports:**
-- **5730**: HTTP RPC endpoint
-- **5830**: WebSocket endpoint
+- **5640**: HTTP RPC endpoint
+- **5660**: WebSocket endpoint
 
 **Outgoing Ports:**
-- **5630**: P2P connection to bootnodes
+- **5622**: P2P connection to bootnodes
 
 ---
 
@@ -100,17 +100,17 @@ data_dir = "./data/rpc-node"
 
 [network]
 id = 338639  # Testnet-Beta chain ID
-p2p_port = 5630
-rpc_port = 5730
-ws_port = 5830
+p2p_port = 5622
+rpc_port = 5640
+ws_port = 5660
 
 [p2p]
 # Listen on all interfaces for P2P sync
-listen_address = "0.0.0.0:5630"
+listen_address = "0.0.0.0:5622"
 
 # Your public IP or DNS (for peer discovery)
 # Replace with your actual public IP or domain
-public_address = "YOUR_PUBLIC_IP:5630"
+public_address = "YOUR_PUBLIC_IP:5622"
 
 # Connect to testbeta bootnodes
 bootnodes = [
@@ -126,13 +126,13 @@ max_outbound_peers = 20
 [rpc]
 # Enable HTTP RPC
 enabled = true
-http_port = 5730
-bind_address = "0.0.0.0:5730"  # Bind to all interfaces
+http_port = 5640
+bind_address = "0.0.0.0:5640"  # Bind to all interfaces
 
 # Enable WebSocket
 ws_enabled = true
-ws_port = 5830
-ws_bind_address = "0.0.0.0:5830"
+ws_port = 5660
+ws_bind_address = "0.0.0.0:5660"
 
 # CORS settings (adjust for your use case)
 cors_origins = ["*"]  # For testbeta - restrict in production!
@@ -180,13 +180,13 @@ log_file = "./data/logs/rpc-node.log"
 sudo ufw allow 22/tcp
 
 # Allow P2P
-sudo ufw allow 5630/tcp
+sudo ufw allow 5622/tcp
 
 # Allow RPC HTTP
-sudo ufw allow 5730/tcp
+sudo ufw allow 5640/tcp
 
 # Allow RPC WebSocket
-sudo ufw allow 5830/tcp
+sudo ufw allow 5660/tcp
 
 # Enable firewall
 sudo ufw enable
@@ -213,9 +213,9 @@ mkdir -p data/rpc-node data/logs
 ```
 [INFO] Synergy RPC Node starting...
 [INFO] Chain ID: 338639 (Testnet-Beta)
-[INFO] P2P listening on 0.0.0.0:5630
-[INFO] RPC HTTP listening on 0.0.0.0:5730
-[INFO] RPC WebSocket listening on 0.0.0.0:5830
+[INFO] P2P listening on 0.0.0.0:5622
+[INFO] RPC HTTP listening on 0.0.0.0:5640
+[INFO] RPC WebSocket listening on 0.0.0.0:5660
 [INFO] Connecting to bootnodes...
 [INFO] Connected to bootnode1.synergynode.xyz:5620
 [INFO] Connected to bootnode2.synergynode.xyz:5620
@@ -234,7 +234,7 @@ mkdir -p data/rpc-node data/logs
 
 ```bash
 # Get current block height
-curl -X POST http://YOUR_PUBLIC_IP:5730/rpc \
+curl -X POST http://YOUR_PUBLIC_IP:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -260,7 +260,7 @@ cargo install websocat
 
 # Subscribe to new blocks
 echo '{"jsonrpc":"2.0","method":"chain_subscribeNewHeads","id":1}' | \
-  websocat ws://YOUR_PUBLIC_IP:5830
+  websocat ws://YOUR_PUBLIC_IP:5660
 
 # Expected: Stream of new block headers as they arrive
 ```
@@ -269,7 +269,7 @@ echo '{"jsonrpc":"2.0","method":"chain_subscribeNewHeads","id":1}' | \
 
 ```bash
 # Get account balance
-curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
+curl -s -X POST http://YOUR_PUBLIC_IP:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -279,7 +279,7 @@ curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
   }' | jq
 
 # Get transaction by hash
-curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
+curl -s -X POST http://YOUR_PUBLIC_IP:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -289,7 +289,7 @@ curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
   }' | jq
 
 # Get peer count
-curl -s -X POST http://YOUR_PUBLIC_IP:5730/rpc \
+curl -s -X POST http://YOUR_PUBLIC_IP:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -366,7 +366,7 @@ sudo journalctl -u synergy-rpc -f
 
 ```bash
 # Check sync status
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"sync_status","id":1}' | jq
 ```
@@ -408,7 +408,7 @@ Create `scripts/rpc-health-check.sh`:
 #!/bin/bash
 # RPC Node Health Check
 
-RPC_ENDPOINT="http://localhost:5730/rpc"
+RPC_ENDPOINT="http://localhost:5640/rpc"
 
 # Check if RPC is responding
 HEIGHT=$(curl -s -X POST "$RPC_ENDPOINT" \
@@ -471,7 +471,7 @@ server {
     server_name YOUR_DOMAIN.com;
 
     location / {
-        proxy_pass http://localhost:5730;
+        proxy_pass http://localhost:5640;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -479,7 +479,7 @@ server {
     }
 
     location /ws {
-        proxy_pass http://localhost:5830;
+        proxy_pass http://localhost:5660;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -566,7 +566,7 @@ sudo certbot --nginx -d YOUR_DOMAIN.com
 
 **Check port availability:**
 ```bash
-sudo netstat -tulpn | grep -E "5630|5730|5830"
+sudo netstat -tulpn | grep -E "5622|5640|5660"
 ```
 
 ### Cannot Connect to Bootnodes
@@ -580,7 +580,7 @@ nslookup bootnode3.synergynode.xyz
 
 **Test connectivity:**
 ```bash
-nc -zv bootnode1.synergynode.xyz 5630
+nc -zv bootnode1.synergynode.xyz 5622
 ```
 
 ### Sync is Slow
@@ -601,7 +601,7 @@ nc -zv bootnode1.synergynode.xyz 5630
 
 ## Security Best Practices
 
-1. **Firewall**: Only expose necessary ports (5730, 5830, 5630)
+1. **Firewall**: Only expose necessary ports (5640, 5660, 5622)
 2. **CORS**: Restrict `cors_origins` to trusted domains in production
 3. **Rate Limiting**: Configure `max_connections` and request limits
 4. **DDoS Protection**: Use Cloudflare or similar CDN for public endpoints

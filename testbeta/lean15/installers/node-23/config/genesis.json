@@ -1,11 +1,11 @@
 {
   "metadata": {
-    "network_name": "Synergy Closed Testnet-Beta",
-    "network_id": "synergy-testbeta-closed-001",
+    "network_name": "Synergy Testnet-Beta",
+    "network_id": "synergy-testnet-beta",
     "genesis_time": "2026-01-01T00:00:00Z",
     "chain_id": "338639",
     "version": "2.1.0-testbeta",
-    "description": "Closed, WireGuard-only deterministic testbeta genesis"
+    "description": "Canonical Synergy Testnet-Beta genesis"
   },
   "consensus": {
     "algorithm": "PoSy",
@@ -13,12 +13,12 @@
     "parameters": {
       "block_time_ms": 2000,
       "epoch_length": 50,
-      "min_validators": 3,
-      "max_validators": 15,
+      "min_validators": 4,
+      "max_validators": 4,
       "quorum_threshold": 0.67,
-      "min_stake_amount": "5000000000000",
+      "min_stake_amount": "50000000000000",
       "allow_zero_stake_validators": false,
-      "dynamic_validator_registration": true,
+      "dynamic_validator_registration": false,
       "slashing_conditions": {
         "double_sign_penalty": 1000000,
         "downtime_penalty": 100000,
@@ -33,62 +33,60 @@
     "websocket_endpoint": "wss://testbeta-core-ws.synergy-network.io",
     "api_endpoint": "https://testbeta-api.synergy-network.io",
     "explorer_endpoint": "https://testbeta-explorer.synergy-network.io",
-    "rpc_port": 5730,
-    "p2p_port": 5630,
-    "websocket_port": 5830,
+    "rpc_port": 5640,
+    "p2p_port": 5622,
+    "websocket_port": 5660,
     "metrics_port": 6030,
     "bootnodes": [
-      "snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:38638",
-      "snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:38639",
-      "snr://synv195e26a83cadf8636c052835b2d72ba232ed3@10.50.0.3:38641",
-      "snr://synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44@10.50.0.4:38643",
-      "snr://synv1d8bb566d5f963416c3a0367a53e28b2dd2cd@10.50.0.5:38645"
+      "snr://bootstrap@bootnode1.synergynode.xyz:5620",
+      "snr://bootstrap@bootnode2.synergynode.xyz:5620",
+      "snr://bootstrap@bootnode3.synergynode.xyz:5620"
     ]
   },
   "supply": {
-    "total_supply": "11952300000000000000",
+    "total_supply": "1150000000000000",
     "token_symbol": "SNRG",
     "token_name": "Synergy Token",
     "decimals": 9,
-    "burn_address": "synergy00000000000000000000000burn"
+    "burn_address": "synergy000000000000000000000000000000burn"
   },
   "genesis_allocations": [
     {
-      "type": "faucet_wallet",
-      "address": "synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07",
-      "balance": "1500000000000000000",
-      "description": "Closed-testbeta faucet wallet"
-    },
-    {
-      "type": "rewards_pool",
-      "address": "synw1zwy4m4mpdxyvz4nf8f7s0hk8nesc2cv09ex8pg",
-      "balance": "1500000000000000000",
-      "description": "Validator rewards pool"
-    },
-    {
       "type": "treasury",
-      "address": "synw14lswrh8z7kremft633xym9wtr5l9vkm3rd6lvd",
-      "balance": "8800000000000000000",
-      "description": "Protocol treasury"
+      "address": "synu1nd0fvzfhhj4s0te3ks06csfsnpg2hed8vsmh",
+      "balance": "400000000000000",
+      "description": "Foundation/Treasury"
     },
     {
-      "type": "foundation_wallet",
-      "address": "synw1v6fhr0x7v6e2hxf9d9l72z2fcmn2c4k4m6m7d8",
-      "balance": "50000000000000000",
-      "description": "Foundation/devops wallet"
+      "type": "team_wallet",
+      "address": "synw1pckkuqdeep4qz47ww9hnnm6uru2f9r6qtumv",
+      "balance": "150000000000000",
+      "description": "Team"
     },
     {
-      "type": "test_wallet_pool",
-      "address": "synw1q0a8jzk24y8ra9qy0wqp6lx8kclha04r6w3lmf",
-      "balance": "100000000000000000",
-      "description": "Load and integration testing wallet pool"
+      "type": "ecosystem_wallet",
+      "address": "synw1vkn2dq8mftcn7nkdhyv5t0jrv83thf0cakkj",
+      "balance": "200000000000000",
+      "description": "Ecosystem Development"
+    },
+    {
+      "type": "faucet_wallet",
+      "address": "synw1prdr55ggjhupx0d7jycftrl2hzs3k8zuw5ad",
+      "balance": "100000000000000",
+      "description": "Testnet Faucet Reserve"
+    },
+    {
+      "type": "public_sale_wallet",
+      "address": "synw1f2kpjt9flxl6y4e3uez0zp3hjanamrlew5ja",
+      "balance": "100000000000000",
+      "description": "Future Public Sale"
     },
     {
       "type": "validator_wallet",
       "address": "synv1daf1ee2c20ed961ec75d713aea4703389327",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-01",
+      "balance": "50000000000000",
+      "stake": "50000000000000",
+      "description": "Genesis allocation for consensus-01",
       "node_alias": "consensus-01",
       "node_slot_id": "node-01",
       "role_group": "consensus",
@@ -97,24 +95,11 @@
       "physical_machine_id": "machine-01"
     },
     {
-      "type": "node_wallet",
-      "address": "synv550236c31bda858ff27183e9d20d4db3acf02",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for service-03",
-      "node_alias": "service-03",
-      "node_slot_id": "node-14",
-      "role_group": "services",
-      "role": "indexer",
-      "node_type": "indexer",
-      "physical_machine_id": "machine-01"
-    },
-    {
       "type": "validator_wallet",
       "address": "synv1f2d0b0caae7e006426408008ceed4946d5eb",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-02",
+      "balance": "50000000000000",
+      "stake": "50000000000000",
+      "description": "Genesis allocation for consensus-02",
       "node_alias": "consensus-02",
       "node_slot_id": "node-02",
       "role_group": "consensus",
@@ -123,24 +108,11 @@
       "physical_machine_id": "machine-02"
     },
     {
-      "type": "node_wallet",
-      "address": "synv566ed2c95b408fcc400ec88a262c5fff78665",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for service-01",
-      "node_alias": "service-01",
-      "node_slot_id": "node-03",
-      "role_group": "services",
-      "role": "observer",
-      "node_type": "observer",
-      "physical_machine_id": "machine-02"
-    },
-    {
       "type": "validator_wallet",
       "address": "synv195e26a83cadf8636c052835b2d72ba232ed3",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-03",
+      "balance": "50000000000000",
+      "stake": "50000000000000",
+      "description": "Genesis allocation for consensus-03",
       "node_alias": "consensus-03",
       "node_slot_id": "node-04",
       "role_group": "consensus",
@@ -149,320 +121,84 @@
       "physical_machine_id": "machine-03"
     },
     {
-      "type": "node_wallet",
-      "address": "synv20708faf79bc9aaf136a8d39c0235290bfe01",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for interop-01",
-      "node_alias": "interop-01",
-      "node_slot_id": "node-05",
-      "role_group": "interop",
-      "role": "cross-chain-verifier",
-      "node_type": "cross-chain-verifier",
-      "physical_machine_id": "machine-03"
-    },
-    {
       "type": "validator_wallet",
       "address": "synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-04",
+      "balance": "50000000000000",
+      "stake": "50000000000000",
+      "description": "Genesis allocation for consensus-04",
       "node_alias": "consensus-04",
       "node_slot_id": "node-06",
       "role_group": "consensus",
       "role": "validator",
       "node_type": "validator",
       "physical_machine_id": "machine-04"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv2618ba0da2232256d3cfe96f79eefc168a504",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for interop-02",
-      "node_alias": "interop-02",
-      "node_slot_id": "node-07",
-      "role_group": "interop",
-      "role": "relayer",
-      "node_type": "relayer",
-      "physical_machine_id": "machine-04"
-    },
-    {
-      "type": "validator_wallet",
-      "address": "synv1d8bb566d5f963416c3a0367a53e28b2dd2cd",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-05",
-      "node_alias": "consensus-05",
-      "node_slot_id": "node-08",
-      "role_group": "consensus",
-      "role": "validator",
-      "node_type": "validator",
-      "physical_machine_id": "machine-05"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv1f049708835dbf06589ea342189731fbb395c",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-06",
-      "node_alias": "consensus-06",
-      "node_slot_id": "node-09",
-      "role_group": "consensus",
-      "role": "committee",
-      "node_type": "committee",
-      "physical_machine_id": "machine-05"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv4cace1e19e4d4b466e8123aa14570c84cb231",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for governance-01",
-      "node_alias": "governance-01",
-      "node_slot_id": "node-10",
-      "role_group": "governance",
-      "role": "security-council",
-      "node_type": "security-council",
-      "physical_machine_id": "machine-06"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv28af8af7bca27a20ddf0733924d10a1afeeab",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for interop-03",
-      "node_alias": "interop-03",
-      "node_slot_id": "node-11",
-      "role_group": "interop",
-      "role": "oracle",
-      "node_type": "oracle",
-      "physical_machine_id": "machine-06"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv2549b8b33f2320c735d2cd3ef3d9122dfe845",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for interop-04",
-      "node_alias": "interop-04",
-      "node_slot_id": "node-12",
-      "role_group": "interop",
-      "role": "witness",
-      "node_type": "witness",
-      "physical_machine_id": "machine-07"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv5372c7cc52e3b131042bb639392a30bc85689",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for service-02",
-      "node_alias": "service-02",
-      "node_slot_id": "node-13",
-      "role_group": "services",
-      "role": "rpc-gateway",
-      "node_type": "rpc-gateway",
-      "physical_machine_id": "machine-07"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv3a59d712e43e7eb4937ef49884bd6c23dd4dd",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for interop-05",
-      "node_alias": "interop-05",
-      "node_slot_id": "node-22",
-      "role_group": "interop",
-      "role": "uma-coordinator",
-      "node_type": "uma-coordinator",
-      "physical_machine_id": "machine-08"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv3cf3c8198e724d71c098e137c86276773490d",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for compute-01",
-      "node_alias": "compute-01",
-      "node_slot_id": "node-15",
-      "role_group": "pqc",
-      "role": "pqc-crypto",
-      "node_type": "pqc-crypto",
-      "physical_machine_id": "machine-08"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv1b04dc1518d98a71e482b28dcf02c3b54d116",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-07",
-      "node_alias": "consensus-07",
-      "node_slot_id": "node-16",
-      "role_group": "consensus",
-      "role": "archive-validator",
-      "node_type": "archive-validator",
-      "physical_machine_id": "machine-09"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv1cebc126d61347e63b2f3c4521806f2b2127e",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for consensus-08",
-      "node_alias": "consensus-08",
-      "node_slot_id": "node-17",
-      "role_group": "consensus",
-      "role": "audit-validator",
-      "node_type": "audit-validator",
-      "physical_machine_id": "machine-09"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv4b1d8ed11cf37673fac14de37bacb42317e11",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for governance-02",
-      "node_alias": "governance-02",
-      "node_slot_id": "node-24",
-      "role_group": "governance",
-      "role": "treasury-controller",
-      "node_type": "treasury-controller",
-      "physical_machine_id": "machine-10"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv414ad9f4e1c5d6322b917c8cf680a1387a897",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for governance-03",
-      "node_alias": "governance-03",
-      "node_slot_id": "node-25",
-      "role_group": "governance",
-      "role": "governance-auditor",
-      "node_type": "governance-auditor",
-      "physical_machine_id": "machine-10"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv3de76d37c01b02d7f78c50d5405889d15b584",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for compute-02",
-      "node_alias": "compute-02",
-      "node_slot_id": "node-18",
-      "role_group": "compute",
-      "role": "data-availability",
-      "node_type": "data-availability",
-      "physical_machine_id": "machine-11"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv3dc88c6183f02fdce82d7bec2621df2a7cc6a",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for compute-03",
-      "node_alias": "compute-03",
-      "node_slot_id": "node-20",
-      "role_group": "compute",
-      "role": "ai-inference",
-      "node_type": "ai-inference",
-      "physical_machine_id": "machine-12"
-    },
-    {
-      "type": "node_wallet",
-      "address": "synv317b285e67cbaf5c0210f56834b8f0210d2b3",
-      "balance": "100000000000000",
-      "stake": "5000000000000",
-      "description": "Testnet-Beta node allocation for compute-04",
-      "node_alias": "compute-04",
-      "node_slot_id": "node-23",
-      "role_group": "compute",
-      "role": "compute",
-      "node_type": "compute",
-      "physical_machine_id": "machine-13"
     }
   ],
   "validators": [
     {
       "address": "synv1daf1ee2c20ed961ec75d713aea4703389327",
       "public_key_file": "testbeta/lean15/keys/node-01/identity.json",
-      "stake": "5000000000000",
+      "stake": "50000000000000",
       "commission_rate": 0.05,
       "min_self_delegation": "1",
       "max_delegations": 1000,
       "details": {
         "name": "consensus-01 validator",
         "identity": "consensus-01",
-        "website": "https://synergy.local",
-        "security_contact": "security@synergy.local",
+        "website": "https://synergy-network.io",
+        "security_contact": "security@synergy-network.io",
         "class": 1
       }
     },
     {
       "address": "synv1f2d0b0caae7e006426408008ceed4946d5eb",
       "public_key_file": "testbeta/lean15/keys/node-02/identity.json",
-      "stake": "5000000000000",
+      "stake": "50000000000000",
       "commission_rate": 0.05,
       "min_self_delegation": "1",
       "max_delegations": 1000,
       "details": {
         "name": "consensus-02 validator",
         "identity": "consensus-02",
-        "website": "https://synergy.local",
-        "security_contact": "security@synergy.local",
+        "website": "https://synergy-network.io",
+        "security_contact": "security@synergy-network.io",
         "class": 1
       }
     },
     {
       "address": "synv195e26a83cadf8636c052835b2d72ba232ed3",
       "public_key_file": "testbeta/lean15/keys/node-04/identity.json",
-      "stake": "5000000000000",
+      "stake": "50000000000000",
       "commission_rate": 0.05,
       "min_self_delegation": "1",
       "max_delegations": 1000,
       "details": {
         "name": "consensus-03 validator",
         "identity": "consensus-03",
-        "website": "https://synergy.local",
-        "security_contact": "security@synergy.local",
+        "website": "https://synergy-network.io",
+        "security_contact": "security@synergy-network.io",
         "class": 1
       }
     },
     {
       "address": "synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44",
       "public_key_file": "testbeta/lean15/keys/node-06/identity.json",
-      "stake": "5000000000000",
+      "stake": "50000000000000",
       "commission_rate": 0.05,
       "min_self_delegation": "1",
       "max_delegations": 1000,
       "details": {
         "name": "consensus-04 validator",
         "identity": "consensus-04",
-        "website": "https://synergy.local",
-        "security_contact": "security@synergy.local",
-        "class": 1
-      }
-    },
-    {
-      "address": "synv1d8bb566d5f963416c3a0367a53e28b2dd2cd",
-      "public_key_file": "testbeta/lean15/keys/node-08/identity.json",
-      "stake": "5000000000000",
-      "commission_rate": 0.05,
-      "min_self_delegation": "1",
-      "max_delegations": 1000,
-      "details": {
-        "name": "consensus-05 validator",
-        "identity": "consensus-05",
-        "website": "https://synergy.local",
-        "security_contact": "security@synergy.local",
+        "website": "https://synergy-network.io",
+        "security_contact": "security@synergy-network.io",
         "class": 1
       }
     }
   ],
   "governance": {
-    "dao_address": "syndao17qw77teuxfejlupqpadzzj9exavmtmhysac2uq",
-    "treasury_address": "synw14lswrh8z7kremft633xym9wtr5l9vkm3rd6lvd",
+    "dao_address": "syndao1lf6q9zmfh4w4t30d04j05nmsku03te4685t5vn",
+    "treasury_address": "synu1nd0fvzfhhj4s0te3ks06csfsnpg2hed8vsmh",
     "proposal_deposit": "10000",
     "voting_period": 100,
     "execution_delay": 10,

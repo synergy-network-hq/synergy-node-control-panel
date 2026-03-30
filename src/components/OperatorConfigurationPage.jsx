@@ -170,7 +170,7 @@ function OperatorConfigurationPage() {
     {
       kicker: '05',
       title: 'Verify agent reachability',
-      copy: 'Global reset/start/stop should only be attempted once every physical machine shows a reachable agent over the private VPN.',
+      copy: 'Global reset/start/stop should only be attempted once every physical machine shows a reachable agent over the approved management network.',
     },
   ];
   const sectionLinks = [
@@ -671,7 +671,7 @@ function OperatorConfigurationPage() {
             </span>
           </div>
           <p className="monitor-path">
-            Global lifecycle/reset actions use the per-machine agent over the existing VPN first and fall back to SSH only when the agent is unavailable.
+            Global lifecycle/reset actions use the per-machine agent over the management network first and fall back to SSH only when the agent is unavailable.
           </p>
 
           {agentError ? (

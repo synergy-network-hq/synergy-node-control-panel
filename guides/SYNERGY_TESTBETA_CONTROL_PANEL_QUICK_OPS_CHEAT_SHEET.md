@@ -1,6 +1,6 @@
 # Synergy Node Control Panel Quick Ops Cheat Sheet
 
-Version: 2026-03-28
+Version: 2026-03-29
 Scope: Synergy Testnet-Beta genesis ceremony and first-start operations
 
 ## 1. Core Facts
@@ -38,10 +38,10 @@ Jarvis switches into ceremony mode and asks for the node role to install.
 
 - Bootnode: `5620`
 - Seed service: `5621`
-- Role P2P: `5630 + slot`
-- Role RPC: `5730 + slot`
-- Role WebSocket: `5830 + slot`
-- Role discovery: `5930 + slot`
+- Role P2P: `5622 + assignment`
+- Role RPC: `5640 + assignment`
+- Role WebSocket: `5660 + assignment`
+- Role discovery: `5680 + assignment`
 - Role metrics: `6030 + slot`
 
 ## 5. Minimum Role Checks

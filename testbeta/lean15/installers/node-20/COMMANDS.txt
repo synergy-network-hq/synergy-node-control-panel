@@ -6,11 +6,11 @@ Type: ai-inference
 
 Ports
 -----
-P2P: 38659
-RPC: 48659
-WebSocket: 58659
-gRPC: 50070
-Discovery: 39657
+P2P: 5643
+RPC: 5661
+WebSocket: 5681
+gRPC: 5661
+Discovery: 5701
 
 Linux/macOS Commands
 --------------------

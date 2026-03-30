@@ -1,6 +1,6 @@
 # Synergy Node Control Panel — Releases
 
-Official installer downloads for the **Synergy Node Control Panel**, the desktop operator console for the Synergy Testnet Beta network.
+Official installer downloads for the **Synergy Node Control Panel**, the desktop operator console for the Synergy Testnet-Beta network.
 
 ---
 
@@ -204,7 +204,7 @@ The control panel bundles pre-compiled node binaries. If the setup wizard report
 
 ## Network Information
 
-The control panel connects to the Synergy Testnet Beta network:
+The control panel connects to the Synergy Testnet-Beta network:
 
 | Service | Endpoint |
 |---------|----------|
@@ -222,10 +222,10 @@ The control panel connects to the Synergy Testnet Beta network:
 |------|---------|
 | `5620` | Bootnode listener |
 | `5621` | Seed-service listener |
-| `5630 + slot` | Node P2P |
-| `5730 + slot` | Node RPC |
-| `5830 + slot` | Node WebSocket |
-| `5930 + slot` | Node discovery |
+| `5622 + assignment` | Node P2P |
+| `5640 + assignment` | Node RPC |
+| `5660 + assignment` | Node WebSocket |
+| `5680 + assignment` | Node discovery |
 | `6030 + slot` | Node metrics |
 
 ---

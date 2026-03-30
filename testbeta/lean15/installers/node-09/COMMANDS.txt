@@ -6,11 +6,11 @@ Type: committee
 
 Ports
 -----
-P2P: 38646
-RPC: 48646
-WebSocket: 58646
-gRPC: 50059
-Discovery: 39646
+P2P: 5631
+RPC: 5649
+WebSocket: 5669
+gRPC: 5649
+Discovery: 5689
 
 Linux/macOS Commands
 --------------------

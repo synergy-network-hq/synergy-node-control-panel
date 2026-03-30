@@ -2,9 +2,5 @@
 hosts.env
 hosts.env.bak.*
 
-# Generated WireGuard configs (contain machine-specific keys/endpoints)
-wireguard/configs/
-wireguard/keys/
-
 # Generated installer bundles embed per-node key folders copied from /keys
 installers/node-*/keys/

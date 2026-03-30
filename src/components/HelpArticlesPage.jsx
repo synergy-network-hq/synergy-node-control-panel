@@ -194,13 +194,13 @@ function HelpArticlesPage() {
       <div className="help-brief-grid">
         <article className="help-brief-card">
           <span className="help-brief-label">Bootstrap Sequence</span>
-          <strong className="help-brief-title">VPN is external to the panel</strong>
+          <strong className="help-brief-title">Machine access is external to the panel</strong>
           <p>
-            The control panel assumes the private VPN already exists. Use bindings,
+            The control panel assumes machine access is already in place. Use bindings,
             {' '}
             <code>status</code>
             {' '}
-            and RPC checks to validate the fleet instead of trying to manage WireGuard here.
+            and RPC checks to validate the fleet instead of trying to manage network overlays here.
           </p>
         </article>
         <article className="help-brief-card">
