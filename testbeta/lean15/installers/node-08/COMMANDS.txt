@@ -2,15 +2,15 @@ Synergy Testnet-Beta Node Command Reference
 ====================================
 
 Node Slot: node-08
-Type: validator
+Type: archive-validator
 
 Ports
 -----
-P2P: 38645
-RPC: 48645
-WebSocket: 58645
-gRPC: 50058
-Discovery: 39645
+P2P: 5630
+RPC: 5648
+WebSocket: 5668
+gRPC: 5648
+Discovery: 5688
 
 Linux/macOS Commands
 --------------------

@@ -6,11 +6,11 @@ Type: cross-chain-verifier
 
 Ports
 -----
-P2P: 38642
-RPC: 48642
-WebSocket: 58642
-gRPC: 50055
-Discovery: 39642
+P2P: 5627
+RPC: 5645
+WebSocket: 5665
+gRPC: 5645
+Discovery: 5685
 
 Linux/macOS Commands
 --------------------

@@ -80,9 +80,9 @@
 
 ## Default Ports
 
-- **P2P**: 5630
-- **RPC**: 5730
-- **WebSocket**: 5830
+- **P2P**: 5622
+- **RPC**: 5640
+- **WebSocket**: 5660
 
 ## Files & Directories
 
@@ -106,7 +106,7 @@ rm -f data/synergy-testbeta.pid
 ./testbeta.sh start validator
 
 # Change ports (if in use)
-export SYNERGY_RPC_PORT=5830
+export SYNERGY_RPC_PORT=5660
 export SYNERGY_P2P_PORT=30304
 ./testbeta.sh start validator
 ```
@@ -117,11 +117,11 @@ Open multiple terminals:
 
 ```bash
 # Terminal 1: Validator
-export SYNERGY_RPC_PORT=5730 && export SYNERGY_P2P_PORT=5630
+export SYNERGY_RPC_PORT=5640 && export SYNERGY_P2P_PORT=5622
 ./target/release/synergy-testbeta start --node-type validator
 
 # Terminal 2: Oracle
-export SYNERGY_RPC_PORT=5830 && export SYNERGY_P2P_PORT=30304
+export SYNERGY_RPC_PORT=5660 && export SYNERGY_P2P_PORT=30304
 ./target/release/synergy-testbeta start --node-type oracle
 
 # Terminal 3: RPC Gateway

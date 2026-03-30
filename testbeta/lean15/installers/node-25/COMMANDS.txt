@@ -6,11 +6,11 @@ Type: governance-auditor
 
 Ports
 -----
-P2P: 38657
-RPC: 48657
-WebSocket: 58657
-gRPC: 50075
-Discovery: 39662
+P2P: 5641
+RPC: 5659
+WebSocket: 5679
+gRPC: 5659
+Discovery: 5699
 
 Linux/macOS Commands
 --------------------

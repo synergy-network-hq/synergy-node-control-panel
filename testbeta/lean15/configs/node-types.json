@@ -28,51 +28,6 @@
     }
   },
   "nodeTypes": {
-    "VPN Hub": {
-      "whitepaperType": null,
-      "description": "Central VPN hub that manages the WireGuard mesh network connecting all testbeta machines (testbeta-only infrastructure, not in mainnet whitepaper)",
-      "class": "N/A",
-      "binary": "synergy-vpn-hub",
-      "productionBinary": null,
-      "configTemplate": "vpn-hub.toml",
-      "capabilities": [
-        "vpn_management",
-        "peer_routing",
-        "nat_traversal",
-        "key_distribution"
-      ],
-      "requiredServices": [
-        "wireguard"
-      ],
-      "healthEndpoint": "/health",
-      "metricsEndpoint": "/metrics",
-      "defaultPorts": {
-        "management": 51820,
-        "api": 7780
-      },
-      "hardwareRequirements": {
-        "cpu": "1 core",
-        "ram": "256 MB",
-        "storage": "5 GB SSD",
-        "network": "100 Mbps"
-      },
-      "resources": {
-        "minMemoryMB": 256,
-        "minCpuCores": 1,
-        "minDiskGB": 5
-      },
-      "stakingRequirement": null,
-      "functionality": {
-        "primary": "Manages WireGuard VPN mesh topology for the testbeta",
-        "tasks": [
-          "Maintain peer configuration for all machines",
-          "Distribute WireGuard public keys across network",
-          "Handle NAT traversal and endpoint updates",
-          "Monitor tunnel health and latency between peers",
-          "Auto-configure new machines joining the VPN"
-        ]
-      }
-    },
     "Validator": {
       "whitepaperType": 1,
       "description": "Executes PoSy consensus rounds, proposes and signs blocks. Must maintain >= 99.5% uptime. Runs full chain.",
@@ -102,9 +57,9 @@
         "tx"
       ],
       "defaultPorts": {
-        "p2p": 38638,
-        "rpc": 48638,
-        "ws": 58638
+        "p2p": 5622,
+        "rpc": 5640,
+        "ws": 5660
       },
       "hardwareRequirements": {
         "cpu": "8 core (3.0 GHz+)",
@@ -165,9 +120,9 @@
         "committee_synergyScore"
       ],
       "defaultPorts": {
-        "p2p": 38646,
-        "rpc": 48646,
-        "ws": 58646
+        "p2p": 5630,
+        "rpc": 5648,
+        "ws": 5668
       },
       "hardwareRequirements": {
         "cpu": "6 core",
@@ -224,9 +179,9 @@
         "archive_getMerkleProof"
       ],
       "defaultPorts": {
-        "p2p": 38653,
-        "rpc": 48653,
-        "ws": 58653
+        "p2p": 5637,
+        "rpc": 5655,
+        "ws": 5675
       },
       "hardwareRequirements": {
         "cpu": "12 core",
@@ -281,9 +236,9 @@
         "audit_crossCheckQC"
       ],
       "defaultPorts": {
-        "p2p": 38654,
-        "rpc": 48654,
-        "ws": 58654
+        "p2p": 5638,
+        "rpc": 5656,
+        "ws": 5676
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -339,9 +294,9 @@
         "relay_lightClientStatus"
       ],
       "defaultPorts": {
-        "p2p": 38644,
-        "rpc": 48644,
-        "ws": 58644
+        "p2p": 5628,
+        "rpc": 5646,
+        "ws": 5666
       },
       "hardwareRequirements": {
         "cpu": "12 core",
@@ -403,9 +358,9 @@
         "witness_verifyProof"
       ],
       "defaultPorts": {
-        "p2p": 38649,
-        "rpc": 48649,
-        "ws": 58649
+        "p2p": 5633,
+        "rpc": 5651,
+        "ws": 5671
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -462,9 +417,9 @@
         "oracle_getTimestamp"
       ],
       "defaultPorts": {
-        "p2p": 38648,
-        "rpc": 48648,
-        "ws": 58648
+        "p2p": 5632,
+        "rpc": 5650,
+        "ws": 5670
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -525,9 +480,9 @@
         "uma_challenge"
       ],
       "defaultPorts": {
-        "p2p": 38659,
-        "rpc": 48659,
-        "ws": 58659
+        "p2p": 5643,
+        "rpc": 5661,
+        "ws": 5681
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -583,9 +538,9 @@
         "sxcp_verifyBundle"
       ],
       "defaultPorts": {
-        "p2p": 38642,
-        "rpc": 48642,
-        "ws": 58642
+        "p2p": 5626,
+        "rpc": 5644,
+        "ws": 5664
       },
       "hardwareRequirements": {
         "cpu": "16 core",
@@ -644,9 +599,9 @@
         "compute_submitTask"
       ],
       "defaultPorts": {
-        "p2p": 38660,
-        "rpc": 48660,
-        "ws": 58660
+        "p2p": 5644,
+        "rpc": 5662,
+        "ws": 5682
       },
       "hardwareRequirements": {
         "cpu": "16 core",
@@ -704,9 +659,9 @@
         "ai_validatorAnalysis"
       ],
       "defaultPorts": {
-        "p2p": 38657,
-        "rpc": 48657,
-        "ws": 58657
+        "p2p": 5641,
+        "rpc": 5659,
+        "ws": 5679
       },
       "hardwareRequirements": {
         "cpu": "12 core",
@@ -767,9 +722,9 @@
         "pqc_status"
       ],
       "defaultPorts": {
-        "p2p": 38652,
-        "rpc": 48652,
-        "ws": 58652
+        "p2p": 5636,
+        "rpc": 5654,
+        "ws": 5674
       },
       "hardwareRequirements": {
         "cpu": "8 core (AVX2+ required)",
@@ -825,9 +780,9 @@
         "da_verifyMevIntegrity"
       ],
       "defaultPorts": {
-        "p2p": 38655,
-        "rpc": 48655,
-        "ws": 58655
+        "p2p": 5639,
+        "rpc": 5657,
+        "ws": 5677
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -883,9 +838,9 @@
         "gov_auditTrail"
       ],
       "defaultPorts": {
-        "p2p": 38662,
-        "rpc": 48662,
-        "ws": 58662
+        "p2p": 5646,
+        "rpc": 5664,
+        "ws": 5684
       },
       "hardwareRequirements": {
         "cpu": "6 core",
@@ -945,9 +900,9 @@
         "treasury_multisigStatus"
       ],
       "defaultPorts": {
-        "p2p": 38661,
-        "rpc": 48661,
-        "ws": 58661
+        "p2p": 5645,
+        "rpc": 5663,
+        "ws": 5683
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -1005,9 +960,9 @@
         "council_rollbackStatus"
       ],
       "defaultPorts": {
-        "p2p": 38647,
-        "rpc": 48647,
-        "ws": 58647
+        "p2p": 5631,
+        "rpc": 5649,
+        "ws": 5669
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -1068,9 +1023,9 @@
         "gateway_status"
       ],
       "defaultPorts": {
-        "p2p": 38650,
-        "rpc": 48650,
-        "ws": 58650
+        "p2p": 5634,
+        "rpc": 5652,
+        "ws": 5672
       },
       "hardwareRequirements": {
         "cpu": "4 core",
@@ -1131,9 +1086,9 @@
         "index_events"
       ],
       "defaultPorts": {
-        "p2p": 38651,
-        "rpc": 48651,
-        "ws": 58651
+        "p2p": 5635,
+        "rpc": 5653,
+        "ws": 5673
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -1192,9 +1147,9 @@
         "getAddress"
       ],
       "defaultPorts": {
-        "p2p": 38640,
-        "rpc": 48640,
-        "ws": 58640
+        "p2p": 5624,
+        "rpc": 5642,
+        "ws": 5662
       },
       "hardwareRequirements": {
         "cpu": "2 core",
@@ -1247,9 +1202,9 @@
         "gpu_getResult"
       ],
       "defaultPorts": {
-        "p2p": 38656,
-        "rpc": 48656,
-        "ws": 58656
+        "p2p": 5640,
+        "rpc": 5658,
+        "ws": 5678
       },
       "hardwareRequirements": {
         "cpu": "8+ core",

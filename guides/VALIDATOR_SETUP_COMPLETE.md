@@ -315,7 +315,7 @@ Before inviting team members:
 ✅ Onboarding Guide Created
 ✅ Coordinator Guide Created
 ✅ Helper Scripts Created
-✅ Network Ports Corrected (5630/5730/5830)
+✅ Network Ports Corrected (5622/5640/5660)
 ✅ Bootnodes Configured
 ✅ Faucet Funded (2B SNRG)
 ✅ Documentation Complete

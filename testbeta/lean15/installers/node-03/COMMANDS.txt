@@ -6,11 +6,11 @@ Type: observer
 
 Ports
 -----
-P2P: 38640
-RPC: 48640
-WebSocket: 58640
-gRPC: 50053
-Discovery: 39640
+P2P: 5625
+RPC: 5643
+WebSocket: 5663
+gRPC: 5643
+Discovery: 5683
 
 Linux/macOS Commands
 --------------------

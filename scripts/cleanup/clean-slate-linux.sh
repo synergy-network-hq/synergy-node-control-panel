@@ -14,5 +14,4 @@ systemctl --user daemon-reload >/dev/null 2>&1 || true
 rm -rf "$WORKSPACE_ROOT" "$LEGACY_ROOT"
 
 echo "Removed local control-panel workspace and systemd user service."
-echo "WireGuard system state was not touched."
-
+echo "Removed local control-panel artifacts only."

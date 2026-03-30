@@ -30,10 +30,10 @@ const TESTNET_BETA_CHAIN_NAME: &str = "synergy-testnet-beta";
 const TESTNET_BETA_CHAIN_ID: u64 = 338639;
 const TESTNET_BETA_BOOTNODE_PORT: u16 = 5620;
 const TESTNET_BETA_SEED_PORT: u16 = 5621;
-const TESTNET_BETA_P2P_PORT: u16 = 5630;
-const TESTNET_BETA_RPC_PORT: u16 = 5730;
-const TESTNET_BETA_WS_PORT: u16 = 5830;
-const TESTNET_BETA_DISCOVERY_PORT: u16 = 5930;
+const TESTNET_BETA_P2P_PORT: u16 = 5622;
+const TESTNET_BETA_RPC_PORT: u16 = 5640;
+const TESTNET_BETA_WS_PORT: u16 = 5660;
+const TESTNET_BETA_DISCOVERY_PORT: u16 = 5680;
 const TESTNET_BETA_METRICS_PORT: u16 = 6030;
 const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergy-network.io";
 const TOKEN_SYMBOL: &str = "SNRG";
@@ -3369,7 +3369,7 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
         TestnetBetaBootstrapEndpoint {
             kind: host_prefix.to_string(),
             host: format!("{host_prefix}3.synergynode.xyz"),
-            ip_address: "64.227.107.57".to_string(),
+            ip_address: "157.245.226.24".to_string(),
             port,
             dns_mode,
         },
@@ -4408,7 +4408,7 @@ mod tests {
                     .get("p2p")
                     .and_then(|section| section.get("public_address"))
                     .and_then(toml::Value::as_str),
-                Some("validator-alpha.synergynode.xyz:5630")
+                Some("validator-alpha.synergynode.xyz:5622")
             );
             assert_eq!(
                 node_value
@@ -4697,8 +4697,8 @@ esac
         let catalog = node_catalog();
         assert_eq!(catalog.len(), 19);
 
-        let docs_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../synergy-testnet-beta/docs/node-role-functions.md");
+        let docs_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/node-role-functions.md");
         let docs = fs::read_to_string(&docs_path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", docs_path.display()));
 

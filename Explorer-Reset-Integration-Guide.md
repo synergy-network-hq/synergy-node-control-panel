@@ -68,7 +68,7 @@ The explorer/indexer service needs to expose an HTTP endpoint that accepts the a
 
 If the endpoint requires authentication, the control panel currently does not send auth headers. Options:
 
-- Use IP-based allowlisting (only allow requests from the WireGuard VPN CIDR `10.50.0.0/24`)
+- Use IP-based allowlisting for the approved management network only
 - Add a bearer token via the `SYNERGY_EXPLORER_RESET_TOKEN` env var (requires a small code addition to `monitor.rs`)
 - Use a shared secret in a custom header
 

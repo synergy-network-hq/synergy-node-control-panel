@@ -57,8 +57,9 @@ function Test-NodeRunning {
 }
 
 function Test-BootnodeSlot {
-  $nodeSlotId = Get-NodeEnvValue "NODE_SLOT_ID"
-  return $nodeSlotId -eq "node-01" -or $nodeSlotId -eq "node-02"
+  $roleGroup = (Get-NodeEnvValue "ROLE_GROUP").ToLower()
+  $nodeType = (Get-NodeEnvValue "NODE_TYPE").ToLower()
+  return $roleGroup -eq "bootstrap" -or $nodeType -eq "bootnode"
 }
 
 function Test-SyncRequired {
@@ -86,11 +87,6 @@ function Open-Ports {
     [int](Get-NodeEnvValue "DISCOVERY_PORT"),
     47990  # Testnet-Beta agent service port
   )
-  $networkTransport = (Get-NodeEnvValue "NETWORK_TRANSPORT").ToLower()
-  if ([string]::IsNullOrWhiteSpace($networkTransport)) { $networkTransport = "wireguard" }
-  $vpnCidr = Get-NodeEnvValue "VPN_CIDR"
-  if ([string]::IsNullOrWhiteSpace($vpnCidr)) { $vpnCidr = "10.50.0.0/24" }
-
   if (-not (Test-Admin)) {
     $canPromptForElevation = [Environment]::UserInteractive `
       -and [string]::IsNullOrWhiteSpace($env:SSH_CONNECTION) `
@@ -126,11 +122,7 @@ function Open-Ports {
     try {
       $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
       if (-not $existing) {
-        if ($networkTransport -eq "wireguard") {
-          New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port -RemoteAddress $vpnCidr | Out-Null
-        } else {
-          New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port | Out-Null
-        }
+        New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $port | Out-Null
       }
     } catch {
       Write-Warning "Failed to create firewall rule for port ${port}: $_"

@@ -90,7 +90,7 @@ This document provides a comprehensive index of all available node setup guides 
 **Characteristics:**
 - **Participate in consensus**: Yes (PoSy)
 - **Earn Synergy Score**: Yes
-- **Required stake**: 1M SNRG (genesis allocation)
+- **Required stake**: 50,000 SNRG (genesis validator allocation)
 - **Public endpoints**: Yes (bootnodes for peer discovery)
 
 **Configuration Files:**
@@ -169,9 +169,9 @@ This document provides a comprehensive index of all available node setup guides 
 - Public API endpoints
 
 **Ports:**
-- **HTTP RPC**: 5730
-- **WebSocket**: 5830
-- **P2P**: 5630 (sync only, not consensus)
+- **HTTP RPC**: 5640
+- **WebSocket**: 5660
+- **P2P**: 5622 (sync only, not consensus)
 
 **Performance Considerations:**
 - Recommended: 8+ CPU cores, 32+ GB RAM
@@ -239,9 +239,9 @@ Message Execution
 - Split among cluster members
 
 **Ports:**
-- **Relayer P2P (SXCP)**: 5630 + slot
-- **Relayer RPC (SXCP)**: 5730 + slot
-- **Relayer WS (SXCP)**: 5830 + slot
+- **Relayer P2P (SXCP)**: 5622 + assignment
+- **Relayer RPC (SXCP)**: 5640 + assignment
+- **Relayer WS (SXCP)**: 5660 + assignment
 
 ---
 
@@ -314,11 +314,11 @@ Message Execution
 
 | Service | Port | Protocol |
 |---------|------|----------|
-| **P2P** | 5630 | TCP |
-| **RPC HTTP** | 5730 | HTTP |
-| **WebSocket** | 5830 | WebSocket |
+| **P2P** | 5622 | TCP |
+| **RPC HTTP** | 5640 | HTTP |
+| **WebSocket** | 5660 | WebSocket |
 | **Metrics** | 6030 | HTTP (Prometheus) |
-| **Discovery** | 5930 | TCP |
+| **Discovery** | 5680 | TCP |
 | **Bootnode listener** | 5620 | TCP |
 | **Seed-service listener** | 5621 | HTTP |
 
@@ -441,7 +441,7 @@ All network operations use NIST-standardized post-quantum cryptography:
 - [ ] Generate validator identity with address engine
 - [ ] Share `validator-info.txt` with coordinator
 - [ ] Wait for coordinator to register and send SNRG
-- [ ] Configure firewall (ports 5630, 5730, 5830)
+- [ ] Configure firewall (ports 5622, 5640, 5660)
 - [ ] Start validator node and sync blockchain
 - [ ] Monitor Synergy Score and participation
 - [ ] Join team communication channels
@@ -465,7 +465,7 @@ All network operations use NIST-standardized post-quantum cryptography:
 
 **Check Network Height:**
 ```bash
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"chain_getBlockHeight","id":1}' | jq
 ```
@@ -477,7 +477,7 @@ curl -s -X POST http://localhost:5730/rpc \
 
 **Check Validator Info:**
 ```bash
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -489,7 +489,7 @@ curl -s -X POST http://localhost:5730/rpc \
 
 **Check Synergy Score:**
 ```bash
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -501,7 +501,7 @@ curl -s -X POST http://localhost:5730/rpc \
 
 **Check Cluster Status:**
 ```bash
-curl -s -X POST http://localhost:5730/rpc \
+curl -s -X POST http://localhost:5640/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"consensus_getClusterInfo","id":1}' | jq
 ```
@@ -526,7 +526,7 @@ curl -s -X POST http://localhost:5730/rpc \
 **Solution**: Check Synergy Score > 0, verify cluster assignment, ensure >67% quorum
 
 **Issue**: Cannot connect to bootnodes
-**Solution**: Verify DNS resolution, check firewall allows port 5630, test with `nc -zv bootnode1.synergynode.xyz 5630`
+**Solution**: Verify DNS resolution, check firewall allows port 5622, test with `nc -zv bootnode1.synergynode.xyz 5622`
 
 **Issue**: Blockchain sync is slow
 **Solution**: Increase peer connections, verify SSD storage, check network bandwidth
@@ -535,7 +535,7 @@ curl -s -X POST http://localhost:5730/rpc \
 **Solution**: Increase `request_timeout_secs`, check database performance, monitor CPU/RAM
 
 **Issue**: Relayer cluster quorum not met
-**Solution**: Ensure all relayers online, verify relayer-to-relayer connectivity, and confirm the assigned Synergy node slot is reachable on its frozen beta ports (**5630 + slot P2P**, **5730 + slot RPC**, **5830 + slot WS**).
+**Solution**: Ensure all relayers online, verify relayer-to-relayer connectivity, and confirm the assigned Synergy node slot is reachable on its frozen beta ports (**5622 + assignment P2P**, **5640 + assignment RPC**, **5660 + assignment WS**).
 
 **Issue**: SXCP not detecting messages
 **Solution**: Verify source chain RPC endpoint responding, check event topics match contract events, review relayer logs

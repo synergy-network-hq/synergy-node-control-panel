@@ -39,7 +39,7 @@
 | EVM WS | wss://testbeta-evm-ws.synergy-network.io |
 | REST API | https://testbeta-api.synergy-network.io |
 | Explorer UI | https://testbeta-explorer.synergy-network.io |
-| Explorer API | https://testbeta-explorer-api.synergy-network.io |
+| Explorer API | https://testbeta-atlas-api.synergy-network.io |
 | Indexer API | https://testbeta-indexer.synergy-network.io |
 | Faucet | https://testbeta-faucet.synergy-network.io |
 | Wallet API | https://testbeta-wallet-api.synergy-network.io |
@@ -195,7 +195,7 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-explorer-api.synergy-network.io;
+    server_name testbeta-atlas-api.synergy-network.io;
     include snippets/ssl.conf;
     location / { proxy_pass http://testbeta_explorer_api; }
 }

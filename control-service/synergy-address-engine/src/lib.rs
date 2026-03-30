@@ -155,5 +155,5 @@ pub fn verify_address(address: &str, public_key_b64: &str) -> Result<bool, Strin
     hasher.update(&pk_bytes);
     let hash = hasher.finalize();
 
-    Ok(payload == &hash[..20])
+    Ok(payload == hash[..20])
 }

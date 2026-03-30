@@ -43,7 +43,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Refreshed a large set of generated installer and sidecar artifacts as part of the release.
 
 ## v2.6.8 - 2026-03-06
-- Added the WireGuard-based machine agent used for fleet control.
+- Added the machine agent used for fleet control.
 - Added agent reachability visibility in the control panel.
 - Clarified the difference between machines and nodes across inventory, tooling, and fleet-control flows.
 - Various fixes and improvements around the fleet-control rollout.
@@ -71,7 +71,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 
 ## v2.0.7 - 2026-03-03
 - Updated node inventory and orchestration scripts to better handle multiple logical nodes sharing a physical machine.
-- Improved WireGuard mesh generation so shared physical machines reuse the same machine-level network identity.
+- Improved machine-level network generation so shared physical machines reuse the same machine-level identity.
 - Added stale-process cleanup to remote stop, restart, and reset flows, and refreshed setup/operator UI around the updated topology.
 
 ## v2.0.6 - 2026-03-03

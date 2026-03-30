@@ -6,11 +6,11 @@ Type: compute
 
 Ports
 -----
-P2P: 38660
-RPC: 48660
-WebSocket: 58660
-gRPC: 50073
-Discovery: 39660
+P2P: 5644
+RPC: 5662
+WebSocket: 5682
+gRPC: 5662
+Discovery: 5702
 
 Linux/macOS Commands
 --------------------

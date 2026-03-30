@@ -29,22 +29,21 @@ inventory_file, addresses_file, output_file = sys.argv[1:4]
 
 chain_id = int(os.environ.get("TESTBETA_CHAIN_ID", "338639"))
 genesis_time = os.environ.get("TESTBETA_GENESIS_TIME", "2026-01-01T00:00:00Z")
-node_genesis_allocation = int(os.environ.get("TESTBETA_NODE_GENESIS_ALLOCATION", "100000000000000"))
-node_stake = int(os.environ.get("TESTBETA_NODE_STAKE", os.environ.get("TESTBETA_VALIDATOR_STAKE", "5000000000000")))
-min_validators = int(os.environ.get("TESTBETA_MIN_VALIDATORS", "3"))
-max_validators = int(os.environ.get("TESTBETA_MAX_VALIDATORS", "15"))
+node_stake = int(os.environ.get("TESTBETA_NODE_STAKE", os.environ.get("TESTBETA_VALIDATOR_STAKE", "50000000000000")))
+min_validators = int(os.environ.get("TESTBETA_MIN_VALIDATORS", "4"))
+max_validators = int(os.environ.get("TESTBETA_MAX_VALIDATORS", "4"))
 
-faucet_address = os.environ.get("TESTBETA_FAUCET_ADDRESS", "synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07")
-rewards_pool_address = os.environ.get("TESTBETA_REWARDS_POOL_ADDRESS", "synw1zwy4m4mpdxyvz4nf8f7s0hk8nesc2cv09ex8pg")
-treasury_address = os.environ.get("TESTBETA_TREASURY_ADDRESS", "synw14lswrh8z7kremft633xym9wtr5l9vkm3rd6lvd")
-foundation_address = os.environ.get("TESTBETA_FOUNDATION_ADDRESS", "synw1v6fhr0x7v6e2hxf9d9l72z2fcmn2c4k4m6m7d8")
-test_pool_address = os.environ.get("TESTBETA_TEST_POOL_ADDRESS", "synw1q0a8jzk24y8ra9qy0wqp6lx8kclha04r6w3lmf")
+faucet_address = os.environ.get("TESTBETA_FAUCET_ADDRESS", "synw1prdr55ggjhupx0d7jycftrl2hzs3k8zuw5ad")
+treasury_address = os.environ.get("TESTBETA_TREASURY_ADDRESS", "synu1nd0fvzfhhj4s0te3ks06csfsnpg2hed8vsmh")
+team_address = os.environ.get("TESTBETA_TEAM_ADDRESS", "synw1pckkuqdeep4qz47ww9hnnm6uru2f9r6qtumv")
+ecosystem_address = os.environ.get("TESTBETA_ECOSYSTEM_ADDRESS", "synw1vkn2dq8mftcn7nkdhyv5t0jrv83thf0cakkj")
+public_sale_address = os.environ.get("TESTBETA_PUBLIC_SALE_ADDRESS", "synw1f2kpjt9flxl6y4e3uez0zp3hjanamrlew5ja")
 
-faucet_balance = int(os.environ.get("TESTBETA_FAUCET_BALANCE", "1500000000000000000"))
-rewards_pool_balance = int(os.environ.get("TESTBETA_REWARDS_POOL_BALANCE", "1500000000000000000"))
-treasury_balance = int(os.environ.get("TESTBETA_TREASURY_BALANCE", "8800000000000000000"))
-foundation_balance = int(os.environ.get("TESTBETA_FOUNDATION_BALANCE", "50000000000000000"))
-test_pool_balance = int(os.environ.get("TESTBETA_TEST_POOL_BALANCE", "100000000000000000"))
+faucet_balance = int(os.environ.get("TESTBETA_FAUCET_BALANCE", "100000000000000"))
+treasury_balance = int(os.environ.get("TESTBETA_TREASURY_BALANCE", "400000000000000"))
+team_balance = int(os.environ.get("TESTBETA_TEAM_BALANCE", "150000000000000"))
+ecosystem_balance = int(os.environ.get("TESTBETA_ECOSYSTEM_BALANCE", "200000000000000"))
+public_sale_balance = int(os.environ.get("TESTBETA_PUBLIC_SALE_BALANCE", "100000000000000"))
 
 def parse_bool(raw: str) -> bool:
     value = (raw or "").strip().lower()
@@ -89,7 +88,38 @@ for row in validator_rows:
         bootnodes.append(f"snr://{address}@{endpoint_ip}:{p2p_port}")
 
 validators = []
-node_allocations = []
+genesis_allocations = [
+    {
+        "type": "treasury",
+        "address": treasury_address,
+        "balance": str(treasury_balance),
+        "description": "Foundation/Treasury",
+    },
+    {
+        "type": "team_wallet",
+        "address": team_address,
+        "balance": str(team_balance),
+        "description": "Team",
+    },
+    {
+        "type": "ecosystem_wallet",
+        "address": ecosystem_address,
+        "balance": str(ecosystem_balance),
+        "description": "Ecosystem Development",
+    },
+    {
+        "type": "faucet_wallet",
+        "address": faucet_address,
+        "balance": str(faucet_balance),
+        "description": "Testnet Faucet Reserve",
+    },
+    {
+        "type": "public_sale_wallet",
+        "address": public_sale_address,
+        "balance": str(public_sale_balance),
+        "description": "Future Public Sale",
+    },
+]
 for index, row in enumerate(validator_rows, start=1):
     node_slot_id = row["node_slot_id"]
     address = addresses.get(node_slot_id)
@@ -107,72 +137,27 @@ for index, row in enumerate(validator_rows, start=1):
             "details": {
                 "name": f"{node_alias} validator",
                 "identity": node_alias,
-                "website": "https://synergy.local",
-                "security_contact": "security@synergy.local",
+                "website": "https://synergy-network.io",
+                "security_contact": "security@synergy-network.io",
                 "class": int(row.get("address_class") or 1),
             },
         }
     )
-for row in inventory_rows:
-    node_slot_id = row["node_slot_id"]
-    address = addresses.get(node_slot_id)
-    if not address:
-        continue
-    node_alias = row.get("node_alias", node_slot_id)
-    role_group = row.get("role_group", "")
-    role = row.get("role", "")
-    node_type = row.get("node_type", "")
-    physical_machine_id = row.get("physical_machine_id", "")
-    allocation_type = "validator_wallet" if is_consensus_validator(row) else "node_wallet"
-    node_allocations.append(
+    genesis_allocations.append(
         {
-            "type": allocation_type,
+            "type": "validator_wallet",
             "address": address,
-            "balance": str(node_genesis_allocation),
+            "balance": str(node_stake),
             "stake": str(node_stake),
-            "description": f"Testnet-Beta node allocation for {node_alias}",
+            "description": f"Genesis allocation for {node_alias}",
             "node_alias": node_alias,
             "node_slot_id": node_slot_id,
-            "role_group": role_group,
-            "role": role,
-            "node_type": node_type,
-            "physical_machine_id": physical_machine_id,
+            "role_group": row.get("role_group", ""),
+            "role": row.get("role", ""),
+            "node_type": row.get("node_type", ""),
+            "physical_machine_id": row.get("physical_machine_id", ""),
         }
     )
-
-genesis_allocations = [
-    {
-        "type": "faucet_wallet",
-        "address": faucet_address,
-        "balance": str(faucet_balance),
-        "description": "Closed-testbeta faucet wallet",
-    },
-    {
-        "type": "rewards_pool",
-        "address": rewards_pool_address,
-        "balance": str(rewards_pool_balance),
-        "description": "Validator rewards pool",
-    },
-    {
-        "type": "treasury",
-        "address": treasury_address,
-        "balance": str(treasury_balance),
-        "description": "Protocol treasury",
-    },
-    {
-        "type": "foundation_wallet",
-        "address": foundation_address,
-        "balance": str(foundation_balance),
-        "description": "Foundation/devops wallet",
-    },
-    {
-        "type": "test_wallet_pool",
-        "address": test_pool_address,
-        "balance": str(test_pool_balance),
-        "description": "Load and integration testing wallet pool",
-    },
-]
-genesis_allocations.extend(node_allocations)
 
 total_allocated = 0
 for allocation in genesis_allocations:
@@ -201,7 +186,7 @@ genesis = {
             "quorum_threshold": 0.67,
             "min_stake_amount": str(node_stake),
             "allow_zero_stake_validators": False,
-            "dynamic_validator_registration": True,
+            "dynamic_validator_registration": False,
             "slashing_conditions": {
                 "double_sign_penalty": 1000000,
                 "downtime_penalty": 100000,
@@ -216,23 +201,27 @@ genesis = {
         "websocket_endpoint": "wss://testbeta-core-ws.synergy-network.io",
         "api_endpoint": "https://testbeta-api.synergy-network.io",
         "explorer_endpoint": "https://testbeta-explorer.synergy-network.io",
-        "rpc_port": 5730,
-        "p2p_port": 5630,
-        "websocket_port": 5830,
+        "rpc_port": 5640,
+        "p2p_port": 5622,
+        "websocket_port": 5660,
         "metrics_port": 6030,
-        "bootnodes": bootnodes,
+        "bootnodes": [
+            "snr://bootstrap@bootnode1.synergynode.xyz:5620",
+            "snr://bootstrap@bootnode2.synergynode.xyz:5620",
+            "snr://bootstrap@bootnode3.synergynode.xyz:5620",
+        ],
     },
     "supply": {
         "total_supply": str(total_allocated),
         "token_symbol": "SNRG",
         "token_name": "Synergy Token",
         "decimals": 9,
-        "burn_address": "synergy00000000000000000000000burn",
+        "burn_address": "synergy000000000000000000000000000000burn",
     },
     "genesis_allocations": genesis_allocations,
     "validators": validators,
     "governance": {
-        "dao_address": "syndao17qw77teuxfejlupqpadzzj9exavmtmhysac2uq",
+        "dao_address": "syndao1lf6q9zmfh4w4t30d04j05nmsku03te4685t5vn",
         "treasury_address": treasury_address,
         "proposal_deposit": "10000",
         "voting_period": 100,

@@ -6,11 +6,11 @@ Type: witness
 
 Ports
 -----
-P2P: 38649
-RPC: 48649
-WebSocket: 58649
-gRPC: 50062
-Discovery: 39649
+P2P: 5634
+RPC: 5652
+WebSocket: 5672
+gRPC: 5652
+Discovery: 5692
 
 Linux/macOS Commands
 --------------------

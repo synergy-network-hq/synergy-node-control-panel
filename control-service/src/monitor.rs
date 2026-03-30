@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Write};
 use std::mem;
-use std::net::UdpSocket;
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -519,7 +519,7 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
             .map(|entry| entry.vpn_ip.clone())
             .or_else(|| {
                 let host = node.host.trim();
-                if is_wireguard_vpn_ip(host) {
+                if is_private_management_ip(host) {
                     Some(host.to_string())
                 } else {
                     None
@@ -569,7 +569,7 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                         local_vpn_ip: None,
                         supported_actions: Vec::new(),
                         checked_at_utc,
-                        error: Some("No VPN IP resolved for this machine.".to_string()),
+                        error: Some("No inventory address resolved for this machine.".to_string()),
                     };
                 }
 
@@ -788,7 +788,7 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
             vpn_ip: None,
             physical_machine_id: None,
             node_slot_ids: Vec::new(),
-            message: "No local machine identity was detected. Set SYNERGY_MACHINE_ID for public-endpoint/testnet deployments, or ensure a 10.50.0.x WireGuard/VPN address is present.".to_string(),
+            message: "No local machine identity was detected. Set SYNERGY_MACHINE_ID or SYNERGY_MACHINE_ADDRESS to bind this control panel to a machine.".to_string(),
         });
     };
 
@@ -800,7 +800,7 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
             physical_machine_id: None,
             node_slot_ids: Vec::new(),
             message: format!(
-                "Detected local VPN IP {vpn_ip}, but it does not map to any physical_machine_id in node-inventory.csv."
+                "Detected local address {vpn_ip}, but it does not map to any physical_machine_id in node-inventory.csv."
             ),
         });
     };
@@ -812,7 +812,7 @@ pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, St
         vpn_ip: Some(vpn_ip.clone()),
         physical_machine_id: Some(physical_machine_id.clone()),
         node_slot_ids,
-        message: format!("Detected VPN IP {vpn_ip}; mapped to {physical_machine_id}."),
+        message: format!("Detected local address {vpn_ip}; mapped to {physical_machine_id}."),
     })
 }
 
@@ -863,7 +863,7 @@ pub async fn monitor_mark_setup_complete(
     let identity = monitor_detect_local_vpn_identity()?;
     if !identity.detected {
         return Err(format!(
-            "Setup cannot be marked complete: local WireGuard identity was not detected. {}",
+            "Setup cannot be marked complete: local machine identity was not detected. {}",
             identity.message
         ));
     }
@@ -2101,7 +2101,7 @@ mod terminal_command_tests {
             "Unsupported testbeta agent action: sync_node"
         ));
         assert!(!agent_error_requires_ssh_fallback(
-            r#"{"error":"agent access restricted to WireGuard peers"}"#
+            r#"{"error":"agent access restricted to loopback or approved management networks"}"#
         ));
     }
 
@@ -4600,7 +4600,7 @@ fn resolve_control_commands(
                 continue;
             };
             let action_key = normalize_action_key(action_slug);
-            if action_key.is_empty() || is_deprecated_wireguard_action(&action_key) {
+            if action_key.is_empty() {
                 continue;
             }
             custom_actions
@@ -5826,7 +5826,7 @@ async fn try_execute_monitor_agent_control(
             action: action.to_string(),
             success: status.is_success(),
             exit_code: if status.is_success() { 0 } else { 1 },
-            command: "wireguard-agent".to_string(),
+            command: "testbeta-agent".to_string(),
             stdout: if status.is_success() {
                 truncate_text(text.trim(), 6000)
             } else {
@@ -7054,9 +7054,6 @@ fn generate_monitor_hosts_env(
         "SYNERGY_TESTBETA_SSH_PORT=22".to_string(),
         "# Optional global SSH private key path:".to_string(),
         "# SYNERGY_TESTBETA_SSH_KEY=/Users/you/.ssh/id_ed25519".to_string(),
-        "SYNERGY_TESTBETA_WG_HUB_PUBLIC_IP=64.227.107.57".to_string(),
-        "SYNERGY_TESTBETA_WG_HUB_VPN_IP=10.50.0.254".to_string(),
-        "SYNERGY_TESTBETA_WG_HUB_PORT=51820".to_string(),
         String::new(),
         "# Explorer bridge used by control panel Atlas links:".to_string(),
         "ATLAS_BASE_URL=https://testbeta-explorer.synergy-network.io".to_string(),
@@ -7303,16 +7300,16 @@ fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(),
     }
     let rpc_bind = format!(
         "{vpn_ip}:{}",
-        rpc_port.clone().unwrap_or_else(|| "5730".to_string())
+        rpc_port.clone().unwrap_or_else(|| "5640".to_string())
     );
 
     upsert_key_value_line(&mut lines, "HOST", vpn_ip);
     upsert_key_value_line(&mut lines, "MONITOR_HOST", vpn_ip);
     upsert_key_value_line(&mut lines, "VPN_IP", vpn_ip);
     upsert_key_value_line(&mut lines, "CHAIN_ID", "338639");
-    upsert_key_value_line(&mut lines, "NETWORK_ID", "338639");
+    upsert_key_value_line(&mut lines, "NETWORK_ID", "synergy-testnet-beta");
     upsert_key_value_line(&mut lines, "SYNERGY_CHAIN_ID", "338639");
-    upsert_key_value_line(&mut lines, "SYNERGY_NETWORK_ID", "338639");
+    upsert_key_value_line(&mut lines, "SYNERGY_NETWORK_ID", "synergy-testnet-beta");
     upsert_key_value_line(&mut lines, "SYNERGY_CONFIG_PATH", "config/node.toml");
     upsert_key_value_line(&mut lines, "RPC_BIND_ADDRESS", &rpc_bind);
     upsert_key_value_line(&mut lines, "SYNERGY_RPC_BIND_ADDRESS", &rpc_bind);
@@ -7341,8 +7338,8 @@ fn apply_topology_to_installer_node_toml(path: &Path, vpn_ip: &str) -> Result<()
         .map(|line| line.to_string())
         .collect::<Vec<_>>();
 
-    let mut rpc_port = "5730".to_string();
-    let mut p2p_port = "5630".to_string();
+    let mut rpc_port = "5640".to_string();
+    let mut p2p_port = "5622".to_string();
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.starts_with("rpc_port =") {
@@ -7517,7 +7514,7 @@ fn validate_host_override_for_binding(
         return Ok(normalized);
     };
 
-    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
+    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
         return Err(format!(
             "Invalid host override for {binding_target}: got {value}, expected {expected_vpn_ip}."
         ));
@@ -7542,7 +7539,7 @@ fn migrate_host_override_for_binding(
         return normalized;
     };
 
-    if is_wireguard_vpn_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
+    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
         return Some(expected_vpn_ip);
     }
 
@@ -7756,10 +7753,10 @@ fn build_inventory_machine_topology(
             .vpn_ip
             .as_ref()
             .map(|value| value.trim().to_string())
-            .filter(|value| is_wireguard_vpn_ip(value))
+            .filter(|value| is_private_management_ip(value))
             .or_else(|| {
                 let host = node.host.trim();
-                is_wireguard_vpn_ip(host).then(|| host.to_string())
+                is_private_management_ip(host).then(|| host.to_string())
             })
             .unwrap_or_default();
 
@@ -7865,7 +7862,7 @@ fn load_inventory_machine_topology() -> Result<HashMap<String, InventoryMachineT
                 node_slot_ids: Vec::new(),
             });
 
-        if entry.vpn_ip.is_empty() && is_wireguard_vpn_ip(&vpn_ip) {
+        if entry.vpn_ip.is_empty() && is_private_management_ip(&vpn_ip) {
             entry.vpn_ip = vpn_ip;
         }
 
@@ -7964,44 +7961,83 @@ fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<String> {
         return None;
     }
 
-    let topology = load_inventory_machine_topology().ok()?;
-    topology.values().find_map(|entry| {
-        entry
-            .vpn_ip
-            .trim()
-            .eq_ignore_ascii_case(target_vpn_ip)
-            .then(|| entry.physical_machine_id.clone())
-    })
-}
+    let inventory_path = resolve_inventory_path().ok()?;
+    let content = fs::read_to_string(&inventory_path).ok()?;
+    let mut lines = content.lines().filter(|line| !line.trim().is_empty());
+    let header = lines.next()?;
+    let header_cols = header
+        .split(',')
+        .map(|cell| cell.trim().trim_start_matches('\u{feff}').to_string())
+        .collect::<Vec<_>>();
+    let index_map = header_cols
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| (name.clone(), idx))
+        .collect::<HashMap<_, _>>();
 
-fn detect_local_vpn_ip() -> Option<String> {
-    if let Ok(override_ip) = std::env::var("SYNERGY_MACHINE_VPN_IP") {
-        let trimmed = override_ip.trim().to_string();
-        if is_wireguard_vpn_ip(&trimmed) {
-            return Some(trimmed);
-        }
-    }
+    let resolve_column = |aliases: &[&str]| -> Option<usize> {
+        aliases.iter().find_map(|name| index_map.get(*name).copied())
+    };
 
-    let route_targets = ["10.50.0.254:51820", "10.50.0.1:51820", "10.50.0.2:51820"];
-    for target in route_targets {
-        let socket = UdpSocket::bind("0.0.0.0:0").ok();
-        let Some(socket) = socket else {
+    let physical_machine_idx =
+        resolve_column(&["physical_machine_id", "physical_machine"])?;
+    let address_columns = [
+        resolve_column(&["vpn_ip"]),
+        resolve_column(&["host"]),
+        resolve_column(&["public_ip"]),
+        resolve_column(&["local_ip"]),
+    ];
+
+    for raw_line in lines {
+        let trimmed = raw_line.trim();
+        if trimmed.starts_with('#') {
             continue;
-        };
-        if socket.connect(target).is_ok() {
-            if let Ok(addr) = socket.local_addr() {
-                let ip = addr.ip().to_string();
-                if is_wireguard_vpn_ip(&ip) {
-                    return Some(ip);
-                }
+        }
+
+        let cells = trimmed
+            .split(',')
+            .map(|cell| cell.trim().to_string())
+            .collect::<Vec<_>>();
+        if cells.len() < header_cols.len() {
+            continue;
+        }
+
+        let get = |index: usize| -> String { cells.get(index).cloned().unwrap_or_default() };
+        if address_columns
+            .iter()
+            .flatten()
+            .map(|index| get(*index))
+            .any(|value| !value.is_empty() && value.eq_ignore_ascii_case(target_vpn_ip))
+        {
+            let physical_machine_id = get(physical_machine_idx);
+            if !physical_machine_id.is_empty() {
+                return Some(physical_machine_id.to_ascii_lowercase());
             }
         }
     }
 
-    detect_vpn_ip_from_system_commands()
+    None
 }
 
-fn detect_vpn_ip_from_system_commands() -> Option<String> {
+fn detect_local_vpn_ip() -> Option<String> {
+    for env_key in ["SYNERGY_MACHINE_ADDRESS", "SYNERGY_MACHINE_VPN_IP"] {
+        if let Ok(override_ip) = std::env::var(env_key) {
+            let trimmed = override_ip.trim().to_string();
+            if trimmed.parse::<Ipv4Addr>().is_ok() {
+                return Some(trimmed);
+            }
+        }
+    }
+
+    let candidates = detect_vpn_ip_from_system_commands();
+    candidates
+        .iter()
+        .find(|ip| physical_machine_for_vpn_ip(ip).is_some())
+        .cloned()
+        .or_else(|| candidates.into_iter().find(|ip| is_private_management_ip(ip)))
+}
+
+fn detect_vpn_ip_from_system_commands() -> Vec<String> {
     let command_sets: Vec<Vec<&str>> = if cfg!(target_os = "windows") {
         // PowerShell is the most reliable way to enumerate IPs on Windows because
         // it returns clean, one-IP-per-line output without locale-dependent labels.
@@ -8042,39 +8078,38 @@ fn detect_vpn_ip_from_system_commands() -> Option<String> {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        if let Some(ip) = find_vpn_ip_in_text(&combined) {
-            return Some(ip);
+        let ips = find_vpn_ip_in_text(&combined);
+        if !ips.is_empty() {
+            return ips;
         }
     }
 
-    None
+    Vec::new()
 }
 
-fn find_vpn_ip_in_text(text: &str) -> Option<String> {
+fn find_vpn_ip_in_text(text: &str) -> Vec<String> {
+    let mut matches = HashSet::new();
     for raw_token in text
         .split(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '/'))
         .filter(|token| !token.is_empty())
     {
         let candidate = raw_token.split('/').next().unwrap_or_default();
-        if is_wireguard_vpn_ip(candidate) {
-            return Some(candidate.to_string());
+        if is_private_management_ip(candidate) {
+            matches.insert(candidate.to_string());
         }
     }
-    None
+    let mut entries = matches.into_iter().collect::<Vec<_>>();
+    entries.sort();
+    entries
 }
 
-fn is_wireguard_vpn_ip(value: &str) -> bool {
-    if !value.starts_with("10.50.0.") {
+fn is_private_management_ip(value: &str) -> bool {
+    let Ok(ip) = value.parse::<Ipv4Addr>() else {
         return false;
-    }
-    let octets = value
-        .split('.')
-        .filter_map(|part| part.parse::<u8>().ok())
-        .collect::<Vec<_>>();
-    if octets.len() != 4 {
-        return false;
-    }
-    octets[0] == 10 && octets[1] == 50 && octets[2] == 0 && octets[3] > 0
+    };
+    ip.is_loopback()
+        || ip.is_private()
+        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0b1100_0000) == 0b0100_0000)
 }
 
 fn resolve_active_operator(
@@ -8166,17 +8201,6 @@ fn role_allows_control(role: &str, action: &str) -> bool {
     !admin_only
         .iter()
         .any(|admin_action| normalized_action == *admin_action)
-}
-
-fn is_deprecated_wireguard_action(action: &str) -> bool {
-    matches!(
-        normalize_action_key(action).as_str(),
-        "wireguard_install"
-            | "wireguard_connect"
-            | "wireguard_disconnect"
-            | "wireguard_restart"
-            | "wireguard_status"
-    )
 }
 
 fn apply_security_ssh_profile(
@@ -8687,10 +8711,10 @@ async fn execute_monitor_node_control(
                         action: normalized_action.to_string(),
                         success: false,
                         exit_code: 1,
-                        command: "wireguard-agent".to_string(),
+                        command: "testbeta-agent".to_string(),
                         stdout: String::new(),
                         stderr: format!(
-                            "The testbeta agent is unavailable for {}. Normal '{}' operations require the local control panel on the target machine or a healthy remote wireguard-agent; SSH fallback is disabled for this action.",
+                            "The testbeta agent is unavailable for {}. Normal '{}' operations require the local control panel on the target machine or a healthy remote testbeta-agent; SSH fallback is disabled for this action.",
                             node.node_slot_id, normalized_action
                         ),
                         executed_at_utc: Utc::now().to_rfc3339(),

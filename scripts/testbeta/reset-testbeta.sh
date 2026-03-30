@@ -117,7 +117,7 @@ run_agent_action() {
     return 1
   fi
 
-  echo "[$node_slot_id] attempting WireGuard agent action: $action"
+  echo "[$node_slot_id] attempting testbeta agent action: $action"
   curl -fsS -X POST "$endpoint" \
     -H "Content-Type: application/json" \
     -d "{\"node_slot_id\":\"${node_slot_id}\",\"action\":\"${action}\"}" >/dev/null
@@ -279,7 +279,7 @@ wait_for_bootnode_rpc() {
   # Use the node's RPC port from inventory (column 8, 0-indexed col 7)
   local rpc_port
   rpc_port=$(awk -F, -v id="$node_slot_id" 'NR > 1 && tolower($1) == tolower(id) { print $8; exit }' "$INVENTORY_FILE")
-  rpc_port="${rpc_port:-5730}"
+  rpc_port="${rpc_port:-5640}"
   local rpc_url="http://${vpn_ip}:${rpc_port}"
 
   echo "Waiting for bootnode $node_slot_id RPC at $rpc_url to become ready..."

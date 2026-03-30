@@ -15,9 +15,7 @@ PID_FILE="$DATA_DIR/node.pid"
 OUT_FILE="$LOG_DIR/node.out"
 ERR_FILE="$LOG_DIR/node.err"
 INSTALL_STAMP_FILE="$DATA_DIR/.installed_at"
-NETWORK_TRANSPORT="${NETWORK_TRANSPORT:-wireguard}"
-WIREGUARD_INTERFACE="${WIREGUARD_INTERFACE:-wg0}"
-VPN_CIDR="${VPN_CIDR:-10.50.0.0/24}"
+NETWORK_TRANSPORT="${NETWORK_TRANSPORT:-public}"
 PRIVILEGED_HELPER=""
 SUDO_KEEPALIVE_PID=""
 
@@ -105,27 +103,12 @@ run_privileged() {
 }
 
 open_ports_ufw() {
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
-      run_privileged ufw allow in on "$WIREGUARD_INTERFACE" from "$VPN_CIDR" to any port "$port" proto tcp >/dev/null || true
-    done
-    return
-  fi
-
   for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
     run_privileged ufw allow "${port}/tcp" >/dev/null || true
   done
 }
 
 open_ports_firewalld() {
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
-      run_privileged firewall-cmd --permanent --add-rich-rule="rule family='ipv4' source address='${VPN_CIDR}' port protocol='tcp' port='${port}' accept" >/dev/null || true
-    done
-    run_privileged firewall-cmd --reload >/dev/null || true
-    return
-  fi
-
   for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
     run_privileged firewall-cmd --permanent --add-port="${port}/tcp" >/dev/null || true
   done
@@ -133,15 +116,6 @@ open_ports_firewalld() {
 }
 
 open_ports_iptables() {
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
-      if ! run_privileged iptables -C INPUT -i "$WIREGUARD_INTERFACE" -s "$VPN_CIDR" -p tcp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
-        run_privileged iptables -I INPUT -i "$WIREGUARD_INTERFACE" -s "$VPN_CIDR" -p tcp --dport "$port" -j ACCEPT >/dev/null || true
-      fi
-    done
-    return
-  fi
-
   for port in "$P2P_PORT" "$RPC_PORT" "$WS_PORT" "$GRPC_PORT" "$DISCOVERY_PORT"; do
     if ! run_privileged iptables -C INPUT -p tcp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
       run_privileged iptables -I INPUT -p tcp --dport "$port" -j ACCEPT >/dev/null || true
@@ -171,10 +145,6 @@ open_ports() {
   trap cleanup_privileged_helper EXIT
   prepare_privileged_helper
 
-  if [[ "$NETWORK_TRANSPORT" == "wireguard" ]]; then
-    echo "WireGuard mode: allowing node ports only from $VPN_CIDR on interface $WIREGUARD_INTERFACE..."
-  fi
-
   if [[ "$firewall_backend" == "ufw" ]]; then
     echo "Opening ports via ufw..."
     open_ports_ufw
@@ -199,7 +169,7 @@ is_running() {
 }
 
 is_bootnode_slot() {
-  [[ "$NODE_SLOT_ID" == "node-01" || "$NODE_SLOT_ID" == "node-02" ]]
+  [[ "${ROLE_GROUP:-}" == "bootstrap" || "${NODE_TYPE:-}" == "bootnode" ]]
 }
 
 sync_required_before_start() {
@@ -227,7 +197,7 @@ run_prestart_sync() {
   local configured_chain_id
   configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338639}}"
   local configured_network_id
-  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-$configured_chain_id}}"
+  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
 
@@ -301,7 +271,7 @@ start_node() {
   local configured_chain_id
   configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338639}}"
   local configured_network_id
-  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-$configured_chain_id}}"
+  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
   if [[ -z "$validator_address" ]]; then

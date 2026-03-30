@@ -214,7 +214,7 @@ function NetworkMonitorNodePage() {
       const identity = await invoke('monitor_detect_local_vpn_identity');
       setLocalVpnIdentity(identity);
     } catch (err) {
-      console.error('Failed to detect local VPN identity:', err);
+      console.error('Failed to detect local machine identity:', err);
       setLocalVpnIdentity(null);
     }
   };

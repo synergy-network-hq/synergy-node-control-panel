@@ -6,11 +6,11 @@ Type: archive-validator
 
 Ports
 -----
-P2P: 38654
-RPC: 48654
-WebSocket: 58654
-gRPC: 50066
-Discovery: 39653
+P2P: 5638
+RPC: 5656
+WebSocket: 5676
+gRPC: 5656
+Discovery: 5696
 
 Linux/macOS Commands
 --------------------

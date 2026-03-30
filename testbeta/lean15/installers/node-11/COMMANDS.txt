@@ -6,11 +6,11 @@ Type: oracle
 
 Ports
 -----
-P2P: 38648
-RPC: 48648
-WebSocket: 58648
-gRPC: 50061
-Discovery: 39648
+P2P: 5633
+RPC: 5651
+WebSocket: 5671
+gRPC: 5651
+Discovery: 5691
 
 Linux/macOS Commands
 --------------------

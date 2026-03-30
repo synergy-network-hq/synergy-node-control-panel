@@ -6,11 +6,11 @@ Type: pqc-crypto
 
 Ports
 -----
-P2P: 38653
-RPC: 48653
-WebSocket: 58653
-gRPC: 50065
-Discovery: 39652
+P2P: 5637
+RPC: 5655
+WebSocket: 5675
+gRPC: 5655
+Discovery: 5695
 
 Linux/macOS Commands
 --------------------

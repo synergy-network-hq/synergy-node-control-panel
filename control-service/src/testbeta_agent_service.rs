@@ -74,6 +74,8 @@ struct InventoryNode {
     node_slot_id: String,
     host: String,
     vpn_ip: String,
+    public_ip: String,
+    local_ip: String,
     physical_machine_id: String,
 }
 
@@ -164,10 +166,9 @@ fn bind_addresses_for_host(host: Option<&str>, port: u16) -> Vec<SocketAddr> {
         }
         eprintln!("testbeta agent: invalid --host value '{host}', falling back to 0.0.0.0");
     }
-    // Default: bind on all interfaces so the agent is reachable via VPN, localhost, and
-    // any other network interface. Previously used loopback + runtime VPN detection, but
-    // that was unreliable under macOS launchd where ip/ifconfig may not surface the
-    // WireGuard interface at agent startup time.
+    // Default: bind on all interfaces so the agent is reachable via localhost and any
+    // explicitly approved management network. Previously used loopback + runtime address
+    // detection, but that was unreliable under macOS launchd.
     vec![SocketAddr::from(([0, 0, 0, 0], port))]
 }
 
@@ -215,7 +216,7 @@ async fn health_handler(
     if !is_allowed_remote(remote_addr.ip()) {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "agent access restricted to WireGuard peers" })),
+            Json(serde_json::json!({ "error": "agent access restricted to loopback or approved management networks" })),
         )
             .into_response();
     }
@@ -242,7 +243,7 @@ async fn control_handler(
     if !is_allowed_remote(remote_addr.ip()) {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "agent access restricted to WireGuard peers" })),
+            Json(serde_json::json!({ "error": "agent access restricted to loopback or approved management networks" })),
         )
             .into_response();
     }
@@ -264,7 +265,7 @@ async fn control_handler(
             exit_code: 0,
             stdout: String::new(),
             stderr: String::new(),
-            transport: "wireguard-agent".to_string(),
+            transport: "testbeta-agent".to_string(),
             executed_at_utc: Utc::now().to_rfc3339(),
             phase: Some("queued".to_string()),
             job_id: Some(job_id.clone()),
@@ -302,7 +303,7 @@ async fn control_handler(
                     exit_code: 1,
                     stdout: String::new(),
                     stderr: error,
-                    transport: "wireguard-agent".to_string(),
+                    transport: "testbeta-agent".to_string(),
                     executed_at_utc: Utc::now().to_rfc3339(),
                     phase: Some("failed".to_string()),
                     job_id: Some(job_id_for_task.clone()),
@@ -315,7 +316,7 @@ async fn control_handler(
                     exit_code: 1,
                     stdout: String::new(),
                     stderr: format!("agent task panicked: {join_error}"),
-                    transport: "wireguard-agent".to_string(),
+                    transport: "testbeta-agent".to_string(),
                     executed_at_utc: Utc::now().to_rfc3339(),
                     phase: Some("failed".to_string()),
                     job_id: Some(job_id_for_task.clone()),
@@ -370,7 +371,7 @@ async fn control_job_handler(
     if !is_allowed_remote(remote_addr.ip()) {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "agent access restricted to WireGuard peers" })),
+            Json(serde_json::json!({ "error": "agent access restricted to loopback or approved management networks" })),
         )
             .into_response();
     }
@@ -392,12 +393,12 @@ async fn control_job_handler(
 }
 
 fn build_health(workspace_root: &Path) -> Result<TestnetBetaAgentHealth, String> {
-    let local_vpn_ip = detect_local_vpn_ip();
     let nodes = load_inventory_nodes(workspace_root)?;
+    let local_vpn_ip = detect_local_management_ip(&nodes);
     let installable = installed_node_slots(workspace_root, &nodes);
     let physical_machine_id = local_vpn_ip
         .as_deref()
-        .and_then(|vpn_ip| nodes.iter().find(|node| node.vpn_ip == vpn_ip))
+        .and_then(|ip| nodes.iter().find(|node| matches_inventory_address(node, ip)))
         .map(|node| node.physical_machine_id.clone());
 
     Ok(TestnetBetaAgentHealth {
@@ -495,7 +496,7 @@ fn execute_control(
                         Ok(CommandOutcome {
                             success: true,
                             exit_code: 0,
-                            stdout: format!("PROCESS_ALIVE: true\nNOTE: nodectl failed but process is alive. Node is running without PID tracking."),
+                            stdout: "PROCESS_ALIVE: true\nNOTE: nodectl failed but process is alive. Node is running without PID tracking.".to_string(),
                             stderr: error,
                         })
                     } else {
@@ -565,7 +566,7 @@ fn execute_control(
         exit_code: result.exit_code,
         stdout: result.stdout,
         stderr: result.stderr,
-        transport: "wireguard-agent".to_string(),
+        transport: "testbeta-agent".to_string(),
         executed_at_utc: Utc::now().to_rfc3339(),
         phase,
         job_id: None,
@@ -668,11 +669,12 @@ fn trigger_explorer_reset(
 }
 
 fn is_allowed_remote(ip: IpAddr) -> bool {
+    if allow_public_agent_access() {
+        return true;
+    }
+
     match ip {
-        IpAddr::V4(ip) => {
-            ip.is_loopback()
-                || (ip.octets()[0] == 10 && ip.octets()[1] == 50 && ip.octets()[2] == 0)
-        }
+        IpAddr::V4(ip) => is_allowed_remote_v4(ip),
         IpAddr::V6(ip) => {
             ip.is_loopback()
                 || ip
@@ -684,7 +686,16 @@ fn is_allowed_remote(ip: IpAddr) -> bool {
 }
 
 fn is_allowed_remote_v4(ip: Ipv4Addr) -> bool {
-    ip.is_loopback() || (ip.octets()[0] == 10 && ip.octets()[1] == 50 && ip.octets()[2] == 0)
+    ip.is_loopback()
+        || ip.is_private()
+        || (ip.octets()[0] == 100 && (ip.octets()[1] & 0b1100_0000) == 0b0100_0000)
+}
+
+fn allow_public_agent_access() -> bool {
+    std::env::var("SYNERGY_TESTBETA_AGENT_ALLOW_PUBLIC")
+        .ok()
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
 }
 
 fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, String> {
@@ -718,6 +729,12 @@ fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, Str
     let node_slot_idx = column(&["node_slot_id", "machine_id"], "node_slot_id")?;
     let host_idx = column(&["host"], "host")?;
     let vpn_ip_idx = column(&["vpn_ip"], "vpn_ip")?;
+    let public_ip_idx = headers
+        .iter()
+        .position(|header| header.eq_ignore_ascii_case("public_ip"));
+    let local_ip_idx = headers
+        .iter()
+        .position(|header| header.eq_ignore_ascii_case("local_ip"));
     let physical_idx = column(
         &["physical_machine_id", "physical_machine"],
         "physical_machine_id",
@@ -741,6 +758,8 @@ fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, Str
             node_slot_id,
             host: get(host_idx),
             vpn_ip: get(vpn_ip_idx),
+            public_ip: public_ip_idx.map(&get).unwrap_or_default(),
+            local_ip: local_ip_idx.map(&get).unwrap_or_default(),
             physical_machine_id: get(physical_idx),
         });
     }
@@ -854,11 +873,11 @@ fn is_process_running_for_install_dir(install_dir: &Path) -> bool {
     #[cfg(not(target_os = "windows"))]
     {
         let install_path = install_dir.to_string_lossy().to_string();
-        return ProcessCommand::new("pgrep")
+        ProcessCommand::new("pgrep")
             .args(["-f", &install_path])
             .status()
             .map(|status| status.success())
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
 }
 
@@ -1196,9 +1215,26 @@ fn run_nodectl(install: &NodeInstall, action: &str) -> Result<CommandOutcome, St
     })
 }
 
-fn detect_local_vpn_ip() -> Option<String> {
+fn detect_local_management_ip(nodes: &[InventoryNode]) -> Option<String> {
+    for key in ["SYNERGY_MACHINE_ADDRESS", "SYNERGY_MACHINE_VPN_IP"] {
+        if let Ok(value) = std::env::var(key) {
+            let trimmed = value.trim();
+            if trimmed.parse::<Ipv4Addr>().is_ok() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
     let candidates = gather_local_ips();
-    candidates.into_iter().find(|ip| ip.starts_with("10.50.0."))
+    candidates
+        .iter()
+        .find(|ip| nodes.iter().any(|node| matches_inventory_address(node, ip)))
+        .cloned()
+        .or_else(|| {
+            candidates
+                .into_iter()
+                .find(|ip| ip.parse::<Ipv4Addr>().ok().map(is_allowed_remote_v4).unwrap_or(false))
+        })
 }
 
 fn gather_local_ips() -> Vec<String> {
@@ -1227,6 +1263,19 @@ fn gather_local_ips() -> Vec<String> {
         .filter(|entry| entry.parse::<Ipv4Addr>().is_ok())
         .map(|entry| entry.to_string())
         .collect()
+}
+
+fn matches_inventory_address(node: &InventoryNode, value: &str) -> bool {
+    let target = value.trim();
+    !target.is_empty()
+        && [
+            node.vpn_ip.as_str(),
+            node.host.as_str(),
+            node.public_ip.as_str(),
+            node.local_ip.as_str(),
+        ]
+        .into_iter()
+        .any(|candidate| !candidate.trim().is_empty() && candidate.eq_ignore_ascii_case(target))
 }
 
 fn copy_directory_force(source: &Path, destination: &Path) -> Result<(), String> {

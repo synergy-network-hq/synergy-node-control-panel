@@ -17,4 +17,4 @@ foreach ($path in @($workspaceRoot, $legacyRoot)) {
 }
 
 Write-Host "Removed local control-panel workspace and startup registration."
-Write-Host "WireGuard system state was not touched."
+Write-Host "Removed local control-panel artifacts only."

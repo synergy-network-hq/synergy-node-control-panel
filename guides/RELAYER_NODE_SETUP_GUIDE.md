@@ -42,12 +42,12 @@ Relayers in SXCP:
 ### Network Requirements
 
 **Incoming Ports:**
-- **5630**: P2P (Synergy network)
-- **48648**: Relayer cluster communication
-- **58648**: Relayer RPC endpoint
+- **5622**: P2P (Synergy network)
+- **5650**: Relayer cluster communication
+- **5670**: Relayer RPC endpoint
 
 **Outgoing Connections:**
-- **Synergy Testnet-Beta**: Port 5630 to bootnodes
+- **Synergy Testnet-Beta**: Port 5622 to bootnodes
 - **Sepolia Testnet**: Port 30303 (Ethereum P2P)
 - **Target Testnet**: Chain-specific ports
 
@@ -212,13 +212,13 @@ data_dir = "./data/relayer1"
 
 [network]
 id = 338639  # Synergy Testnet-Beta chain ID
-p2p_port = 5630
-rpc_port = 48648
-ws_port = 58648
+p2p_port = 5622
+rpc_port = 5650
+ws_port = 5670
 
 [p2p]
-listen_address = "0.0.0.0:5630"
-public_address = "RELAYER1_PUBLIC_IP:5630"
+listen_address = "0.0.0.0:5622"
+public_address = "RELAYER1_PUBLIC_IP:5622"
 
 # Connect to Synergy bootnodes
 bootnodes = [
@@ -248,15 +248,15 @@ cluster_members = [
 cluster_threshold = 0.67  # 67% of relayers must agree (4 out of 5)
 
 # Relayer cluster communication
-cluster_rpc_port = 48648
-cluster_bind = "0.0.0.0:48648"
+cluster_rpc_port = 5650
+cluster_bind = "0.0.0.0:5650"
 
 # Other cluster member endpoints
 cluster_peers = [
-  "RELAYER2_PUBLIC_IP:48648",
-  "RELAYER3_PUBLIC_IP:48648",
-  "RELAYER4_PUBLIC_IP:48648",
-  "RELAYER5_PUBLIC_IP:48648"
+  "RELAYER2_PUBLIC_IP:5650",
+  "RELAYER3_PUBLIC_IP:5650",
+  "RELAYER4_PUBLIC_IP:5650",
+  "RELAYER5_PUBLIC_IP:5650"
 ]
 
 [sxcp]
@@ -291,7 +291,7 @@ rpc_endpoint = "https://testbeta-core-rpc.synergy-network.io"
 ws_endpoint = "wss://testbeta-core-ws.synergy-network.io"
 
 # Local RPC if running validator/RPC node
-local_rpc = "http://localhost:5730"
+local_rpc = "http://localhost:5640"
 
 # Message submission settings
 max_gas_price_gwei = 100  # Maximum gas to pay for submission
@@ -460,13 +460,13 @@ poll_interval_ms = 2000
 sudo ufw allow 22/tcp
 
 # Synergy P2P
-sudo ufw allow 5630/tcp
+sudo ufw allow 5622/tcp
 
 # Relayer cluster communication
-sudo ufw allow 48648/tcp
+sudo ufw allow 5650/tcp
 
 # Relayer RPC
-sudo ufw allow 58648/tcp
+sudo ufw allow 5670/tcp
 
 # Enable firewall
 sudo ufw enable
@@ -503,7 +503,7 @@ mkdir -p data/relayer1 data/logs
 [INFO] Starting SXCP monitoring...
 [INFO] Monitoring Sepolia (chain 11155111) from block 5234567
 [INFO] Monitoring Polygon Amoy (chain 80002) from block 8765432
-[INFO] Relayer cluster RPC listening on 0.0.0.0:48648
+[INFO] Relayer cluster RPC listening on 0.0.0.0:5650
 [INFO] Waiting for cluster quorum...
 [INFO] Cluster status: 1/5 relayers online
 ```
@@ -543,7 +543,7 @@ Once all 5 are online:
 From any relayer node:
 
 ```bash
-curl -s -X POST http://localhost:48648/rpc \
+curl -s -X POST http://localhost:5650/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -572,7 +572,7 @@ curl -s -X POST http://localhost:48648/rpc \
 
 ```bash
 # Check monitored chains
-curl -s -X POST http://localhost:48648/rpc \
+curl -s -X POST http://localhost:5650/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -581,7 +581,7 @@ curl -s -X POST http://localhost:48648/rpc \
   }' | jq
 
 # Check recent messages detected
-curl -s -X POST http://localhost:48648/rpc \
+curl -s -X POST http://localhost:5650/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -652,7 +652,7 @@ You'll need to submit a cross-chain message from Sepolia that the relayers will 
 tail -f data/logs/relayer1.log | grep "CrossChainMessage"
 
 # Check message queue
-curl -s -X POST http://localhost:48648/rpc \
+curl -s -X POST http://localhost:5650/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -661,7 +661,7 @@ curl -s -X POST http://localhost:48648/rpc \
   }' | jq
 
 # Check relayer statistics
-curl -s -X POST http://localhost:48648/rpc \
+curl -s -X POST http://localhost:5650/rpc \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -718,7 +718,7 @@ Create `scripts/relayer-health-check.sh`:
 ```bash
 #!/bin/bash
 
-RELAYER_RPC="http://localhost:48648/rpc"
+RELAYER_RPC="http://localhost:5650/rpc"
 
 echo "=== SXCP Relayer Health Check ==="
 
@@ -765,7 +765,7 @@ echo "✅ Relayer health check complete"
 **Solution:**
 1. Check all 5 relayers are running
 2. Verify network connectivity between relayers
-3. Check firewall allows port 48648
+3. Check firewall allows port 5650
 4. Verify `cluster_peers` configured correctly
 
 ### Not Detecting Sepolia Messages

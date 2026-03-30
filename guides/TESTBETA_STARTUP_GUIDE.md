@@ -21,7 +21,7 @@
 - **Rust**: Latest stable toolchain (1.70+)
 - **Operating System**: macOS, Linux, or Windows with WSL2
 - **Hardware**: 4+ CPU cores, 8GB+ RAM
-- **Ports**: 5630 (P2P), 5730 (RPC), 5830 (WebSocket), 6030 (Metrics)
+- **Ports**: 5622 (P2P), 5640 (RPC), 5660 (WebSocket), 6030 (Metrics)
 
 ### Installation
 
@@ -192,7 +192,7 @@ After generating a new bootnode address:
    Update the bootnodes array:
    ```toml
    bootnodes = [
-     "snr://YOUR-NEW-ADDRESS@YOUR-IP:5630"
+     "snr://YOUR-NEW-ADDRESS@YOUR-IP:5622"
    ]
    ```
 
@@ -216,7 +216,7 @@ After generating a new bootnode address:
 
 ```bash
 # Get current block number
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}'
 ```
@@ -234,7 +234,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Get the latest block
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getLatestBlock","params":[],"id":1}'
 ```
@@ -258,7 +258,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Watch block production
-watch -n 1 'curl -s -X POST http://localhost:5730 \
+watch -n 1 'curl -s -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"synergy_blockNumber\",\"params\":[],\"id\":1}" \
   | jq .result'
@@ -290,7 +290,7 @@ Look for messages like:
 
 ```bash
 # Get list of active validators
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getValidators","params":[],"id":1}' | jq
 ```
@@ -299,7 +299,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Get validator by address
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -313,7 +313,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Get detailed validator activity
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getValidatorActivity","params":[],"id":1}' | jq
 ```
@@ -341,7 +341,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Get recent block validation info
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getBlockValidationStatus","params":[],"id":1}' | jq
 ```
@@ -350,7 +350,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Get comprehensive validator statistics
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getValidatorStats","params":[],"id":1}' | jq
 ```
@@ -363,7 +363,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Create a new wallet
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_createWallet","params":[],"id":1}' | jq
 
@@ -386,7 +386,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Check SNRG balance (native token)
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -400,7 +400,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Transfer tokens between addresses
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -419,7 +419,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Create a transaction object
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc":"2.0",
@@ -440,7 +440,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Check transaction pool
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getTransactionPool","params":[],"id":1}' | jq
 ```
@@ -452,7 +452,7 @@ Create a file `test-transaction.sh`:
 ```bash
 #!/bin/bash
 
-RPC_URL="http://localhost:5730"
+RPC_URL="http://localhost:5640"
 
 echo "1. Creating sender wallet..."
 SENDER=$(curl -s -X POST $RPC_URL \
@@ -522,10 +522,10 @@ When running multiple nodes, ensure each has unique ports:
 
 | Node Type | P2P Port | RPC Port | WS Port | Metrics Port |
 |-----------|----------|----------|---------|--------------|
-| Validator-01 |  5630 | 5730 | 5830 | 6030 |
-| Validator-02 | 33864 | 38640 | 38641 | 9091 |
-| Oracle | 33865 | 38642 | 38643 | 9092 |
-| RPC Gateway | 33866 | 38644 | 38645 | 9093 |
+| Validator-01 |  5622 | 5640 | 5660 | 6030 |
+| Validator-02 | 33864 | 5624 | 5625 | 9091 |
+| Oracle | 33865 | 5626 | 5627 | 9092 |
+| RPC Gateway | 33866 | 5628 | 5629 | 9093 |
 
 ### Managing Node Processes
 
@@ -551,7 +551,7 @@ pkill synergy-testbeta
 
 ```bash
 # Get comprehensive node information
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_nodeInfo","params":[],"id":1}' | jq
 ```
@@ -575,7 +575,7 @@ curl -X POST http://localhost:5730 \
 
 ```bash
 # Get comprehensive network stats
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getNetworkStats","params":[],"id":1}' | jq
 ```
@@ -599,13 +599,13 @@ tail -f data/logs/synergy-node.log | grep -i "validator"
 
 ```bash
 # Check if ports are in use
-lsof -i :5730  # RPC port
-lsof -i : 5630  # P2P port
-lsof -i :5830   # WebSocket port
+lsof -i :5640  # RPC port
+lsof -i : 5622  # P2P port
+lsof -i :5660   # WebSocket port
 lsof -i :6030   # Metrics port
 
 # Or on Linux:
-netstat -tulpn | grep -E '5630|33863|5830|6030'
+netstat -tulpn | grep -E '5622|33863|5660|6030'
 ```
 
 ### Check Prometheus Metrics
@@ -623,7 +623,7 @@ curl http://localhost:6030/metrics | grep synergy_
 #### Issue: Port Already in Use
 ```bash
 # Find what's using the port
-lsof -i :5630
+lsof -i :5622
 
 # Kill the process
 kill -9 <PID>
@@ -650,12 +650,12 @@ cargo build --release
 tail -f data/logs/synergy-node.log | grep consensus
 
 # Verify validators are active
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_getValidators","params":[],"id":1}' | jq
 
 # Check if node is synced
-curl -X POST http://localhost:5730 \
+curl -X POST http://localhost:5640 \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"synergy_nodeInfo","params":[],"id":1}' | jq .result.syncing
 ```
@@ -663,7 +663,7 @@ curl -X POST http://localhost:5730 \
 #### Issue: RPC Connection Refused
 ```bash
 # Check if RPC server is running
-curl http://localhost:5730
+curl http://localhost:5640
 
 # Verify node is running
 ps aux | grep synergy-testbeta
@@ -706,13 +706,13 @@ cargo build --release
 ./target/release/synergy-testbeta start --node-type validator
 
 # Check block height
-curl -s -X POST http://localhost:5730 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}' | jq .result
+curl -s -X POST http://localhost:5640 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}' | jq .result
 
 # Get validators
-curl -s -X POST http://localhost:5730 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"synergy_getValidators","params":[],"id":1}' | jq
+curl -s -X POST http://localhost:5640 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"synergy_getValidators","params":[],"id":1}' | jq
 
 # Create wallet
-curl -s -X POST http://localhost:5730 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"synergy_createWallet","params":[],"id":1}' | jq
+curl -s -X POST http://localhost:5640 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"synergy_createWallet","params":[],"id":1}' | jq
 
 # View logs
 tail -f data/logs/synergy-node.log

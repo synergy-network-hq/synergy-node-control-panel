@@ -354,7 +354,7 @@ function NetworkMonitorDashboard() {
       return;
     }
     if (!localVpnIp) {
-      setError('Local VPN IP was not detected, so this machine cannot claim a node slot yet.');
+      setError('Local machine address was not detected, so this machine cannot claim a node slot yet.');
       return;
     }
 

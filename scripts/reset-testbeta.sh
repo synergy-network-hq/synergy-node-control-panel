@@ -206,7 +206,7 @@ fi
 echo ""
 echo -e "${BLUE}Verifying blockchain state...${NC}"
 sleep 3
-BLOCK_HEIGHT=$(timeout 3 curl -s http://127.0.0.1:5730 -X POST -H "Content-Type: application/json" \
+BLOCK_HEIGHT=$(timeout 3 curl -s http://127.0.0.1:5640 -X POST -H "Content-Type: application/json" \
     -d '{"jsonrpc":"2.0","method":"synergy_blockNumber","params":[],"id":1}' 2>/dev/null | \
     grep -o '"result":[0-9]*' | cut -d':' -f2 || true)
 

@@ -1,9 +1,9 @@
 [network]
 id = 338639
 name = "synergy-testnet-beta"
-p2p_port = 5630
-rpc_port = 5730
-ws_port = 5830
+p2p_port = 5622
+rpc_port = 5640
+ws_port = 5660
 max_peers = 50
 bootnodes = ["snr://bootstrap@bootnode1.synergynode.xyz:5620", "snr://bootstrap@bootnode2.synergynode.xyz:5620", "snr://bootstrap@bootnode3.synergynode.xyz:5620"]
 
@@ -38,20 +38,20 @@ max_files = 5
 
 [rpc]
 enable_http = true
-http_port = 5730
+http_port = 5640
 enable_ws = true
-ws_port = 5830
+ws_port = 5660
 enable_grpc = true
-grpc_port = 5730
+grpc_port = 5640
 cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "0.0.0.0:5630"
-public_address = "127.0.0.1:5630"
+listen_address = "0.0.0.0:5622"
+public_address = "127.0.0.1:5622"
 node_name = "witness-node-01"
 enable_discovery = false
-discovery_port = 5930
+discovery_port = 5680
 heartbeat_interval = 30
 
 [storage]

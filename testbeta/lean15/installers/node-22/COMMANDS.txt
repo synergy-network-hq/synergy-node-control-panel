@@ -6,11 +6,11 @@ Type: uma-coordinator
 
 Ports
 -----
-P2P: 38652
-RPC: 48652
-WebSocket: 58652
-gRPC: 50072
-Discovery: 39659
+P2P: 5636
+RPC: 5654
+WebSocket: 5674
+gRPC: 5654
+Discovery: 5694
 
 Linux/macOS Commands
 --------------------

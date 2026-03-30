@@ -6,12 +6,12 @@
 
 [network]
 id = 338639
-name = "synergy-testbeta-closed"
-p2p_port = 38654
-rpc_port = 48654
-ws_port = 58654
+name = "synergy-testnet-beta"
+p2p_port = 5638
+rpc_port = 5656
+ws_port = 5676
 max_peers = 100
-bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:38638","snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:38639","snr://synv195e26a83cadf8636c052835b2d72ba232ed3@10.50.0.3:38641","snr://synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44@10.50.0.4:38643","snr://synv1d8bb566d5f963416c3a0367a53e28b2dd2cd@10.50.0.5:38645"]
+bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:5622","snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:5624","snr://synv195e26a83cadf8636c052835b2d72ba232ed3@10.50.0.3:5626","snr://synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44@10.50.0.4:5628"]
 
 [blockchain]
 block_time = 2
@@ -22,9 +22,9 @@ chain_id = 338639
 algorithm = "Proof of Synergy"
 block_time_secs = 2
 epoch_length = 50
-min_validators = 3
-validator_cluster_size = 5
-max_validators = 15
+min_validators = 4
+validator_cluster_size = 4
+max_validators = 4
 synergy_score_decay_rate = 0.05
 vrf_enabled = true
 vrf_seed_epoch_interval = 1000
@@ -38,28 +38,28 @@ collaboration = 0.2
 
 [logging]
 log_level = "debug"
-log_file = "data/logs/consensus-07.log"
+log_file = "data/logs/archive-02.log"
 enable_console = true
 max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "10.50.0.9:48654"
+bind_address = "10.50.0.9:5656"
 enable_http = true
-http_port = 48654
+http_port = 5656
 enable_ws = true
-ws_port = 58654
+ws_port = 5676
 enable_grpc = true
-grpc_port = 50066
+grpc_port = 5656
 cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "10.50.0.9:38654"
-public_address = "10.50.0.9:38654"
-node_name = "consensus-07"
+listen_address = "10.50.0.9:5638"
+public_address = "10.50.0.9:5638"
+node_name = "archive-02"
 enable_discovery = false
-discovery_port = 39653
+discovery_port = 5696
 heartbeat_interval = 30
 
 [storage]
@@ -73,7 +73,7 @@ enabled = true
 interval_blocks = 10000
 
 [node]
-auto_register_validator = true
+auto_register_validator = false
 validator_address = "synv1b04dc1518d98a71e482b28dcf02c3b54d116"
 strict_validator_allowlist = true
-allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44","synv1d8bb566d5f963416c3a0367a53e28b2dd2cd"]
+allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44"]

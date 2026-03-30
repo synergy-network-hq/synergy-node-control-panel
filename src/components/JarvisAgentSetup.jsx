@@ -454,7 +454,7 @@ function JarvisAgentSetup({ onComplete, onDefer }) {
           typingMs: 860,
         },
         {
-          text: 'The VPN is assumed to already be in place. I only need the reachable SSH addresses for the machines you want to map.',
+          text: 'The network path is assumed to already be in place. I only need the reachable SSH addresses for the machines you want to map.',
           typingMs: 980,
         },
         {

@@ -6,12 +6,12 @@
 
 [network]
 id = 338639
-name = "synergy-testbeta-closed"
-p2p_port = 38641
-rpc_port = 48641
-ws_port = 58641
+name = "synergy-testnet-beta"
+p2p_port = 5626
+rpc_port = 5644
+ws_port = 5664
 max_peers = 100
-bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:38638","snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:38639","snr://synv195e26a83cadf8636c052835b2d72ba232ed3@10.50.0.3:38641","snr://synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44@10.50.0.4:38643","snr://synv1d8bb566d5f963416c3a0367a53e28b2dd2cd@10.50.0.5:38645"]
+bootnodes = ["snr://synv1daf1ee2c20ed961ec75d713aea4703389327@10.50.0.1:5622","snr://synv1f2d0b0caae7e006426408008ceed4946d5eb@10.50.0.2:5624","snr://synv195e26a83cadf8636c052835b2d72ba232ed3@10.50.0.3:5626","snr://synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44@10.50.0.4:5628"]
 
 [blockchain]
 block_time = 2
@@ -22,9 +22,9 @@ chain_id = 338639
 algorithm = "Proof of Synergy"
 block_time_secs = 2
 epoch_length = 50
-min_validators = 3
-validator_cluster_size = 5
-max_validators = 15
+min_validators = 4
+validator_cluster_size = 4
+max_validators = 4
 synergy_score_decay_rate = 0.05
 vrf_enabled = true
 vrf_seed_epoch_interval = 1000
@@ -44,22 +44,22 @@ max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "10.50.0.3:48641"
+bind_address = "10.50.0.3:5644"
 enable_http = true
-http_port = 48641
+http_port = 5644
 enable_ws = true
-ws_port = 58641
+ws_port = 5664
 enable_grpc = true
-grpc_port = 50054
+grpc_port = 5644
 cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "10.50.0.3:38641"
-public_address = "10.50.0.3:38641"
+listen_address = "10.50.0.3:5626"
+public_address = "10.50.0.3:5626"
 node_name = "consensus-03"
 enable_discovery = false
-discovery_port = 39641
+discovery_port = 5684
 heartbeat_interval = 30
 
 [storage]
@@ -76,4 +76,4 @@ interval_blocks = 10000
 auto_register_validator = true
 validator_address = "synv195e26a83cadf8636c052835b2d72ba232ed3"
 strict_validator_allowlist = true
-allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44","synv1d8bb566d5f963416c3a0367a53e28b2dd2cd"]
+allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44"]
