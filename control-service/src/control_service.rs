@@ -333,9 +333,9 @@ async fn dispatch_command(
         "monitor_initialize_workspace" => to_value(monitor_initialize_workspace_from_context(
             &state.app_context,
         )?),
-        "monitor_apply_testbeta_topology" => to_value(monitor_apply_testbeta_topology_from_context(
-            &state.app_context,
-        )?),
+        "monitor_apply_testbeta_topology" => to_value(
+            monitor_apply_testbeta_topology_from_context(&state.app_context)?,
+        ),
         "monitor_get_setup_status" => to_value(monitor_get_setup_status()?),
         "get_monitor_snapshot" => to_value(get_monitor_snapshot().await?),
         "get_monitor_agent_snapshot" => to_value(get_monitor_agent_snapshot().await?),

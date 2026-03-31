@@ -428,22 +428,40 @@ pub async fn testbeta_import_ceremony_package(
     }
 
     if matches!(requested_role.as_str(), "bootnode" | "seed_server") {
-        return import_bootstrap_bundle(requested_role, package_path, input.intended_directory).await;
+        return import_bootstrap_bundle(requested_role, package_path, input.intended_directory)
+            .await;
     }
 
     let package = load_ceremony_package(&package_path)?;
     validate_ceremony_package(&package, &requested_role)?;
 
-    let mut setup_result = testbeta_setup_node(TestnetBetaSetupInput {
-        role_id: package.role_id.clone(),
-        display_label: Some(package.display_name.clone()),
-        intended_directory: input.intended_directory.clone(),
-        public_host: input.public_host.clone(),
-        skip_canonical_manifests: true,
-    })
-    .await?;
-
     let root = ensure_testnet_beta_root()?;
+    let mut reused_existing_workspace = false;
+    let mut setup_result = if let Some(existing_node) = find_existing_ceremony_node_match(
+        &load_registry(&root)?,
+        &package,
+        input.intended_directory.as_deref(),
+    ) {
+        reused_existing_workspace = true;
+        TestnetBetaSetupResult {
+            node: existing_node.clone(),
+            network_profile: load_or_create_network_profile(&root)?,
+            device_profile: detect_device_profile(),
+            next_steps: vec![format!(
+                "Reusing the existing Control Panel workspace at {} for this approved genesis assignment.",
+                existing_node.workspace_directory
+            )],
+        }
+    } else {
+        testbeta_setup_node(TestnetBetaSetupInput {
+            role_id: package.role_id.clone(),
+            display_label: Some(package.display_name.clone()),
+            intended_directory: input.intended_directory.clone(),
+            public_host: input.public_host.clone(),
+            skip_canonical_manifests: true,
+        })
+        .await?
+    };
     let workspace_directory = PathBuf::from(&setup_result.node.workspace_directory);
     let staged_package_path = workspace_directory
         .join("manifests")
@@ -480,7 +498,19 @@ pub async fn testbeta_import_ceremony_package(
         staged_paths.extend(identity_paths);
     }
 
-    let message = if package.runtime_identity.is_some() {
+    let message = if reused_existing_workspace && package.runtime_identity.is_some() {
+        format!(
+            "{} package refreshed the existing workspace at {}. Jarvis reused the current Control Panel workspace instead of provisioning a second validator runtime.",
+            package.display_name,
+            workspace_directory.display()
+        )
+    } else if reused_existing_workspace {
+        format!(
+            "{} package refreshed the existing workspace at {}. Jarvis reused the current Control Panel workspace instead of provisioning a second node workspace.",
+            package.display_name,
+            workspace_directory.display()
+        )
+    } else if package.runtime_identity.is_some() {
         format!(
             "{} package imported into {}. The workspace now carries the approved validator identity and canonical beta manifests.",
             package.display_name,
@@ -549,8 +579,9 @@ pub async fn testbeta_get_live_status() -> Result<TestnetBetaLiveStatus, String>
 
     let public_chain_height = query_public_chain_height(&client).await.ok();
     let public_peer_count = query_public_peer_count(&client).await.ok();
-    let network_peer_count =
-        query_seed_peer_count(&client, &state.network_profile.seed_servers).await.ok();
+    let network_peer_count = query_seed_peer_count(&client, &state.network_profile.seed_servers)
+        .await
+        .ok();
     let public_rpc_online = public_chain_height.is_some() || public_peer_count.is_some();
 
     let nodes = join_all(
@@ -697,7 +728,8 @@ pub async fn testbeta_node_control(
         "sync" => {
             if role_supports_validator_registration(&node.role_id) {
                 if is_running {
-                    run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
+                    run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory)
+                        .await?;
                 }
 
                 if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
@@ -725,9 +757,11 @@ pub async fn testbeta_node_control(
                     }
                 }
 
-                launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
+                launch_runner_detached(&runner, "start", &config_path, &workspace_directory)
+                    .await?;
                 wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
-                if let Err(error) = register_node_with_seeds_async(&state.network_profile, &node).await
+                if let Err(error) =
+                    register_node_with_seeds_async(&state.network_profile, &node).await
                 {
                     eprintln!("Warning: {error}");
                 }
@@ -952,10 +986,7 @@ pub async fn testbeta_get_chain_blocks(
         }
     };
 
-    let blocks = result
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let blocks = result.as_array().cloned().unwrap_or_default();
 
     // Return newest first
     let mut ordered = blocks;
@@ -996,13 +1027,9 @@ pub async fn testbeta_get_node_readiness(node_id: String) -> Result<NodeReadines
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
     let live = build_node_live_status(&client, &node).await;
-    let report = build_node_readiness_report(
-        &client,
-        &node,
-        &live,
-        &state.network_profile.seed_servers,
-    )
-    .await;
+    let report =
+        build_node_readiness_report(&client, &node, &live, &state.network_profile.seed_servers)
+            .await;
 
     Ok(report)
 }
@@ -1043,8 +1070,7 @@ pub async fn testbeta_boost_sync(
     }
 
     // 4. Write enriched peers.toml.
-    let peers_contents =
-        build_peers_toml_with_additional(&state.network_profile, &targets);
+    let peers_contents = build_peers_toml_with_additional(&state.network_profile, &targets);
     if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
         return Err(format!("Failed to write peers.toml: {e}"));
     }
@@ -1640,16 +1666,22 @@ async fn build_node_live_status(
         cache.get(&node.id).cloned()
     };
     let local_chain_height = fresh_local_chain_height
-        .or_else(|| cached_snapshot.as_ref().and_then(|entry| entry.local_chain_height))
+        .or_else(|| {
+            cached_snapshot
+                .as_ref()
+                .and_then(|entry| entry.local_chain_height)
+        })
         .or(log_local_chain_height);
-    let local_peer_count = fresh_local_peer_count
-        .or_else(|| cached_snapshot.as_ref().and_then(|entry| entry.local_peer_count));
+    let local_peer_count = fresh_local_peer_count.or_else(|| {
+        cached_snapshot
+            .as_ref()
+            .and_then(|entry| entry.local_peer_count)
+    });
     let using_cached_snapshot = is_running
         && ((fresh_local_chain_height.is_none() && local_chain_height.is_some())
             || (fresh_local_peer_count.is_none() && local_peer_count.is_some()));
-    let using_log_height = is_running
-        && fresh_local_chain_height.is_none()
-        && log_local_chain_height.is_some();
+    let using_log_height =
+        is_running && fresh_local_chain_height.is_none() && log_local_chain_height.is_some();
     let local_rpc_ready =
         is_running && (fresh_local_chain_height.is_some() || fresh_local_peer_count.is_some());
     let local_rpc_status = if !is_running {
@@ -1726,7 +1758,10 @@ async fn build_node_live_status(
         }
     };
 
-    let wallet_ready = workspace_directory.join("keys").join("identity.json").is_file();
+    let wallet_ready = workspace_directory
+        .join("keys")
+        .join("identity.json")
+        .is_file();
 
     TestnetBetaNodeLiveStatus {
         node_id: node.id.clone(),
@@ -1814,6 +1849,20 @@ fn running_pid_for_workspace(workspace_directory: &Path) -> Option<u32> {
 
 fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Result<(), String> {
     if !role_supports_validator_registration(role_id) {
+        return Ok(());
+    }
+
+    if config_path
+        .parent()
+        .and_then(Path::parent)
+        .map(|workspace| {
+            workspace
+                .join("manifests")
+                .join("ceremony-package.json")
+                .is_file()
+        })
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 
@@ -2018,7 +2067,9 @@ fn log_tail_excerpt(path: &Path, max_lines: usize) -> Option<String> {
 }
 
 fn recent_chain_hints_from_log(workspace_directory: &Path) -> (Option<u64>, Option<u64>) {
-    let log_path = workspace_directory.join("logs").join("synergy-testbeta.log");
+    let log_path = workspace_directory
+        .join("logs")
+        .join("synergy-testbeta.log");
     let excerpt = match log_tail_excerpt(&log_path, 500) {
         Some(value) => value,
         None => return (None, None),
@@ -2343,9 +2394,7 @@ async fn fetch_all_seed_peer_dial_targets(
                     .get("p2p_port")
                     .and_then(Value::as_u64)
                     .unwrap_or(u64::from(TESTNET_BETA_P2P_PORT));
-                unique_dials
-                    .entry(format!("{host}:{port}"))
-                    .or_insert(());
+                unique_dials.entry(format!("{host}:{port}")).or_insert(());
             }
         }
     }
@@ -2621,8 +2670,10 @@ async fn build_node_readiness_report(
                 "Node is offline.".to_string()
             },
             suggestion: if score_status == "warn" {
-                Some("Node is synced but score is zero. It may take a few epochs to register."
-                    .to_string())
+                Some(
+                    "Node is synced but score is zero. It may take a few epochs to register."
+                        .to_string(),
+                )
             } else {
                 None
             },
@@ -2934,7 +2985,9 @@ fn canonical_testnet_beta_repo_root() -> Result<PathBuf, String> {
 }
 
 fn canonical_testnet_beta_genesis_path() -> Result<PathBuf, String> {
-    Ok(canonical_testnet_beta_repo_root()?.join("config").join("genesis.json"))
+    Ok(canonical_testnet_beta_repo_root()?
+        .join("config")
+        .join("genesis.json"))
 }
 
 fn canonical_testnet_beta_operational_manifest_path() -> Result<PathBuf, String> {
@@ -3584,6 +3637,122 @@ fn write_imported_runtime_identity_files(
     ])
 }
 
+fn find_existing_ceremony_node_match(
+    registry: &TestnetBetaRegistryFile,
+    package: &TestnetBetaCeremonyPackage,
+    intended_directory: Option<&str>,
+) -> Option<TestnetBetaProvisionedNode> {
+    let requested_directory = intended_directory
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(expand_home_path)
+        .map(|path| path.canonicalize().unwrap_or(path));
+
+    if let Some(requested_directory) = requested_directory.as_ref() {
+        if let Some(existing) = registry.nodes.iter().find(|node| {
+            node.role_id == package.role_id
+                && PathBuf::from(&node.workspace_directory)
+                    .canonicalize()
+                    .unwrap_or_else(|_| PathBuf::from(&node.workspace_directory))
+                    == *requested_directory
+        }) {
+            return Some(existing.clone());
+        }
+    }
+
+    if let Some(identity) = package.runtime_identity.as_ref() {
+        if let Some(existing) = registry
+            .nodes
+            .iter()
+            .find(|node| node.role_id == package.role_id && node.node_address == identity.address)
+        {
+            return Some(existing.clone());
+        }
+    }
+
+    registry
+        .nodes
+        .iter()
+        .find(|node| node.role_id == package.role_id && node.display_label == package.display_name)
+        .cloned()
+}
+
+fn extract_ceremony_validator_allowlist(
+    artifacts: &TestnetBetaCeremonyPackageArtifacts,
+) -> Vec<String> {
+    let candidates = [
+        artifacts
+            .genesis
+            .pointer("/contracts/validator_registry/init_params/validators")
+            .and_then(Value::as_array),
+        artifacts
+            .genesis
+            .pointer("/validator_registry/init_params/validators")
+            .and_then(Value::as_array),
+        artifacts
+            .genesis
+            .get("validators")
+            .and_then(Value::as_array),
+    ];
+    let mut addresses = Vec::new();
+
+    for validators in candidates.into_iter().flatten() {
+        for validator in validators {
+            let address = validator
+                .get("validator_address")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    validator
+                        .get("reward_payout_address")
+                        .and_then(Value::as_str)
+                })
+                .or_else(|| validator.get("address").and_then(Value::as_str))
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            if let Some(address) = address {
+                let address = address.to_string();
+                if !addresses.contains(&address) {
+                    addresses.push(address);
+                }
+            }
+        }
+        if !addresses.is_empty() {
+            break;
+        }
+    }
+
+    addresses
+}
+
+fn apply_ceremony_validator_config_overrides(
+    node_toml: String,
+    package: &TestnetBetaCeremonyPackage,
+) -> String {
+    let mut updated = node_toml.replace(
+        "auto_register_validator = true",
+        "auto_register_validator = false",
+    );
+    updated = updated.replace(
+        "strict_validator_allowlist = false",
+        "strict_validator_allowlist = true",
+    );
+
+    let allowlist = extract_ceremony_validator_allowlist(&package.artifacts);
+    if allowlist.is_empty() {
+        return updated;
+    }
+
+    let rendered_allowlist = format!(
+        "allowed_validator_addresses = [{}]",
+        allowlist
+            .iter()
+            .map(|address| format!("\"{address}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    updated.replace("allowed_validator_addresses = []", &rendered_allowlist)
+}
+
 fn apply_imported_runtime_identity(
     root: &Path,
     setup_result: &mut TestnetBetaSetupResult,
@@ -3601,7 +3770,12 @@ fn apply_imported_runtime_identity(
         .nodes
         .iter()
         .position(|entry| entry.id == setup_result.node.id)
-        .ok_or_else(|| format!("Provisioned node not found in registry: {}", setup_result.node.id))?;
+        .ok_or_else(|| {
+            format!(
+                "Provisioned node not found in registry: {}",
+                setup_result.node.id
+            )
+        })?;
     let role_id = registry.nodes[node_index].role_id.clone();
     let funding_manifest_id = registry.nodes[node_index].funding_manifest_id.clone();
     let node_id = registry.nodes[node_index].id.clone();
@@ -3616,6 +3790,7 @@ fn apply_imported_runtime_identity(
         let node_record = &mut registry.nodes[node_index];
         node_record.display_label = package.display_name.clone();
         node_record.node_address = identity.address.clone();
+        node_record.reward_payout_address = Some(identity.address.clone());
         node_record.public_key_path = workspace_directory
             .join("keys")
             .join("public.key")
@@ -3629,6 +3804,8 @@ fn apply_imported_runtime_identity(
         if public_host.is_some() {
             node_record.public_host = public_host.clone();
         }
+        node_record.role_certificate_status =
+            "Approved genesis validator identity imported from the ceremony package.".to_string();
     }
 
     if let Some(funding_manifest) = network_profile
@@ -3648,7 +3825,7 @@ fn apply_imported_runtime_identity(
         .cloned()
         .ok_or_else(|| format!("Funding manifest not found for imported node {node_id}"))?;
 
-    let node_contents = build_node_toml(
+    let mut node_contents = build_node_toml(
         &node_id,
         &package.display_name,
         &role,
@@ -3659,6 +3836,9 @@ fn apply_imported_runtime_identity(
         role_overlay.as_str(),
         port_slot,
     );
+    if role.id == "validator" {
+        node_contents = apply_ceremony_validator_config_overrides(node_contents, package);
+    }
     let manifest_contents = build_bootstrap_manifest_contents(
         &node_id,
         &package.display_name,
@@ -3842,10 +4022,7 @@ fn sanitize_archive_relative_path(path: &Path) -> Result<PathBuf, String> {
             Component::Normal(segment) => sanitized.push(segment),
             Component::CurDir => {}
             Component::RootDir | Component::Prefix(_) | Component::ParentDir => {
-                return Err(format!(
-                    "Unsafe archive entry detected: {}",
-                    path.display()
-                ));
+                return Err(format!("Unsafe archive entry detected: {}", path.display()));
             }
         }
     }
@@ -4452,18 +4629,9 @@ mod tests {
                 .and_then(toml::Value::as_array)
                 .expect("seed_servers array should exist");
             assert_eq!(seeds.len(), 3);
-            assert_eq!(
-                seeds[0].as_str(),
-                Some("http://seed1.synergynode.xyz:5621")
-            );
-            assert_eq!(
-                seeds[1].as_str(),
-                Some("http://seed2.synergynode.xyz:5621")
-            );
-            assert_eq!(
-                seeds[2].as_str(),
-                Some("http://seed3.synergynode.xyz:5621")
-            );
+            assert_eq!(seeds[0].as_str(), Some("http://seed1.synergynode.xyz:5621"));
+            assert_eq!(seeds[1].as_str(), Some("http://seed2.synergynode.xyz:5621"));
+            assert_eq!(seeds[2].as_str(), Some("http://seed3.synergynode.xyz:5621"));
 
             let dns_records = node_value
                 .get("network")
@@ -4574,6 +4742,128 @@ mod tests {
                 "core node config should still be generated"
             );
         });
+    }
+
+    #[test]
+    fn ceremony_validator_import_overrides_keep_genesis_validator_settings() {
+        let package = TestnetBetaCeremonyPackage {
+            format: "synergy-testbeta-ceremony-package/v1".to_string(),
+            package_type: "validator-runtime".to_string(),
+            role_id: "validator".to_string(),
+            display_name: "Genesis Validator 1 Node".to_string(),
+            chain_id: TESTNET_BETA_CHAIN_ID,
+            network_id: TESTNET_BETA_CHAIN_NAME.to_string(),
+            token_symbol: TOKEN_SYMBOL.to_string(),
+            validator_slot: Some(1),
+            artifacts: TestnetBetaCeremonyPackageArtifacts {
+                genesis: json!({
+                    "contracts": {
+                        "validator_registry": {
+                            "init_params": {
+                                "validators": [
+                                    {"validator_address": "synv1alpha"},
+                                    {"validator_address": "synv1beta"}
+                                ]
+                            }
+                        }
+                    }
+                }),
+                operational_manifest: json!({}),
+            },
+            runtime_identity: None,
+            validator_public: None,
+            public_host_required: false,
+            notes: Vec::new(),
+        };
+        let base = "[node]\nbootstrap_only = false\nauto_register_validator = true\nvalidator_address = \"synv1alpha\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n".to_string();
+
+        let updated = apply_ceremony_validator_config_overrides(base, &package);
+
+        assert!(updated.contains("auto_register_validator = false"));
+        assert!(updated.contains("strict_validator_allowlist = true"));
+        assert!(updated.contains("allowed_validator_addresses = [\"synv1alpha\", \"synv1beta\"]"));
+    }
+
+    #[test]
+    fn repair_workspace_config_skips_ceremony_imported_validator_workspace() {
+        let temp = TempDir::new().expect("temp workspace");
+        let workspace = temp.path();
+        let config_path = workspace.join("config").join("node.toml");
+        let manifest_path = workspace.join("manifests").join("ceremony-package.json");
+
+        write_file(
+            &config_path,
+            "[node]\nauto_register_validator = false\nstrict_validator_allowlist = true\n",
+        )
+        .expect("config should write");
+        write_file(&manifest_path, "{}").expect("manifest should write");
+
+        repair_workspace_config_if_needed("validator", &config_path)
+            .expect("repair should not fail");
+
+        let contents = fs::read_to_string(&config_path).expect("config should still exist");
+        assert!(
+            contents.contains("auto_register_validator = false"),
+            "ceremony-imported validators should keep their imported auto-register setting"
+        );
+    }
+
+    #[test]
+    fn ceremony_import_reuses_existing_workspace_for_same_validator_identity() {
+        let registry = TestnetBetaRegistryFile {
+            version: STATE_VERSION,
+            nodes: vec![TestnetBetaProvisionedNode {
+                id: "tbeta-existing".to_string(),
+                role_id: "validator".to_string(),
+                role_display_name: "Validator Node".to_string(),
+                class_name: "Consensus".to_string(),
+                display_label: "Genesis Validator 1 Node".to_string(),
+                node_address: "synv1existing".to_string(),
+                public_key_path: "/tmp/public.key".to_string(),
+                private_key_path: "/tmp/private.key".to_string(),
+                workspace_directory: "/tmp/validator-workspace".to_string(),
+                config_paths: Vec::new(),
+                public_host: None,
+                reward_payout_address: None,
+                connectivity_status: "configured".to_string(),
+                role_certificate_status: "imported".to_string(),
+                funding_manifest_id: "fund-1".to_string(),
+                created_at_utc: Utc::now().to_rfc3339(),
+                port_slot: Some(0),
+            }],
+        };
+        let package = TestnetBetaCeremonyPackage {
+            format: "synergy-testbeta-ceremony-package/v1".to_string(),
+            package_type: "validator-runtime".to_string(),
+            role_id: "validator".to_string(),
+            display_name: "Genesis Validator 1 Node".to_string(),
+            chain_id: TESTNET_BETA_CHAIN_ID,
+            network_id: TESTNET_BETA_CHAIN_NAME.to_string(),
+            token_symbol: TOKEN_SYMBOL.to_string(),
+            validator_slot: Some(1),
+            artifacts: TestnetBetaCeremonyPackageArtifacts {
+                genesis: json!({}),
+                operational_manifest: json!({}),
+            },
+            runtime_identity: Some(TestnetBetaCeremonyRuntimeIdentity {
+                label: "Genesis Validator 1".to_string(),
+                address: "synv1existing".to_string(),
+                address_type: "synv1".to_string(),
+                algorithm: "ed25519".to_string(),
+                created_at: Utc::now().to_rfc3339(),
+                public_key: "pub".to_string(),
+                private_key: "priv".to_string(),
+            }),
+            validator_public: None,
+            public_host_required: false,
+            notes: Vec::new(),
+        };
+
+        let matched = find_existing_ceremony_node_match(&registry, &package, None)
+            .expect("existing validator workspace should match by identity address");
+
+        assert_eq!(matched.id, "tbeta-existing");
+        assert_eq!(matched.workspace_directory, "/tmp/validator-workspace");
     }
 
     #[test]

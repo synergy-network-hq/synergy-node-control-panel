@@ -1,7 +1,7 @@
 # Synergy Node Control Panel User Manual
 
-Version: 2026-03-29
-Applies to: Synergy Node Control Panel `5.8.0` for Synergy Testnet-Beta
+Version: 2026-03-31
+Applies to: Synergy Node Control Panel `5.9.0` for Synergy Testnet-Beta
 
 ## 1. Network Baseline
 
@@ -34,13 +34,18 @@ Each role is installed from an approved ceremony package or bootstrap bundle dow
 
 ## 3. Install The Control Panel
 
-Install the current `Synergy.Node.Control.Panel-5.8.0` build for your platform.
+Install the current `Synergy.Node.Control.Panel-5.9.0` build for your platform.
 
 First launch creates the local workspace:
 
 - macOS: `~/.synergy-node-control-panel/monitor-workspace`
 - Linux: `~/.synergy-node-control-panel/monitor-workspace`
 - Windows: `%USERPROFILE%\.synergy-node-control-panel\monitor-workspace`
+
+Genesis Setup then provisions role-specific node workspaces under the Control Panel runtime root:
+
+- macOS/Linux: `~/.synergy/testnet-beta/nodes/...`
+- Windows: `%USERPROFILE%\.synergy\testnet-beta\nodes\...`
 
 ## 4. Start Genesis Setup
 
@@ -73,6 +78,8 @@ After a successful import, the workspace contains the approved Testnet-Beta laun
 - the assigned validator identity when the imported role is `validator`
 
 Bootnode and seed imports stage the files from the approved bootstrap bundles.
+
+For `validator` imports, Genesis Setup is the runtime owner. Do not also start a separate launchd or systemd validator bundle on the same machine, or the two runtimes will collide on the validator ports.
 
 ## 7. Role-Specific Requirements
 
@@ -163,6 +170,12 @@ Target outcomes:
 - Remove the failed workspace.
 - Start `genesis setup` again.
 - Re-import the correct role package.
+
+### Imported validator was started another way too
+
+- Stop the standalone launchd or systemd validator service on that machine.
+- Keep the Genesis Setup workspace as the single runtime owner.
+- Re-import the same validator package if you need to refresh the Control Panel workspace.
 
 ### Validator will not join
 

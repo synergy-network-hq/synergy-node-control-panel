@@ -398,7 +398,11 @@ fn build_health(workspace_root: &Path) -> Result<TestnetBetaAgentHealth, String>
     let installable = installed_node_slots(workspace_root, &nodes);
     let physical_machine_id = local_vpn_ip
         .as_deref()
-        .and_then(|ip| nodes.iter().find(|node| matches_inventory_address(node, ip)))
+        .and_then(|ip| {
+            nodes
+                .iter()
+                .find(|node| matches_inventory_address(node, ip))
+        })
         .map(|node| node.physical_machine_id.clone());
 
     Ok(TestnetBetaAgentHealth {
@@ -694,7 +698,12 @@ fn is_allowed_remote_v4(ip: Ipv4Addr) -> bool {
 fn allow_public_agent_access() -> bool {
     std::env::var("SYNERGY_TESTBETA_AGENT_ALLOW_PUBLIC")
         .ok()
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -1231,9 +1240,12 @@ fn detect_local_management_ip(nodes: &[InventoryNode]) -> Option<String> {
         .find(|ip| nodes.iter().any(|node| matches_inventory_address(node, ip)))
         .cloned()
         .or_else(|| {
-            candidates
-                .into_iter()
-                .find(|ip| ip.parse::<Ipv4Addr>().ok().map(is_allowed_remote_v4).unwrap_or(false))
+            candidates.into_iter().find(|ip| {
+                ip.parse::<Ipv4Addr>()
+                    .ok()
+                    .map(is_allowed_remote_v4)
+                    .unwrap_or(false)
+            })
         })
 }
 

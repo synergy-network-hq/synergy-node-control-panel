@@ -812,7 +812,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           pauseMs: 220,
         },
         {
-          text: 'Choose the ceremony role for this machine and I will import the approved package from the Genesis Dashboard.',
+          text: 'Choose the ceremony role for this machine and I will import the approved package from the Genesis Dashboard into a Control Panel-managed workspace.',
           typingMs: 1040,
         },
       ]);
@@ -1008,7 +1008,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       }
       await queueJarvisMessage(
         selectedRole?.package_hint
-          || 'Select the approved ceremony package from the Genesis Dashboard, then import it into this workspace.',
+          || 'Select the approved ceremony package from the Genesis Dashboard, then import it into this Control Panel workspace.',
       );
       setPhase('select_ceremony_package');
       return;
@@ -1153,7 +1153,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     if (phase === 'review_ceremony_directory') {
       return {
         kind: 'choices',
-        hint: `Workspace path: ${directoryChoice}. You can paste a custom path or use this one.`,
+        hint: `Control Panel workspace path: ${directoryChoice}. Genesis Setup manages this runtime itself, so do not run a separate launchd or systemd validator on the same machine.`,
         options: [
           { value: 'use default', label: 'Use This Folder' },
         ],
@@ -1222,7 +1222,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const setupNote = phase === 'error'
     ? 'Something interrupted setup. Resolve the issue and restart the setup flow.'
     : setupMode === 'ceremony'
-      ? 'I will import an approved genesis package, place it in a dedicated workspace, and keep this machine aligned with the canonical beta manifests.'
+      ? 'I will import an approved genesis package, place it in a dedicated Control Panel workspace, and keep this machine aligned with the canonical beta manifests. Genesis Setup should be the only runtime owner for that validator on this machine.'
       : 'I will walk you through setup, place the node in its own private folder, and keep every step aligned with the selected node role.';
   const previewStatus = ceremonyImportResult ? 'Imported' : provisionResult?.node ? 'Created' : 'Pending';
   const previewNotes = ceremonyImportResult?.next_steps?.length

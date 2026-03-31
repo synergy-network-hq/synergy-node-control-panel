@@ -1,6 +1,6 @@
 {
-  "workspace_resource_version": "5.8.3+8f1c84ff98c5",
-  "app_version": "5.8.3",
+  "workspace_resource_version": "5.9.0+canonical-genesis",
+  "app_version": "5.9.0",
   "bundle_digest": "8f1c84ff98c55cdc19dbefe301a9a149b3bbd1271711f145b930b793e20f1cc2",
   "required_paths": [
     "testbeta/lean15/node-inventory.csv",

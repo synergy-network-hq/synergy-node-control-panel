@@ -1,6 +1,7 @@
 use crate::app_context::AppContext;
 use crate::testbeta_agent_service::{
-    TestnetBetaAgentControlRequest, TestnetBetaAgentControlResponse, TestnetBetaAgentHealth, TESTBETA_AGENT_PORT,
+    TestnetBetaAgentControlRequest, TestnetBetaAgentControlResponse, TestnetBetaAgentHealth,
+    TESTBETA_AGENT_PORT,
 };
 use chrono::Utc;
 use futures_util::future::join_all;
@@ -2364,8 +2365,9 @@ fn resolve_inventory_path() -> Result<PathBuf, String> {
         if let Some(exe_dir) = exe.parent() {
             candidates.extend(discovery_candidates_from_base(exe_dir));
             candidates.push(exe_dir.join("../Resources/testbeta/lean15/node-inventory.csv"));
-            candidates
-                .push(exe_dir.join("../Resources/_up_/_up_/_up_/testbeta/lean15/node-inventory.csv"));
+            candidates.push(
+                exe_dir.join("../Resources/_up_/_up_/_up_/testbeta/lean15/node-inventory.csv"),
+            );
         }
     }
 
@@ -5768,7 +5770,8 @@ async fn try_execute_monitor_agent_control(
     if agent_error_requires_ssh_fallback(&text) {
         return AgentControlAttempt::Unavailable;
     }
-    let result = if let Ok(payload) = serde_json::from_str::<TestnetBetaAgentControlResponse>(&text) {
+    let result = if let Ok(payload) = serde_json::from_str::<TestnetBetaAgentControlResponse>(&text)
+    {
         let payload = if let Some(job_id) = payload.job_id.clone() {
             if agent_phase_is_terminal(payload.phase.as_deref()) {
                 payload
@@ -7455,7 +7458,8 @@ fn ensure_security_config_exists(workspace: &Path) -> Result<(), String> {
 }
 
 fn is_legacy_local_installers_path(value: &str) -> bool {
-    value.contains("/testbeta/lean15/installers") || value.contains("\\testbeta\\lean15\\installers")
+    value.contains("/testbeta/lean15/installers")
+        || value.contains("\\testbeta\\lean15\\installers")
 }
 
 fn normalize_remote_root_opt(value: &Option<String>) -> Option<String> {
@@ -7976,11 +7980,12 @@ fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<String> {
         .collect::<HashMap<_, _>>();
 
     let resolve_column = |aliases: &[&str]| -> Option<usize> {
-        aliases.iter().find_map(|name| index_map.get(*name).copied())
+        aliases
+            .iter()
+            .find_map(|name| index_map.get(*name).copied())
     };
 
-    let physical_machine_idx =
-        resolve_column(&["physical_machine_id", "physical_machine"])?;
+    let physical_machine_idx = resolve_column(&["physical_machine_id", "physical_machine"])?;
     let address_columns = [
         resolve_column(&["vpn_ip"]),
         resolve_column(&["host"]),
@@ -8034,7 +8039,11 @@ fn detect_local_vpn_ip() -> Option<String> {
         .iter()
         .find(|ip| physical_machine_for_vpn_ip(ip).is_some())
         .cloned()
-        .or_else(|| candidates.into_iter().find(|ip| is_private_management_ip(ip)))
+        .or_else(|| {
+            candidates
+                .into_iter()
+                .find(|ip| is_private_management_ip(ip))
+        })
 }
 
 fn detect_vpn_ip_from_system_commands() -> Vec<String> {
