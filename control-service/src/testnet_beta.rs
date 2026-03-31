@@ -298,6 +298,8 @@ pub struct TestnetBetaSetupInput {
     /// generated nginx.conf at provisioning time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_host: Option<String>,
+    #[serde(default)]
+    pub skip_canonical_manifests: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,6 +439,7 @@ pub async fn testbeta_import_ceremony_package(
         display_label: Some(package.display_name.clone()),
         intended_directory: input.intended_directory.clone(),
         public_host: input.public_host.clone(),
+        skip_canonical_manifests: true,
     })
     .await?;
 
@@ -1213,7 +1216,9 @@ pub async fn testbeta_setup_node(
     write_file(&aegis_toml_path, &aegis_contents)?;
     write_file(&manifest_path, &manifest_contents)?;
     write_file(&readme_path, &readme_contents)?;
-    write_canonical_workspace_manifests(&workspace_directory)?;
+    if !input.skip_canonical_manifests {
+        write_canonical_workspace_manifests(&workspace_directory)?;
+    }
 
     // Generate an nginx reverse-proxy config for roles that expose a public RPC surface.
     if matches!(role.id.as_str(), "rpc_gateway" | "indexer") {
@@ -1362,6 +1367,9 @@ pub async fn testbeta_setup_node(
     // Refresh the canonical launch manifests everywhere so each managed workspace
     // carries the same beta genesis and operational manifest data.
     for n in &registry.nodes {
+        if input.skip_canonical_manifests && n.id == node_record.id {
+            continue;
+        }
         let ws = PathBuf::from(&n.workspace_directory);
         if ws.is_dir() {
             if let Err(e) = write_canonical_workspace_manifests(&ws) {
@@ -4371,6 +4379,7 @@ mod tests {
                     display_label: Some("Validator Alpha".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
 
@@ -4535,6 +4544,39 @@ mod tests {
     }
 
     #[test]
+    fn setup_node_can_skip_canonical_workspace_manifests() {
+        with_temp_home(|_| {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let result = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Validator Import Staging".to_string()),
+                    intended_directory: None,
+                    public_host: None,
+                    skip_canonical_manifests: true,
+                }))
+                .expect("setup should succeed");
+
+            let workspace = PathBuf::from(&result.node.workspace_directory);
+            assert!(
+                !workspace.join("config").join("genesis.json").exists(),
+                "skip flag should leave genesis.json for the import bundle to write"
+            );
+            assert!(
+                !workspace
+                    .join("config")
+                    .join("operational-manifest.json")
+                    .exists(),
+                "skip flag should leave operational-manifest.json for the import bundle to write"
+            );
+            assert!(
+                workspace.join("config").join("node.toml").is_file(),
+                "core node config should still be generated"
+            );
+        });
+    }
+
+    #[test]
     fn resolve_runner_falls_back_to_generic_platform_binary() {
         with_temp_home(|home| {
             let _cwd = CurrentDirGuard::set(home);
@@ -4613,6 +4655,7 @@ esac
                     display_label: Some("Validator Test".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
             let app_context = AppContext::from_env();
@@ -4656,6 +4699,7 @@ esac
                     display_label: Some("Validator A".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    skip_canonical_manifests: false,
                 }))
                 .expect("first setup should succeed");
             let second = runtime
@@ -4664,6 +4708,7 @@ esac
                     display_label: Some("RPC B".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    skip_canonical_manifests: false,
                 }))
                 .expect("second setup should succeed");
 
