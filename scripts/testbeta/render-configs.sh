@@ -326,7 +326,7 @@ cors_origins = []
 listen_address = "${listen_address}"
 public_address = "${public_address}"
 node_name = "${node_alias}"
-enable_discovery = false
+enable_discovery = true
 discovery_port = ${discovery_port}
 heartbeat_interval = 30
 
@@ -343,7 +343,7 @@ interval_blocks = 10000
 [node]
 auto_register_validator = ${auto_register}
 validator_address = "${validator_address}"
-strict_validator_allowlist = true
+strict_validator_allowlist = false
 allowed_validator_addresses = ${ALLOWED_VALIDATOR_ADDRESSES}
 CONFIG
 

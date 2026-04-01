@@ -588,7 +588,7 @@ pub async fn testbeta_get_live_status() -> Result<TestnetBetaLiveStatus, String>
         state
             .nodes
             .iter()
-            .map(|node| build_node_live_status(&client, node)),
+            .map(|node| build_node_live_status(&client, node, public_chain_height)),
     )
     .await;
 
@@ -1066,7 +1066,8 @@ pub async fn testbeta_get_node_readiness(node_id: String) -> Result<NodeReadines
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let live = build_node_live_status(&client, &node).await;
+    let public_chain_height = query_public_chain_height(&client).await.ok();
+    let live = build_node_live_status(&client, &node, public_chain_height).await;
     let report =
         build_node_readiness_report(&client, &node, &live, &state.network_profile.seed_servers)
             .await;
@@ -1671,13 +1672,13 @@ async fn check_seed_endpoint(
 async fn build_node_live_status(
     client: &Client,
     node: &TestnetBetaProvisionedNode,
+    public_chain_height: Option<u64>,
 ) -> TestnetBetaNodeLiveStatus {
     let workspace_directory = PathBuf::from(&node.workspace_directory);
     let config_path = workspace_directory.join("config").join("node.toml");
     let runtime_report_path = workspace_directory.join("data").join("role-runtime.json");
     let rpc_endpoint = parse_testbeta_rpc_endpoint(&config_path)
         .unwrap_or_else(|| format!("http://127.0.0.1:{TESTNET_BETA_RPC_PORT}"));
-    let public_chain_height = query_public_chain_height(client).await.ok();
     let process_info = running_process_for_workspace(&workspace_directory);
     let pid = process_info.as_ref().map(|info| info.pid);
     let process_uptime_secs = process_info.as_ref().map(|info| info.uptime_secs);

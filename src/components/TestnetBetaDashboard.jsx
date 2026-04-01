@@ -20,13 +20,17 @@ const MAX_NODE_SLOTS = 4;
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 const NWEI_PER_SNRG = 1000000000n;
 
-async function fetchExplorerJson(baseUrl, path) {
+async function fetchExplorerJson(baseUrl, path, timeoutMs = 5000) {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
-  const response = await fetch(`${base}${path}`);
-  if (!response.ok) {
-    throw new Error(`Explorer request failed (${response.status})`);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${base}${path}`, { signal: controller.signal });
+    if (!response.ok) return null;
+    return response.json();
+  } finally {
+    window.clearTimeout(timer);
   }
-  return response.json();
 }
 
 function Icon({ children }) {
@@ -544,17 +548,21 @@ function nodeWorkspaceStatus(nodeLive) {
   };
 }
 
+// Module-level cache so navigate-back renders instantly with last-known data
+let _cachedState = null;
+let _cachedLiveStatus = null;
+
 function TestnetBetaDashboard({ onLaunchSetup }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedNodeId, setSelectedNodeId] = useState('');
-  const [state, setState] = useState(null);
-  const [liveStatus, setLiveStatus] = useState(null);
+  const [state, setState] = useState(_cachedState);
+  const [liveStatus, setLiveStatus] = useState(_cachedLiveStatus);
   const [relayerHealth, setRelayerHealth] = useState(null);
   const [sxcpStatus, setSxcpStatus] = useState(null);
   const [sxcpError, setSxcpError] = useState('');
   const [chainSummary, setChainSummary] = useState(null);
   const [localValidatorStats, setLocalValidatorStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(_cachedState === null);
   const [error, setError] = useState('');
   const [copiedNotice, setCopiedNotice] = useState('');
   const [controlBusy, setControlBusy] = useState('');
@@ -577,6 +585,52 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [chainError, setChainError] = useState('');
   const [expandedBlock, setExpandedBlock] = useState(null);
 
+  const fetchAtlas = async () => {
+    if (!atlasAvailable.current) return;
+    const explorerBase = DEFAULT_ATLAS_API_BASE;
+    const [relayerResult, sxcpResult, chainResult] = await Promise.allSettled([
+      fetchExplorerJson(explorerBase, '/relayers/health'),
+      fetchExplorerJson(explorerBase, '/sxcp/status'),
+      fetchExplorerJson(explorerBase, '/api/v1/network/summary'),
+    ]);
+
+    const relayer = relayerResult.status === 'fulfilled' ? relayerResult.value : null;
+    const sxcp = sxcpResult.status === 'fulfilled' ? sxcpResult.value : null;
+    const chain = chainResult.status === 'fulfilled' ? chainResult.value : null;
+
+    if (!relayer && !sxcp && !chain) {
+      atlasAvailable.current = false;
+    }
+
+    setRelayerHealth(relayer?.health || null);
+
+    if (sxcp) {
+      setSxcpStatus(sxcp.status || null);
+      setSxcpError('');
+    } else {
+      setSxcpStatus(null);
+      setSxcpError('SXCP status unavailable');
+    }
+
+    if (chain) {
+      const raw = chain;
+      setChainSummary({
+        total_validators: raw.total_validators ?? raw.totalValidators ?? raw.activeValidators ?? null,
+        active_validators: raw.active_validators ?? raw.activeValidators ?? null,
+        total_validator_clusters: raw.total_validator_clusters ?? raw.totalValidatorClusters ?? null,
+        total_transactions: raw.total_transactions ?? raw.totalTransactions ?? null,
+        total_stake_snrg: raw.total_stake_snrg ?? raw.totalStakeSnrg ?? null,
+        avg_block_time: raw.avg_block_time ?? raw.avgBlockTimeSeconds ?? raw.avgBlockTime ?? null,
+        peer_count: raw.peer_count ?? raw.peerCount ?? null,
+        latest_block: raw.latest_block ?? raw.latestBlock ?? null,
+        average_synergy_score: raw.average_synergy_score ?? raw.averageSynergyScore ?? null,
+        ...raw,
+      });
+    } else {
+      setChainSummary(null);
+    }
+  };
+
   const fetchDashboard = async (silent = false) => {
     if (!silent) {
       setLoading(true);
@@ -590,71 +644,26 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     const nextErrors = [];
 
     if (stateResult.status === 'fulfilled') {
+      _cachedState = stateResult.value;
       setState(stateResult.value);
     } else {
       nextErrors.push(String(stateResult.reason));
     }
 
     if (liveResult.status === 'fulfilled') {
+      _cachedLiveStatus = liveResult.value;
       setLiveStatus(liveResult.value);
     } else {
       nextErrors.push(String(liveResult.reason));
-    }
-
-    if (atlasAvailable.current) {
-      const explorerBase = DEFAULT_ATLAS_API_BASE;
-      const [relayerResult, sxcpResult, chainResult] = await Promise.allSettled([
-        fetchExplorerJson(explorerBase, '/relayers/health'),
-        fetchExplorerJson(explorerBase, '/sxcp/status'),
-        fetchExplorerJson(explorerBase, '/api/v1/network/summary'),
-      ]);
-
-      const allFailed =
-        relayerResult.status === 'rejected' &&
-        sxcpResult.status === 'rejected' &&
-        chainResult.status === 'rejected';
-
-      if (allFailed) {
-        atlasAvailable.current = false;
-      }
-
-      if (relayerResult.status === 'fulfilled') {
-        setRelayerHealth(relayerResult.value?.health || null);
-      } else {
-        setRelayerHealth(null);
-      }
-
-      if (sxcpResult.status === 'fulfilled') {
-        setSxcpStatus(sxcpResult.value?.status || null);
-        setSxcpError('');
-      } else {
-        setSxcpStatus(null);
-        setSxcpError('SXCP status unavailable');
-      }
-
-      if (chainResult.status === 'fulfilled') {
-        const raw = chainResult.value || {};
-        setChainSummary({
-          total_validators: raw.total_validators ?? raw.totalValidators ?? raw.activeValidators ?? null,
-          active_validators: raw.active_validators ?? raw.activeValidators ?? null,
-          total_validator_clusters: raw.total_validator_clusters ?? raw.totalValidatorClusters ?? null,
-          total_transactions: raw.total_transactions ?? raw.totalTransactions ?? null,
-          total_stake_snrg: raw.total_stake_snrg ?? raw.totalStakeSnrg ?? null,
-          avg_block_time: raw.avg_block_time ?? raw.avgBlockTimeSeconds ?? raw.avgBlockTime ?? null,
-          peer_count: raw.peer_count ?? raw.peerCount ?? null,
-          latest_block: raw.latest_block ?? raw.latestBlock ?? null,
-          average_synergy_score: raw.average_synergy_score ?? raw.averageSynergyScore ?? null,
-          ...raw,
-        });
-      } else {
-        setChainSummary(null);
-      }
     }
 
     setError(nextErrors.join(' '));
     if (!silent) {
       setLoading(false);
     }
+
+    // Atlas API runs after the dashboard is visible — does not block render
+    fetchAtlas();
   };
 
   useEffect(() => {

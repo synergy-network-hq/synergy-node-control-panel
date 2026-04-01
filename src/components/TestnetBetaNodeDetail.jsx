@@ -22,9 +22,7 @@ const NWEI_PER_SNRG = 1000000000n;
 async function fetchExplorerJson(baseUrl, path) {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
   const response = await fetch(`${base}${path}`);
-  if (!response.ok) {
-    throw new Error(`Explorer request failed (${response.status})`);
-  }
+  if (!response.ok) return null;
   return response.json();
 }
 
@@ -395,15 +393,15 @@ function TestnetBetaNodeDetail() {
     setError(errors.join(' '));
 
     if (atlasAvailable.current) {
-      try {
-        const raw = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/api/v1/network/summary');
+      const raw = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/api/v1/network/summary');
+      if (raw) {
         setExplorerData({
-          total_validators: raw?.total_validators ?? raw?.totalValidators ?? raw?.activeValidators ?? null,
-          total_transactions: raw?.total_transactions ?? raw?.totalTransactions ?? null,
-          avg_block_time: raw?.avg_block_time ?? raw?.avgBlockTimeSeconds ?? raw?.avgBlockTime ?? null,
+          total_validators: raw.total_validators ?? raw.totalValidators ?? raw.activeValidators ?? null,
+          total_transactions: raw.total_transactions ?? raw.totalTransactions ?? null,
+          avg_block_time: raw.avg_block_time ?? raw.avgBlockTimeSeconds ?? raw.avgBlockTime ?? null,
           ...raw,
         });
-      } catch {
+      } else {
         atlasAvailable.current = false;
       }
     }

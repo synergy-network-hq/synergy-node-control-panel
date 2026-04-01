@@ -58,7 +58,7 @@ cors_origins = []
 listen_address = "10.50.0.12:5643"
 public_address = "10.50.0.12:5643"
 node_name = "compute-03"
-enable_discovery = false
+enable_discovery = true
 discovery_port = 5701
 heartbeat_interval = 30
 
@@ -75,5 +75,5 @@ interval_blocks = 10000
 [node]
 auto_register_validator = false
 validator_address = "synv3dc88c6183f02fdce82d7bec2621df2a7cc6a"
-strict_validator_allowlist = true
+strict_validator_allowlist = false
 allowed_validator_addresses = ["synv1daf1ee2c20ed961ec75d713aea4703389327","synv1f2d0b0caae7e006426408008ceed4946d5eb","synv195e26a83cadf8636c052835b2d72ba232ed3","synv161ea6f7a4ec2cb102e16fda1b6ae21bc3b44"]
