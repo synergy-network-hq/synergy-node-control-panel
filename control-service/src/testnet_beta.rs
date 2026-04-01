@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io;
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use synergy_address_engine::{generate_identity, AddressType, SynergyIdentity};
@@ -651,17 +651,31 @@ pub async fn testbeta_node_control(
     repair_workspace_config_if_needed(&node.role_id, &config_path)?;
     let runner = resolve_testbeta_runner(app_context, &node.role_id)?;
     let action = input.action.trim().to_ascii_lowercase();
-    let is_running = running_pid_for_workspace(&workspace_directory).is_some();
+    let running_processes = running_processes_for_workspace(&workspace_directory);
+    let is_running = !running_processes.is_empty();
+    let local_rpc_ready = if is_running {
+        workspace_local_rpc_ready(&config_path).await
+    } else {
+        false
+    };
 
     match action.as_str() {
         "start" => {
-            if is_running {
+            if is_running && local_rpc_ready {
                 return Ok(TestnetBetaNodeControlResult {
                     node_id: node.id,
                     action,
                     status: "ignored".to_string(),
                     message: "Node is already running.".to_string(),
                 });
+            }
+
+            if is_running && !local_rpc_ready {
+                let killed = force_kill_workspace_processes(&workspace_directory)?;
+                eprintln!(
+                    "Warning: removed {killed} stale Testnet-Beta process(es) before restarting {}.",
+                    node.display_label
+                );
             }
 
             if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
@@ -695,7 +709,8 @@ pub async fn testbeta_node_control(
             }
 
             launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
-            wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
+            wait_for_workspace_start(&config_path, &workspace_directory, Duration::from_secs(30))
+                .await?;
             if let Err(error) = register_node_with_seeds_async(&state.network_profile, &node).await
             {
                 eprintln!("Warning: {error}");
@@ -717,7 +732,22 @@ pub async fn testbeta_node_control(
                 });
             }
 
-            run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
+            let stop_result =
+                run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await;
+            let lingering = force_kill_workspace_processes(&workspace_directory)?;
+
+            if lingering > 0 {
+                return Ok(TestnetBetaNodeControlResult {
+                    node_id: node.id,
+                    action: "stop".to_string(),
+                    status: "ok".to_string(),
+                    message: format!(
+                        "Node stop completed. Cleared {lingering} lingering process(es)."
+                    ),
+                });
+            }
+
+            stop_result?;
             Ok(TestnetBetaNodeControlResult {
                 node_id: node.id,
                 action: "stop".to_string(),
@@ -728,8 +758,10 @@ pub async fn testbeta_node_control(
         "sync" => {
             if role_supports_validator_registration(&node.role_id) {
                 if is_running {
-                    run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory)
-                        .await?;
+                    let _ =
+                        run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory)
+                            .await;
+                    force_kill_workspace_processes(&workspace_directory)?;
                 }
 
                 if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
@@ -759,7 +791,12 @@ pub async fn testbeta_node_control(
 
                 launch_runner_detached(&runner, "start", &config_path, &workspace_directory)
                     .await?;
-                wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
+                wait_for_workspace_start(
+                    &config_path,
+                    &workspace_directory,
+                    Duration::from_secs(30),
+                )
+                .await?;
                 if let Err(error) =
                     register_node_with_seeds_async(&state.network_profile, &node).await
                 {
@@ -775,7 +812,9 @@ pub async fn testbeta_node_control(
             }
 
             if is_running {
-                run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
+                let _ =
+                    run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await;
+                force_kill_workspace_processes(&workspace_directory)?;
             }
 
             if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
@@ -806,7 +845,8 @@ pub async fn testbeta_node_control(
 
             run_runner_and_wait(&runner, "sync", &config_path, &workspace_directory).await?;
             launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
-            wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
+            wait_for_workspace_start(&config_path, &workspace_directory, Duration::from_secs(30))
+                .await?;
             if let Err(error) = register_node_with_seeds_async(&state.network_profile, &node).await
             {
                 eprintln!("Warning: {error}");
@@ -1082,11 +1122,12 @@ pub async fn testbeta_boost_sync(
     let runner = resolve_testbeta_runner(app_context, &node.role_id)?;
 
     if running_pid_for_workspace(&workspace_directory).is_some() {
-        run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await?;
+        let _ = run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await;
+        force_kill_workspace_processes(&workspace_directory)?;
     }
 
     launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
-    wait_for_workspace_start(&workspace_directory, Duration::from_secs(30)).await?;
+    wait_for_workspace_start(&config_path, &workspace_directory, Duration::from_secs(30)).await?;
 
     // 7. Re-register with seeds.
     register_node_with_seeds_best_effort(&state.network_profile, &node).await;
@@ -1407,6 +1448,7 @@ pub async fn testbeta_setup_node(
         }
     }
 
+    #[cfg(not(test))]
     register_node_with_seeds_best_effort(&network_profile, &node_record).await;
 
     Ok(TestnetBetaSetupResult {
@@ -1828,19 +1870,128 @@ struct RunningProcessInfo {
     uptime_secs: u64,
 }
 
-fn running_process_for_workspace(workspace_directory: &Path) -> Option<RunningProcessInfo> {
+fn pid_file_candidates(workspace_directory: &Path) -> [PathBuf; 2] {
+    [
+        workspace_directory
+            .join("data")
+            .join("synergy-testbeta.pid"),
+        workspace_directory.join("data").join("node.pid"),
+    ]
+}
+
+fn process_matches_workspace(process: &sysinfo::Process, workspace_directory: &Path) -> bool {
+    let workspace = workspace_directory.to_string_lossy();
+    let config_path = workspace_directory.join("config").join("node.toml");
+    let config_path = config_path.to_string_lossy();
+    let command_line = process
+        .cmd()
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    command_line.contains(workspace.as_ref()) || command_line.contains(config_path.as_ref())
+}
+
+fn persist_workspace_pid(workspace_directory: &Path, pid: u32) {
     let pid_path = workspace_directory
         .join("data")
         .join("synergy-testbeta.pid");
-    let pid_text = fs::read_to_string(pid_path).ok()?;
-    let pid = pid_text.trim().parse::<u32>().ok()?;
+    if let Some(parent) = pid_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(pid_path, format!("{pid}\n"));
+}
+
+fn running_processes_for_workspace(workspace_directory: &Path) -> Vec<RunningProcessInfo> {
     let mut system = System::new_all();
     system.refresh_all();
-    let process = system.process(Pid::from_u32(pid))?;
-    Some(RunningProcessInfo {
-        pid,
-        uptime_secs: process.run_time(),
-    })
+
+    for pid_path in pid_file_candidates(workspace_directory) {
+        let Some(pid_text) = fs::read_to_string(&pid_path).ok() else {
+            continue;
+        };
+        let Some(pid) = pid_text.trim().parse::<u32>().ok() else {
+            continue;
+        };
+        let Some(process) = system.process(Pid::from_u32(pid)) else {
+            continue;
+        };
+        if process_matches_workspace(process, workspace_directory) {
+            persist_workspace_pid(workspace_directory, pid);
+            return vec![RunningProcessInfo {
+                pid,
+                uptime_secs: process.run_time(),
+            }];
+        }
+    }
+
+    let mut matches = system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            if process_matches_workspace(process, workspace_directory) {
+                Some(RunningProcessInfo {
+                    pid: pid.as_u32(),
+                    uptime_secs: process.run_time(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by_key(|info| std::cmp::Reverse(info.uptime_secs));
+    if let Some(primary) = matches.first() {
+        persist_workspace_pid(workspace_directory, primary.pid);
+    }
+    matches
+}
+
+fn running_process_for_workspace(workspace_directory: &Path) -> Option<RunningProcessInfo> {
+    running_processes_for_workspace(workspace_directory)
+        .into_iter()
+        .next()
+}
+
+fn force_kill_workspace_processes(workspace_directory: &Path) -> Result<usize, String> {
+    let processes = running_processes_for_workspace(workspace_directory);
+    if processes.is_empty() {
+        return Ok(0);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        for info in &processes {
+            let _ = ProcessCommand::new("kill")
+                .args(["-TERM", &info.pid.to_string()])
+                .status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+
+        let remaining = running_processes_for_workspace(workspace_directory);
+        for info in &remaining {
+            let _ = ProcessCommand::new("kill")
+                .args(["-KILL", &info.pid.to_string()])
+                .status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        for info in &processes {
+            let _ = ProcessCommand::new("taskkill")
+                .args(["/PID", &info.pid.to_string(), "/F", "/T"])
+                .status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    for pid_path in pid_file_candidates(workspace_directory) {
+        let _ = fs::remove_file(pid_path);
+    }
+
+    Ok(processes.len())
 }
 
 fn running_pid_for_workspace(workspace_directory: &Path) -> Option<u32> {
@@ -2148,13 +2299,30 @@ fn recent_launch_failure_detail(workspace_directory: &Path, subcommand: &str) ->
     None
 }
 
+async fn workspace_local_rpc_ready(config_path: &Path) -> bool {
+    let rpc_endpoint = parse_testbeta_rpc_endpoint(config_path)
+        .unwrap_or_else(|| format!("http://127.0.0.1:{TESTNET_BETA_RPC_PORT}"));
+    let client = Client::builder()
+        .timeout(Duration::from_secs(1))
+        .connect_timeout(Duration::from_secs(1))
+        .build()
+        .unwrap_or_else(|_| Client::new());
+
+    query_rpc_value(&client, &rpc_endpoint, "synergy_getNodeStatus", json!([]))
+        .await
+        .is_ok()
+}
+
 async fn wait_for_workspace_start(
+    config_path: &Path,
     workspace_directory: &Path,
     timeout_window: Duration,
 ) -> Result<(), String> {
     let started = Instant::now();
     while started.elapsed() < timeout_window {
-        if running_pid_for_workspace(workspace_directory).is_some() {
+        if running_pid_for_workspace(workspace_directory).is_some()
+            && workspace_local_rpc_ready(config_path).await
+        {
             return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -2300,11 +2468,7 @@ async fn query_seed_peer_count(
 
         reachable_seed_count += 1;
         for peer in peers {
-            let key = peer
-                .get("node_id")
-                .and_then(Value::as_str)
-                .or_else(|| peer.get("dial").and_then(Value::as_str))
-                .or_else(|| peer.get("wallet_address").and_then(Value::as_str));
+            let key = seed_registry_peer_key(peer);
 
             if let Some(key) = key {
                 unique_peers.entry(key.to_string()).or_insert(());
@@ -2317,6 +2481,33 @@ async fn query_seed_peer_count(
     }
 
     Ok(unique_peers.len())
+}
+
+fn seed_registry_peer_key(peer: &Value) -> Option<String> {
+    if let Some(dial) = peer.get("dial").and_then(Value::as_str) {
+        let normalized = dial.trim();
+        if !normalized.is_empty() {
+            return Some(normalized.to_string());
+        }
+    }
+
+    if let Some(host) = peer.get("public_host").and_then(Value::as_str) {
+        let host = host.trim();
+        if !host.is_empty() {
+            let port = peer
+                .get("p2p_port")
+                .and_then(Value::as_u64)
+                .unwrap_or(u64::from(TESTNET_BETA_P2P_PORT));
+            return Some(format!("{host}:{port}"));
+        }
+    }
+
+    peer.get("wallet_address")
+        .and_then(Value::as_str)
+        .or_else(|| peer.get("node_id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 async fn verify_node_seed_registration(
@@ -3218,8 +3409,8 @@ async fn detect_public_host() -> Option<String> {
         .ok()?;
 
     for endpoint in [
-        "https://api64.ipify.org",
         "https://api.ipify.org",
+        "https://api4.ipify.org",
         "https://ifconfig.me/ip",
     ] {
         let response = match client
@@ -3706,6 +3897,8 @@ fn extract_ceremony_validator_allowlist(
                         .get("reward_payout_address")
                         .and_then(Value::as_str)
                 })
+                .or_else(|| validator.get("operator_address").and_then(Value::as_str))
+                .or_else(|| validator.get("reward_address").and_then(Value::as_str))
                 .or_else(|| validator.get("address").and_then(Value::as_str))
                 .map(str::trim)
                 .filter(|value| !value.is_empty());
@@ -4543,17 +4736,45 @@ mod tests {
     }
 
     #[test]
+    fn seed_registry_peer_key_prefers_dial_target_for_deduplication() {
+        assert_eq!(
+            seed_registry_peer_key(&json!({
+                "node_id": "node-a",
+                "wallet_address": "wallet-a",
+                "public_host": "203.0.113.10",
+                "p2p_port": 5622,
+                "dial": "203.0.113.10:5622"
+            }))
+            .expect("dial target should resolve"),
+            "203.0.113.10:5622"
+        );
+    }
+
+    #[test]
+    fn seed_registry_peer_key_falls_back_to_host_and_port() {
+        assert_eq!(
+            seed_registry_peer_key(&json!({
+                "node_id": "node-b",
+                "public_host": "73.79.66.255",
+                "p2p_port": 5622
+            }))
+            .expect("public host should resolve"),
+            "73.79.66.255:5622"
+        );
+    }
+
+    #[test]
     fn setup_node_writes_role_metadata_and_bootstrap_inputs() {
         with_temp_home(|_| {
             let _public_host = EnvVarGuard::set_path(
                 "SYNERGY_TESTBETA_PUBLIC_HOST",
-                Path::new("validator-alpha.synergynode.xyz"),
+                Path::new("203.0.113.10"),
             );
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
             let result = runtime
                 .block_on(testbeta_setup_node(TestnetBetaSetupInput {
                     role_id: "validator".to_string(),
-                    display_label: Some("Validator Alpha".to_string()),
+                    display_label: Some("Test Validator Node".to_string()),
                     intended_directory: None,
                     public_host: None,
                     skip_canonical_manifests: false,
@@ -4594,7 +4815,7 @@ mod tests {
                     .get("p2p")
                     .and_then(|section| section.get("public_address"))
                     .and_then(toml::Value::as_str),
-                Some("validator-alpha.synergynode.xyz:5622")
+                Some("203.0.113.10:5622")
             );
             assert_eq!(
                 node_value

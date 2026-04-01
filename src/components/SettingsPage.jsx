@@ -752,7 +752,7 @@ function SettingsPage() {
         label: 'Peers',
         value: formatWholeNumber(liveStatus?.network_peer_count ?? liveStatus?.public_peer_count),
         detail: liveStatus?.network_peer_count != null
-          ? 'Active peers reported by the seed registry'
+          ? 'Unique peer dial targets published by the seed registry'
           : 'Visible peers from the public RPC view',
       },
     ],
@@ -1026,7 +1026,7 @@ function SettingsPage() {
                 label="Peers"
                 value={formatWholeNumber(liveStatus?.network_peer_count ?? liveStatus?.public_peer_count)}
                 detail={liveStatus?.network_peer_count != null
-                  ? 'Active peers reported by the seed registry'
+                  ? 'Unique peer dial targets published by the seed registry'
                   : 'Visible peers from the public RPC view'}
               />
             </div>

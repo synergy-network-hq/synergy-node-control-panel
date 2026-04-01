@@ -766,8 +766,8 @@ function TestnetBetaNodeDetail() {
             <strong className="nodecp-stat-value">{formatNumber(networkVisiblePeerCount)}</strong>
             <span className="nodecp-stat-detail">
               {liveStatus?.network_peer_count != null
-                ? 'Active peers currently registered with the seed services.'
-                : 'Waiting for a live peer count from the seed services.'}
+                ? 'Unique peer dial targets currently published by the seed registry.'
+                : 'Waiting for a live seed-registry peer count.'}
             </span>
           </div>
         </article>

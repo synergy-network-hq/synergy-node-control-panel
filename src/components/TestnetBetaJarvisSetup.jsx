@@ -334,8 +334,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
   const detectPublicHost = useCallback(async () => {
     const candidates = [
-      'https://api64.ipify.org?format=text',
       'https://api.ipify.org?format=text',
+      'https://api4.ipify.org?format=text',
+      'https://ifconfig.me/ip',
     ];
 
     for (const endpoint of candidates) {

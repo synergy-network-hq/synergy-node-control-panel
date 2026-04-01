@@ -1149,8 +1149,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           label: 'Network Peers',
           value: formatNumber(networkVisiblePeerCount),
           detail: liveStatus?.network_peer_count != null
-            ? 'Active peers currently registered with the seed services.'
-            : 'Waiting for a live peer count from the seed services.',
+            ? 'Unique peer dial targets currently published by the seed registry.'
+            : 'Waiting for a live seed-registry peer count.',
           icon: ICONS.peers,
         },
         {
@@ -1503,8 +1503,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             </strong>
             <p className="nodecp-status-detail">
               {networkVisiblePeerCount != null
-                ? 'Active peers currently registered with the seed services.'
-                : 'Waiting for a live network peer count from the seed services.'}
+                ? 'Unique peer dial targets currently published by the seed registry.'
+                : 'Waiting for a live seed-registry peer count.'}
             </p>
           </article>
 
