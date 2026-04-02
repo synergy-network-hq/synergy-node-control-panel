@@ -2105,8 +2105,8 @@ fn runner_binary_candidates(root: &Path, binary_name: &str) -> [PathBuf; 4] {
 fn current_platform_testbeta_binary_names() -> &'static [&'static str] {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     return &[
-        "synergy-testbeta-macos-arm64",
         "synergy-testbeta-darwin-arm64",
+        "synergy-testbeta-macos-arm64",
         "synergy-testbeta",
     ];
 

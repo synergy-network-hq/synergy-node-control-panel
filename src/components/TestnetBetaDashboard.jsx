@@ -328,70 +328,60 @@ const ROLE_REWARD_STANDARD = Object.freeze({
   validator: {
     baseMonthlySnrg: '30,000',
     fundingSource: 'Consensus emissions + fee share',
-    payoutEquation: 'P = floor((B + 12*PBk + 6*FQk + 0.04*SS) * U * Q * H * S * 1e9) - Pen',
     bondSlash: '5,000 SNRG minimum bond; 15% slash for equivocation; 5% slash for invalid state vote',
     minTier: 'T4 Sovereign',
   },
   witness: {
     baseMonthlySnrg: '15,000',
     fundingSource: 'Treasury subsidy + per-event service rewards',
-    payoutEquation: 'P = floor((B + 10*WEk + 4*CFk) * U * Q * H * 1e9) - Pen',
     bondSlash: '1,250 SNRG bond; 8% slash cap for false witness evidence',
     minTier: 'T2 Performance',
   },
   data_availability: {
     baseMonthlySnrg: '10,000',
     fundingSource: 'Capacity stipend + retrieval rewards',
-    payoutEquation: 'P = floor((B + 2*TBm + 0.6*RSk + 1.2*RPk) * U * Q * H * 1e9) - Pen',
     bondSlash: '1,500 SNRG bond; 8% slash cap for durability breach',
     minTier: 'T3 Performance',
   },
   rpc_gateway: {
     baseMonthlySnrg: '8,000',
     fundingSource: 'Usage fees + optional network rebate',
-    payoutEquation: 'P = floor((B + 0.9*RQM + 6*ENT) * U * Q * H * 1e9) - Pen',
     bondSlash: '500 SNRG bond; 3% slash cap for persistent SLA abuse',
     minTier: 'T2 Performance',
   },
   indexer: {
     baseMonthlySnrg: '7,000',
     fundingSource: 'Usage fees + ecosystem data-service revenue',
-    payoutEquation: 'P = floor((B + 0.8*QMk + 1.5*APIk) * U * Q * H * 1e9) - Pen',
     bondSlash: '500 SNRG bond; 3% slash cap for corruption or lag breach',
     minTier: 'T2 Performance',
   },
   archive_validator: {
     baseMonthlySnrg: '6,000',
     fundingSource: 'Capacity stipend + proof reconstruction fees',
-    payoutEquation: 'P = floor((B + 1.5*TBm + 3*PRk) * U * Q * H * 1e9) - Pen',
     bondSlash: '750 SNRG bond; 4% slash cap for missing history segments',
     minTier: 'T3 Performance',
   },
   audit_validator: {
     baseMonthlySnrg: '5,000',
     fundingSource: 'Treasury-funded audit pool + bounty payments',
-    payoutEquation: 'P = floor((B + 12*AN + 20*DV) * U * Q * H * 1e9) - Pen',
     bondSlash: '750 SNRG bond; 4% slash cap for material missed divergence',
     minTier: 'T2 Performance',
   },
   governance_auditor: {
     baseMonthlySnrg: '3,500',
     fundingSource: 'Treasury-funded governance assurance budget',
-    payoutEquation: 'P = floor((B + 30*GP + 12*EV) * U * Q * H * 1e9) - Pen',
     bondSlash: '500 SNRG bond; 3% slash cap for scope-review failure',
     minTier: 'T2 Standard+',
   },
   ai_inference: {
     baseMonthlySnrg: '2,500',
     fundingSource: 'Grant-style treasury budget + service contracts',
-    payoutEquation: 'P = floor((B + 8*SIMk + 25*AR) * U * Q * H * 1e9) - Pen',
     bondSlash: '250 SNRG bond; 2% slash cap for repeated stale output',
     minTier: 'T1 Standard',
   },
   observer: {
     baseMonthlySnrg: '1,000',
     fundingSource: 'Low-rate micro-reward pool',
-    payoutEquation: 'P = floor((B + 0.2*PVk + 0.05*HPk) * U * H * 1e9) - Pen',
     bondSlash: 'No mandatory bond; optional reputation stake',
     minTier: 'T0 Bootstrap',
   },
@@ -471,7 +461,6 @@ function roleRewardStandard(roleId, fallbackDisplayName = 'Node') {
   return ROLE_REWARD_STANDARD[roleId] || {
     baseMonthlySnrg: 'Unavailable',
     fundingSource: `${fallbackDisplayName} compensation standard not loaded.`,
-    payoutEquation: 'Not defined for this role in the current wallet view.',
     bondSlash: 'Refer to the ratified rewards standard.',
     minTier: 'N/A',
   };
@@ -1099,6 +1088,12 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     };
   }, [activeTab, nodeLiveById, nodes, network?.funding_manifests]);
 
+  const copyToClipboard = (text, label = '') => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedNotice(label ? `Copied ${label}` : 'Copied');
+    }).catch(() => {});
+  };
+
   const runNodeControl = async (action) => {
     if (!selectedNode) {
       return;
@@ -1470,132 +1465,49 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           </>
         )}
 
-        {/* Network health — user-friendly status cards */}
-        <div className="nodecp-status-grid">
-          <article className={`nodecp-status-card nodecp-status-${networkUp ? 'ok' : 'error'}`}>
-            <div className="nodecp-status-head">
-              <span className="nodecp-status-icon">{ICONS.pulse}</span>
-              <span className="nodecp-status-label">Network Status</span>
+        {/* Network health strip */}
+        <div className="nodecp-status-strip">
+          <div className={`nodecp-strip-item nodecp-strip-${networkUp ? 'ok' : 'error'}`}>
+            <span className="nodecp-strip-label">Network</span>
+            <strong>{networkUp ? 'Online' : 'Offline'}</strong>
+          </div>
+          <div className={`nodecp-strip-item nodecp-strip-${pubHeight != null ? 'ok' : 'warn'}`}>
+            <span className="nodecp-strip-label">Block Height</span>
+            <strong>{formatNumber(pubHeight)}</strong>
+          </div>
+          <div className={`nodecp-strip-item nodecp-strip-${chainSummary?.avg_block_time != null ? 'ok' : 'warn'}`}>
+            <span className="nodecp-strip-label">Avg Block Time</span>
+            <strong>{chainSummary?.avg_block_time != null ? `${chainSummary.avg_block_time}s` : '—'}</strong>
+          </div>
+          <div className={`nodecp-strip-item nodecp-strip-${networkVisiblePeerCount != null ? 'ok' : 'warn'}`}>
+            <span className="nodecp-strip-label">Network Peers</span>
+            <strong>{networkVisiblePeerCount != null ? networkVisiblePeerCount : '—'}</strong>
+          </div>
+          <div className={`nodecp-strip-item nodecp-strip-${totalBootnodes > 0 ? (healthyBootnodes === totalBootnodes ? 'ok' : 'warn') : 'warn'}`}>
+            <span className="nodecp-strip-label">Bootnodes</span>
+            <strong>{totalBootnodes > 0 ? `${healthyBootnodes}/${totalBootnodes}` : '—'}</strong>
+          </div>
+          <div className={`nodecp-strip-item nodecp-strip-${totalSeeds > 0 ? (healthySeeds === totalSeeds ? 'ok' : 'warn') : 'warn'}`}>
+            <span className="nodecp-strip-label">Seed Servers</span>
+            <strong>{totalSeeds > 0 ? `${healthySeeds}/${totalSeeds}` : '—'}</strong>
+          </div>
+          {chainSummary?.total_transactions != null && (
+            <div className="nodecp-strip-item nodecp-strip-ok">
+              <span className="nodecp-strip-label">Total Txns</span>
+              <strong>{formatNumber(chainSummary.total_transactions)}</strong>
             </div>
-            <strong className="nodecp-status-value">{networkUp ? 'Online' : 'Offline'}</strong>
-            <p className="nodecp-status-detail">
-              {networkUp
-                ? 'Public RPC is reachable. Chain data is live.'
-                : 'Cannot reach the public RPC endpoint. Check your connection.'}
-            </p>
-          </article>
-
-          <article className={`nodecp-status-card nodecp-status-${pubHeight != null ? 'ok' : 'warn'}`}>
-            <div className="nodecp-status-head">
-              <span className="nodecp-status-icon">{ICONS.chain}</span>
-              <span className="nodecp-status-label">Latest Block</span>
+          )}
+          {chainSummary?.total_stake_snrg != null && (
+            <div className="nodecp-strip-item nodecp-strip-ok">
+              <span className="nodecp-strip-label">Network Stake</span>
+              <strong>{formatWholeSnrg(chainSummary.total_stake_snrg)} SNRG</strong>
             </div>
-            <strong className="nodecp-status-value">{formatNumber(pubHeight)}</strong>
-            <p className="nodecp-status-detail">
-              {chainSummary?.avg_block_time != null
-                ? `New blocks every ~${chainSummary.avg_block_time}s`
-                : 'Best observed live chain tip across public RPC and validator peer status.'}
-            </p>
-          </article>
-
-          <article className={`nodecp-status-card nodecp-status-${
-            networkVisiblePeerCount != null && networkVisiblePeerCount > 0 ? 'ok' : 'warn'
-          }`}>
-            <div className="nodecp-status-head">
-              <span className="nodecp-status-icon">{ICONS.peers}</span>
-              <span className="nodecp-status-label">Network Peers</span>
-            </div>
-            <strong className="nodecp-status-value">
-              {networkVisiblePeerCount != null
-                ? `${networkVisiblePeerCount} peers`
-                : '—'}
-            </strong>
-            <p className="nodecp-status-detail">
-              {networkVisiblePeerCount != null
-                ? 'Unique peer dial targets currently published by the seed registry.'
-                : 'Waiting for a live seed-registry peer count.'}
-            </p>
-          </article>
-
-          <article className={`nodecp-status-card nodecp-status-${
-            selectedNodeLive?.synergy_score != null ? 'ok' : 'warn'
-          }`}>
-            <div className="nodecp-status-head">
-              <span className="nodecp-status-icon">{ICONS.score}</span>
-              <span className="nodecp-status-label">Synergy Score</span>
-            </div>
-            <strong className="nodecp-status-value">
-              {formatScoreOutOfHundred(selectedNodeLive?.synergy_score)}
-            </strong>
-            <p className="nodecp-status-detail">
-              {selectedNodeLive?.synergy_score_status || 'Score reflects uptime, sync, and participation.'}
-            </p>
-          </article>
+          )}
+          <div className={`nodecp-strip-item nodecp-strip-${selectedNodeLive?.synergy_score != null ? 'ok' : 'warn'}`}>
+            <span className="nodecp-strip-label">Synergy Score</span>
+            <strong>{formatScoreOutOfHundred(selectedNodeLive?.synergy_score)}</strong>
+          </div>
         </div>
-
-        {/* Network overview — key live stats */}
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Network overview</p>
-              <h3>Synergy Testnet-Beta</h3>
-            </div>
-          </div>
-          <div className="nodecp-summary-grid">
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Your Nodes on This Machine</span>
-              <p>{state?.summary?.total_nodes || 0}</p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Total Reserved Stake</span>
-              <p>{formatWholeSnrg(state?.summary?.total_sponsored_stake_snrg || 0)} SNRG</p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Public RPC</span>
-              <p>
-                <span className={`nodecp-health-pill nodecp-health-${networkUp ? 'ok' : 'error'}`}>
-                  {networkUp ? 'Online' : 'Offline'}
-                </span>
-              </p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Bootstrap Discovery</span>
-              <p>{liveStatus?.discovery_status || 'Checking…'}</p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Bootnodes Healthy</span>
-              <p>{totalBootnodes > 0 ? `${healthyBootnodes} / ${totalBootnodes}` : '—'}</p>
-            </div>
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Seed Servers Healthy</span>
-              <p>{totalSeeds > 0 ? `${healthySeeds} / ${totalSeeds}` : '—'}</p>
-            </div>
-            {chainSummary?.total_validators != null && (
-              <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Active Validators</span>
-                <p>{formatNumber(chainSummary.total_validators)}</p>
-              </div>
-            )}
-            {chainSummary?.total_transactions != null && (
-              <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Total Transactions</span>
-                <p>{formatNumber(chainSummary.total_transactions)}</p>
-              </div>
-            )}
-            {chainSummary?.total_stake_snrg != null && (
-              <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Total Network Stake</span>
-                <p>{formatWholeSnrg(chainSummary.total_stake_snrg)} SNRG</p>
-              </div>
-            )}
-            {chainSummary?.avg_block_time != null && (
-              <div className="nodecp-summary-block">
-                <span className="nodecp-summary-label">Avg Block Time</span>
-                <p>{chainSummary.avg_block_time}s</p>
-              </div>
-            )}
-          </div>
-        </section>
       </div>
     );
   };
@@ -1668,7 +1580,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             <div className="nodecp-stat-copy">
               <span className="nodecp-stat-label">Quorum</span>
               <span className="nodecp-stat-value">{relayerSummary.quorum}</span>
-              <span className="nodecp-stat-detail">Threshold required for SXCP finality.</span>
             </div>
           </div>
           <div className="nodecp-stat-card">
@@ -1676,7 +1587,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             <div className="nodecp-stat-copy">
               <span className="nodecp-stat-label">Relayers online</span>
               <span className="nodecp-stat-value">{formatNumber(relayerSummary.online)} / {formatNumber(relayerSummary.total)}</span>
-              <span className="nodecp-stat-detail">Eligible: {formatNumber(relayerSummary.eligible)}</span>
+              <span className="nodecp-stat-detail">Quorum-eligible: {formatNumber(relayerSummary.eligible)}</span>
             </div>
           </div>
           <div className="nodecp-stat-card">
@@ -1686,7 +1597,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
               <span className="nodecp-stat-value">
                 {relayerSummary.pending == null ? '—' : formatNumber(relayerSummary.pending)}
               </span>
-              <span className="nodecp-stat-detail">Awaiting quorum attestations.</span>
             </div>
           </div>
           <div className="nodecp-stat-card">
@@ -1696,54 +1606,43 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
               <span className="nodecp-stat-value">
                 {relayerSummary.finalized == null ? '—' : formatNumber(relayerSummary.finalized)}
               </span>
-              <span className="nodecp-stat-detail">Confirmed SXCP settlements.</span>
             </div>
           </div>
         </div>
       </section>
 
-      <div className="nodecp-panel-grid">
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Discovery order</p>
-              <h3>What new nodes try first</h3>
-            </div>
+      <section className="nodecp-panel">
+        <div className="nodecp-panel-header">
+          <div>
+            <p className="nodecp-panel-kicker">Public chain</p>
+            <h3>Chain availability</h3>
           </div>
-          <ol className="nodecp-list nodecp-list-numbered">
-            {(network?.bootstrap_policy?.fallback_sequence || []).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ol>
-        </section>
-
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Current network state</p>
-              <h3>Chain availability</h3>
-            </div>
+        </div>
+        <div className="nodecp-definition-list">
+          <div className="nodecp-definition-row">
+            <span>Public RPC</span>
+            <strong>{liveStatus?.public_rpc_endpoint || 'Not available'}</strong>
           </div>
-          <div className="nodecp-definition-list">
-            <div className="nodecp-definition-row">
-              <span>Public RPC endpoint</span>
-              <strong>{liveStatus?.public_rpc_endpoint || 'Not available'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Chain status</span>
-              <strong>{liveStatus?.chain_status || 'Unknown'}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Block height</span>
-              <strong>{formatNumber(liveStatus?.public_chain_height)}</strong>
-            </div>
-            <div className="nodecp-definition-row">
-              <span>Peers</span>
-              <strong>{formatNumber(networkVisiblePeerCount)}</strong>
-            </div>
+          <div className="nodecp-definition-row">
+            <span>Chain status</span>
+            <strong>{liveStatus?.chain_status || 'Unknown'}</strong>
           </div>
-        </section>
-      </div>
+          <div className="nodecp-definition-row">
+            <span>Block height</span>
+            <strong>{formatNumber(liveStatus?.public_chain_height)}</strong>
+          </div>
+          <div className="nodecp-definition-row">
+            <span>Network peers</span>
+            <strong>{formatNumber(networkVisiblePeerCount)}</strong>
+          </div>
+          {(network?.bootstrap_policy?.fallback_sequence || []).length > 0 && (
+            <div className="nodecp-definition-row">
+              <span>Discovery fallback</span>
+              <strong>{(network.bootstrap_policy.fallback_sequence).join(' → ')}</strong>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 
@@ -1756,13 +1655,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             <h3>Wallet &amp; Rewards by Node Slot</h3>
           </div>
         </div>
-        <p className="nodecp-panel-copy">
-          Live wallet balances come from each node&apos;s local RPC. Role-specific payout policy is taken from
-          the Synergy Operator Rewards Standard v1.0. The withdraw control is intentionally disabled until payout settlement is wired end-to-end.
-        </p>
         <div className="nodecp-controls-status">
-          <span>Total reserved across the configured network profile: {formatSnrgFromNwei(totalReservedNwei)}</span>
-          <span>{walletLoading ? 'Refreshing wallet and reward telemetry…' : 'Wallet and reward telemetry refreshed from local node RPC.'}</span>
+          <span>Total reserved: {formatSnrgFromNwei(totalReservedNwei)}</span>
+          <span>{walletLoading ? 'Refreshing…' : 'Wallet telemetry from local node RPC.'}</span>
         </div>
       </section>
 
@@ -1820,11 +1715,17 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                     </div>
                     <div className="nodecp-definition-row">
                       <span>Full node address</span>
-                      <strong className="nodecp-wallet-address">{node.node_address}</strong>
+                      <span className="nodecp-wallet-address-row">
+                        <strong className="nodecp-wallet-address">{node.node_address}</strong>
+                        <button className="nodecp-copy-btn" title="Copy address" onClick={() => copyToClipboard(node.node_address, 'node address')}>{ICONS.copy}</button>
+                      </span>
                     </div>
                     <div className="nodecp-definition-row">
                       <span>Reward payout address</span>
-                      <strong className="nodecp-wallet-address">{node.reward_payout_address || node.node_address}</strong>
+                      <span className="nodecp-wallet-address-row">
+                        <strong className="nodecp-wallet-address">{node.reward_payout_address || node.node_address}</strong>
+                        <button className="nodecp-copy-btn" title="Copy address" onClick={() => copyToClipboard(node.reward_payout_address || node.node_address, 'payout address')}>{ICONS.copy}</button>
+                      </span>
                     </div>
                     <div className="nodecp-definition-row">
                       <span>Catch-up status</span>
@@ -1905,10 +1806,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       <span>Bond / slash</span>
                       <strong>{rewardStandard.bondSlash}</strong>
                     </div>
-                    <div className="nodecp-definition-row">
-                      <span>Monthly payout equation</span>
-                      <strong className="nodecp-wallet-formula">{rewardStandard.payoutEquation}</strong>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1925,23 +1822,39 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
         <div className="nodecp-panel-header">
           <div>
             <p className="nodecp-panel-kicker">Workspace files</p>
-            <h3>Where to inspect this node</h3>
+            <h3>{selectedNode?.display_label || selectedNode?.role_display_name || 'Node'} Workspace</h3>
           </div>
+          {selectedNode && (
+            <SNRGButton variant="blue" size="sm" onClick={() => openPath(selectedNode.workspace_directory)}>
+              Open Workspace
+            </SNRGButton>
+          )}
         </div>
 
         {selectedNode ? (
-          <div className="nodecp-file-grid">
-            <div className="nodecp-file-card">
-              <span className="nodecp-file-label">Workspace</span>
-              <strong>{selectedNode.workspace_directory}</strong>
+          <>
+            <div className="nodecp-definition-list" style={{ marginBottom: '0.75rem' }}>
+              <div className="nodecp-definition-row">
+                <span>Workspace root</span>
+                <strong style={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}>{selectedNode.workspace_directory}</strong>
+              </div>
+              <div className="nodecp-definition-row">
+                <span>Log directory</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <strong style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{selectedNode.workspace_directory}/logs</strong>
+                  <button className="nodecp-copy-btn" title="Open logs folder" onClick={() => openPath(`${selectedNode.workspace_directory}/logs`)}>{ICONS.folder}</button>
+                </span>
+              </div>
             </div>
-            {(selectedNode.config_paths || []).map((path) => (
-              <SNRGButton key={path} as="button" variant="blue" size="sm" className="nodecp-file-card nodecp-file-card-button" onClick={() => openPath(path)}>
-                <span className="nodecp-file-label">{path.split('/').slice(-2).join('/')}</span>
-                <strong>{path}</strong>
-              </SNRGButton>
-            ))}
-          </div>
+            <div className="nodecp-file-grid">
+              {(selectedNode.config_paths || []).map((path) => (
+                <SNRGButton key={path} as="button" variant="blue" size="sm" className="nodecp-file-card nodecp-file-card-button" onClick={() => openPath(path)}>
+                  <span className="nodecp-file-label">{path.split('/').pop()}</span>
+                  <strong style={{ fontFamily: 'monospace', fontSize: '0.75rem', opacity: 0.7 }}>{path.split('/').slice(-3).join('/')}</strong>
+                </SNRGButton>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="nodecp-empty-inline">
             Start setup to create the first node workspace and config files.

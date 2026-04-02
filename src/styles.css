@@ -3279,6 +3279,42 @@ code {
 .settings-shell-workspace-actions {
   display: flex;
   align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.settings-shell-node-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(148, 163, 184, 0.85);
+  text-decoration: none;
+  border: 1px solid rgba(88, 118, 162, 0.22);
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.settings-shell-node-link:hover {
+  color: rgba(231, 239, 249, 0.95);
+  border-color: rgba(88, 118, 162, 0.45);
+}
+
+.settings-shell-definition-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(88, 118, 162, 0.14);
+  flex-wrap: wrap;
+}
+
+.settings-shell-update-status {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.85);
 }
 
 .settings-shell-badge {
@@ -5242,6 +5278,85 @@ code {
 
 .nodecp-status-bad {
   border-color: rgba(255, 112, 112, 0.28);
+}
+
+/* Compact network health strip (replaces old 4-card + panel) */
+.nodecp-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.5rem 0;
+}
+
+.nodecp-strip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(11, 21, 36, 0.7);
+  border: 1px solid rgba(88, 118, 162, 0.18);
+  min-width: 90px;
+}
+
+.nodecp-strip-item strong {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: rgba(231, 239, 249, 0.95);
+}
+
+.nodecp-strip-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(148, 163, 184, 0.75);
+}
+
+.nodecp-strip-ok {
+  border-color: rgba(90, 211, 170, 0.28);
+}
+
+.nodecp-strip-warn {
+  border-color: rgba(255, 186, 96, 0.28);
+}
+
+.nodecp-strip-error {
+  border-color: rgba(255, 112, 112, 0.28);
+}
+
+/* Copy button used next to wallet addresses */
+.nodecp-wallet-address-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.nodecp-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: rgba(148, 163, 184, 0.6);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+  width: 18px;
+  height: 18px;
+}
+
+.nodecp-copy-btn:hover {
+  color: rgba(231, 239, 249, 0.9);
+  background: rgba(88, 118, 162, 0.2);
+}
+
+.nodecp-copy-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .nodecp-panel-header {

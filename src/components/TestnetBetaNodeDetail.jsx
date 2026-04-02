@@ -164,70 +164,60 @@ const ROLE_REWARD_STANDARD = Object.freeze({
   validator: {
     baseMonthlySnrg: '30,000',
     fundingSource: 'Consensus emissions + fee share',
-    payoutEquation: 'P = floor((B + 12*PBk + 6*FQk + 0.04*SS) * U * Q * H * S * 1e9) - Pen',
     bondSlash: '5,000 SNRG minimum bond; 15% slash for equivocation; 5% slash for invalid state vote',
     minTier: 'T4 Sovereign',
   },
   witness: {
     baseMonthlySnrg: '15,000',
     fundingSource: 'Treasury subsidy + per-event service rewards',
-    payoutEquation: 'P = floor((B + 10*WEk + 4*CFk) * U * Q * H * 1e9) - Pen',
     bondSlash: '1,250 SNRG bond; 8% slash cap for false witness evidence',
     minTier: 'T2 Performance',
   },
   data_availability: {
     baseMonthlySnrg: '10,000',
     fundingSource: 'Capacity stipend + retrieval rewards',
-    payoutEquation: 'P = floor((B + 2*TBm + 0.6*RSk + 1.2*RPk) * U * Q * H * 1e9) - Pen',
     bondSlash: '1,500 SNRG bond; 8% slash cap for durability breach',
     minTier: 'T3 Performance',
   },
   rpc_gateway: {
     baseMonthlySnrg: '8,000',
     fundingSource: 'Usage fees + optional network rebate',
-    payoutEquation: 'P = floor((B + 0.9*RQM + 6*ENT) * U * Q * H * 1e9) - Pen',
     bondSlash: '500 SNRG bond; 3% slash cap for persistent SLA abuse',
     minTier: 'T2 Performance',
   },
   indexer: {
     baseMonthlySnrg: '7,000',
     fundingSource: 'Usage fees + ecosystem data-service revenue',
-    payoutEquation: 'P = floor((B + 0.8*QMk + 1.5*APIk) * U * Q * H * 1e9) - Pen',
     bondSlash: '500 SNRG bond; 3% slash cap for corruption or lag breach',
     minTier: 'T2 Performance',
   },
   archive_validator: {
     baseMonthlySnrg: '6,000',
     fundingSource: 'Capacity stipend + proof reconstruction fees',
-    payoutEquation: 'P = floor((B + 1.5*TBm + 3*PRk) * U * Q * H * 1e9) - Pen',
     bondSlash: '750 SNRG bond; 4% slash cap for missing history segments',
     minTier: 'T3 Performance',
   },
   audit_validator: {
     baseMonthlySnrg: '5,000',
     fundingSource: 'Treasury-funded audit pool + bounty payments',
-    payoutEquation: 'P = floor((B + 12*AN + 20*DV) * U * Q * H * 1e9) - Pen',
     bondSlash: '750 SNRG bond; 4% slash cap for material missed divergence',
     minTier: 'T2 Performance',
   },
   governance_auditor: {
     baseMonthlySnrg: '3,500',
     fundingSource: 'Treasury-funded governance assurance budget',
-    payoutEquation: 'P = floor((B + 30*GP + 12*EV) * U * Q * H * 1e9) - Pen',
     bondSlash: '500 SNRG bond; 3% slash cap for scope-review failure',
     minTier: 'T2 Standard+',
   },
   ai_inference: {
     baseMonthlySnrg: '2,500',
     fundingSource: 'Grant-style treasury budget + service contracts',
-    payoutEquation: 'P = floor((B + 8*SIMk + 25*AR) * U * Q * H * 1e9) - Pen',
     bondSlash: '250 SNRG bond; 2% slash cap for repeated stale output',
     minTier: 'T1 Standard',
   },
   observer: {
     baseMonthlySnrg: '1,000',
     fundingSource: 'Low-rate micro-reward pool',
-    payoutEquation: 'P = floor((B + 0.2*PVk + 0.05*HPk) * U * H * 1e9) - Pen',
     bondSlash: 'No mandatory bond; optional reputation stake',
     minTier: 'T0 Bootstrap',
   },
@@ -271,7 +261,6 @@ function roleRewardStandard(roleId, fallbackDisplayName = 'Node') {
   return ROLE_REWARD_STANDARD[roleId] || {
     baseMonthlySnrg: 'Unavailable',
     fundingSource: `${fallbackDisplayName} compensation standard not loaded.`,
-    payoutEquation: 'Not defined for this role in the current wallet view.',
     bondSlash: 'Refer to the ratified rewards standard.',
     minTier: 'N/A',
   };
@@ -1148,10 +1137,6 @@ function TestnetBetaNodeDetail() {
                   <strong>{rewardStandard.bondSlash}</strong>
                 </div>
                 <div className="nodecp-definition-row">
-                  <span>Monthly payout equation</span>
-                  <strong className="nodecp-wallet-formula">{rewardStandard.payoutEquation}</strong>
-                </div>
-                <div className="nodecp-definition-row">
                   <span>Stake vault wallet</span>
                   <strong className="nodecp-wallet-address">{fundingManifest?.stake_vault_wallet || 'N/A'}</strong>
                 </div>
@@ -1176,13 +1161,6 @@ function TestnetBetaNodeDetail() {
             <h3>Managed Node Ports</h3>
           </div>
         </div>
-        <p className="nodecp-panel-copy">
-          Update the ports this specific node uses. This writes the workspace&apos;s
-          <code> node.toml </code>
-          directly and also updates the generated
-          <code> nginx.conf </code>
-          when that file exists for public RPC roles.
-        </p>
         <div className="monitor-form-grid monitor-form-grid-wide">
           {portFields.map((field) => (
             <label key={field.key} className="monitor-field">
@@ -1246,12 +1224,6 @@ function TestnetBetaNodeDetail() {
             <h3>Register with Seeds</h3>
           </div>
         </div>
-        <p className="nodecp-panel-copy">
-          Re-register this node&apos;s public endpoint with the network&apos;s seed servers. Seed
-          servers distribute your node&apos;s address to peers discovering the network. Run this
-          after changing your P2P port or public IP address, or if this node is not appearing in
-          peer lists.
-        </p>
         <div className="nodecp-settings-actions nodecp-settings-actions-tight" style={{ marginBottom: '0.75rem' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', cursor: 'pointer' }}>
             <input

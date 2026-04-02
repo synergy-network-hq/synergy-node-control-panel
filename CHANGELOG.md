@@ -2,6 +2,14 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.10.5 - 2026-04-02
+
+- Fixed genesis validator crash loop on macOS arm64: the `synergy-testbeta-macos-arm64` binary search was incorrectly taking priority over the fixed `synergy-testbeta-darwin-arm64` binary. The control service binary search order now tries `darwin-arm64` first, with `macos-arm64` as a fallback only. The `macos-arm64` binary on disk has also been replaced with the fixed `darwin-arm64` build. This restored all 4 genesis validators to active quorum (`qc_cumulative_weight: 4.0`).
+- Removed confidential payout equation from node detail view: `payoutEquation` no longer renders in the Rewards Standard definition panel or any associated copy-block paragraphs.
+- Dashboard overhaul across all tabs: replaced the 4-card status grid and verbose Network Overview panel with a compact inline status strip showing live network metrics. Stripped all non-data description text from Connectivity, Rewards, Files, and Chain tabs. Added copy-to-clipboard buttons next to node and wallet addresses. Added "Open Workspace" and "Open Logs" directory shortcuts to the Files tab.
+- Settings page enhancements: added "Check for Updates" button with live status feedback wired to the Electron auto-updater bridge. Added "Refresh All Bootstrap" to re-fetch and rewrite `peers.toml` from live seed servers for all nodes in one action. Workspace Inventory now shows direct "Logs" and "Details →" links per node.
+- Connectivity tab: removed redundant stat descriptions from SXCP cards; fallback discovery sequence now displayed inline as a single `A → B → C` chain instead of a two-column grid.
+
 ## v5.10.3 - 2026-04-01
 - Bundled updated testbeta node binaries (darwin-arm64, linux-amd64, windows-amd64) built from the mutex deadlock fix in `token.rs` and the seed-server registration fix in `networking.rs`.
 - Redesigned the Settings page Operator Console button section: buttons are now grouped in compact inline rows with distinct color-coded group labels (Services, Connectivity, Processes, Logs) instead of large card layouts.

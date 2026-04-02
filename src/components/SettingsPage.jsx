@@ -9,6 +9,7 @@ import {
   getTestnetBetaPortFields,
   readStoredTestnetBetaPortSettings,
   readTestnetBetaNodePortSettings,
+  refreshTestnetBetaBootstrapConfig,
   resetStoredTestnetBetaPortSettings,
   saveStoredTestnetBetaPortSettings,
   validateTestnetBetaPortSettingsForm,
@@ -527,6 +528,10 @@ function SettingsPage() {
   const [terminalLines, setTerminalLines] = useState([]);
   const [terminalCwd, setTerminalCwd] = useState('');
   const [activeTerminalAction, setActiveTerminalAction] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('');
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [bootstrapRefreshBusy, setBootstrapRefreshBusy] = useState(false);
+  const [bootstrapRefreshStatus, setBootstrapRefreshStatus] = useState('');
 
   const terminalScrollRef = useRef(null);
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
@@ -837,6 +842,55 @@ function SettingsPage() {
     }
   }, [provisionedNodes, refreshPortProfiles, setPortNotice, validatePortForm]);
 
+  const handleCheckForUpdate = useCallback(async () => {
+    setUpdateBusy(true);
+    setUpdateStatus('Checking...');
+    try {
+      const bridge = window.synergyDesktop;
+      if (!bridge?.checkForUpdate) {
+        setUpdateStatus('Auto-updater not available in this build.');
+        return;
+      }
+      const result = await bridge.checkForUpdate();
+      if (result?.updateInfo?.version) {
+        setUpdateStatus(`Update available: v${result.updateInfo.version} — downloading automatically.`);
+      } else {
+        setUpdateStatus(`Up to date (v${version || 'current'}).`);
+      }
+    } catch (err) {
+      setUpdateStatus(`Update check failed: ${String(err)}`);
+    } finally {
+      setUpdateBusy(false);
+    }
+  }, [version]);
+
+  const handleRefreshAllBootstrap = useCallback(async () => {
+    if (!provisionedNodes.length || !state?.network_profile) {
+      setBootstrapRefreshStatus('No provisioned nodes or network profile available.');
+      return;
+    }
+    setBootstrapRefreshBusy(true);
+    setBootstrapRefreshStatus('Refreshing bootstrap configs...');
+    try {
+      const results = await Promise.allSettled(
+        provisionedNodes.map((node) =>
+          refreshTestnetBetaBootstrapConfig(node, state.network_profile),
+        ),
+      );
+      const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.length - succeeded;
+      setBootstrapRefreshStatus(
+        failed === 0
+          ? `Bootstrap configs refreshed for ${succeeded} node(s).`
+          : `Refreshed ${succeeded}/${results.length} nodes. ${failed} failed.`,
+      );
+    } catch (err) {
+      setBootstrapRefreshStatus(`Bootstrap refresh failed: ${String(err)}`);
+    } finally {
+      setBootstrapRefreshBusy(false);
+    }
+  }, [provisionedNodes, state?.network_profile]);
+
   const summaryCards = useMemo(
     () => [
       {
@@ -853,11 +907,6 @@ function SettingsPage() {
         label: 'Provisioned Nodes',
         value: String(provisionedNodes.length),
         detail: 'Node workspaces on this computer',
-      },
-      {
-        label: 'Saved Port Profile',
-        value: savedPortSummary,
-        detail: 'Applied as the base for every local node slot',
       },
       {
         label: 'Bootnodes Online',
@@ -932,10 +981,6 @@ function SettingsPage() {
         <div className="settings-shell-hero-copy">
           <p className="nodecp-page-kicker">Settings</p>
           <h2 className="nodecp-page-title">Control Panel + Local Node Operations</h2>
-          <p className="nodecp-page-copy">
-            Tune the desktop app, manage the machine-wide base port profile for every node on this computer,
-            and run guided diagnostics without dropping into a separate terminal window.
-          </p>
         </div>
         <div className="settings-shell-hero-actions">
           <SNRGButton as={Link} to="/" variant="purple" size="md">
@@ -998,85 +1043,45 @@ function SettingsPage() {
               <DefinitionRow
                 label="Workspace Root"
                 value={formatPath(storageRoot)}
-                detail="All local node folders live here."
               />
             </div>
-          </section>
-
-          <section className="settings-shell-panel">
-            <div className="settings-shell-panel-header">
-              <div>
-                <p className="settings-shell-panel-kicker">Global Node Settings</p>
-                <h3>Base port profile for this machine</h3>
-              </div>
-            </div>
-            <p className="settings-shell-panel-copy">
-              Save one machine-wide base profile. Every node on this computer receives a stable slot offset so
-              local validators, RPC gateways, and indexers do not collide on P2P, RPC, WebSocket, discovery, or metrics ports.
-            </p>
-            <div className="settings-shell-port-grid">
-              {portFields.map((field) => (
-                <label key={field.key} className="settings-shell-port-field">
-                  <span className="settings-shell-port-label">{field.label}</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="65535"
-                    inputMode="numeric"
-                    value={portForm[field.key] ?? ''}
-                    onChange={(event) => handlePortFieldChange(field.key, event.target.value)}
-                  />
-                  <small>{field.detail}</small>
-                  {portErrors[field.key] ? (
-                    <span className="settings-shell-field-error">{portErrors[field.key]}</span>
-                  ) : null}
-                </label>
-              ))}
-            </div>
-            <div className="settings-shell-meta-row">
-              <span>Saved profile: {savedPortSummary}</span>
-              <span>Default profile: {defaultPortSummary}</span>
-            </div>
-            <div className="settings-shell-action-row">
+            <div className="settings-shell-definition-actions">
               <SNRGButton
                 variant="blue"
                 size="sm"
-                disabled={portBusy === 'apply'}
-                onClick={handleSavePortProfile}
+                disabled={updateBusy}
+                onClick={handleCheckForUpdate}
               >
-                Save Port Profile
+                {updateBusy ? 'Checking...' : 'Check for Updates'}
               </SNRGButton>
-              <SNRGButton
-                variant="yellow"
-                size="sm"
-                disabled={portBusy === 'apply'}
-                onClick={handleResetPortProfile}
-              >
-                Reset Defaults
-              </SNRGButton>
-              <SNRGButton
-                variant="lime"
-                size="sm"
-                disabled={portBusy === 'apply' || provisionedNodes.length === 0}
-                onClick={handleApplyPortProfileToExistingNodes}
-              >
-                {portBusy === 'apply' ? 'Applying...' : 'Apply To Existing Nodes'}
-              </SNRGButton>
+              {updateStatus && (
+                <span className="settings-shell-update-status">{updateStatus}</span>
+              )}
             </div>
-            {portMessage ? (
-              <div className={`settings-shell-status settings-shell-status-${portMessageTone}`}>
-                <strong>{portMessageTone === 'good' ? 'Saved' : portMessageTone === 'warn' ? 'Attention' : 'Error'}</strong>
-                <span>{portMessage}</span>
-              </div>
-            ) : null}
           </section>
+
 
           <section className="settings-shell-panel">
             <div className="settings-shell-panel-header">
               <div>
                 <p className="settings-shell-panel-kicker">Workspace Inventory</p>
-                <h3>Current local node configs</h3>
+                <h3>Node workspaces on this machine</h3>
               </div>
+              {provisionedNodes.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.3rem' }}>
+                  <SNRGButton
+                    variant="cyan"
+                    size="sm"
+                    disabled={bootstrapRefreshBusy}
+                    onClick={handleRefreshAllBootstrap}
+                  >
+                    {bootstrapRefreshBusy ? 'Refreshing...' : 'Refresh All Bootstrap'}
+                  </SNRGButton>
+                  {bootstrapRefreshStatus && (
+                    <span style={{ fontSize: '0.72rem', color: 'rgba(148,163,184,0.85)' }}>{bootstrapRefreshStatus}</span>
+                  )}
+                </div>
+              )}
             </div>
             {provisionedNodes.length === 0 ? (
               <div className="settings-shell-empty">
@@ -1089,6 +1094,7 @@ function SettingsPage() {
                   const nodeTomlPath = profile?.nodeTomlPath
                     || node?.config_paths?.find((entry) => String(entry).endsWith('/node.toml'))
                     || '';
+                  const logsDir = node.workspace_directory ? `${node.workspace_directory}/logs` : '';
 
                   return (
                     <article key={node.id} className="settings-shell-workspace-card">
@@ -1113,8 +1119,22 @@ function SettingsPage() {
                           disabled={!nodeTomlPath}
                           onClick={() => nodeTomlPath && openPath(nodeTomlPath)}
                         >
-                          Open Config
+                          Config
                         </SNRGButton>
+                        <SNRGButton
+                          variant="blue"
+                          size="sm"
+                          disabled={!logsDir}
+                          onClick={() => logsDir && openPath(logsDir)}
+                        >
+                          Logs
+                        </SNRGButton>
+                        <Link
+                          to={`/node/${node.id}`}
+                          className="settings-shell-node-link"
+                        >
+                          Details →
+                        </Link>
                       </div>
                     </article>
                   );
@@ -1181,10 +1201,6 @@ function SettingsPage() {
                 {terminalBusy ? 'Running' : 'Ready'}
               </span>
             </div>
-            <p className="settings-shell-panel-copy">
-              The buttons below run readable local checks for services, connectivity, and cleanup.
-              The console still behaves like a normal terminal if you want to run your own command.
-            </p>
 
             <div className="settings-shell-command-groups">
               {commandGroups.map((group) => (
