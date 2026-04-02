@@ -395,21 +395,21 @@ function buildCommandGroups({
         {
           id: 'listener-audit',
           label: 'Show Port Listeners',
-          variant: 'blue',
+          variant: 'purple',
           description: 'Shows which P2P and RPC ports are open locally.',
           command: buildPortListenerCommand(),
         },
         {
           id: 'workspace-audit',
           label: 'Inspect Workspaces',
-          variant: 'lime',
+          variant: 'purple',
           description: 'Checks which local node folders are complete versus stale.',
           command: buildWorkspaceAuditCommand(storageRoot),
         },
         {
           id: 'disk-usage',
           label: 'Show Disk Usage',
-          variant: 'architecture',
+          variant: 'purple',
           description: 'Reports how much disk space each workspace folder is consuming.',
           command: buildDiskUsageCommand(storageRoot),
         },
@@ -430,14 +430,14 @@ function buildCommandGroups({
         {
           id: 'bootstrap-test',
           label: 'Test Bootstrap Network',
-          variant: 'architecture',
+          variant: 'cyan',
           description: 'Checks bootnodes, seed servers, and the public RPC endpoint.',
           command: buildBootstrapCheckCommand(networkProfile, publicRpcEndpoint),
         },
         {
           id: 'flush-dns',
           label: 'Flush DNS Cache',
-          variant: 'blue',
+          variant: 'cyan',
           description: 'Clears the local DNS resolver cache to force fresh lookups.',
           command: buildFlushDnsCommand(),
         },
@@ -458,7 +458,7 @@ function buildCommandGroups({
         {
           id: 'clear-stale',
           label: 'Kill Zombie Processes',
-          variant: 'red',
+          variant: 'yellow',
           description: 'Stops only the zombie processes that are safe to remove.',
           command: buildStaleProcessCleanupCommand(),
           refreshAfterRun: true,
@@ -466,7 +466,7 @@ function buildCommandGroups({
         {
           id: 'kill-all',
           label: 'Kill All Nodes',
-          variant: 'red',
+          variant: 'yellow',
           description: 'Force-stops ALL running Synergy node processes on this machine.',
           command: buildKillAllNodesCommand(),
           refreshAfterRun: true,
@@ -488,7 +488,7 @@ function buildCommandGroups({
         {
           id: 'clear-logs',
           label: 'Clear Log Files',
-          variant: 'yellow',
+          variant: 'lime',
           description: 'Empties all node log files without deleting them.',
           command: buildClearLogsCommand(storageRoot),
         },
