@@ -2,6 +2,11 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.10.3 - 2026-04-01
+- Bundled updated testbeta node binaries (darwin-arm64, linux-amd64, windows-amd64) built from the mutex deadlock fix in `token.rs` and the seed-server registration fix in `networking.rs`.
+- Redesigned the Settings page Operator Console button section: buttons are now grouped in compact inline rows with distinct color-coded group labels (Services, Connectivity, Processes, Logs) instead of large card layouts.
+- Added new operator actions: Show Disk Usage, Flush DNS Cache, Find Zombie Processes, Kill Zombie Processes, Kill All Nodes, Tail Node Logs, Clear Log Files.
+
 ## v2.9.2 - 2026-03-08
 - Updated the `synergy-testbeta-agent` sidecar crate dependencies, including adding `reqwest` to support follow-on agent networking and sync work.
 - Maintenance release with no large UI or workflow delta clearly exposed in the tag range.

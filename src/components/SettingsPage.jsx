@@ -273,6 +273,93 @@ function buildStaleProcessCleanupCommand() {
   ].join('\n');
 }
 
+function buildKillAllNodesCommand() {
+  return [
+    'echo "Stopping all Synergy node processes:"',
+    'pids="$(pgrep -f synergy-testbeta || true)"',
+    'if [ -z "$pids" ]; then',
+    '  echo "- No Synergy node processes are running."',
+    '  exit 0',
+    'fi',
+    'echo "Sending shutdown signal to PIDs: $pids"',
+    'kill $pids',
+    'sleep 1',
+    'remaining="$(pgrep -f synergy-testbeta || true)"',
+    'if [ -z "$remaining" ]; then',
+    '  echo "- All node processes stopped."',
+    'else',
+    '  echo "- Sending SIGKILL to remaining PIDs: $remaining"',
+    '  kill -9 $remaining',
+    'fi',
+  ].join('\n');
+}
+
+function buildTailLogsCommand(storageRoot) {
+  const root = storageRoot || '$HOME/.synergy/testnet-beta';
+  return [
+    `ROOT=${shellQuote(root)}`,
+    'echo "Recent log output from node workspaces:"',
+    'found=0',
+    'for logfile in "$ROOT"/nodes/*/logs/synergy-testbeta.log; do',
+    '  [ -f "$logfile" ] || continue',
+    '  found=1',
+    '  label="$(basename "$(dirname "$(dirname "$logfile")")")"',
+    '  echo "--- $label ---"',
+    '  tail -n 40 "$logfile"',
+    'done',
+    '[ "$found" -eq 0 ] && echo "- No node log files found."',
+  ].join('\n');
+}
+
+function buildDiskUsageCommand(storageRoot) {
+  const root = storageRoot || '$HOME/.synergy/testnet-beta';
+  return [
+    `ROOT=${shellQuote(root)}`,
+    'echo "Workspace disk usage:"',
+    'if [ ! -d "$ROOT" ]; then',
+    '  echo "- Workspace not found at $ROOT"',
+    '  exit 0',
+    'fi',
+    'du -sh "$ROOT"/* 2>/dev/null | sort -rh | head -20',
+    'echo ""',
+    'echo "Total:"',
+    'du -sh "$ROOT" 2>/dev/null',
+  ].join('\n');
+}
+
+function buildFlushDnsCommand() {
+  return [
+    'echo "Flushing DNS resolver cache:"',
+    'if command -v dscacheutil >/dev/null 2>&1; then',
+    '  dscacheutil -flushcache',
+    '  killall -HUP mDNSResponder 2>/dev/null || true',
+    '  echo "- DNS cache flushed (macOS)."',
+    'elif systemctl is-active --quiet systemd-resolved 2>/dev/null; then',
+    '  resolvectl flush-caches 2>/dev/null || sudo systemctl flush-dns systemd-resolved 2>/dev/null || true',
+    '  echo "- DNS cache flushed (systemd-resolved)."',
+    'else',
+    '  echo "- No supported DNS resolver found on this system."',
+    'fi',
+  ].join('\n');
+}
+
+function buildClearLogsCommand(storageRoot) {
+  const root = storageRoot || '$HOME/.synergy/testnet-beta';
+  return [
+    `ROOT=${shellQuote(root)}`,
+    'echo "Clearing node log files:"',
+    'found=0',
+    'for logfile in "$ROOT"/nodes/*/logs/*.log; do',
+    '  [ -f "$logfile" ] || continue',
+    '  found=1',
+    '  label="$(basename "$(dirname "$(dirname "$logfile")")")/$(basename "$logfile")"',
+    '  : > "$logfile"',
+    '  echo "- Cleared: $label"',
+    'done',
+    '[ "$found" -eq 0 ] && echo "- No log files found to clear."',
+  ].join('\n');
+}
+
 function buildCommandGroups({
   platformKind,
   networkProfile,
@@ -287,7 +374,6 @@ function buildCommandGroups({
         id: 'services',
         title: 'Operator Console',
         accent: 'violet',
-        description: 'Manual command mode is available. Guided buttons are currently tuned for Unix-style systems.',
         actions: [],
       },
     ];
@@ -298,7 +384,6 @@ function buildCommandGroups({
       id: 'services',
       title: 'Services',
       accent: 'violet',
-      description: 'See which Synergy app and node services are actually running on this machine.',
       actions: [
         {
           id: 'process-audit',
@@ -311,7 +396,7 @@ function buildCommandGroups({
           id: 'listener-audit',
           label: 'Show Port Listeners',
           variant: 'blue',
-          description: 'Shows which P2P and RPC ports are in use locally.',
+          description: 'Shows which P2P and RPC ports are open locally.',
           command: buildPortListenerCommand(),
         },
         {
@@ -321,13 +406,19 @@ function buildCommandGroups({
           description: 'Checks which local node folders are complete versus stale.',
           command: buildWorkspaceAuditCommand(storageRoot),
         },
+        {
+          id: 'disk-usage',
+          label: 'Show Disk Usage',
+          variant: 'architecture',
+          description: 'Reports how much disk space each workspace folder is consuming.',
+          command: buildDiskUsageCommand(storageRoot),
+        },
       ],
     },
     {
       id: 'connectivity',
       title: 'Connectivity',
       accent: 'cyan',
-      description: 'Run readable checks for local RPC, bootstrap reachability, and network entry points.',
       actions: [
         {
           id: 'local-rpc',
@@ -343,28 +434,63 @@ function buildCommandGroups({
           description: 'Checks bootnodes, seed servers, and the public RPC endpoint.',
           command: buildBootstrapCheckCommand(networkProfile, publicRpcEndpoint),
         },
+        {
+          id: 'flush-dns',
+          label: 'Flush DNS Cache',
+          variant: 'blue',
+          description: 'Clears the local DNS resolver cache to force fresh lookups.',
+          command: buildFlushDnsCommand(),
+        },
       ],
     },
     {
-      id: 'cleanup',
-      title: 'Cleanup',
+      id: 'processes',
+      title: 'Processes',
       accent: 'amber',
-      description: 'Find or stop obviously stale runtimes without asking the operator to parse process tables.',
       actions: [
         {
           id: 'find-stale',
-          label: 'Find Stale Processes',
+          label: 'Find Zombie Processes',
           variant: 'yellow',
-          description: 'Looks for node processes running from Trash or missing configs.',
+          description: 'Scans for node processes running from Trash or with missing configs.',
           command: buildStaleProcessInspectionCommand(),
         },
         {
           id: 'clear-stale',
-          label: 'Clear Stale Processes',
+          label: 'Kill Zombie Processes',
           variant: 'red',
-          description: 'Stops only the stale processes that are safe to remove.',
+          description: 'Stops only the zombie processes that are safe to remove.',
           command: buildStaleProcessCleanupCommand(),
           refreshAfterRun: true,
+        },
+        {
+          id: 'kill-all',
+          label: 'Kill All Nodes',
+          variant: 'red',
+          description: 'Force-stops ALL running Synergy node processes on this machine.',
+          command: buildKillAllNodesCommand(),
+          refreshAfterRun: true,
+        },
+      ],
+    },
+    {
+      id: 'logs',
+      title: 'Logs',
+      accent: 'lime',
+      actions: [
+        {
+          id: 'tail-logs',
+          label: 'Tail Node Logs',
+          variant: 'lime',
+          description: 'Shows the last 40 lines from each active node log file.',
+          command: buildTailLogsCommand(storageRoot),
+        },
+        {
+          id: 'clear-logs',
+          label: 'Clear Log Files',
+          variant: 'yellow',
+          description: 'Empties all node log files without deleting them.',
+          command: buildClearLogsCommand(storageRoot),
         },
       ],
     },
@@ -1062,49 +1188,35 @@ function SettingsPage() {
 
             <div className="settings-shell-command-groups">
               {commandGroups.map((group) => (
-                <section
+                <div
                   key={group.id}
                   className={`settings-shell-command-group settings-shell-command-group-${group.accent}`}
                 >
-                  <div className="settings-shell-command-group-header">
-                    <div>
-                      <strong>{group.title}</strong>
-                      <span>{group.description}</span>
-                    </div>
-                  </div>
+                  <span className="settings-shell-command-group-label">{group.title}</span>
                   {group.actions.length === 0 ? (
-                    <div className="settings-shell-empty settings-shell-empty-tight">
-                      Use the terminal input below for custom commands on this platform.
-                    </div>
+                    <span className="settings-shell-command-group-empty">
+                      Use the terminal below for custom commands on this platform.
+                    </span>
                   ) : (
-                    <div className="settings-shell-command-grid">
-                      {group.actions.map((action) => (
-                        <button
-                          key={action.id}
-                          type="button"
-                          className="settings-shell-command-card"
-                          disabled={terminalBusy}
-                          onClick={() => runTerminalCommand(action.command, {
-                            actionId: action.id,
-                            announceLabel: `${action.label}: ${action.description}`,
-                            refreshAfterRun: action.refreshAfterRun,
-                            successMessage: action.refreshAfterRun ? 'Local state refreshed after cleanup.' : '',
-                          })}
-                        >
-                          <SNRGButton
-                            as="span"
-                            variant={action.variant}
-                            size="sm"
-                            className="settings-shell-command-chip"
-                          >
-                            {activeTerminalAction === action.id && terminalBusy ? 'Running...' : action.label}
-                          </SNRGButton>
-                          <small>{action.description}</small>
-                        </button>
-                      ))}
-                    </div>
+                    group.actions.map((action) => (
+                      <SNRGButton
+                        key={action.id}
+                        variant={action.variant}
+                        size="sm"
+                        disabled={terminalBusy}
+                        title={action.description}
+                        onClick={() => runTerminalCommand(action.command, {
+                          actionId: action.id,
+                          announceLabel: `${action.label}: ${action.description}`,
+                          refreshAfterRun: action.refreshAfterRun,
+                          successMessage: action.refreshAfterRun ? 'Local state refreshed after cleanup.' : '',
+                        })}
+                      >
+                        {activeTerminalAction === action.id && terminalBusy ? 'Running...' : action.label}
+                      </SNRGButton>
+                    ))
                   )}
-                </section>
+                </div>
               ))}
             </div>
 
