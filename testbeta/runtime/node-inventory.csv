@@ -1,0 +1,24 @@
+node_slot_id,node_alias,role_group,role,node_type,address_class,p2p_port,rpc_port,ws_port,grpc_port,discovery_port,host,management_host,physical_machine_id,auto_register_validator,enable_pruning,vrf_enabled,operator,device,operating_system,public_ip,local_ip
+node-01,consensus-01,consensus,validator,validator,1,5622,5640,5660,5640,5680,192.168.11.228,192.168.11.228,machine-01,true,false,true,Rob,Synergy Node,Mac OS beta 26.4,73.79.66.255,192.168.11.228
+node-14,service-03,services,indexer,indexer,5,5623,5641,5661,5641,5681,192.168.11.228,192.168.11.228,machine-01,false,false,false,Rob,Synergy Node,Mac OS beta 26.4,73.79.66.255,192.168.11.228
+node-02,consensus-02,consensus,validator,validator,1,5624,5642,5662,5642,5682,192.168.1.65,192.168.1.65,machine-02,true,false,true,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65
+node-03,service-01,services,observer,observer,5,5625,5643,5663,5643,5683,192.168.1.65,192.168.1.65,machine-02,false,false,false,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65
+node-04,consensus-03,consensus,validator,validator,1,5626,5644,5664,5644,5684,192.168.11.178,192.168.11.178,machine-03,true,false,true,Rob,Garage mini,Mac OS beta 26.4,73.79.66.255,192.168.11.178
+node-05,interop-01,interop,cross-chain-verifier,cross-chain-verifier,2,5627,5645,5665,5645,5685,192.168.11.178,192.168.11.178,machine-03,false,true,false,Rob,Garage mini,Mac OS beta 26.4,73.79.66.255,192.168.11.178
+node-06,consensus-04,consensus,validator,validator,1,5628,5646,5666,5646,5686,192.168.1.98,192.168.1.98,machine-04,true,false,true,Justin,HP Victus,Ubuntu 25.10 Desktop,24.181.87.76,192.168.1.98
+node-07,interop-02,interop,relayer,relayer,2,5629,5647,5667,5647,5687,192.168.1.98,192.168.1.98,machine-04,false,true,false,Justin,HP Victus,Ubuntu 25.10 Desktop,24.181.87.76,192.168.1.98
+node-08,archive-01,consensus,archive-validator,archive-validator,1,5630,5648,5668,5648,5688,192.168.11.229,192.168.11.229,machine-05,false,false,true,Rob,Mac Pro (Linux),Ubuntu 24.04.4 LTS,73.79.66.255,192.168.11.229
+node-09,committee-01,consensus,committee,committee,1,5631,5649,5669,5649,5689,192.168.11.229,192.168.11.229,machine-05,false,false,true,Rob,Mac Pro (Linux),Ubuntu 24.04.4 LTS,73.79.66.255,192.168.11.229
+node-10,governance-01,governance,security-council,security-council,4,5632,5650,5670,5650,5690,74.208.227.23,74.208.227.23,machine-06,false,false,true,Network,Ionos VPS,Ubuntu 24.04 Server,74.208.227.23,
+node-11,interop-03,interop,oracle,oracle,2,5633,5651,5671,5651,5691,74.208.227.23,74.208.227.23,machine-06,false,true,false,Network,Ionos VPS,Ubuntu 24.04 Server,74.208.227.23,
+node-12,interop-04,interop,witness,witness,2,5634,5652,5672,5652,5692,192.168.11.98,192.168.11.98,machine-07,false,true,false,Rob,Winnode,Windows 11 home,73.79.66.255,192.168.11.98
+node-13,service-02,services,rpc-gateway,rpc-gateway,5,5635,5653,5673,5653,5693,192.168.11.98,192.168.11.98,machine-07,false,true,false,Rob,Winnode,Windows 11 home,73.79.66.255,192.168.11.98
+node-22,interop-05,interop,uma-coordinator,uma-coordinator,3,5636,5654,5674,5654,5694,192.168.11.191,192.168.11.191,machine-08,false,true,false,Rob,Media,Windows 11 home,73.79.66.255,192.168.11.191
+node-15,compute-01,pqc,pqc-crypto,pqc-crypto,3,5637,5655,5675,5655,5695,192.168.11.191,192.168.11.191,machine-08,false,true,false,Rob,Media,Windows 11 home,73.79.66.255,192.168.11.191
+node-16,archive-02,consensus,archive-validator,archive-validator,1,5638,5656,5676,5656,5696,194.163.183.166,194.163.183.166,machine-09,false,false,true,David,VPS,Ubuntu 24.04 Server,194.163.183.166,
+node-17,audit-01,consensus,audit-validator,audit-validator,1,5639,5657,5677,5657,5697,194.163.183.166,194.163.183.166,machine-09,false,false,true,David,VPS,Ubuntu 24.04 Server,194.163.183.166,
+node-24,governance-02,governance,treasury-controller,treasury-controller,4,5640,5658,5678,5658,5698,78.23.204.168,78.23.204.168,machine-10,false,false,true,Gunther,Cracker MacPro 6.1,Ubuntu 25.10 Desktop,78.23.204.168,
+node-25,governance-03,governance,governance-auditor,governance-auditor,4,5641,5659,5679,5659,5699,78.23.204.168,78.23.204.168,machine-10,false,false,true,Gunther,Cracker MacPro 6.1,Ubuntu 25.10 Desktop,78.23.204.168,
+node-18,compute-02,compute,data-availability,data-availability,3,5642,5660,5680,5660,5700,machine-11,machine-11,machine-11,false,true,false,TBD,,,,
+node-20,compute-03,compute,ai-inference,ai-inference,3,5643,5661,5681,5661,5701,machine-12,machine-12,machine-12,false,true,false,TBD,,,,
+node-23,compute-04,compute,compute,compute,3,5644,5662,5682,5662,5702,machine-13,machine-13,machine-13,false,true,false,TBD,,,,

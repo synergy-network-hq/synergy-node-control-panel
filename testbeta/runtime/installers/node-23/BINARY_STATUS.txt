@@ -1,0 +1,21 @@
+Synergy Testnet-Beta Binary Status
+============================
+
+Linux Binary
+------------
+Path: ./bin/synergy-testbeta-linux-amd64
+SHA-256: 7e392329c866a9a77a4440592f75d325a1b844ca4eb0dd1d35a5c65d12d09d1d
+
+Darwin Binary
+-------------
+Path: ./bin/synergy-testbeta-darwin-arm64
+SHA-256: b5900510737f6d28688662f2aea632cdb73e7197167a0e67828553a61a6d492e
+
+Windows Binary
+--------------
+Path: ./bin/synergy-testbeta-windows-amd64.exe
+SHA-256: 2d9729639fd0040332ca6d395d430b9aab1e0f2a0e2c44c91a4dfc9e39b20baa
+
+Interpretation
+--------------
+- These checksums reflect the exact bundled binaries shipped in this installer.

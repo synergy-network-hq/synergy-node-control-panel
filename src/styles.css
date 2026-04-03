@@ -3312,6 +3312,102 @@ code {
   flex-wrap: wrap;
 }
 
+.settings-shell-feature-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  background: rgba(2, 6, 23, 0.38);
+}
+
+.settings-shell-feature-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.settings-shell-feature-kicker {
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(125, 211, 252, 0.82);
+}
+
+.settings-shell-feature-copy strong {
+  font-size: 0.98rem;
+  color: var(--snrg-text-primary, #f8fafc);
+}
+
+.settings-shell-feature-copy p {
+  margin: 0;
+  font-size: 0.81rem;
+  line-height: 1.5;
+  color: rgba(191, 219, 254, 0.75);
+}
+
+.settings-shell-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-shell-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.settings-shell-toggle-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 3.35rem;
+  height: 1.95rem;
+  padding: 0.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(71, 85, 105, 0.78);
+  background: rgba(15, 23, 42, 0.88);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.settings-shell-toggle-thumb {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  background: #dbeafe;
+  box-shadow: 0 4px 14px rgba(2, 6, 23, 0.35);
+  transition: transform 160ms ease;
+}
+
+.settings-shell-toggle input:checked + .settings-shell-toggle-track {
+  background: rgba(14, 165, 233, 0.28);
+  border-color: rgba(34, 211, 238, 0.78);
+}
+
+.settings-shell-toggle input:checked + .settings-shell-toggle-track .settings-shell-toggle-thumb {
+  transform: translateX(1.35rem);
+}
+
+.settings-shell-toggle input:focus-visible + .settings-shell-toggle-track {
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.18);
+}
+
+.settings-shell-toggle-text {
+  min-width: 1.8rem;
+  text-align: right;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.84);
+}
+
 .settings-shell-update-status {
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.85);
@@ -3639,6 +3735,11 @@ code {
   .settings-shell-port-grid,
   .settings-shell-command-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-shell-feature-card {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .settings-shell-workspace-card {
@@ -5485,6 +5586,105 @@ code {
   color: rgba(213, 224, 237, 0.78);
 }
 
+.nodecp-inline-alert {
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(71, 85, 105, 0.38);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.nodecp-inline-alert-bad {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(127, 29, 29, 0.18);
+  color: #fecaca;
+}
+
+.nodecp-peer-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: rgba(213, 224, 237, 0.8);
+}
+
+.nodecp-peer-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.nodecp-peer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  background: rgba(2, 6, 23, 0.28);
+}
+
+.nodecp-peer-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.nodecp-peer-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.nodecp-peer-card-title strong {
+  font-size: 0.92rem;
+  color: rgba(244, 248, 255, 0.98);
+  overflow-wrap: anywhere;
+}
+
+.nodecp-peer-card-title span {
+  font-size: 0.78rem;
+  color: rgba(191, 219, 254, 0.72);
+  overflow-wrap: anywhere;
+}
+
+.nodecp-peer-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.nodecp-peer-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+  min-width: 0;
+}
+
+.nodecp-peer-metric span {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.nodecp-peer-metric strong,
+.nodecp-peer-metric code {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: rgba(244, 248, 255, 0.96);
+  overflow-wrap: anywhere;
+}
+
+.nodecp-peer-metric code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.nodecp-peer-metric-wide {
+  grid-column: 1 / -1;
+}
+
 .nodecp-wallet-stack {
   display: flex;
   flex-direction: column;
@@ -5530,6 +5730,8 @@ code {
   .nodecp-summary-grid,
   .nodecp-panel-grid,
   .nodecp-file-grid,
+  .nodecp-peer-list,
+  .nodecp-peer-card-grid,
   .nodecp-wallet-slot-grid {
     grid-template-columns: 1fr;
   }

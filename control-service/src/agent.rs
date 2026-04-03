@@ -20,7 +20,7 @@ pub struct JarvisInventoryMachine {
     pub role: String,
     pub node_type: String,
     pub host: String,
-    pub vpn_ip: String,
+    pub management_host: String,
     pub operator: String,
     pub device: String,
     pub operating_system: String,
@@ -75,7 +75,7 @@ fn prepare_hosts_env_in_workspace(
     workspace: &Path,
     input: JarvisPrepareHostsEnvInput,
 ) -> Result<String, String> {
-    let hosts_env_path = workspace.join("testbeta/lean15/hosts.env");
+    let hosts_env_path = workspace.join("testbeta/runtime/hosts.env");
     ensure_hosts_env_exists(workspace, &hosts_env_path)?;
 
     let mut updates = BTreeMap::<String, String>::new();
@@ -141,7 +141,7 @@ fn ensure_hosts_env_exists(workspace: &Path, hosts_env_path: &Path) -> Result<()
         return Ok(());
     }
 
-    let example = workspace.join("testbeta/lean15/hosts.env.example");
+    let example = workspace.join("testbeta/runtime/hosts.env.example");
     if !example.is_file() {
         return Err(format!(
             "hosts.env not found and no example available at {}",
@@ -260,7 +260,7 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
     let role_idx = column(&["role"], "role")?;
     let node_type_idx = column(&["node_type"], "node_type")?;
     let host_idx = column(&["host"], "host")?;
-    let vpn_ip_idx = column(&["vpn_ip"], "vpn_ip")?;
+    let management_host_idx = column(&["management_host"], "management_host")?;
     let physical_machine_idx = column(
         &["physical_machine_id", "physical_machine"],
         "physical_machine_id",
@@ -318,7 +318,7 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
             role: get(role_idx),
             node_type: get(node_type_idx),
             host: get(host_idx),
-            vpn_ip: get(vpn_ip_idx),
+            management_host: get(management_host_idx),
             operator: get(operator_idx),
             device: get(device_idx),
             operating_system: get(operating_system_idx),

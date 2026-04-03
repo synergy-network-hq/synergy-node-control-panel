@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEFAULT_EXTERNAL_DIR="$ROOT_DIR/sxcp/sxcp_external_chains"
 EXTERNAL_DIR="${1:-$DEFAULT_EXTERNAL_DIR}"
-REPORT_DIR="$ROOT_DIR/testbeta/lean15/reports"
+REPORT_DIR="$ROOT_DIR/testbeta/runtime/reports"
 TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
 REPORT_FILE="$REPORT_DIR/sxcp-external-infra-audit-${TIMESTAMP}.txt"
 

@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
-HOSTS_ENV_FILE="${SYNERGY_MONITOR_HOSTS_ENV:-$ROOT_DIR/testbeta/lean15/hosts.env}"
-INSTALLERS_DIR="$ROOT_DIR/testbeta/lean15/installers"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
+HOSTS_ENV_FILE="${SYNERGY_MONITOR_HOSTS_ENV:-$ROOT_DIR/testbeta/runtime/hosts.env}"
+INSTALLERS_DIR="$ROOT_DIR/testbeta/runtime/installers"
 REMOTE_ROOT_DEFAULT="${SYNERGY_REMOTE_ROOT:-/opt/synergy}"
-REMOTE_EXPORTS_DIR="$ROOT_DIR/testbeta/lean15/reports/remote-exports"
+REMOTE_EXPORTS_DIR="$ROOT_DIR/testbeta/runtime/reports/remote-exports"
 
 usage() {
   cat <<USAGE
@@ -25,7 +25,7 @@ Core Operations:
   export_logs           Download logs archive from remote machine to local reports dir
   view_chain_data       Show chain data size and top files on remote machine
   export_chain_data     Download chain data archive from remote machine to local reports dir
-  explorer_reset        Trigger explorer reindex from the remote machine using localhost/VPN-safe routing
+  explorer_reset        Trigger explorer reindex from the remote machine using localhost/management-host-safe routing
   deploy_agent          Push updated testbeta-agent binary to remote machine and (re)start as a service
                         Prerequisite: run scripts/build-sidecars.sh first to compile the binary.
                         This is the one-time bootstrap for machines that don't yet have the agent.
@@ -45,9 +45,9 @@ Node-Type-Specific Operations:
   info                  Print resolved host/ssh/paths for this machine
 
 Required local files:
-  - testbeta/lean15/node-inventory.csv
-  - testbeta/lean15/hosts.env
-  - testbeta/lean15/installers/<machine-id>/
+  - testbeta/runtime/node-inventory.csv
+  - testbeta/runtime/hosts.env
+  - testbeta/runtime/installers/<machine-id>/
 USAGE
 }
 
@@ -76,7 +76,7 @@ inventory_host() {
   awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $12; exit}' "$INVENTORY_FILE"
 }
 
-inventory_vpn_ip() {
+inventory_management_host() {
   awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $13; exit}' "$INVENTORY_FILE"
 }
 
@@ -97,17 +97,17 @@ is_truthy() {
 }
 
 HOST_VAR="${MACHINE_KEY_UPPER}_HOST"
-VPN_VAR="${MACHINE_KEY_UPPER}_VPN_IP"
+MANAGEMENT_HOST_VAR="${MACHINE_KEY_UPPER}_MANAGEMENT_HOST"
 SSH_USER_VAR="${MACHINE_KEY_UPPER}_SSH_USER"
 SSH_PORT_VAR="${MACHINE_KEY_UPPER}_SSH_PORT"
 SSH_KEY_VAR="${MACHINE_KEY_UPPER}_SSH_KEY"
 REMOTE_DIR_VAR="${MACHINE_KEY_UPPER}_REMOTE_DIR"
 
-VPN_IP="$(resolve_var "$VPN_VAR")"
-if [[ -z "$VPN_IP" ]]; then
-  VPN_IP="$(inventory_vpn_ip)"
+MANAGEMENT_HOST="$(resolve_var "$MANAGEMENT_HOST_VAR")"
+if [[ -z "$MANAGEMENT_HOST" ]]; then
+  MANAGEMENT_HOST="$(inventory_management_host)"
 fi
-HOST="$VPN_IP"
+HOST="$MANAGEMENT_HOST"
 if [[ -z "$HOST" ]]; then
   HOST="$(resolve_var "$HOST_VAR")"
 fi
@@ -175,7 +175,7 @@ is_local_host_token() {
 }
 
 IS_LOCAL_TARGET=0
-if is_local_host_token "$HOST" || { [[ -n "$VPN_IP" ]] && is_local_host_token "$VPN_IP"; }; then
+if is_local_host_token "$HOST" || { [[ -n "$MANAGEMENT_HOST" ]] && is_local_host_token "$MANAGEMENT_HOST"; }; then
   IS_LOCAL_TARGET=1
 fi
 
@@ -433,12 +433,12 @@ explorer_reset() {
     port="443"
   fi
 
-  local endpoint_q reason_q host_q port_q vpn_ip_q
+  local endpoint_q reason_q host_q port_q management_host_q
   endpoint_q="$(shell_escape "$endpoint")"
   reason_q="$(shell_escape "$reason")"
   host_q="$(shell_escape "$host")"
   port_q="$(shell_escape "$port")"
-  vpn_ip_q="$(shell_escape "${VPN_IP:-}")"
+  management_host_q="$(shell_escape "${MANAGEMENT_HOST:-}")"
 
   remote_run_script "
 set -euo pipefail
@@ -446,7 +446,7 @@ endpoint=$endpoint_q
 reason=$reason_q
 host=$host_q
 port=$port_q
-vpn_ip=$vpn_ip_q
+management_host=$management_host_q
 
 if ! command -v curl >/dev/null 2>&1; then
   echo 'curl is required for explorer_reset.' >&2
@@ -484,7 +484,7 @@ attempt_reset() {
 }
 
 attempt_reset 'localhost' '127.0.0.1' \
-  || attempt_reset 'vpn' \"\$vpn_ip\" \
+  || attempt_reset 'management_host' \"\$management_host\" \
   || attempt_reset 'endpoint' ''
 "
 }
@@ -614,7 +614,7 @@ set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
 echo 'Flushing relay queue for $NODE_SLOT_ID...'
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_flushRelayQueue\",\"params\":[],\"id\":1}'
 echo ''
@@ -629,7 +629,7 @@ set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
 echo 'Forcing oracle feed update for $NODE_SLOT_ID...'
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_forceOracleFeedUpdate\",\"params\":[],\"id\":1}'
 echo ''
@@ -644,7 +644,7 @@ set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
 echo 'Draining compute queue for $NODE_SLOT_ID...'
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_drainComputeQueue\",\"params\":[],\"id\":1}'
 echo ''
@@ -659,7 +659,7 @@ set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
 echo 'Reloading AI models for $NODE_SLOT_ID...'
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_reloadModels\",\"params\":[],\"id\":1}'
 echo ''
@@ -677,7 +677,7 @@ echo 'Rotating PQC keys for $NODE_SLOT_ID (Aegis Suite: ML-KEM-512, Dilithium-3,
 if [[ -d keys/pqc ]]; then
   cp -r keys/pqc keys/pqc.bak.\$(date +%s)
 fi
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_rotatePqcKeys\",\"params\":[],\"id\":1}'
 echo ''
@@ -692,7 +692,7 @@ set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
 echo 'Running PQC benchmark on $NODE_SLOT_ID...'
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_runPqcBenchmark\",\"params\":[],\"id\":1}'
 echo ''
@@ -707,7 +707,7 @@ set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
 echo 'Triggering DA sampling round on $NODE_SLOT_ID...'
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_triggerDaSample\",\"params\":[],\"id\":1}'
 echo ''
@@ -722,7 +722,7 @@ set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 source node.env
 echo 'Triggering reindex from genesis for $NODE_SLOT_ID...'
-curl -sS -X POST \"http://\${VPN_IP:-127.0.0.1}:\$RPC_PORT\" \
+curl -sS -X POST \"http://\${MANAGEMENT_HOST:-127.0.0.1}:\$RPC_PORT\" \
   -H 'Content-Type: application/json' \
   -d '{\"jsonrpc\":\"2.0\",\"method\":\"synergy_reindexFromHeight\",\"params\":[0],\"id\":1}'
 echo ''
@@ -782,16 +782,16 @@ deploy_agent() {
   local workspace_dir="$agent_dir/workspace"
 
   echo "Creating remote directories ..."
-  ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "mkdir -p '$agent_dir' '$workspace_dir/testbeta/lean15'"
+  ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "mkdir -p '$agent_dir' '$workspace_dir/testbeta/runtime'"
 
   # Push workspace metadata so the agent can resolve node installs.
   echo "Pushing inventory and hosts config ..."
   scp "${SCP_ARGS[@]}" \
-    "$ROOT_DIR/testbeta/lean15/node-inventory.csv" \
-    "${REMOTE_TARGET}:${workspace_dir}/testbeta/lean15/node-inventory.csv"
+    "$ROOT_DIR/testbeta/runtime/node-inventory.csv" \
+    "${REMOTE_TARGET}:${workspace_dir}/testbeta/runtime/node-inventory.csv"
   scp "${SCP_ARGS[@]}" \
-    "$ROOT_DIR/testbeta/lean15/hosts.env" \
-    "${REMOTE_TARGET}:${workspace_dir}/testbeta/lean15/hosts.env"
+    "$ROOT_DIR/testbeta/runtime/hosts.env" \
+    "${REMOTE_TARGET}:${workspace_dir}/testbeta/runtime/hosts.env"
 
   # Push the agent binary.
   echo "Pushing agent binary ($binary_src) ..."
@@ -862,7 +862,7 @@ show_info() {
   cat <<INFO
 Machine:            $NODE_SLOT_ID
 Host:               $HOST
-VPN IP:             ${VPN_IP:-unknown}
+Management Host:             ${MANAGEMENT_HOST:-unknown}
 Execution mode:     $([[ "$IS_LOCAL_TARGET" -eq 1 ]] && echo "local" || echo "ssh")
 SSH user:           $SSH_USER
 SSH port:           $SSH_PORT

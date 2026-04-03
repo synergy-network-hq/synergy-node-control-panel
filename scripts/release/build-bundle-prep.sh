@@ -34,7 +34,7 @@ EOF
 }
 
 ensure_tracked_testbeta_keys() {
-  local inventory_file="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
+  local inventory_file="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
   local missing_or_untracked=0
 
   if [[ ! -f "$inventory_file" ]]; then
@@ -52,9 +52,9 @@ ensure_tracked_testbeta_keys() {
     [[ -z "${node_slot_id:-}" ]] && continue
 
     for required_file in \
-      "testbeta/lean15/keys/${node_slot_id}/private.key" \
-      "testbeta/lean15/keys/${node_slot_id}/public.key" \
-      "testbeta/lean15/keys/${node_slot_id}/address.txt"
+      "testbeta/runtime/keys/${node_slot_id}/private.key" \
+      "testbeta/runtime/keys/${node_slot_id}/public.key" \
+      "testbeta/runtime/keys/${node_slot_id}/address.txt"
     do
       if [[ ! -f "$required_file" ]]; then
         echo "Missing deterministic testbeta key asset: $required_file" >&2
@@ -69,17 +69,17 @@ ensure_tracked_testbeta_keys() {
     done
   done < "$inventory_file"
 
-  if [[ ! -f "testbeta/lean15/keys/node-addresses.csv" ]]; then
-    echo "Missing deterministic testbeta key asset: testbeta/lean15/keys/node-addresses.csv" >&2
+  if [[ ! -f "testbeta/runtime/keys/node-addresses.csv" ]]; then
+    echo "Missing deterministic testbeta key asset: testbeta/runtime/keys/node-addresses.csv" >&2
     missing_or_untracked=1
-  elif ! git ls-files --error-unmatch "testbeta/lean15/keys/node-addresses.csv" >/dev/null 2>&1; then
-    echo "Untracked deterministic testbeta key asset: testbeta/lean15/keys/node-addresses.csv" >&2
+  elif ! git ls-files --error-unmatch "testbeta/runtime/keys/node-addresses.csv" >/dev/null 2>&1; then
+    echo "Untracked deterministic testbeta key asset: testbeta/runtime/keys/node-addresses.csv" >&2
     missing_or_untracked=1
   fi
 
   if [[ "$missing_or_untracked" -ne 0 ]]; then
     cat >&2 <<'EOF'
-Release bundle prep requires the committed testbeta key bundle under testbeta/lean15/keys.
+Release bundle prep requires the committed testbeta key bundle under testbeta/runtime/keys.
 If those files are missing or untracked, bundle prep will regenerate validator addresses,
 which changes installers and workspace-manifest and makes tagged releases fail.
 Commit the deterministic key bundle before cutting the release tag.

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-STACK_DIR="$ROOT_DIR/testbeta/lean15/observability"
+STACK_DIR="$ROOT_DIR/testbeta/runtime/observability"
 COMPOSE_FILE="$STACK_DIR/docker-compose.yml"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then

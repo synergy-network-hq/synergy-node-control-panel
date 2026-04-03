@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INSTALLERS_DIR="$ROOT_DIR/testbeta/lean15/installers"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
+INSTALLERS_DIR="$ROOT_DIR/testbeta/runtime/installers"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 
 if [[ ! -d "$INSTALLERS_DIR" ]]; then
   echo "Installers directory missing: $INSTALLERS_DIR" >&2

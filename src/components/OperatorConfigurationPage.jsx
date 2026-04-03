@@ -705,11 +705,11 @@ function OperatorConfigurationPage() {
 
               <div className="monitor-record-list">
                 {(agentSnapshot.agents || []).map((agent) => (
-                  <div key={`${agent.physical_machine_id}-${agent.vpn_ip}`} className="monitor-record-row">
+                  <div key={`${agent.physical_machine_id}-${agent.management_host}`} className="monitor-record-row">
                     <div className="monitor-record-copy">
                       <strong>{agent.physical_machine_id}</strong>
                       <span>
-                        {agent.vpn_ip}
+                        {agent.management_host}
                         {' · '}
                         {agent.version || 'no version reported'}
                         {' · '}
@@ -728,11 +728,11 @@ function OperatorConfigurationPage() {
                       </span>
                     </div>
                     <div className="monitor-record-actions">
-                      {agent.local_vpn_ip ? (
+                      {agent.local_management_host ? (
                         <span className="monitor-action-tag">
                           local
                           {' '}
-                          {agent.local_vpn_ip}
+                          {agent.local_management_host}
                         </span>
                       ) : null}
                       {(agent.supported_actions || []).slice(0, 3).map((action) => (

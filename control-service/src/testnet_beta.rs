@@ -42,6 +42,9 @@ const TOKEN_SCALE: u64 = 1_000_000_000;
 const MINIMUM_STAKE_SNRG: u64 = 5_000;
 const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
+const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 4;
+const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 4;
+const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
 
 static NODE_LIVE_CACHE: Lazy<Mutex<HashMap<String, CachedNodeLiveSnapshot>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -313,11 +316,33 @@ pub struct TestnetBetaSetupResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestnetBetaImportCeremonyPackageInput {
-    pub setup_role_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_role_id: Option<String>,
     pub package_path: String,
     pub intended_directory: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaInspectCeremonyPackageInput {
+    pub package_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaCeremonyPackagePreview {
+    pub role_id: String,
+    pub display_name: String,
+    pub package_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator_slot: Option<u8>,
+    pub public_host_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_identity_address: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -414,10 +439,12 @@ pub fn testbeta_get_state() -> Result<TestnetBetaState, String> {
 pub async fn testbeta_import_ceremony_package(
     input: TestnetBetaImportCeremonyPackageInput,
 ) -> Result<TestnetBetaImportCeremonyPackageResult, String> {
-    let requested_role = input.setup_role_id.trim().to_string();
-    if requested_role.is_empty() {
-        return Err("A ceremony setup role is required.".to_string());
-    }
+    let requested_role = input
+        .setup_role_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
     let package_path = PathBuf::from(input.package_path.trim());
     if !package_path.exists() {
@@ -427,13 +454,20 @@ pub async fn testbeta_import_ceremony_package(
         ));
     }
 
-    if matches!(requested_role.as_str(), "bootnode" | "seed_server") {
-        return import_bootstrap_bundle(requested_role, package_path, input.intended_directory)
-            .await;
+    if matches!(
+        requested_role.as_deref(),
+        Some("bootnode") | Some("seed_server")
+    ) {
+        return import_bootstrap_bundle(
+            requested_role.expect("validated bootstrap role should exist"),
+            package_path,
+            input.intended_directory,
+        )
+        .await;
     }
 
     let package = load_ceremony_package(&package_path)?;
-    validate_ceremony_package(&package, &requested_role)?;
+    let resolved_role = validate_ceremony_package(&package, requested_role.as_deref())?;
 
     let root = ensure_testnet_beta_root()?;
     let mut reused_existing_workspace = false;
@@ -454,7 +488,7 @@ pub async fn testbeta_import_ceremony_package(
         }
     } else {
         testbeta_setup_node(TestnetBetaSetupInput {
-            role_id: package.role_id.clone(),
+            role_id: resolved_role.clone(),
             display_label: Some(package.display_name.clone()),
             intended_directory: input.intended_directory.clone(),
             public_host: input.public_host.clone(),
@@ -543,6 +577,32 @@ pub async fn testbeta_import_ceremony_package(
     })
 }
 
+pub fn testbeta_inspect_ceremony_package(
+    input: TestnetBetaInspectCeremonyPackageInput,
+) -> Result<TestnetBetaCeremonyPackagePreview, String> {
+    let package_path = PathBuf::from(input.package_path.trim());
+    if !package_path.exists() {
+        return Err(format!(
+            "Ceremony package not found: {}",
+            package_path.display()
+        ));
+    }
+
+    let package = load_ceremony_package(&package_path)?;
+    validate_ceremony_package_identity(&package)?;
+    validate_ceremony_package_role(&package, None)?;
+
+    Ok(TestnetBetaCeremonyPackagePreview {
+        role_id: package.role_id,
+        display_name: package.display_name,
+        package_type: package.package_type,
+        validator_slot: package.validator_slot,
+        public_host_required: package.public_host_required,
+        runtime_identity_address: package.runtime_identity.map(|identity| identity.address),
+        notes: package.notes,
+    })
+}
+
 pub fn testbeta_get_device_profile() -> Result<TestnetBetaDeviceProfile, String> {
     Ok(detect_device_profile())
 }
@@ -558,30 +618,44 @@ pub async fn testbeta_get_live_status() -> Result<TestnetBetaLiveStatus, String>
         .build()
         .map_err(|error| format!("Failed to create live-status HTTP client: {error}"))?;
 
-    let bootnodes = join_all(
+    let bootnodes_future = join_all(
         state
             .network_profile
             .bootnodes
             .iter()
             .cloned()
             .map(check_bootstrap_endpoint),
-    )
-    .await;
-    let seed_servers = join_all(
+    );
+    let seed_servers_future = join_all(
         state
             .network_profile
             .seed_servers
             .iter()
             .cloned()
             .map(|endpoint| check_seed_endpoint(&client, endpoint)),
-    )
-    .await;
+    );
+    let public_chain_height_future = query_public_chain_height(&client);
+    let public_peer_count_future = query_public_peer_count(&client);
+    let network_peer_count_future =
+        query_seed_peer_count(&client, &state.network_profile.seed_servers);
 
-    let public_chain_height = query_public_chain_height(&client).await.ok();
-    let public_peer_count = query_public_peer_count(&client).await.ok();
-    let network_peer_count = query_seed_peer_count(&client, &state.network_profile.seed_servers)
-        .await
-        .ok();
+    let (
+        bootnodes,
+        seed_servers,
+        public_chain_height_result,
+        public_peer_count_result,
+        network_peer_count_result,
+    ) = tokio::join!(
+        bootnodes_future,
+        seed_servers_future,
+        public_chain_height_future,
+        public_peer_count_future,
+        network_peer_count_future,
+    );
+
+    let public_chain_height = public_chain_height_result.ok();
+    let public_peer_count = public_peer_count_result.ok();
+    let network_peer_count = network_peer_count_result.ok();
     let public_rpc_online = public_chain_height.is_some() || public_peer_count.is_some();
 
     let nodes = join_all(
@@ -2449,30 +2523,28 @@ async fn query_seed_peer_count(
     let mut unique_peers = HashMap::new();
     let mut reachable_seed_count = 0usize;
 
-    for seed in seed_servers {
+    let seed_payloads = join_all(seed_servers.iter().map(|seed| async move {
         let url = format!("http://{}:{}/peers", seed.host, seed.port);
         let response = match client.get(&url).send().await {
             Ok(response) if response.status().is_success() => response,
-            Ok(_) => continue,
-            Err(_) => continue,
+            Ok(_) => return None,
+            Err(_) => return None,
         };
 
         let payload: Value = match response.json().await {
             Ok(payload) => payload,
-            Err(_) => continue,
+            Err(_) => return None,
         };
 
-        let peers = match payload.get("peers").and_then(Value::as_array) {
-            Some(peers) => peers,
-            None => continue,
-        };
+        payload.get("peers").and_then(Value::as_array).cloned()
+    }))
+    .await;
 
+    for peers in seed_payloads.into_iter().flatten() {
         reachable_seed_count += 1;
         for peer in peers {
-            let key = seed_registry_peer_key(peer);
-
-            if let Some(key) = key {
-                unique_peers.entry(key.to_string()).or_insert(());
+            if let Some(key) = seed_registry_peer_key(&peer) {
+                unique_peers.entry(key).or_insert(());
             }
         }
     }
@@ -3747,18 +3819,17 @@ fn load_ceremony_package(package_path: &Path) -> Result<TestnetBetaCeremonyPacka
 
 fn validate_ceremony_package(
     package: &TestnetBetaCeremonyPackage,
-    requested_role: &str,
-) -> Result<(), String> {
+    requested_role: Option<&str>,
+) -> Result<String, String> {
+    validate_ceremony_package_identity(package)?;
+    validate_ceremony_package_role(package, requested_role)
+}
+
+fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> Result<(), String> {
     if package.format != "synergy-testbeta-ceremony-package/v1" {
         return Err(format!(
             "Unsupported ceremony package format: {}",
             package.format
-        ));
-    }
-    if package.role_id != requested_role {
-        return Err(format!(
-            "Ceremony package role mismatch. Expected {}, got {}.",
-            requested_role, package.role_id
         ));
     }
     if package.chain_id != TESTNET_BETA_CHAIN_ID {
@@ -3780,6 +3851,29 @@ fn validate_ceremony_package(
         ));
     }
     Ok(())
+}
+
+fn validate_ceremony_package_role(
+    package: &TestnetBetaCeremonyPackage,
+    requested_role: Option<&str>,
+) -> Result<String, String> {
+    let package_role = package.role_id.trim();
+    if package_role.is_empty() {
+        return Err("Ceremony package is missing role_id.".to_string());
+    }
+
+    find_role_profile(package_role)?;
+
+    if let Some(requested_role) = requested_role.map(str::trim).filter(|value| !value.is_empty()) {
+        if package_role != requested_role {
+            return Err(format!(
+                "Ceremony package role mismatch. Expected {}, got {}.",
+                requested_role, package_role
+            ));
+        }
+    }
+
+    Ok(package_role.to_string())
 }
 
 fn write_package_artifacts_to_workspace(
@@ -4447,7 +4541,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = 30000\nmin_validators = 4\nvalidator_cluster_size = 4\nmax_validators = 4\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = 30000\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -4472,6 +4566,9 @@ fn build_node_toml(
         rpc_bind_address = rpc_bind_address,
         cors_enabled = cors_enabled,
         cors_origins = cors_origins,
+        min_validators = TESTNET_BETA_MIN_GENESIS_VALIDATORS,
+        validator_cluster_size = TESTNET_BETA_VALIDATOR_CLUSTER_SIZE,
+        max_validators = TESTNET_BETA_MAX_VALIDATORS,
         sponsored_stake_snrg = format_amount(MINIMUM_STAKE_SNRG),
         sponsored_stake_nwei = amount_to_nwei_string(MINIMUM_STAKE_SNRG),
         treasury_wallet = network_profile.treasury_wallet.address,
@@ -5086,6 +5183,93 @@ mod tests {
 
         assert_eq!(matched.id, "tbeta-existing");
         assert_eq!(matched.workspace_directory, "/tmp/validator-workspace");
+    }
+
+    #[test]
+    fn inspect_ceremony_package_accepts_validator_setup_package_json() {
+        with_temp_home(|home| {
+            let package_path = home.join("validator-setup-package.json");
+            let package = json!({
+                "format": "synergy-testbeta-ceremony-package/v1",
+                "package_type": "validator-runtime",
+                "role_id": "validator",
+                "display_name": "Genesis Validator 1 Node",
+                "chain_id": TESTNET_BETA_CHAIN_ID,
+                "network_id": TESTNET_BETA_CHAIN_NAME,
+                "token_symbol": TOKEN_SYMBOL,
+                "validator_slot": 1,
+                "artifacts": {
+                    "genesis": {},
+                    "operational_manifest": {}
+                },
+                "public_host_required": false
+            });
+            write_json_file(&package_path, &package).expect("package should write");
+
+            let preview = testbeta_inspect_ceremony_package(TestnetBetaInspectCeremonyPackageInput {
+                package_path: package_path.to_string_lossy().to_string(),
+            })
+            .expect("validator setup package should inspect");
+
+            assert_eq!(preview.role_id, "validator");
+            assert_eq!(preview.package_type, "validator-runtime");
+            assert_eq!(preview.validator_slot, Some(1));
+        });
+    }
+
+    #[test]
+    fn ceremony_import_infers_role_from_package_when_setup_role_is_missing() {
+        with_temp_home(|home| {
+            let package_path = home.join("validator-setup-package.json");
+            let package = json!({
+                "format": "synergy-testbeta-ceremony-package/v1",
+                "package_type": "validator-runtime",
+                "role_id": "validator",
+                "display_name": "Genesis Validator 1 Node",
+                "chain_id": TESTNET_BETA_CHAIN_ID,
+                "network_id": TESTNET_BETA_CHAIN_NAME,
+                "token_symbol": TOKEN_SYMBOL,
+                "validator_slot": 1,
+                "artifacts": {
+                    "genesis": {
+                        "contracts": {
+                            "validator_registry": {
+                                "init_params": {
+                                    "validators": [
+                                        {"validator_address": "synv1alpha"}
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "operational_manifest": {}
+                },
+                "public_host_required": false
+            });
+            write_json_file(&package_path, &package).expect("package should write");
+
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let result = runtime
+                .block_on(testbeta_import_ceremony_package(
+                    TestnetBetaImportCeremonyPackageInput {
+                        setup_role_id: None,
+                        package_path: package_path.to_string_lossy().to_string(),
+                        intended_directory: None,
+                        public_host: None,
+                    },
+                ))
+                .expect("package import should infer the validator role");
+
+            assert_eq!(result.role_id, "validator");
+            assert_eq!(result.node.as_ref().map(|node| node.role_id.as_str()), Some("validator"));
+            assert!(
+                PathBuf::from(&result.workspace_directory)
+                    .join("manifests")
+                    .join("ceremony-package.json")
+                    .is_file(),
+                "ceremony import should stage the original package into the workspace"
+            );
+        });
     }
 
     #[test]

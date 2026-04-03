@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { invoke, openPath } from '../lib/desktopClient';
+import { useDeveloperMode } from '../lib/developerMode';
 import {
   applyStoredTestnetBetaPortSettings,
   formatPortSettingsSummary,
@@ -160,6 +161,11 @@ function formatNumber(value) {
   return number.toLocaleString();
 }
 
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function formatScore(value) {
   if (value == null || Number.isNaN(Number(value))) {
     return 'Not available';
@@ -253,6 +259,60 @@ function latencyLabel(entry) {
     return entry?.detail || 'Unavailable';
   }
   return `${entry.latency_ms} ms`;
+}
+
+function formatPeerLastSeen(value) {
+  const numeric = toFiniteNumber(value);
+  if (numeric == null || numeric <= 0) {
+    return 'Unknown';
+  }
+
+  const milliseconds = numeric < 1e12 ? numeric * 1000 : numeric;
+  const timestamp = new Date(milliseconds);
+  if (Number.isNaN(timestamp.getTime())) {
+    return 'Unknown';
+  }
+
+  return timestamp.toLocaleString();
+}
+
+function normalizePeerInfoPayload(raw) {
+  const peers = Array.isArray(raw?.peers) ? raw.peers : [];
+
+  return {
+    peerCount: toFiniteNumber(raw?.peer_count) ?? peers.length,
+    peers: peers
+      .map((peer, index) => ({
+        id: String(
+          peer?.node_id
+            || peer?.validator_address
+            || peer?.public_address
+            || peer?.address
+            || `peer-${index}`,
+        ),
+        address: String(peer?.address || '').trim(),
+        nodeId: String(peer?.node_id || '').trim(),
+        publicAddress: String(peer?.public_address || '').trim(),
+        validatorAddress: String(peer?.validator_address || '').trim(),
+        version: String(peer?.version || '').trim(),
+        capabilities: Array.isArray(peer?.capabilities)
+          ? peer.capabilities.map((entry) => String(entry || '').trim()).filter(Boolean)
+          : [],
+        lastSeen: toFiniteNumber(peer?.last_seen),
+        blocksSent: toFiniteNumber(peer?.blocks_sent) ?? 0,
+        blocksReceived: toFiniteNumber(peer?.blocks_received) ?? 0,
+        txsSent: toFiniteNumber(peer?.txs_sent) ?? 0,
+        txsReceived: toFiniteNumber(peer?.txs_received) ?? 0,
+      }))
+      .sort((left, right) => {
+        const leftSeen = left.lastSeen ?? 0;
+        const rightSeen = right.lastSeen ?? 0;
+        if (rightSeen !== leftSeen) {
+          return rightSeen - leftSeen;
+        }
+        return left.id.localeCompare(right.id);
+      }),
+  };
 }
 
 function rewardProfileForRole(role) {
@@ -544,6 +604,7 @@ let _cachedLiveStatus = null;
 function TestnetBetaDashboard({ onLaunchSetup }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedNodeId, setSelectedNodeId] = useState('');
+  const [developerModeEnabled] = useDeveloperMode();
   const [state, setState] = useState(_cachedState);
   const [liveStatus, setLiveStatus] = useState(_cachedLiveStatus);
   const [relayerHealth, setRelayerHealth] = useState(null);
@@ -558,6 +619,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [controlMessage, setControlMessage] = useState('');
   const [walletSnapshots, setWalletSnapshots] = useState({});
   const [walletLoading, setWalletLoading] = useState(false);
+  const [localPeerInfo, setLocalPeerInfo] = useState(null);
+  const [localPeerInfoLoading, setLocalPeerInfoLoading] = useState(false);
+  const [localPeerInfoError, setLocalPeerInfoError] = useState('');
 
   const atlasAvailable = useRef(true);
 
@@ -720,6 +784,64 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     () => nodeWorkspaceStatus(selectedNodeLive),
     [selectedNodeLive],
   );
+
+  useEffect(() => {
+    if (activeTab !== 'connectivity' || !developerModeEnabled) {
+      setLocalPeerInfo(null);
+      setLocalPeerInfoError('');
+      setLocalPeerInfoLoading(false);
+      return undefined;
+    }
+
+    if (!selectedNode || !selectedNodeLive?.is_running || selectedNodeLive?.local_rpc_ready !== true) {
+      setLocalPeerInfo(null);
+      setLocalPeerInfoError('');
+      setLocalPeerInfoLoading(false);
+      return undefined;
+    }
+
+    const endpoint = localRpcEndpointForNode(selectedNode, selectedNodeLive);
+    let cancelled = false;
+
+    const fetchLocalPeerInfo = async (showSpinner = false) => {
+      if (showSpinner && !cancelled) {
+        setLocalPeerInfoLoading(true);
+      }
+
+      try {
+        const peerInfo = await queryLocalRpc(endpoint, 'synergy_getPeerInfo', []);
+        if (!cancelled) {
+          setLocalPeerInfo(normalizePeerInfoPayload(peerInfo));
+          setLocalPeerInfoError('');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLocalPeerInfo(null);
+          setLocalPeerInfoError(String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setLocalPeerInfoLoading(false);
+        }
+      }
+    };
+
+    fetchLocalPeerInfo(true);
+    const intervalId = window.setInterval(() => {
+      fetchLocalPeerInfo(false);
+    }, 8000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    activeTab,
+    developerModeEnabled,
+    selectedNode,
+    selectedNodeLive,
+  ]);
+
   const totalReservedNwei = useMemo(
     () => totalReservedNweiForNetwork(network, state?.summary?.total_sponsored_stake_nwei),
     [network, state?.summary?.total_sponsored_stake_nwei],
@@ -1563,6 +1685,101 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           ))}
         </div>
       </section>
+
+      {developerModeEnabled && (
+        <section className="nodecp-panel">
+          <div className="nodecp-panel-header">
+            <div>
+              <p className="nodecp-panel-kicker">Developer mode</p>
+              <h3>Local node peers</h3>
+            </div>
+            <span className={`nodecp-health-pill nodecp-health-${
+              localPeerInfoError
+                ? 'bad'
+                : selectedNodeLive?.is_running && selectedNodeLive?.local_rpc_ready === true
+                  ? 'good'
+                  : 'warn'
+            }`}>
+              {localPeerInfoError
+                ? 'Unavailable'
+                : selectedNodeLive?.is_running && selectedNodeLive?.local_rpc_ready === true
+                  ? `${formatNumber(localPeerInfo?.peerCount ?? selectedNodeLive?.local_peer_count ?? 0)} connected`
+                  : 'Waiting for local RPC'}
+            </span>
+          </div>
+
+          {!selectedNode ? (
+            <div className="nodecp-empty-inline">
+              Select a node to inspect its live peer set.
+            </div>
+          ) : !selectedNodeLive?.is_running ? (
+            <div className="nodecp-empty-inline">
+              Start the selected node to inspect its live peer set.
+            </div>
+          ) : selectedNodeLive?.local_rpc_ready !== true ? (
+            <div className="nodecp-empty-inline">
+              {selectedNodeLive?.local_rpc_status || 'Local RPC is not responding yet.'}
+            </div>
+          ) : localPeerInfoLoading && !localPeerInfo ? (
+            <div className="nodecp-peer-loading">
+              <div className="spinner" style={{ width: '18px', height: '18px' }}></div>
+              <span>Loading live peer connections…</span>
+            </div>
+          ) : localPeerInfoError ? (
+            <div className="nodecp-inline-alert nodecp-inline-alert-bad">
+              Could not load live peer connections: {localPeerInfoError}
+            </div>
+          ) : (localPeerInfo?.peers?.length || 0) === 0 ? (
+            <div className="nodecp-empty-inline">
+              The selected node is running but currently has no active peer connections.
+            </div>
+          ) : (
+            <div className="nodecp-peer-list">
+              {localPeerInfo.peers.map((peer, index) => (
+                <article key={`${peer.id}-${index}`} className="nodecp-peer-card">
+                  <div className="nodecp-peer-card-header">
+                    <div className="nodecp-peer-card-title">
+                      <strong>{peer.nodeId || peer.validatorAddress || `Peer ${index + 1}`}</strong>
+                      <span>{peer.publicAddress || peer.address || 'Public address unavailable'}</span>
+                    </div>
+                    <span className="nodecp-health-pill nodecp-health-good">Connected</span>
+                  </div>
+                  <div className="nodecp-peer-card-grid">
+                    <div className="nodecp-peer-metric">
+                      <span>Address</span>
+                      <code>{peer.address || 'Unknown'}</code>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Validator</span>
+                      <code>{peer.validatorAddress || 'Unknown'}</code>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Last seen</span>
+                      <strong>{formatPeerLastSeen(peer.lastSeen)}</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Version</span>
+                      <strong>{peer.version || 'Unknown'}</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Blocks</span>
+                      <strong>{formatNumber(peer.blocksReceived)} in / {formatNumber(peer.blocksSent)} out</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Transactions</span>
+                      <strong>{formatNumber(peer.txsReceived)} in / {formatNumber(peer.txsSent)} out</strong>
+                    </div>
+                    <div className="nodecp-peer-metric nodecp-peer-metric-wide">
+                      <span>Capabilities</span>
+                      <strong>{peer.capabilities.length ? peer.capabilities.join(', ') : 'Not advertised'}</strong>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="nodecp-panel">
         <div className="nodecp-panel-header">

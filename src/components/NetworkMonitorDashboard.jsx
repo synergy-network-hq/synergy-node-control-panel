@@ -43,14 +43,14 @@ function buildMachineTopology(entries = []) {
 
     const existing = grouped.get(machineId) || {
       machineId,
-      vpnIp: String(node?.vpn_ip || '').trim() || String(node?.host || '').trim(),
+      managementHost: String(node?.management_host || '').trim() || String(node?.host || '').trim(),
       operator: String(node?.operator || '').trim(),
       device: String(node?.device || '').trim(),
       slots: [],
     };
 
-    if (!existing.vpnIp) {
-      existing.vpnIp = String(node?.vpn_ip || '').trim() || String(node?.host || '').trim();
+    if (!existing.managementHost) {
+      existing.managementHost = String(node?.management_host || '').trim() || String(node?.host || '').trim();
     }
     if (!existing.operator) existing.operator = String(node?.operator || '').trim();
     if (!existing.device) existing.device = String(node?.device || '').trim();
@@ -148,7 +148,7 @@ function NetworkMonitorDashboard() {
         invoke('get_monitor_snapshot'),
         invoke('get_monitor_agent_snapshot').catch(() => null),
         invoke('get_monitor_security_state').catch(() => null),
-        invoke('monitor_detect_local_vpn_identity').catch(() => null),
+        invoke('monitor_detect_local_machine_identity').catch(() => null),
       ]);
       setSnapshot(data);
       setAgentSnapshot(agentData);
@@ -201,8 +201,8 @@ function NetworkMonitorDashboard() {
     Object.values(installedByMachine).flatMap((nodeSlotIds) => nodeSlotIds),
   );
   const localMachineId = normalizeId(localIdentity?.physical_machine_id);
-  const localVpnIp = String(
-    localIdentity?.vpn_ip || machineTopologyMap[localMachineId]?.vpnIp || '',
+  const localManagementHost = String(
+    localIdentity?.management_host || machineTopologyMap[localMachineId]?.managementHost || '',
   ).trim();
   const scopedMachineTopologyRows = localMachineId
     ? machineTopologyRows.filter((machine) => machine.machineId === localMachineId)
@@ -285,7 +285,7 @@ function NetworkMonitorDashboard() {
   const resolveSetupProfileId = () => {
     const bindings = Array.isArray(securityState?.ssh_bindings) ? securityState.ssh_bindings : [];
     const matchingBinding = bindings.find(
-      (binding) => normalizeId(binding?.host_override) === normalizeId(localVpnIp),
+      (binding) => normalizeId(binding?.host_override) === normalizeId(localManagementHost),
     );
     if (matchingBinding?.profile_id) {
       return matchingBinding.profile_id;
@@ -353,7 +353,7 @@ function NetworkMonitorDashboard() {
       setError('Node setup from the dashboard is only allowed on the local machine.');
       return;
     }
-    if (!localVpnIp) {
+    if (!localManagementHost) {
       setError('Local machine address was not detected, so this machine cannot claim a node slot yet.');
       return;
     }
@@ -366,7 +366,7 @@ function NetworkMonitorDashboard() {
         input: {
           node_slot_id: targetNodeId,
           profile_id: resolveSetupProfileId(),
-          host_override: localVpnIp,
+          host_override: localManagementHost,
           remote_dir_override: null,
         },
       });

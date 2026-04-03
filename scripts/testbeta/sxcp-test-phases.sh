@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 BOOTSTRAP_SCRIPT="$ROOT_DIR/scripts/testbeta/bootstrap-sxcp-testbeta.sh"
 SMOKE_SCRIPT="$ROOT_DIR/scripts/testbeta/sxcp-smoke-test.sh"
 

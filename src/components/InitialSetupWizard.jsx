@@ -153,22 +153,24 @@ function buildInventoryTopology(inventoryRows) {
       owner: '',
       device: '',
       os: '',
-      vpnIp: '',
+      managementHost: '',
       publicIp: '',
       localIp: '',
       logicalNodes: [],
     };
 
-    const vpnIp = String(entry?.vpn_ip || '').trim();
+    const managementHost = String(entry?.management_host || '').trim();
     const host = String(entry?.host || '').trim();
-    if (!existing.vpnIp) {
-      existing.vpnIp = vpnIp || (host.startsWith('10.50.0.') ? host : '');
+    const publicIp = String(entry?.public_ip || '').trim();
+    const localIp = String(entry?.local_ip || '').trim();
+    if (!existing.managementHost) {
+      existing.managementHost = managementHost || host || localIp || publicIp;
     }
     if (!existing.owner) existing.owner = String(entry?.operator || '').trim();
     if (!existing.device) existing.device = String(entry?.device || '').trim();
     if (!existing.os) existing.os = String(entry?.operating_system || '').trim();
-    if (!existing.publicIp) existing.publicIp = String(entry?.public_ip || '').trim();
-    if (!existing.localIp) existing.localIp = String(entry?.local_ip || '').trim();
+    if (!existing.publicIp) existing.publicIp = publicIp;
+    if (!existing.localIp) existing.localIp = localIp;
 
     existing.logicalNodes.push({
       machineId: nodeSlotId,
@@ -326,7 +328,7 @@ function InitialSetupWizard({ onComplete }) {
   const [autopilotSteps, setAutopilotSteps] = useState(() => newAutopilotSteps());
   const [autopilotProgress, setAutopilotProgress] = useState(0);
   const [autopilotSummary, setAutopilotSummary] = useState('');
-  const [vpnDetectionMessage, setVpnDetectionMessage] = useState('');
+  const [machineDetectionMessage, setMachineDetectionMessage] = useState('');
   const [autopilotCurrentStepLabel, setAutopilotCurrentStepLabel] = useState('');
   const [autopilotCurrentCommand, setAutopilotCurrentCommand] = useState('');
   const [logicalNodeStates, setLogicalNodeStates] = useState(() => newLogicalNodeStates());
@@ -403,11 +405,11 @@ function InitialSetupWizard({ onComplete }) {
         const topologyMessage = await invoke('monitor_apply_topology');
         addTerminalLine('success', String(topologyMessage || 'Applied topology mapping.'));
 
-        const identity = await invoke('monitor_detect_local_vpn_identity');
+        const identity = await invoke('monitor_detect_local_machine_identity');
         const detectedMachine = toCanonicalMachineId(identity?.physical_machine_id);
         if (identity?.detected && detectedMachine) {
-          const detectedVpnIp =
-            String(identity?.vpn_ip || '').trim() || topologyMap[detectedMachine]?.vpnIp || '';
+          const detectedMachineHost =
+            String(identity?.management_host || '').trim() || topologyMap[detectedMachine]?.managementHost || '';
 
           setLockedPhysicalMachineId(detectedMachine);
           setSelectedPhysicalMachine(detectedMachine);
@@ -415,14 +417,14 @@ function InitialSetupWizard({ onComplete }) {
           setBindingForm((prev) => ({
             ...prev,
             node_slot_id: detectedMachine,
-            host_override: detectedVpnIp || prev.host_override,
+            host_override: detectedMachineHost || prev.host_override,
           }));
-          setVpnDetectionMessage(
-            `Detected ${detectedMachine} from local address ${detectedVpnIp}. Choose one node slot to install on this machine before running setup.`,
+          setMachineDetectionMessage(
+            `Detected ${detectedMachine} from local address ${detectedMachineHost}. Choose one node slot to install on this machine before running setup.`,
           );
           addTerminalLine(
             'success',
-            `Auto-detected ${detectedMachine} from local address ${detectedVpnIp}. Select one node slot, then start setup.`,
+            `Auto-detected ${detectedMachine} from local address ${detectedMachineHost}. Select one node slot, then start setup.`,
           );
           setStep(5);
         } else {
@@ -434,21 +436,21 @@ function InitialSetupWizard({ onComplete }) {
           }, null);
 
           if (inferredMachine) {
-            const vpnIp = topologyMap[inferredMachine]?.vpnIp || '';
+            const managementHost = topologyMap[inferredMachine]?.managementHost || '';
             setSelectedPhysicalMachine(inferredMachine);
             setSelectedSetupNodeIds([]);
             setBindingForm((prev) => ({
               ...prev,
               node_slot_id: inferredMachine,
-              host_override: vpnIp || prev.host_override,
+              host_override: managementHost || prev.host_override,
             }));
             const message = `Local address not detected. Inferred ${inferredMachine} from existing SSH bindings — ready to resume setup.`;
-            setVpnDetectionMessage(message);
+            setMachineDetectionMessage(message);
             addTerminalLine('info', message);
             setStep(5);
           } else {
             const message = String(identity?.message || 'Machine auto-detection unavailable. Select machine manually.');
-            setVpnDetectionMessage(message);
+            setMachineDetectionMessage(message);
             addTerminalLine('info', message);
           }
         }
@@ -609,7 +611,7 @@ function InitialSetupWizard({ onComplete }) {
     setBindingForm((prev) => ({
       ...prev,
       node_slot_id: normalizedMachineId,
-      host_override: machineEntry?.vpnIp || prev.host_override,
+      host_override: machineEntry?.managementHost || prev.host_override,
     }));
   };
 
@@ -913,7 +915,7 @@ function InitialSetupWizard({ onComplete }) {
         throw new Error(`Select one node slot to install on ${selectedMachine}.`);
       }
 
-      const hostOverride = String(bindingForm.host_override || '').trim() || machineTopologyMap[selectedMachine]?.vpnIp || '';
+      const hostOverride = String(bindingForm.host_override || '').trim() || machineTopologyMap[selectedMachine]?.managementHost || '';
       await invoke('monitor_assign_ssh_binding', {
         input: {
           node_slot_id: targetNodeId,
@@ -926,7 +928,7 @@ function InitialSetupWizard({ onComplete }) {
 
       addTerminalLine('info', `Installing ${toLogicalNodeLabel(targetNodeId)} on ${selectedMachine}.`);
 
-      const installersRoot = joinWorkspacePath(workspacePath, 'testbeta', 'lean15', 'installers');
+      const installersRoot = joinWorkspacePath(workspacePath, 'testbeta', 'runtime', 'installers');
       await runStrictCommand(buildInstallerCommand(installersRoot, targetNodeId), workspacePath || null);
 
       let summary = `Installed ${toLogicalNodeLabel(targetNodeId)} on ${selectedMachine}.`;
@@ -992,7 +994,7 @@ function InitialSetupWizard({ onComplete }) {
         .map((nodeSlotId) => toCanonicalMachineId(nodeSlotId))
         .filter(Boolean)
         .slice(0, 1);
-      const vpnHost = machineTopologyMap[selectedMachine]?.vpnIp || String(bindingForm.host_override || '').trim();
+      const machineHost = machineTopologyMap[selectedMachine]?.managementHost || String(bindingForm.host_override || '').trim();
 
       if (!targetNodes.length) {
         throw new Error(`Select one node slot to install on ${selectedMachine}.`);
@@ -1000,7 +1002,7 @@ function InitialSetupWizard({ onComplete }) {
       if (lockedPhysicalMachineId && selectedMachine !== lockedPhysicalMachineId) {
         throw new Error(`This control panel is locked to ${lockedPhysicalMachineId}.`);
       }
-      if (!vpnHost) {
+      if (!machineHost) {
         throw new Error(`No machine address mapping found for ${selectedMachine}`);
       }
 
@@ -1008,7 +1010,7 @@ function InitialSetupWizard({ onComplete }) {
       setBindingForm((prev) => ({
         ...prev,
         node_slot_id: selectedMachine,
-        host_override: vpnHost,
+        host_override: machineHost,
       }));
       resetLogicalNodeStateForMachine(selectedMachine, targetNodes);
       runLogicalNodes = targetNodes;
@@ -1120,7 +1122,7 @@ function InitialSetupWizard({ onComplete }) {
             input: {
               node_slot_id: logicalMachineId,
               profile_id: profileId,
-              host_override: vpnHost,
+              host_override: machineHost,
               remote_dir_override: String(bindingForm.remote_dir_override || '').trim() || null,
             },
           });
@@ -1132,12 +1134,12 @@ function InitialSetupWizard({ onComplete }) {
           ...prev,
           node_slot_id: selectedMachine,
           profile_id: profileId,
-          host_override: vpnHost,
+          host_override: machineHost,
         }));
       });
 
       await runStep('installers', 'Run local installer scripts', async () => {
-        const installersRoot = joinWorkspacePath(resolvedWorkspace, 'testbeta', 'lean15', 'installers');
+        const installersRoot = joinWorkspacePath(resolvedWorkspace, 'testbeta', 'runtime', 'installers');
         for (const [index, logicalMachineId] of targetNodes.entries()) {
           updateAutopilotStep(
             'installers',
@@ -1312,7 +1314,7 @@ function InitialSetupWizard({ onComplete }) {
                 </div>
               ))}
             </div>
-            {vpnDetectionMessage ? <p className="wizard-note"><strong>{vpnDetectionMessage}</strong></p> : null}
+            {machineDetectionMessage ? <p className="wizard-note"><strong>{machineDetectionMessage}</strong></p> : null}
             {autopilotSummary ? <p className="wizard-note"><strong>{autopilotSummary}</strong></p> : null}
             <div className="wizard-action-row">
               <button
@@ -1487,9 +1489,9 @@ function InitialSetupWizard({ onComplete }) {
                       setBindingForm((prev) => ({
                         ...prev,
                         node_slot_id: nextMachineId,
-                        host_override: machineTopologyMap[nextMachineId]?.vpnIp || prev.host_override,
+                        host_override: machineTopologyMap[nextMachineId]?.managementHost || prev.host_override,
                       }));
-                      if (machineTopologyMap[nextMachineId]?.vpnIp) {
+                      if (machineTopologyMap[nextMachineId]?.managementHost) {
                         syncSetupSelectionForMachine(nextMachineId);
                       }
                     }}
@@ -1761,7 +1763,7 @@ function InitialSetupWizard({ onComplete }) {
                 {machineTopologyRows.map((entry) => (
                   <tr key={entry.machineId}>
                     <td>{entry.machineId}</td>
-                    <td>{entry.vpnIp}</td>
+                    <td>{entry.managementHost}</td>
                     <td>{entry.primaryRole}</td>
                     <td>{entry.secondaryRole}</td>
                   </tr>
@@ -1826,7 +1828,7 @@ function InitialSetupWizard({ onComplete }) {
                   <div key={row.machineId} className={`wizard-topology-physical-card ${selectedPhysicalMachine === row.machineId ? 'is-current' : ''}`}>
                     <div className="wizard-topology-physical-head">
                       <strong>{row.machineId}</strong>
-                      <small>{row.vpnIp}</small>
+                      <small>{row.managementHost}</small>
                     </div>
                     <div className="wizard-topology-node-list">
                       {row.logicalNodes.map((logicalNode) => (

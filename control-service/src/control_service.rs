@@ -9,7 +9,7 @@ use crate::monitor::{
     get_monitor_security_state, get_monitor_snapshot, get_monitor_user_manual_markdown,
     get_monitor_workspace_path, monitor_apply_testbeta_topology_from_context,
     monitor_assign_ssh_binding, monitor_bulk_node_control, monitor_delete_operator,
-    monitor_delete_ssh_profile, monitor_detect_local_vpn_identity,
+    monitor_delete_ssh_profile, monitor_detect_local_machine_identity,
     monitor_ensure_ssh_keypair_from_context, monitor_export_node_data, monitor_get_setup_status,
     monitor_initialize_workspace_from_context, monitor_mark_setup_complete, monitor_node_control,
     monitor_remove_ssh_binding, monitor_run_terminal_command, monitor_set_active_operator,
@@ -20,9 +20,10 @@ use crate::testnet_beta::{
     testbeta_boost_sync, testbeta_get_catalog, testbeta_get_chain_blocks,
     testbeta_get_device_profile, testbeta_get_live_status, testbeta_get_node_logs,
     testbeta_get_node_readiness, testbeta_get_state, testbeta_import_ceremony_package,
-    testbeta_node_control, testbeta_remove_node, testbeta_run_register_with_seeds,
-    testbeta_setup_node, TestnetBetaImportCeremonyPackageInput, TestnetBetaNodeControlInput,
-    TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
+    testbeta_inspect_ceremony_package, testbeta_node_control, testbeta_remove_node,
+    testbeta_run_register_with_seeds, testbeta_setup_node,
+    TestnetBetaImportCeremonyPackageInput, TestnetBetaInspectCeremonyPackageInput,
+    TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -140,6 +141,11 @@ struct TestnetBetaSetupArgs {
 #[derive(Debug, Deserialize)]
 struct TestnetBetaImportCeremonyPackageArgs {
     input: TestnetBetaImportCeremonyPackageInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaInspectCeremonyPackageArgs {
+    input: TestnetBetaInspectCeremonyPackageInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -343,7 +349,7 @@ async fn dispatch_command(
         "get_monitor_inventory_path" => to_value(get_monitor_inventory_path()?),
         "get_monitor_user_manual_markdown" => to_value(get_monitor_user_manual_markdown()?),
         "get_monitor_security_state" => to_value(get_monitor_security_state()?),
-        "monitor_detect_local_vpn_identity" => to_value(monitor_detect_local_vpn_identity()?),
+        "monitor_detect_local_machine_identity" => to_value(monitor_detect_local_machine_identity()?),
         "monitor_ensure_ssh_keypair" => {
             to_value(monitor_ensure_ssh_keypair_from_context(&state.app_context)?)
         }
@@ -394,6 +400,10 @@ async fn dispatch_command(
         "testbeta_import_ceremony_package" => {
             let args: TestnetBetaImportCeremonyPackageArgs = parse_args(request.args)?;
             to_value(testbeta_import_ceremony_package(args.input).await?)
+        }
+        "testbeta_inspect_ceremony_package" => {
+            let args: TestnetBetaInspectCeremonyPackageArgs = parse_args(request.args)?;
+            to_value(testbeta_inspect_ceremony_package(args.input)?)
         }
         "testbeta_node_control" => {
             let args: TestnetBetaNodeControlArgs = parse_args(request.args)?;

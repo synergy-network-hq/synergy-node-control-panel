@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
-HOSTS_FILE="${HOSTS_FILE:-$ROOT_DIR/testbeta/lean15/hosts.env}"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
+HOSTS_FILE="${HOSTS_FILE:-$ROOT_DIR/testbeta/runtime/hosts.env}"
 RUN_NODE_SCRIPT="$ROOT_DIR/scripts/testbeta/run-node.sh"
 RENDER_CONFIGS_SCRIPT="$ROOT_DIR/scripts/testbeta/render-configs.sh"
 GENESIS_SCRIPT="$ROOT_DIR/scripts/testbeta/generate-testbeta-genesis.sh"
@@ -89,7 +89,7 @@ machine_hook_cmd() {
   echo "${!var_name:-}"
 }
 
-inventory_vpn_ip() {
+inventory_management_host() {
   local node_slot_id="$1"
   awk -F, -v id="$node_slot_id" 'NR > 1 && tolower($1) == tolower(id) { print $13; exit }' "$INVENTORY_FILE"
 }
@@ -98,13 +98,13 @@ agent_endpoint() {
   local node_slot_id="$1"
   local prefix
   prefix="$(machine_var_prefix "$node_slot_id")"
-  local vpn_var="${prefix}_VPN_IP"
-  local vpn_ip="${!vpn_var:-}"
-  if [[ -z "$vpn_ip" ]]; then
-    vpn_ip="$(inventory_vpn_ip "$node_slot_id")"
+  local management_host_var="${prefix}_MANAGEMENT_HOST"
+  local management_host="${!management_host_var:-}"
+  if [[ -z "$management_host" ]]; then
+    management_host="$(inventory_management_host "$node_slot_id")"
   fi
-  [[ -n "$vpn_ip" ]] || return 1
-  echo "http://${vpn_ip}:${TESTBETA_AGENT_PORT}/v1/control"
+  [[ -n "$management_host" ]] || return 1
+  echo "http://${management_host}:${TESTBETA_AGENT_PORT}/v1/control"
 }
 
 run_agent_action() {
@@ -267,20 +267,20 @@ wait_for_bootnode_rpc() {
   local max_attempts="${2:-60}"
   local prefix
   prefix="$(machine_var_prefix "$node_slot_id")"
-  local vpn_var="${prefix}_VPN_IP"
-  local vpn_ip="${!vpn_var:-}"
-  if [[ -z "$vpn_ip" ]]; then
-    vpn_ip="$(inventory_vpn_ip "$node_slot_id")"
+  local management_host_var="${prefix}_MANAGEMENT_HOST"
+  local management_host="${!management_host_var:-}"
+  if [[ -z "$management_host" ]]; then
+    management_host="$(inventory_management_host "$node_slot_id")"
   fi
-  if [[ -z "$vpn_ip" ]]; then
-    echo "WARNING: No VPN IP for $node_slot_id, skipping readiness check." >&2
+  if [[ -z "$management_host" ]]; then
+    echo "WARNING: No Management Host for $node_slot_id, skipping readiness check." >&2
     return 0
   fi
   # Use the node's RPC port from inventory (column 8, 0-indexed col 7)
   local rpc_port
   rpc_port=$(awk -F, -v id="$node_slot_id" 'NR > 1 && tolower($1) == tolower(id) { print $8; exit }' "$INVENTORY_FILE")
   rpc_port="${rpc_port:-5640}"
-  local rpc_url="http://${vpn_ip}:${rpc_port}"
+  local rpc_url="http://${management_host}:${rpc_port}"
 
   echo "Waiting for bootnode $node_slot_id RPC at $rpc_url to become ready..."
   local attempt=0
@@ -357,9 +357,9 @@ post_check() {
 
   # Verify no node processes are still running.
   local still_running=0
-  while IFS=',' read -r node_slot_id _ _ _ _ _ _ _ _ _ _ host vpn_ip _ _ _ _ _ _ _ _ _; do
+  while IFS=',' read -r node_slot_id _ _ _ _ _ _ _ _ _ _ host management_host _ _ _ _ _ _ _ _ _; do
     [[ "$node_slot_id" == "node_slot_id" || -z "$node_slot_id" ]] && continue
-    local target_ip="${vpn_ip:-$host}"
+    local target_ip="${management_host:-$host}"
     [[ -z "$target_ip" ]] && continue
     if run_agent_action "$node_slot_id" "status" 2>/dev/null | grep -qi "running"; then
       echo "WARNING: $node_slot_id still appears to be running on $target_ip"
