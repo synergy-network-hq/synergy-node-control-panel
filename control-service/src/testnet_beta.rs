@@ -2381,7 +2381,7 @@ async fn workspace_local_rpc_ready(config_path: &Path) -> bool {
         .build()
         .unwrap_or_else(|_| Client::new());
 
-    query_rpc_value(&client, &rpc_endpoint, "synergy_getNodeStatus", json!([]))
+    query_rpc_value(&client, &rpc_endpoint, "synergy_getPeerInfo", json!([]))
         .await
         .is_ok()
 }

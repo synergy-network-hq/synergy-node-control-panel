@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.12.1 - 2026-04-03
+
+- Corrected the Testnet-Beta release source pin so installer builds now compile `synergy-testbeta` from commit `476a159956eaeffe5d6f4cb4c1caf94156828716`, which includes the runtime-root detection fix required for validator workspaces launched outside the source checkout.
+- Preserved the v5.12.0 control-service launcher fix that exports `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH`, while ensuring the bundled node binary now understands those runtime-root environment variables too.
+- Disabled submodule cleanup for the pinned Testnet-Beta checkout in the release workflow so GitHub Actions no longer trips over the broken `node-control-panel` gitlink metadata during post-job cleanup.
+
 ## v5.12.0 - 2026-04-03
 
 - Fixed Testnet-Beta node launches from generated validator workspaces by exporting `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH` into every control-service runner invocation, which stops the validator restart loop caused by runtime root detection failures.

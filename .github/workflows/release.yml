@@ -8,7 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: "4ac8c557933cee9bb15c4bed28f1ba8172d3d667"
+  TESTNET_BETA_REF: "476a159956eaeffe5d6f4cb4c1caf94156828716"
 
 jobs:
   build:
@@ -61,6 +61,8 @@ jobs:
           path: testnet-beta-source
           ref: ${{ env.TESTNET_BETA_REF }}
           token: ${{ secrets.RELEASES_REPO_TOKEN }}
+          persist-credentials: false
+          submodules: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

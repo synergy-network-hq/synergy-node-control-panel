@@ -1624,8 +1624,8 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
     node_status.active_management_host = runtime_placement.as_ref().map(|entry| entry.management_host.clone());
 
     let client = Client::builder()
-        .timeout(Duration::from_secs(2))
-        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_millis(750))
+        .connect_timeout(Duration::from_millis(750))
         .build()
         .unwrap_or_else(|_| Client::new());
 
@@ -3398,8 +3398,8 @@ fn has_explicit_port(host: &str) -> bool {
 
 async fn probe_node(node: MonitorNode) -> MonitorNodeStatus {
     let client = Client::builder()
-        .timeout(Duration::from_secs(2))
-        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_millis(750))
+        .connect_timeout(Duration::from_millis(750))
         .build()
         .unwrap_or_else(|_| Client::new());
 
