@@ -532,6 +532,8 @@ function SettingsPage() {
   const [activeTerminalAction, setActiveTerminalAction] = useState('');
   const [updateStatus, setUpdateStatus] = useState('');
   const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateDownloaded, setUpdateDownloaded] = useState(false);
+  const [updateDownloadedVersion, setUpdateDownloadedVersion] = useState('');
   const [bootstrapRefreshBusy, setBootstrapRefreshBusy] = useState(false);
   const [bootstrapRefreshStatus, setBootstrapRefreshStatus] = useState('');
 
@@ -631,6 +633,34 @@ function SettingsPage() {
       behavior: 'smooth',
     });
   }, [terminalLines]);
+
+  useEffect(() => {
+    const bridge = window.synergyDesktop;
+    if (!bridge?.onUpdaterEvent) return undefined;
+
+    const unsubProgress = bridge.onUpdaterEvent('updater:download-progress', (data) => {
+      const pct = Math.round(data?.percent ?? 0);
+      setUpdateStatus(`Downloading update… ${pct}%`);
+    });
+
+    const unsubDownloaded = bridge.onUpdaterEvent('updater:update-downloaded', (data) => {
+      setUpdateDownloaded(true);
+      setUpdateDownloadedVersion(data?.version || '');
+      setUpdateStatus('');
+      setUpdateBusy(false);
+    });
+
+    const unsubError = bridge.onUpdaterEvent('updater:error', (data) => {
+      setUpdateStatus(`Update error: ${data?.message || 'Unknown error'}`);
+      setUpdateBusy(false);
+    });
+
+    return () => {
+      unsubProgress();
+      unsubDownloaded();
+      unsubError();
+    };
+  }, []);
 
   const savedPortSummary = useMemo(
     () => formatPortSettingsSummary(savedPortSettings),
@@ -866,6 +896,13 @@ function SettingsPage() {
     }
   }, [version]);
 
+  const handleInstallUpdate = useCallback(() => {
+    const bridge = window.synergyDesktop;
+    if (bridge?.installUpdate) {
+      bridge.installUpdate();
+    }
+  }, []);
+
   const handleRefreshAllBootstrap = useCallback(async () => {
     if (!provisionedNodes.length || !state?.network_profile) {
       setBootstrapRefreshStatus('No provisioned nodes or network profile available.');
@@ -1079,11 +1116,22 @@ function SettingsPage() {
               <SNRGButton
                 variant="blue"
                 size="sm"
-                disabled={updateBusy}
+                disabled={updateBusy || updateDownloaded}
                 onClick={handleCheckForUpdate}
               >
                 {updateBusy ? 'Checking...' : 'Check for Updates'}
               </SNRGButton>
+              {updateDownloaded && (
+                <SNRGButton
+                  variant="lime"
+                  size="sm"
+                  onClick={handleInstallUpdate}
+                >
+                  {updateDownloadedVersion
+                    ? `Restart to install v${updateDownloadedVersion}`
+                    : 'Restart to install update'}
+                </SNRGButton>
+              )}
               {updateStatus && (
                 <span className="settings-shell-update-status">{updateStatus}</span>
               )}
