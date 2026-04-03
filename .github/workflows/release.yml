@@ -8,7 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: "v5.12.2-testbeta-source"
+  TESTNET_BETA_REF: "v5.12.4-testbeta-source"
 
 jobs:
   build:

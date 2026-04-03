@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.12.4 - 2026-04-03
+
+- Advanced the bundled Testnet-Beta source pin to `v5.12.4-testbeta-source`, which includes the P2P discovery fix that keeps bootnodes and other non-validator discovery peers connected even when they do not advertise a genesis hash in their status payload.
+- Preserved the runtime-root launcher/runtime fix, the faster startup readiness probe, and the reduced monitor RPC timeouts already landed in the control panel release line.
+- Rebuilt the installers so the packaged `synergy-testbeta` binary matches the current top-level source used for genesis-validator operation.
+
 ## v5.12.3 - 2026-04-03
 
 - Switched the Testnet-Beta release source pin from a raw commit SHA to the reachable top-level tag `v5.12.2-testbeta-source`, which points to the same fixed source commit but can be fetched reliably by `actions/checkout`.
