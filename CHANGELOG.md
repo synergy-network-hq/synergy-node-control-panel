@@ -8,6 +8,12 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Refreshed the bundled testbeta runtime defaults for genesis launch: removed the hard `max_validators = 4` ceiling while preserving `min_validators = 4`, and regenerated the runtime/genesis assets accordingly.
 - Pinned the installer release workflow to the updated testbeta source commit that includes real network vote collection, explicit equivocation evidence handling, rolling missed-vote jailing/slashing, and the current RPC/runtime fixes needed for fresh binaries.
 
+## v5.11.1 - 2026-04-02
+
+- Reworked Jarvis genesis setup so the ceremony flow starts with the assigned setup package JSON, derives the role from that package, and pauses on an explicit machine-specific port-forwarding confirmation before sending the operator to the dashboard.
+- Fixed the Testnet-Beta node details tabs so shared runtime/network values are available across the wallet and connectivity views instead of throwing render-time errors when those tabs open.
+- Added the developer-mode live peer list to the node-details Connectivity tab and reduced initial dashboard/detail latency by caching local state and parallelizing the control-service live-status network probes.
+
 ## v5.10.5 - 2026-04-02
 
 - Fixed genesis validator crash loop on macOS arm64: the `synergy-testbeta-macos-arm64` binary search was incorrectly taking priority over the fixed `synergy-testbeta-darwin-arm64` binary. The control service binary search order now tries `darwin-arm64` first, with `macos-arm64` as a fallback only. The `macos-arm64` binary on disk has also been replaced with the fixed `darwin-arm64` build. This restored all 4 genesis validators to active quorum (`qc_cumulative_weight: 4.0`).

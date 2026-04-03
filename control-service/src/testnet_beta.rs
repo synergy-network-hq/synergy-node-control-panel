@@ -324,6 +324,27 @@ pub struct TestnetBetaImportCeremonyPackageInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaInspectCeremonyPackageInput {
+    pub package_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaCeremonyPackagePreview {
+    pub role_id: String,
+    pub display_name: String,
+    pub package_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator_slot: Option<u8>,
+    pub public_host_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_identity_address: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestnetBetaImportCeremonyPackageResult {
     pub import_mode: String,
     pub role_id: String,
@@ -546,6 +567,31 @@ pub async fn testbeta_import_ceremony_package(
     })
 }
 
+pub fn testbeta_inspect_ceremony_package(
+    input: TestnetBetaInspectCeremonyPackageInput,
+) -> Result<TestnetBetaCeremonyPackagePreview, String> {
+    let package_path = PathBuf::from(input.package_path.trim());
+    if !package_path.exists() {
+        return Err(format!(
+            "Ceremony package not found: {}",
+            package_path.display()
+        ));
+    }
+
+    let package = load_ceremony_package(&package_path)?;
+    validate_ceremony_package_identity(&package)?;
+
+    Ok(TestnetBetaCeremonyPackagePreview {
+        role_id: package.role_id,
+        display_name: package.display_name,
+        package_type: package.package_type,
+        validator_slot: package.validator_slot,
+        public_host_required: package.public_host_required,
+        runtime_identity_address: package.runtime_identity.map(|identity| identity.address),
+        notes: package.notes,
+    })
+}
+
 pub fn testbeta_get_device_profile() -> Result<TestnetBetaDeviceProfile, String> {
     Ok(detect_device_profile())
 }
@@ -561,30 +607,44 @@ pub async fn testbeta_get_live_status() -> Result<TestnetBetaLiveStatus, String>
         .build()
         .map_err(|error| format!("Failed to create live-status HTTP client: {error}"))?;
 
-    let bootnodes = join_all(
+    let bootnodes_future = join_all(
         state
             .network_profile
             .bootnodes
             .iter()
             .cloned()
             .map(check_bootstrap_endpoint),
-    )
-    .await;
-    let seed_servers = join_all(
+    );
+    let seed_servers_future = join_all(
         state
             .network_profile
             .seed_servers
             .iter()
             .cloned()
             .map(|endpoint| check_seed_endpoint(&client, endpoint)),
-    )
-    .await;
+    );
+    let public_chain_height_future = query_public_chain_height(&client);
+    let public_peer_count_future = query_public_peer_count(&client);
+    let network_peer_count_future =
+        query_seed_peer_count(&client, &state.network_profile.seed_servers);
 
-    let public_chain_height = query_public_chain_height(&client).await.ok();
-    let public_peer_count = query_public_peer_count(&client).await.ok();
-    let network_peer_count = query_seed_peer_count(&client, &state.network_profile.seed_servers)
-        .await
-        .ok();
+    let (
+        bootnodes,
+        seed_servers,
+        public_chain_height_result,
+        public_peer_count_result,
+        network_peer_count_result,
+    ) = tokio::join!(
+        bootnodes_future,
+        seed_servers_future,
+        public_chain_height_future,
+        public_peer_count_future,
+        network_peer_count_future,
+    );
+
+    let public_chain_height = public_chain_height_result.ok();
+    let public_peer_count = public_peer_count_result.ok();
+    let network_peer_count = network_peer_count_result.ok();
     let public_rpc_online = public_chain_height.is_some() || public_peer_count.is_some();
 
     let nodes = join_all(
@@ -2452,30 +2512,28 @@ async fn query_seed_peer_count(
     let mut unique_peers = HashMap::new();
     let mut reachable_seed_count = 0usize;
 
-    for seed in seed_servers {
+    let seed_payloads = join_all(seed_servers.iter().map(|seed| async move {
         let url = format!("http://{}:{}/peers", seed.host, seed.port);
         let response = match client.get(&url).send().await {
             Ok(response) if response.status().is_success() => response,
-            Ok(_) => continue,
-            Err(_) => continue,
+            Ok(_) => return None,
+            Err(_) => return None,
         };
 
         let payload: Value = match response.json().await {
             Ok(payload) => payload,
-            Err(_) => continue,
+            Err(_) => return None,
         };
 
-        let peers = match payload.get("peers").and_then(Value::as_array) {
-            Some(peers) => peers,
-            None => continue,
-        };
+        payload.get("peers").and_then(Value::as_array).cloned()
+    }))
+    .await;
 
+    for peers in seed_payloads.into_iter().flatten() {
         reachable_seed_count += 1;
         for peer in peers {
-            let key = seed_registry_peer_key(peer);
-
-            if let Some(key) = key {
-                unique_peers.entry(key.to_string()).or_insert(());
+            if let Some(key) = seed_registry_peer_key(&peer) {
+                unique_peers.entry(key).or_insert(());
             }
         }
     }
@@ -3752,16 +3810,21 @@ fn validate_ceremony_package(
     package: &TestnetBetaCeremonyPackage,
     requested_role: &str,
 ) -> Result<(), String> {
-    if package.format != "synergy-testbeta-ceremony-package/v1" {
-        return Err(format!(
-            "Unsupported ceremony package format: {}",
-            package.format
-        ));
-    }
+    validate_ceremony_package_identity(package)?;
     if package.role_id != requested_role {
         return Err(format!(
             "Ceremony package role mismatch. Expected {}, got {}.",
             requested_role, package.role_id
+        ));
+    }
+    Ok(())
+}
+
+fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> Result<(), String> {
+    if package.format != "synergy-testbeta-ceremony-package/v1" {
+        return Err(format!(
+            "Unsupported ceremony package format: {}",
+            package.format
         ));
     }
     if package.chain_id != TESTNET_BETA_CHAIN_ID {

@@ -75,6 +75,74 @@ function formatStake(value) {
   return `${number.toLocaleString(undefined, { maximumFractionDigits: 2 })} SNRG`;
 }
 
+const DEFAULT_CEREMONY_PORT_SETTINGS = Object.freeze({
+  p2p: 5622,
+  rpc: 5640,
+  ws: 5660,
+  discovery: 5680,
+  metrics: 6030,
+});
+
+const CEREMONY_FORWARD_PORT_FIELDS = Object.freeze([
+  {
+    key: 'p2p',
+    label: 'P2P',
+    detail: 'Required so the validator can accept inbound peer connections.',
+  },
+  {
+    key: 'rpc',
+    label: 'RPC',
+    detail: 'Required if you want the machine reachable over its assigned RPC endpoint.',
+  },
+  {
+    key: 'ws',
+    label: 'WebSocket',
+    detail: 'Required if you want the machine reachable over its assigned WebSocket endpoint.',
+  },
+  {
+    key: 'discovery',
+    label: 'Discovery',
+    detail: 'Required so the validator can advertise and answer discovery traffic.',
+  },
+]);
+
+function resolvePortSlot(node) {
+  const parsed = Number.parseInt(String(node?.port_slot ?? node?.portSlot ?? 0).trim(), 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+}
+
+function resolveCeremonyPortSettings(node, portSettings) {
+  const slot = resolvePortSlot(node);
+  const base = portSettings && typeof portSettings === 'object'
+    ? portSettings
+    : DEFAULT_CEREMONY_PORT_SETTINGS;
+  return {
+    p2p: Number.parseInt(String(base.p2p ?? DEFAULT_CEREMONY_PORT_SETTINGS.p2p), 10) || (DEFAULT_CEREMONY_PORT_SETTINGS.p2p + slot),
+    rpc: Number.parseInt(String(base.rpc ?? DEFAULT_CEREMONY_PORT_SETTINGS.rpc), 10) || (DEFAULT_CEREMONY_PORT_SETTINGS.rpc + slot),
+    ws: Number.parseInt(String(base.ws ?? DEFAULT_CEREMONY_PORT_SETTINGS.ws), 10) || (DEFAULT_CEREMONY_PORT_SETTINGS.ws + slot),
+    discovery: Number.parseInt(String(base.discovery ?? DEFAULT_CEREMONY_PORT_SETTINGS.discovery), 10) || (DEFAULT_CEREMONY_PORT_SETTINGS.discovery + slot),
+    metrics: Number.parseInt(String(base.metrics ?? DEFAULT_CEREMONY_PORT_SETTINGS.metrics), 10) || (DEFAULT_CEREMONY_PORT_SETTINGS.metrics + slot),
+  };
+}
+
+function buildCeremonyPortForwardingPlan(node, portSettings) {
+  const resolved = resolveCeremonyPortSettings(node, portSettings);
+  return {
+    forwardedPorts: CEREMONY_FORWARD_PORT_FIELDS.map((field) => ({
+      ...field,
+      port: resolved[field.key],
+    })),
+    localOnlyPort: {
+      label: 'Metrics',
+      port: resolved.metrics,
+      detail: 'Keep this local-only unless you intentionally expose node telemetry.',
+    },
+  };
+}
+
 function deriveSetupStatus(phase, running, hasProvisionedNode) {
   if (phase === 'error') {
     return { label: 'Needs Attention', tone: 'danger' };
@@ -208,7 +276,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const [directoryChoice, setDirectoryChoice] = useState('');
   const [provisionResult, setProvisionResult] = useState(null);
   const [ceremonyPackagePath, setCeremonyPackagePath] = useState('');
+  const [ceremonyPackagePreview, setCeremonyPackagePreview] = useState(null);
   const [ceremonyImportResult, setCeremonyImportResult] = useState(null);
+  const [ceremonyPortForwardingPlan, setCeremonyPortForwardingPlan] = useState(null);
 
   const [terminalCwd, setTerminalCwd] = useState('');
   const [terminalBusy, setTerminalBusy] = useState(false);
@@ -227,6 +297,11 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     () => deriveSetupStatus(phase, running, Boolean(provisionResult?.node || ceremonyImportResult?.node)),
     [ceremonyImportResult?.node, phase, provisionResult?.node, running],
   );
+  const selectedRoleDisplayName = useMemo(() => (
+    setupMode === 'ceremony'
+      ? (ceremonyPackagePreview?.display_name || selectedRole?.display_name || 'Awaiting package')
+      : (selectedRole?.display_name || 'Awaiting selection')
+  ), [ceremonyPackagePreview?.display_name, selectedRole?.display_name, setupMode]);
   const chatInputLocked = useMemo(
     () => running || phase === 'booting' || promptKindsWithSelections.has(phase),
     [phase, running],
@@ -237,8 +312,8 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     { label: 'Detected host', value: deviceProfile?.hostname || 'Detecting...' },
     { label: 'Setup mode', value: setupMode === 'ceremony' ? 'Genesis import' : 'Standard setup' },
     { label: 'Provisioned nodes', value: existingNodes.length ? String(existingNodes.length) : '0' },
-    { label: 'Selected node type', value: selectedRole?.display_name || 'Awaiting selection' },
-  ]), [deviceProfile?.hostname, existingNodes.length, networkProfile?.display_name, selectedRole?.display_name, setupMode]);
+    { label: 'Selected node type', value: selectedRoleDisplayName },
+  ]), [deviceProfile?.hostname, existingNodes.length, networkProfile?.display_name, selectedRoleDisplayName, setupMode]);
 
   const networkBootnodes = networkProfile?.bootnodes || [];
   const networkSeeds = networkProfile?.seed_servers || [];
@@ -432,6 +507,26 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     navigate('/');
   }, [navigate, onComplete, onDefer, queueJarvisMessages, resetMessageQueue]);
 
+  const finishCeremonySetup = useCallback(async () => {
+    resetMessageQueue();
+    await queueJarvisMessages([
+      {
+        text: 'Port forwarding confirmation recorded.',
+        typingMs: 560,
+        pauseMs: 220,
+      },
+      {
+        text: 'I am sending you to the dashboard now. Once those ports are forwarded on this machine, the validator will be reachable on its assigned Testnet-Beta surface.',
+        typingMs: 980,
+      },
+    ]);
+
+    if (typeof onComplete === 'function') {
+      onComplete();
+    }
+    navigate('/');
+  }, [navigate, onComplete, queueJarvisMessages, resetMessageQueue]);
+
   const refreshState = useCallback(async (announce = false) => {
     const data = await invoke('testbeta_get_state');
     setDeviceProfile(data?.device_profile || null);
@@ -527,13 +622,69 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       }
 
       setCeremonyPackagePath(selectedPath);
+      setCeremonyImportResult(null);
+      setCeremonyPortForwardingPlan(null);
       addTerminalLine('info', `Selected ceremony package: ${selectedPath}`);
-      await queueJarvisMessage(`Package selected: ${selectedPath}. Choose Import Package when you are ready.`);
+
+      try {
+        const preview = await invoke('testbeta_inspect_ceremony_package', {
+          input: {
+            packagePath: selectedPath,
+          },
+        });
+        const inferredRoleId = String(preview?.role_id || '').trim();
+        const inferredDirectory = suggestedCeremonyDirectory(
+          deviceProfile?.home_directory || '~',
+          inferredRoleId || 'validator',
+        );
+
+        setCeremonyPackagePreview(preview || null);
+        setSelectedRoleId(inferredRoleId);
+        setDirectoryChoice(inferredDirectory);
+        setPublicHost('');
+        setProvisionResult(null);
+
+        await queueJarvisMessages([
+          {
+            text: `Package selected: ${preview?.display_name || selectedPath}.`,
+            typingMs: 640,
+            pauseMs: 220,
+          },
+          {
+            text: `I identified this as the approved ${inferredRoleId || 'ceremony'} package for this machine. Review this computer, then I will import the validator workspace from that package.`,
+            typingMs: 1080,
+          },
+        ]);
+        setPhase('review_device');
+        return;
+      } catch (previewError) {
+        setCeremonyPackagePreview(null);
+        setSelectedRoleId('');
+        setPublicHost('');
+        addTerminalLine('info', `Package preview unavailable: ${String(previewError)}`);
+        await queueJarvisMessages([
+          {
+            text: `Package selected: ${selectedPath}.`,
+            typingMs: 620,
+            pauseMs: 220,
+          },
+          {
+            text: 'I could not identify the package role automatically. Choose the ceremony role for this machine and then continue the import flow.',
+            typingMs: 1040,
+          },
+        ]);
+        setPhase('await_ceremony_role');
+      }
     } catch (error) {
       addTerminalLine('error', `Package selection failed: ${String(error)}`);
       await queueJarvisMessage('I could not open the package selector on this machine.');
     }
-  }, [addTerminalLine, queueJarvisMessage]);
+  }, [
+    addTerminalLine,
+    deviceProfile?.home_directory,
+    queueJarvisMessage,
+    queueJarvisMessages,
+  ]);
 
   const runCeremonyImport = useCallback(async () => {
     if (!selectedRole) {
@@ -550,6 +701,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     addTerminalLine('info', `Importing ${selectedRole.display_name} from ${ceremonyPackagePath}...`);
 
     try {
+      let appliedPortSettings = null;
       const result = await invoke('testbeta_import_ceremony_package', {
         input: {
           setupRoleId: selectedRole.id,
@@ -575,6 +727,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         addTerminalLine('info', `Funding manifest: ${result?.node?.funding_manifest_id || 'pending'}`);
         try {
           const portConfig = await applyStoredTestnetBetaPortSettings(result?.node);
+          appliedPortSettings = portConfig.portSettings || null;
           addTerminalLine(
             'info',
             `Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`,
@@ -617,13 +770,15 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             text: 'I staged the approved package, applied the canonical beta manifests, and started the node runtime for this role.',
             typingMs: 1060,
           },
+          {
+            text: 'Before I send you to the dashboard, forward the assigned ports for this machine so the validator can accept inbound traffic on the correct ports.',
+            typingMs: 1180,
+          },
         ]);
 
         await refreshState(false);
-        if (typeof onComplete === 'function') {
-          onComplete();
-        }
-        navigate('/');
+        setCeremonyPortForwardingPlan(buildCeremonyPortForwardingPlan(result?.node, appliedPortSettings));
+        setPhase('confirm_ceremony_port_forwarding');
         return;
       }
 
@@ -786,6 +941,15 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
     const trimmedValue = String(value).trim();
 
+    if (phase === 'confirm_ceremony_port_forwarding') {
+      if (/^i will forward the specified ports for my machine$/i.test(trimmedValue)) {
+        await finishCeremonySetup();
+        return;
+      }
+      await queueJarvisMessage('Use the port-forwarding confirmation button once those machine ports are accounted for.');
+      return;
+    }
+
     if (/^(dashboard|not now jarvis|not now|later)$/i.test(trimmedValue)) {
       await handoffToDashboard();
       return;
@@ -799,7 +963,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       setDirectoryChoice('');
       setProvisionResult(null);
       setCeremonyPackagePath('');
+      setCeremonyPackagePreview(null);
       setCeremonyImportResult(null);
+      setCeremonyPortForwardingPlan(null);
       setRunning(true);
       try {
         await refreshState(false);
@@ -813,27 +979,29 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           pauseMs: 220,
         },
         {
-          text: 'Choose the ceremony role for this machine and I will import the approved package from the Genesis Dashboard into a Control Panel-managed workspace.',
+          text: 'Select the approved setup package JSON for this machine first. I will identify the assignment from the package and then provision the validator workspace from it.',
           typingMs: 1040,
         },
       ]);
-      setPhase('await_ceremony_role');
+      setPhase('select_ceremony_package');
       return;
     }
 
     if (/^(restart|start over|reset)$/i.test(trimmedValue)) {
-      const nextPhase = setupMode === 'ceremony' ? 'await_ceremony_role' : 'await_node_type';
+      const nextPhase = setupMode === 'ceremony' ? 'select_ceremony_package' : 'await_node_type';
       resetMessageQueue();
       setSelectedRoleId('');
       setPublicHost('');
       setDirectoryChoice('');
       setProvisionResult(null);
       setCeremonyPackagePath('');
+      setCeremonyPackagePreview(null);
       setCeremonyImportResult(null);
+      setCeremonyPortForwardingPlan(null);
       setPhase(nextPhase);
       await queueJarvisMessage(
         setupMode === 'ceremony'
-          ? 'I cleared the previous setup steps. Choose the ceremony role for this machine.'
+          ? 'I cleared the previous setup steps. Select the approved setup package JSON for this machine.'
           : 'I cleared the previous setup steps. Choose the kind of node you want to set up.',
       );
       return;
@@ -878,8 +1046,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       const nextDirectory = suggestedCeremonyDirectory(deviceProfile?.home_directory || '~', nextRole.id);
       setSelectedRoleId(nextRole.id);
       setDirectoryChoice(nextDirectory);
-      setCeremonyPackagePath('');
+      setCeremonyPackagePreview(null);
       setCeremonyImportResult(null);
+      setCeremonyPortForwardingPlan(null);
       setProvisionResult(null);
 
       await queueJarvisMessages([
@@ -1008,8 +1177,10 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         }
       }
       await queueJarvisMessage(
-        selectedRole?.package_hint
-          || 'Select the approved ceremony package from the Genesis Dashboard, then import it into this Control Panel workspace.',
+        ceremonyPackagePath
+          ? 'The approved package is already selected. Choose Import Package when you are ready for Jarvis to build the workspace from it.'
+          : (selectedRole?.package_hint
+            || 'Select the approved ceremony package from the Genesis Dashboard, then import it into this Control Panel workspace.'),
       );
       setPhase('select_ceremony_package');
       return;
@@ -1042,8 +1213,10 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       await queueJarvisMessage('Type restart to try setup again, say "genesis setup" to switch into ceremony mode, or say "not now jarvis" and I will take you to the dashboard.');
     }
   }, [
+    ceremonyPackagePath,
     deviceProfile?.home_directory,
     directoryChoice,
+    finishCeremonySetup,
     handoffToDashboard,
     nodeCatalog,
     phase,
@@ -1165,9 +1338,25 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     if (phase === 'select_ceremony_package') {
       return {
         kind: 'package',
-        hint: selectedRole?.package_hint || 'Select the approved ceremony package from the Genesis Dashboard.',
+        hint: ceremonyPackagePreview?.display_name
+          ? `Selected package: ${ceremonyPackagePreview.display_name}. Review the machine details, then import this package into the Control Panel workspace.`
+          : (selectedRole?.package_hint || 'Select the approved ceremony package from the Genesis Dashboard.'),
         packagePath: ceremonyPackagePath,
         placeholder: 'Use the package controls below',
+      };
+    }
+
+    if (phase === 'confirm_ceremony_port_forwarding') {
+      return {
+        kind: 'choices',
+        hint: 'Forward the listed ports on this machine before you continue to the dashboard.',
+        options: [
+          {
+            value: 'i will forward the specified ports for my machine',
+            label: 'I Will Forward The Specified Ports For My Machine',
+          },
+        ],
+        placeholder: 'Use the confirmation button below',
       };
     }
 
@@ -1198,7 +1387,15 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       hint: 'Setup Assistant is getting things ready.',
       placeholder: 'Setup Assistant is warming up...',
     };
-  }, [ceremonyPackagePath, directoryChoice, nodeCatalog, phase, publicHost, selectedRole?.package_hint]);
+  }, [
+    ceremonyPackagePath,
+    ceremonyPackagePreview?.display_name,
+    directoryChoice,
+    nodeCatalog,
+    phase,
+    publicHost,
+    selectedRole?.package_hint,
+  ]);
 
   useEffect(() => {
     if (promptConfig.kind !== 'select') {
@@ -1217,16 +1414,28 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const selectedRoleHighlights = selectedRole ? [
     ...((selectedRole.responsibilities || []).slice(0, 3)),
     ...(setupMode === 'ceremony' && selectedRole.package_hint ? [selectedRole.package_hint] : []),
+    ...(setupMode === 'ceremony' ? (ceremonyPackagePreview?.notes || []).slice(0, 2) : []),
   ] : [];
   const selectedRoleServices = selectedRole ? (selectedRole.service_surface || []) : [];
   const hidePromptHint = promptConfig.kind === 'select' || promptConfig.kind === 'choices';
   const setupNote = phase === 'error'
     ? 'Something interrupted setup. Resolve the issue and restart the setup flow.'
     : setupMode === 'ceremony'
-      ? 'I will import an approved genesis package, place it in a dedicated Control Panel workspace, and keep this machine aligned with the canonical beta manifests. Genesis Setup should be the only runtime owner for that validator on this machine.'
+      ? 'I will identify the assigned genesis package, build the validator workspace from it, and stop before the dashboard so you can confirm the exact machine ports that must be forwarded.'
       : 'I will walk you through setup, place the node in its own private folder, and keep every step aligned with the selected node role.';
-  const previewStatus = ceremonyImportResult ? 'Imported' : provisionResult?.node ? 'Created' : 'Pending';
-  const previewNotes = ceremonyImportResult?.next_steps?.length
+  const previewStatus = ceremonyPortForwardingPlan
+    ? 'Waiting for Port Forwarding'
+    : ceremonyImportResult
+      ? 'Imported'
+      : provisionResult?.node
+        ? 'Created'
+        : 'Pending';
+  const previewNotes = ceremonyPortForwardingPlan
+    ? [
+      'Forward the listed machine ports before you move on to validator operations.',
+      'Jarvis will hold this setup flow until you confirm the forwarding step.',
+    ]
+    : ceremonyImportResult?.next_steps?.length
     ? ceremonyImportResult.next_steps.slice(0, 3)
     : ['Jarvis will append a unique suffix automatically if the requested workspace path is already in use.'];
 
@@ -1444,7 +1653,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
               {setupMode === 'ceremony' ? (
                 <div className="jarvis-status-row">
                   <span>Approved package</span>
-                  <strong>{ceremonyPackagePath || 'Choose a package from the Genesis Dashboard'}</strong>
+                  <strong>{ceremonyPackagePreview?.display_name || ceremonyPackagePath || 'Choose a package from the Genesis Dashboard'}</strong>
                 </div>
               ) : null}
               {ceremonyImportResult?.workspace_directory ? (
@@ -1458,6 +1667,33 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
               {previewNotes.map((line) => <p key={line}>{line}</p>)}
             </div>
           </section>
+
+          {ceremonyPortForwardingPlan ? (
+            <section className="jarvis-detail-card">
+              <div className="jarvis-detail-header">
+                <h3>Forward These Ports</h3>
+                <span>Required before dashboard</span>
+              </div>
+              <div className="jarvis-status-list">
+                {ceremonyPortForwardingPlan.forwardedPorts.map((entry) => (
+                  <div key={entry.key} className="jarvis-status-row">
+                    <span>{entry.label}</span>
+                    <strong>{entry.port}</strong>
+                  </div>
+                ))}
+                <div className="jarvis-status-row">
+                  <span>{ceremonyPortForwardingPlan.localOnlyPort.label}</span>
+                  <strong>{ceremonyPortForwardingPlan.localOnlyPort.port} (local only)</strong>
+                </div>
+              </div>
+              <div className="jarvis-plan-list">
+                {ceremonyPortForwardingPlan.forwardedPorts.map((entry) => (
+                  <p key={`${entry.key}-detail`}>{entry.label}: {entry.detail}</p>
+                ))}
+                <p>{ceremonyPortForwardingPlan.localOnlyPort.detail}</p>
+              </div>
+            </section>
+          ) : null}
         </aside>
       </div>
 

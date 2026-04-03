@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { invoke, openPath, readTextFile } from '../lib/desktopClient';
+import { useDeveloperMode } from '../lib/developerMode';
 import {
   applyTestnetBetaPortSettings,
   applyStoredTestnetBetaPortSettings,
@@ -18,6 +19,8 @@ const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 const POLL_INTERVAL_MS = 8000;
 
 const NWEI_PER_SNRG = 1000000000n;
+let _cachedNodeDetailState = null;
+let _cachedNodeDetailLiveStatus = null;
 
 async function fetchExplorerJson(baseUrl, path) {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
@@ -68,6 +71,11 @@ function formatNumber(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 'N/A';
   return number.toLocaleString();
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function formatWholeSnrg(value) {
@@ -146,6 +154,60 @@ function classTierLabel(role) {
 function latencyLabel(entry) {
   if (!entry?.reachable || entry?.latency_ms == null) return entry?.detail || 'Unavailable';
   return `${entry.latency_ms} ms`;
+}
+
+function formatPeerLastSeen(value) {
+  const numeric = toFiniteNumber(value);
+  if (numeric == null || numeric <= 0) {
+    return 'Unknown';
+  }
+
+  const milliseconds = numeric < 1e12 ? numeric * 1000 : numeric;
+  const timestamp = new Date(milliseconds);
+  if (Number.isNaN(timestamp.getTime())) {
+    return 'Unknown';
+  }
+
+  return timestamp.toLocaleString();
+}
+
+function normalizePeerInfoPayload(raw) {
+  const peers = Array.isArray(raw?.peers) ? raw.peers : [];
+
+  return {
+    peerCount: toFiniteNumber(raw?.peer_count) ?? peers.length,
+    peers: peers
+      .map((peer, index) => ({
+        id: String(
+          peer?.node_id
+            || peer?.validator_address
+            || peer?.public_address
+            || peer?.address
+            || `peer-${index}`,
+        ),
+        address: String(peer?.address || '').trim(),
+        nodeId: String(peer?.node_id || '').trim(),
+        publicAddress: String(peer?.public_address || '').trim(),
+        validatorAddress: String(peer?.validator_address || '').trim(),
+        version: String(peer?.version || '').trim(),
+        capabilities: Array.isArray(peer?.capabilities)
+          ? peer.capabilities.map((entry) => String(entry || '').trim()).filter(Boolean)
+          : [],
+        lastSeen: toFiniteNumber(peer?.last_seen),
+        blocksSent: toFiniteNumber(peer?.blocks_sent) ?? 0,
+        blocksReceived: toFiniteNumber(peer?.blocks_received) ?? 0,
+        txsSent: toFiniteNumber(peer?.txs_sent) ?? 0,
+        txsReceived: toFiniteNumber(peer?.txs_received) ?? 0,
+      }))
+      .sort((left, right) => {
+        const leftSeen = left.lastSeen ?? 0;
+        const rightSeen = right.lastSeen ?? 0;
+        if (rightSeen !== leftSeen) {
+          return rightSeen - leftSeen;
+        }
+        return left.id.localeCompare(right.id);
+      }),
+  };
 }
 
 function rewardProfileForRole(role) {
@@ -334,11 +396,12 @@ function RemoveNodeModal({ node, onConfirm, onCancel, busy }) {
 function TestnetBetaNodeDetail() {
   const { nodeId } = useParams();
   const navigate = useNavigate();
+  const [developerModeEnabled] = useDeveloperMode();
 
-  const [state, setState] = useState(null);
-  const [liveStatus, setLiveStatus] = useState(null);
+  const [state, setState] = useState(_cachedNodeDetailState);
+  const [liveStatus, setLiveStatus] = useState(_cachedNodeDetailLiveStatus);
   const [explorerData, setExplorerData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(_cachedNodeDetailState === null);
   const [error, setError] = useState('');
   const [controlBusy, setControlBusy] = useState('');
   const [controlMessage, setControlMessage] = useState('');
@@ -362,6 +425,9 @@ function TestnetBetaNodeDetail() {
   const [readinessReport, setReadinessReport] = useState(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [boostBusy, setBoostBusy] = useState(false);
+  const [localPeerInfo, setLocalPeerInfo] = useState(null);
+  const [localPeerInfoLoading, setLocalPeerInfoLoading] = useState(false);
+  const [localPeerInfoError, setLocalPeerInfoError] = useState('');
   const atlasAvailable = useRef(true);
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
 
@@ -381,21 +447,30 @@ function TestnetBetaNodeDetail() {
     if (liveResult.status === 'rejected') errors.push(String(liveResult.reason));
     setError(errors.join(' '));
 
-    if (atlasAvailable.current) {
-      const raw = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/api/v1/network/summary');
-      if (raw) {
-        setExplorerData({
-          total_validators: raw.total_validators ?? raw.totalValidators ?? raw.activeValidators ?? null,
-          total_transactions: raw.total_transactions ?? raw.totalTransactions ?? null,
-          avg_block_time: raw.avg_block_time ?? raw.avgBlockTimeSeconds ?? raw.avgBlockTime ?? null,
-          ...raw,
-        });
-      } else {
-        atlasAvailable.current = false;
-      }
+    if (stateResult.status === 'fulfilled') {
+      _cachedNodeDetailState = stateResult.value;
+    }
+    if (liveResult.status === 'fulfilled') {
+      _cachedNodeDetailLiveStatus = liveResult.value;
     }
 
     if (!silent) setLoading(false);
+
+    if (atlasAvailable.current) {
+      void (async () => {
+        const raw = await fetchExplorerJson(DEFAULT_ATLAS_API_BASE, '/api/v1/network/summary');
+        if (raw) {
+          setExplorerData({
+            total_validators: raw.total_validators ?? raw.totalValidators ?? raw.activeValidators ?? null,
+            total_transactions: raw.total_transactions ?? raw.totalTransactions ?? null,
+            avg_block_time: raw.avg_block_time ?? raw.avgBlockTimeSeconds ?? raw.avgBlockTime ?? null,
+            ...raw,
+          });
+        } else {
+          atlasAvailable.current = false;
+        }
+      })();
+    }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -427,6 +502,12 @@ function TestnetBetaNodeDetail() {
   const runtimeTone = nodeRuntimeTone(nodeLive);
   const nodeTomlPath = node?.config_paths?.find((p) => p.endsWith('/node.toml')) || node?.config_paths?.[0];
   const nginxConfPath = node ? resolveNginxConfPath(node) : null;
+  const publicHeight = liveStatus?.public_chain_height ?? null;
+  const networkHeight = nodeLive?.best_network_height ?? publicHeight;
+  const networkVisiblePeerCount = liveStatus?.network_peer_count
+    ?? explorerData?.total_validators
+    ?? liveStatus?.public_peer_count
+    ?? null;
 
   const loadConfigArtifacts = useCallback(async (targetNode) => {
     if (!targetNode) {
@@ -464,11 +545,14 @@ function TestnetBetaNodeDetail() {
       loadConfigArtifacts(null);
       return;
     }
+    if (activeTab !== 'config') {
+      return;
+    }
     setPortErrors({});
     setPortNotice('');
     setPortNoticeTone('good');
     loadConfigArtifacts(node);
-  }, [loadConfigArtifacts, node]);
+  }, [activeTab, loadConfigArtifacts, node]);
 
   useEffect(() => {
     if (activeTab !== 'wallet' || !node) {
@@ -548,6 +632,58 @@ function TestnetBetaNodeDetail() {
       window.clearInterval(intervalId);
     };
   }, [activeTab, fundingManifest?.amount_nwei, fundingManifest?.amount_snrg, node, nodeLive]);
+
+  useEffect(() => {
+    if (activeTab !== 'connectivity' || !developerModeEnabled) {
+      setLocalPeerInfo(null);
+      setLocalPeerInfoError('');
+      setLocalPeerInfoLoading(false);
+      return undefined;
+    }
+
+    if (!node || !nodeLive?.is_running || nodeLive?.local_rpc_ready !== true) {
+      setLocalPeerInfo(null);
+      setLocalPeerInfoError('');
+      setLocalPeerInfoLoading(false);
+      return undefined;
+    }
+
+    const endpoint = localRpcEndpointForNode(node, nodeLive);
+    let cancelled = false;
+
+    const fetchLocalPeerInfo = async (showSpinner = false) => {
+      if (showSpinner && !cancelled) {
+        setLocalPeerInfoLoading(true);
+      }
+
+      try {
+        const peerInfo = await queryLocalRpc(endpoint, 'synergy_getPeerInfo', []);
+        if (!cancelled) {
+          setLocalPeerInfo(normalizePeerInfoPayload(peerInfo));
+          setLocalPeerInfoError('');
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setLocalPeerInfo(null);
+          setLocalPeerInfoError(String(loadError));
+        }
+      } finally {
+        if (!cancelled) {
+          setLocalPeerInfoLoading(false);
+        }
+      }
+    };
+
+    fetchLocalPeerInfo(true);
+    const intervalId = window.setInterval(() => {
+      fetchLocalPeerInfo(false);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeTab, developerModeEnabled, node, nodeLive]);
 
   const runNodeControl = async (action) => {
     if (!node) return;
@@ -720,12 +856,6 @@ function TestnetBetaNodeDetail() {
   const syncLabel = node?.role_id === 'validator' ? 'Rejoin' : 'Speed Sync';
 
   const renderOverview = () => {
-    const publicHeight = liveStatus?.public_chain_height;
-    const networkHeight = nodeLive?.best_network_height ?? publicHeight;
-    const networkVisiblePeerCount = liveStatus?.network_peer_count
-      ?? explorerData?.total_validators
-      ?? liveStatus?.public_peer_count
-      ?? null;
     return (
     <div className="nodedetail-tab-stack">
       {/* Metrics grid */}
@@ -945,6 +1075,97 @@ function TestnetBetaNodeDetail() {
           ))}
         </div>
       </section>
+
+      {developerModeEnabled && (
+        <section className="nodecp-panel">
+          <div className="nodecp-panel-header">
+            <div>
+              <p className="nodecp-panel-kicker">Developer mode</p>
+              <h3>Local node peers</h3>
+            </div>
+            <span className={`nodecp-health-pill nodecp-health-${
+              localPeerInfoError
+                ? 'bad'
+                : nodeLive?.is_running && nodeLive?.local_rpc_ready === true
+                  ? 'good'
+                  : 'warn'
+            }`}>
+              {localPeerInfoError
+                ? 'Unavailable'
+                : nodeLive?.is_running && nodeLive?.local_rpc_ready === true
+                  ? `${formatNumber(localPeerInfo?.peerCount ?? nodeLive?.local_peer_count ?? 0)} connected`
+                  : 'Waiting for local RPC'}
+            </span>
+          </div>
+
+          {!nodeLive?.is_running ? (
+            <div className="nodecp-empty-inline">
+              Start this node to inspect its live peer set.
+            </div>
+          ) : nodeLive?.local_rpc_ready !== true ? (
+            <div className="nodecp-empty-inline">
+              {nodeLive?.local_rpc_status || 'Local RPC is not responding yet.'}
+            </div>
+          ) : localPeerInfoLoading && !localPeerInfo ? (
+            <div className="nodecp-peer-loading">
+              <div className="spinner" style={{ width: '18px', height: '18px' }}></div>
+              <span>Loading live peer connections…</span>
+            </div>
+          ) : localPeerInfoError ? (
+            <div className="nodecp-inline-alert nodecp-inline-alert-bad">
+              Could not load live peer connections: {localPeerInfoError}
+            </div>
+          ) : (localPeerInfo?.peers?.length || 0) === 0 ? (
+            <div className="nodecp-empty-inline">
+              This node is running but currently has no active peer connections.
+            </div>
+          ) : (
+            <div className="nodecp-peer-list">
+              {localPeerInfo.peers.map((peer, index) => (
+                <article key={`${peer.id}-${index}`} className="nodecp-peer-card">
+                  <div className="nodecp-peer-card-header">
+                    <div className="nodecp-peer-card-title">
+                      <strong>{peer.nodeId || peer.validatorAddress || `Peer ${index + 1}`}</strong>
+                      <span>{peer.publicAddress || peer.address || 'Public address unavailable'}</span>
+                    </div>
+                    <span className="nodecp-health-pill nodecp-health-good">Connected</span>
+                  </div>
+                  <div className="nodecp-peer-card-grid">
+                    <div className="nodecp-peer-metric">
+                      <span>Address</span>
+                      <code>{peer.address || 'Unknown'}</code>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Validator</span>
+                      <code>{peer.validatorAddress || 'Unknown'}</code>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Last seen</span>
+                      <strong>{formatPeerLastSeen(peer.lastSeen)}</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Version</span>
+                      <strong>{peer.version || 'Unknown'}</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Blocks</span>
+                      <strong>{formatNumber(peer.blocksReceived)} in / {formatNumber(peer.blocksSent)} out</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Transactions</span>
+                      <strong>{formatNumber(peer.txsReceived)} in / {formatNumber(peer.txsSent)} out</strong>
+                    </div>
+                    <div className="nodecp-peer-metric nodecp-peer-metric-wide">
+                      <span>Capabilities</span>
+                      <strong>{peer.capabilities.length ? peer.capabilities.join(', ') : 'Not advertised'}</strong>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="nodecp-panel-grid">
         <section className="nodecp-panel">

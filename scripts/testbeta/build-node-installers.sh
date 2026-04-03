@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 CONFIG_DIR="$ROOT_DIR/testbeta/runtime/configs"
-GENESIS_FILE="$ROOT_DIR/testbeta/runtime/configs/genesis/genesis.json"
+GENESIS_FILE="$ROOT_DIR/../config/genesis.json"
 KEYS_DIR="$ROOT_DIR/testbeta/runtime/keys"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/testbeta/runtime/installers}"
 TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
@@ -209,7 +209,7 @@ fi
 
 if [[ ! -f "$GENESIS_FILE" ]]; then
   echo "Missing genesis file: $GENESIS_FILE" >&2
-  echo "Run scripts/testbeta/generate-testbeta-genesis.sh first." >&2
+  echo "Sync the canonical genesis from ../config/genesis.json first." >&2
   exit 1
 fi
 
