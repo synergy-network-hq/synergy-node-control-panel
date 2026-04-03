@@ -2254,10 +2254,8 @@ async fn launch_runner_detached(
             .map_err(|error| format!("Failed to open {}: {error}", stderr_path.display()))?;
 
         let mut command = command_for_runner(&runner);
-        command
-            .arg(&subcommand)
-            .arg("--config")
-            .arg(&config_path)
+        command.arg(&subcommand).arg("--config").arg(&config_path);
+        apply_workspace_runtime_env(&mut command, &config_path, &workspace_directory)
             .current_dir(&workspace_directory)
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
@@ -2430,10 +2428,8 @@ async fn run_runner_and_wait(
 
     tokio::task::spawn_blocking(move || -> Result<(), String> {
         let mut command = command_for_runner(&runner);
-        command
-            .arg(&subcommand)
-            .arg("--config")
-            .arg(&config_path)
+        command.arg(&subcommand).arg("--config").arg(&config_path);
+        apply_workspace_runtime_env(&mut command, &config_path, &workspace_directory)
             .current_dir(&workspace_directory);
 
         let output = command
@@ -2488,6 +2484,16 @@ fn command_for_runner(runner: &TestnetBetaRunner) -> std::process::Command {
             command
         }
     }
+}
+
+fn apply_workspace_runtime_env<'a>(
+    command: &'a mut std::process::Command,
+    config_path: &Path,
+    workspace_directory: &Path,
+) -> &'a mut std::process::Command {
+    command
+        .env("SYNERGY_PROJECT_ROOT", workspace_directory)
+        .env("SYNERGY_CONFIG_PATH", config_path)
 }
 
 fn parse_testbeta_rpc_endpoint(config_path: &Path) -> Option<String> {
@@ -3864,7 +3870,10 @@ fn validate_ceremony_package_role(
 
     find_role_profile(package_role)?;
 
-    if let Some(requested_role) = requested_role.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(requested_role) = requested_role
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if package_role != requested_role {
             return Err(format!(
                 "Ceremony package role mismatch. Expected {}, got {}.",
@@ -4864,10 +4873,8 @@ mod tests {
     #[test]
     fn setup_node_writes_role_metadata_and_bootstrap_inputs() {
         with_temp_home(|_| {
-            let _public_host = EnvVarGuard::set_path(
-                "SYNERGY_TESTBETA_PUBLIC_HOST",
-                Path::new("203.0.113.10"),
-            );
+            let _public_host =
+                EnvVarGuard::set_path("SYNERGY_TESTBETA_PUBLIC_HOST", Path::new("203.0.113.10"));
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
             let result = runtime
                 .block_on(testbeta_setup_node(TestnetBetaSetupInput {
@@ -5206,10 +5213,11 @@ mod tests {
             });
             write_json_file(&package_path, &package).expect("package should write");
 
-            let preview = testbeta_inspect_ceremony_package(TestnetBetaInspectCeremonyPackageInput {
-                package_path: package_path.to_string_lossy().to_string(),
-            })
-            .expect("validator setup package should inspect");
+            let preview =
+                testbeta_inspect_ceremony_package(TestnetBetaInspectCeremonyPackageInput {
+                    package_path: package_path.to_string_lossy().to_string(),
+                })
+                .expect("validator setup package should inspect");
 
             assert_eq!(preview.role_id, "validator");
             assert_eq!(preview.package_type, "validator-runtime");
@@ -5261,7 +5269,10 @@ mod tests {
                 .expect("package import should infer the validator role");
 
             assert_eq!(result.role_id, "validator");
-            assert_eq!(result.node.as_ref().map(|node| node.role_id.as_str()), Some("validator"));
+            assert_eq!(
+                result.node.as_ref().map(|node| node.role_id.as_str()),
+                Some("validator")
+            );
             assert!(
                 PathBuf::from(&result.workspace_directory)
                     .join("manifests")
@@ -5321,9 +5332,47 @@ case "$cmd" in
     mkdir -p data logs
     echo $$ > data/synergy-testbeta.pid
     echo '{"ok":true}' > data/role-runtime.json
+    rpc_port="$(python3 - "$SYNERGY_CONFIG_PATH" <<'PY'
+import pathlib
+import re
+import sys
+
+config_path = pathlib.Path(sys.argv[1])
+contents = config_path.read_text()
+match = re.search(r"(?m)^\s*http_port\s*=\s*(\d+)\s*$", contents)
+print(match.group(1) if match else "5640")
+PY
+)"
+    python3 - "$rpc_port" > logs/rpc-test.out 2> logs/rpc-test.err <<'PY' &
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+port = int(sys.argv[1])
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+PY
+    echo $! > data/rpc-test.pid
     sleep 30
     ;;
   stop)
+    if [ -f data/rpc-test.pid ]; then
+      rpc_pid="$(cat data/rpc-test.pid)"
+      kill "$rpc_pid" >/dev/null 2>&1 || true
+      rm -f data/rpc-test.pid
+    fi
     if [ -f data/synergy-testbeta.pid ]; then
       pid="$(cat data/synergy-testbeta.pid)"
       kill "$pid" >/dev/null 2>&1 || true
@@ -5354,6 +5403,18 @@ esac
                     skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
+            let config_path = PathBuf::from(&setup.node.workspace_directory)
+                .join("config")
+                .join("node.toml");
+            let config_contents =
+                fs::read_to_string(&config_path).expect("workspace config should exist");
+            let config_contents = config_contents
+                .replace(
+                    "bind_address = \"127.0.0.1:5640\"",
+                    "bind_address = \"127.0.0.1:6140\"",
+                )
+                .replace("http_port = 5640", "http_port = 6140");
+            fs::write(&config_path, config_contents).expect("workspace config should update");
             let app_context = AppContext::from_env();
             let start_result = runtime
                 .block_on(testbeta_node_control(
@@ -5380,6 +5441,78 @@ esac
                     },
                 ))
                 .expect("stop should succeed");
+        });
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn runner_commands_export_workspace_runtime_env() {
+        use std::os::unix::fs::PermissionsExt;
+
+        with_temp_home(|home| {
+            let workspace = home.join("validator-workspace");
+            let config_dir = workspace.join("config");
+            fs::create_dir_all(&config_dir).expect("config dir should exist");
+
+            let config_path = config_dir.join("node.toml");
+            fs::write(&config_path, "[rpc]\nhttp_port = 5640\n").expect("config should write");
+
+            let env_dump_path = workspace.join("env-sync.json");
+            let runner_path = home.join("runner-env-check.sh");
+            fs::write(
+                &runner_path,
+                format!(
+                    r#"#!/bin/sh
+set -eu
+cmd="$1"
+shift || true
+if [ "$cmd" != "sync" ]; then
+  exit 1
+fi
+if [ "${{SYNERGY_PROJECT_ROOT:-}}" != "{workspace}" ]; then
+  echo "missing project root env" >&2
+  exit 1
+fi
+if [ "${{SYNERGY_CONFIG_PATH:-}}" != "{config}" ]; then
+  echo "missing config env" >&2
+  exit 1
+fi
+cat > "{dump}" <<EOF
+{{"project_root":"${{SYNERGY_PROJECT_ROOT}}","config_path":"${{SYNERGY_CONFIG_PATH}}"}}
+EOF
+"#,
+                    workspace = workspace.display(),
+                    config = config_path.display(),
+                    dump = env_dump_path.display(),
+                ),
+            )
+            .expect("runner script should write");
+            let mut permissions = fs::metadata(&runner_path)
+                .expect("runner metadata should exist")
+                .permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&runner_path, permissions).expect("runner should be executable");
+
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            runtime
+                .block_on(run_runner_and_wait(
+                    &TestnetBetaRunner::Binary(runner_path),
+                    "sync",
+                    &config_path,
+                    &workspace,
+                ))
+                .expect("sync should receive workspace env");
+
+            let env_dump =
+                fs::read_to_string(&env_dump_path).expect("env dump should be written by runner");
+            assert!(
+                env_dump.contains(&workspace.to_string_lossy().to_string()),
+                "workspace env should be passed through to runner"
+            );
+            assert!(
+                env_dump.contains(&config_path.to_string_lossy().to_string()),
+                "config env should be passed through to runner"
+            );
         });
     }
 

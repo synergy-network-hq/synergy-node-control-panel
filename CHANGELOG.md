@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.12.0 - 2026-04-03
+
+- Fixed Testnet-Beta node launches from generated validator workspaces by exporting `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH` into every control-service runner invocation, which stops the validator restart loop caused by runtime root detection failures.
+- Added focused regression coverage for workspace-scoped runner environment propagation and strengthened the start-path test so it validates the local RPC readiness gate instead of depending on an ambient service on the default port.
+- Regenerated the bundled testbeta runtime assets and installer bundles for the repaired workspace launch flow.
+
 ## v5.11.3 - 2026-04-03
 
 - Fixed Jarvis Genesis Setup so validator `setup-package.json` files remain package-driven from selection through import instead of dropping into a manual ceremony-role prompt when the package role should already be known.
