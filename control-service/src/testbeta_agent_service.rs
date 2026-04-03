@@ -29,7 +29,7 @@ pub struct TestnetBetaAgentHealth {
     pub status: String,
     pub version: String,
     pub workspace_path: String,
-    pub local_vpn_ip: Option<String>,
+    pub local_management_host: Option<String>,
     pub physical_machine_id: Option<String>,
     pub node_slot_ids: Vec<String>,
     pub supported_actions: Vec<String>,
@@ -73,7 +73,7 @@ struct AgentState {
 struct InventoryNode {
     node_slot_id: String,
     host: String,
-    vpn_ip: String,
+    management_host: String,
     public_ip: String,
     local_ip: String,
     physical_machine_id: String,
@@ -394,9 +394,9 @@ async fn control_job_handler(
 
 fn build_health(workspace_root: &Path) -> Result<TestnetBetaAgentHealth, String> {
     let nodes = load_inventory_nodes(workspace_root)?;
-    let local_vpn_ip = detect_local_management_ip(&nodes);
+    let local_management_host = detect_local_management_ip(&nodes);
     let installable = installed_node_slots(workspace_root, &nodes);
-    let physical_machine_id = local_vpn_ip
+    let physical_machine_id = local_management_host
         .as_deref()
         .and_then(|ip| {
             nodes
@@ -409,7 +409,7 @@ fn build_health(workspace_root: &Path) -> Result<TestnetBetaAgentHealth, String>
         status: "ok".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         workspace_path: workspace_root.to_string_lossy().to_string(),
-        local_vpn_ip,
+        local_management_host,
         physical_machine_id,
         node_slot_ids: installable,
         supported_actions: supported_agent_actions(),
@@ -708,7 +708,7 @@ fn allow_public_agent_access() -> bool {
 }
 
 fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, String> {
-    let inventory_path = workspace_root.join("testbeta/lean15/node-inventory.csv");
+    let inventory_path = workspace_root.join("testbeta/runtime/node-inventory.csv");
     let content = fs::read_to_string(&inventory_path).map_err(|error| {
         format!(
             "Failed to read inventory {}: {error}",
@@ -737,7 +737,7 @@ fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, Str
 
     let node_slot_idx = column(&["node_slot_id", "machine_id"], "node_slot_id")?;
     let host_idx = column(&["host"], "host")?;
-    let vpn_ip_idx = column(&["vpn_ip"], "vpn_ip")?;
+    let management_host_idx = column(&["management_host"], "management_host")?;
     let public_ip_idx = headers
         .iter()
         .position(|header| header.eq_ignore_ascii_case("public_ip"));
@@ -766,7 +766,7 @@ fn load_inventory_nodes(workspace_root: &Path) -> Result<Vec<InventoryNode>, Str
         nodes.push(InventoryNode {
             node_slot_id,
             host: get(host_idx),
-            vpn_ip: get(vpn_ip_idx),
+            management_host: get(management_host_idx),
             public_ip: public_ip_idx.map(&get).unwrap_or_default(),
             local_ip: local_ip_idx.map(&get).unwrap_or_default(),
             physical_machine_id: get(physical_idx),
@@ -809,7 +809,7 @@ fn legacy_workspace_roots() -> Vec<PathBuf> {
 }
 
 fn install_candidates(workspace_root: &Path, node_slot_id: &str) -> Result<Vec<PathBuf>, String> {
-    let hosts_env = parse_hosts_env(workspace_root.join("testbeta/lean15/hosts.env"))?;
+    let hosts_env = parse_hosts_env(workspace_root.join("testbeta/runtime/hosts.env"))?;
     let key_prefix = node_slot_id.to_ascii_uppercase().replace('-', "_");
     let remote_dir_key = format!("{key_prefix}_REMOTE_DIR");
     let remote_dir = hosts_env
@@ -835,13 +835,13 @@ fn install_candidates(workspace_root: &Path, node_slot_id: &str) -> Result<Vec<P
     candidates.push(PathBuf::from(remote_dir));
     candidates.push(
         workspace_root
-            .join("testbeta/lean15/installers")
+            .join("testbeta/runtime/installers")
             .join(node_slot_id),
     );
     for legacy_root in legacy_workspace_roots() {
         candidates.push(
             legacy_root
-                .join("testbeta/lean15/installers")
+                .join("testbeta/runtime/installers")
                 .join(node_slot_id),
         );
     }
@@ -991,7 +991,7 @@ fn strip_env_quotes(value: &str) -> String {
 
 fn sync_workspace_installer(workspace_root: &Path, install: &NodeInstall) -> Result<(), String> {
     let source = workspace_root
-        .join("testbeta/lean15/installers")
+        .join("testbeta/runtime/installers")
         .join(&install.node_slot_id);
     if !source.is_dir() || source == install.install_dir {
         return Ok(());
@@ -1225,7 +1225,7 @@ fn run_nodectl(install: &NodeInstall, action: &str) -> Result<CommandOutcome, St
 }
 
 fn detect_local_management_ip(nodes: &[InventoryNode]) -> Option<String> {
-    for key in ["SYNERGY_MACHINE_ADDRESS", "SYNERGY_MACHINE_VPN_IP"] {
+    for key in ["SYNERGY_MACHINE_ADDRESS", "SYNERGY_MACHINE_MANAGEMENT_HOST"] {
         if let Ok(value) = std::env::var(key) {
             let trimmed = value.trim();
             if trimmed.parse::<Ipv4Addr>().is_ok() {
@@ -1281,7 +1281,7 @@ fn matches_inventory_address(node: &InventoryNode, value: &str) -> bool {
     let target = value.trim();
     !target.is_empty()
         && [
-            node.vpn_ip.as_str(),
+            node.management_host.as_str(),
             node.host.as_str(),
             node.public_ip.as_str(),
             node.local_ip.as_str(),

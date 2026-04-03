@@ -87,7 +87,7 @@ echo ""
 # ── Commit and tag ──
 git add package.json control-service/Cargo.toml
 git add control-service/Cargo.lock 2>/dev/null || true
-git add testbeta/lean15/configs testbeta/lean15/installers testbeta/lean15/workspace-manifest.json
+git add testbeta/runtime/configs testbeta/runtime/installers testbeta/runtime/workspace-manifest.json
 git add scripts/release/preflight.sh scripts/release/generate-latest-json.sh .github/workflows/release.yml 2>/dev/null || true
 git commit -m "chore: bump version to $VERSION"
 git tag -a "$TAG" -m "Release $TAG"

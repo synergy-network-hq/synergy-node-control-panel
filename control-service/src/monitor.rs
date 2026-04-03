@@ -29,7 +29,7 @@ pub struct MonitorNode {
     pub operator: Option<String>,
     pub device: Option<String>,
     pub host: String,
-    pub vpn_ip: Option<String>,
+    pub management_host: Option<String>,
     pub rpc_port: u16,
     pub p2p_port: u16,
     pub ws_port: u16,
@@ -48,7 +48,7 @@ pub struct MonitorNodeStatus {
     #[serde(default)]
     pub active_physical_machine_id: Option<String>,
     #[serde(default)]
-    pub active_vpn_ip: Option<String>,
+    pub active_management_host: Option<String>,
     pub block_height: Option<u64>,
     pub average_block_time_secs: Option<f64>,
     pub throughput_tps: Option<f64>,
@@ -296,9 +296,9 @@ pub struct MonitorSetupStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MonitorLocalVpnIdentity {
+pub struct MonitorLocalMachineIdentity {
     pub detected: bool,
-    pub vpn_ip: Option<String>,
+    pub management_host: Option<String>,
     pub physical_machine_id: Option<String>,
     #[serde(default, alias = "logical_machine_ids")]
     pub node_slot_ids: Vec<String>,
@@ -319,13 +319,13 @@ pub struct MonitorBulkControlResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorAgentReachability {
     pub physical_machine_id: String,
-    pub vpn_ip: String,
+    pub management_host: String,
     pub node_slot_ids: Vec<String>,
     pub reachable: bool,
     pub response_ms: u64,
     pub version: Option<String>,
     pub workspace_path: Option<String>,
-    pub local_vpn_ip: Option<String>,
+    pub local_management_host: Option<String>,
     pub supported_actions: Vec<String>,
     pub checked_at_utc: String,
     pub error: Option<String>,
@@ -339,32 +339,6 @@ pub struct MonitorAgentSnapshot {
     pub unreachable_agents: usize,
     pub agents: Vec<MonitorAgentReachability>,
 }
-
-const TESTBETA_NODE_VPN_MAP: [(&str, &str); 23] = [
-    ("node-01", "10.50.0.1"),  // Machine-01: validator
-    ("node-14", "10.50.0.1"),  // Machine-01: indexer
-    ("node-02", "10.50.0.2"),  // Machine-02: validator
-    ("node-03", "10.50.0.2"),  // Machine-02: observer
-    ("node-04", "10.50.0.3"),  // Machine-03: validator
-    ("node-05", "10.50.0.3"),  // Machine-03: cross-chain-verifier
-    ("node-06", "10.50.0.4"),  // Machine-04: validator
-    ("node-07", "10.50.0.4"),  // Machine-04: relayer
-    ("node-08", "10.50.0.5"),  // Machine-05: validator
-    ("node-09", "10.50.0.5"),  // Machine-05: committee
-    ("node-10", "10.50.0.6"),  // Machine-06: security-council
-    ("node-11", "10.50.0.6"),  // Machine-06: oracle
-    ("node-12", "10.50.0.7"),  // Machine-07: witness
-    ("node-13", "10.50.0.7"),  // Machine-07: rpc-gateway
-    ("node-22", "10.50.0.8"),  // Machine-08: uma-coordinator
-    ("node-15", "10.50.0.8"),  // Machine-08: pqc-crypto
-    ("node-16", "10.50.0.9"),  // Machine-09: archive-validator
-    ("node-17", "10.50.0.9"),  // Machine-09: audit-validator
-    ("node-24", "10.50.0.10"), // Machine-10: treasury-controller
-    ("node-25", "10.50.0.10"), // Machine-10: governance-auditor
-    ("node-18", "10.50.0.11"), // Machine-11: data-availability
-    ("node-20", "10.50.0.12"), // Machine-12: ai-inference
-    ("node-23", "10.50.0.13"), // Machine-13: compute
-];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorTerminalCommandResult {
@@ -515,9 +489,9 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
         } else {
             node.physical_machine_id.clone()
         };
-        let vpn_ip = machine_topology
+        let management_host = machine_topology
             .get(&physical_machine_id.to_ascii_lowercase())
-            .map(|entry| entry.vpn_ip.clone())
+            .map(|entry| entry.management_host.clone())
             .or_else(|| {
                 let host = node.host.trim();
                 if is_private_management_ip(host) {
@@ -530,18 +504,18 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
 
         let entry = machine_targets
             .entry(physical_machine_id)
-            .or_insert_with(|| (vpn_ip.clone(), Vec::new()));
-        if entry.0.is_empty() && !vpn_ip.is_empty() {
-            entry.0 = vpn_ip.clone();
+            .or_insert_with(|| (management_host.clone(), Vec::new()));
+        if entry.0.is_empty() && !management_host.is_empty() {
+            entry.0 = management_host.clone();
         }
         entry.1.push(node.node_slot_id.clone());
     }
 
     let mut targets = machine_targets
         .into_iter()
-        .map(|(physical_machine_id, (vpn_ip, mut node_slot_ids))| {
+        .map(|(physical_machine_id, (management_host, mut node_slot_ids))| {
             node_slot_ids.sort();
-            (physical_machine_id, vpn_ip, node_slot_ids)
+            (physical_machine_id, management_host, node_slot_ids)
         })
         .collect::<Vec<_>>();
     targets.sort_by(|a, b| a.0.cmp(&b.0));
@@ -554,27 +528,27 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
 
     let probes = targets
         .into_iter()
-        .map(|(physical_machine_id, vpn_ip, node_slot_ids)| {
+        .map(|(physical_machine_id, management_host, node_slot_ids)| {
             let client = client.clone();
             async move {
                 let checked_at_utc = Utc::now().to_rfc3339();
-                if vpn_ip.trim().is_empty() {
+                if management_host.trim().is_empty() {
                     return MonitorAgentReachability {
                         physical_machine_id,
-                        vpn_ip,
+                        management_host,
                         node_slot_ids,
                         reachable: false,
                         response_ms: 0,
                         version: None,
                         workspace_path: None,
-                        local_vpn_ip: None,
+                        local_management_host: None,
                         supported_actions: Vec::new(),
                         checked_at_utc,
                         error: Some("No inventory address resolved for this machine.".to_string()),
                     };
                 }
 
-                let endpoint = format!("http://{vpn_ip}:{TESTBETA_AGENT_PORT}/health");
+                let endpoint = format!("http://{management_host}:{TESTBETA_AGENT_PORT}/health");
                 let started = Instant::now();
                 match client.get(&endpoint).send().await {
                     Ok(response) => {
@@ -584,13 +558,13 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                             let body = response.text().await.unwrap_or_default();
                             return MonitorAgentReachability {
                                 physical_machine_id,
-                                vpn_ip,
+                                management_host,
                                 node_slot_ids,
                                 reachable: false,
                                 response_ms,
                                 version: None,
                                 workspace_path: None,
-                                local_vpn_ip: None,
+                                local_management_host: None,
                                 supported_actions: Vec::new(),
                                 checked_at_utc,
                                 error: Some(format!(
@@ -620,13 +594,13 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                                         .physical_machine_id
                                         .filter(|value| !value.trim().is_empty())
                                         .unwrap_or(physical_machine_id),
-                                    vpn_ip,
+                                    management_host,
                                     node_slot_ids: installed_node_slot_ids,
                                     reachable: true,
                                     response_ms,
                                     version: Some(payload.version),
                                     workspace_path: Some(payload.workspace_path),
-                                    local_vpn_ip: payload.local_vpn_ip,
+                                    local_management_host: payload.local_management_host,
                                     supported_actions: payload.supported_actions,
                                     checked_at_utc,
                                     error: None,
@@ -634,13 +608,13 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                             }
                             Err(error) => MonitorAgentReachability {
                                 physical_machine_id,
-                                vpn_ip,
+                                management_host,
                                 node_slot_ids,
                                 reachable: false,
                                 response_ms,
                                 version: None,
                                 workspace_path: None,
-                                local_vpn_ip: None,
+                                local_management_host: None,
                                 supported_actions: Vec::new(),
                                 checked_at_utc,
                                 error: Some(format!(
@@ -651,13 +625,13 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                     }
                     Err(error) => MonitorAgentReachability {
                         physical_machine_id,
-                        vpn_ip,
+                        management_host,
                         node_slot_ids,
                         reachable: false,
                         response_ms: started.elapsed().as_millis() as u64,
                         version: None,
                         workspace_path: None,
-                        local_vpn_ip: None,
+                        local_management_host: None,
                         supported_actions: Vec::new(),
                         checked_at_utc,
                         error: Some(error.to_string()),
@@ -682,7 +656,7 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
 #[derive(Debug, Clone)]
 struct RuntimeNodePlacement {
     physical_machine_id: String,
-    vpn_ip: String,
+    management_host: String,
 }
 
 async fn load_runtime_node_placements() -> HashMap<String, RuntimeNodePlacement> {
@@ -692,7 +666,7 @@ async fn load_runtime_node_placements() -> HashMap<String, RuntimeNodePlacement>
 
     let mut placements = HashMap::new();
     for agent in snapshot.agents {
-        if !agent.reachable || agent.vpn_ip.trim().is_empty() {
+        if !agent.reachable || agent.management_host.trim().is_empty() {
             continue;
         }
         for node_slot_id in agent.node_slot_ids {
@@ -700,7 +674,7 @@ async fn load_runtime_node_placements() -> HashMap<String, RuntimeNodePlacement>
                 node_slot_id.to_ascii_lowercase(),
                 RuntimeNodePlacement {
                     physical_machine_id: agent.physical_machine_id.clone(),
-                    vpn_ip: agent.vpn_ip.clone(),
+                    management_host: agent.management_host.clone(),
                 },
             );
         }
@@ -714,11 +688,11 @@ fn apply_runtime_probe_target(
     placement: Option<&RuntimeNodePlacement>,
 ) -> MonitorNode {
     if let Some(runtime) = placement {
-        let vpn_ip = runtime.vpn_ip.trim();
-        if !vpn_ip.is_empty() {
-            node.host = vpn_ip.to_string();
-            node.vpn_ip = Some(vpn_ip.to_string());
-            node.rpc_url = build_rpc_url(vpn_ip, node.rpc_port);
+        let management_host = runtime.management_host.trim();
+        if !management_host.is_empty() {
+            node.host = management_host.to_string();
+            node.management_host = Some(management_host.to_string());
+            node.rpc_url = build_rpc_url(management_host, node.rpc_port);
         }
     }
     node
@@ -727,25 +701,25 @@ fn apply_runtime_probe_target(
 fn stamp_runtime_host_override(
     overrides: &mut HashMap<String, String>,
     node_slot_id: &str,
-    vpn_ip: &str,
+    management_host: &str,
 ) {
     let node = node_slot_id.trim().to_ascii_lowercase();
-    if node.is_empty() || vpn_ip.trim().is_empty() {
+    if node.is_empty() || management_host.trim().is_empty() {
         return;
     }
 
     let node_snake = node.replace('-', "_");
-    let vpn = vpn_ip.trim().to_string();
-    overrides.insert(node.clone(), vpn.clone());
-    overrides.insert(node_snake.clone(), vpn.clone());
-    overrides.insert(format!("{node_snake}_host"), vpn.clone());
-    overrides.insert(format!("{node_snake}_vpn_ip"), vpn);
+    let resolved_host = management_host.trim().to_string();
+    overrides.insert(node.clone(), resolved_host.clone());
+    overrides.insert(node_snake.clone(), resolved_host.clone());
+    overrides.insert(format!("{node_snake}_host"), resolved_host.clone());
+    overrides.insert(format!("{node_snake}_management_host"), resolved_host);
 }
 
 async fn augment_host_overrides_with_runtime_placements(overrides: &mut HashMap<String, String>) {
     let placements = load_runtime_node_placements().await;
     for (node_slot_id, placement) in placements {
-        stamp_runtime_host_override(overrides, &node_slot_id, &placement.vpn_ip);
+        stamp_runtime_host_override(overrides, &node_slot_id, &placement.management_host);
     }
 }
 
@@ -753,16 +727,16 @@ fn effective_machine_id_for_node(
     node: &MonitorNode,
     host_overrides: &HashMap<String, String>,
 ) -> String {
-    let fallback = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
+    let fallback = canonical_management_host_for_physical_machine(&node.physical_machine_id)
         .unwrap_or_else(|| node.host.clone());
-    let resolved_host = resolve_vpn_override(
+    let resolved_host = resolve_management_host_override(
         host_overrides,
         &node.node_slot_id,
         &node.node_alias,
         fallback,
     );
 
-    physical_machine_for_vpn_ip(&resolved_host).unwrap_or_else(|| node.physical_machine_id.clone())
+    physical_machine_for_management_host(&resolved_host).unwrap_or_else(|| node.physical_machine_id.clone())
 }
 
 pub fn monitor_get_setup_status() -> Result<MonitorSetupStatus, String> {
@@ -770,50 +744,50 @@ pub fn monitor_get_setup_status() -> Result<MonitorSetupStatus, String> {
     Ok(build_monitor_setup_status(&config))
 }
 
-pub fn monitor_detect_local_vpn_identity() -> Result<MonitorLocalVpnIdentity, String> {
+pub fn monitor_detect_local_machine_identity() -> Result<MonitorLocalMachineIdentity, String> {
     if let Some(machine_id) = detect_local_machine_id_override() {
         let node_slot_ids = logical_nodes_for_physical_machine(&machine_id)?;
-        return Ok(MonitorLocalVpnIdentity {
+        return Ok(MonitorLocalMachineIdentity {
             detected: true,
-            vpn_ip: None,
+            management_host: None,
             physical_machine_id: Some(machine_id.clone()),
             node_slot_ids,
             message: format!("Detected local machine via SYNERGY_MACHINE_ID={machine_id}."),
         });
     }
 
-    let maybe_vpn_ip = detect_local_vpn_ip();
-    let Some(vpn_ip) = maybe_vpn_ip else {
-        return Ok(MonitorLocalVpnIdentity {
+    let maybe_management_host = detect_local_management_host();
+    let Some(management_host) = maybe_management_host else {
+        return Ok(MonitorLocalMachineIdentity {
             detected: false,
-            vpn_ip: None,
+            management_host: None,
             physical_machine_id: None,
             node_slot_ids: Vec::new(),
             message: "No local machine identity was detected. Set SYNERGY_MACHINE_ID or SYNERGY_MACHINE_ADDRESS to bind this control panel to a machine.".to_string(),
         });
     };
 
-    let maybe_machine = physical_machine_for_vpn_ip(&vpn_ip);
+    let maybe_machine = physical_machine_for_management_host(&management_host);
     let Some(physical_machine_id) = maybe_machine else {
-        return Ok(MonitorLocalVpnIdentity {
+        return Ok(MonitorLocalMachineIdentity {
             detected: false,
-            vpn_ip: Some(vpn_ip.clone()),
+            management_host: Some(management_host.clone()),
             physical_machine_id: None,
             node_slot_ids: Vec::new(),
             message: format!(
-                "Detected local address {vpn_ip}, but it does not map to any physical_machine_id in node-inventory.csv."
+                "Detected local address {management_host}, but it does not map to any physical_machine_id in node-inventory.csv."
             ),
         });
     };
 
     let node_slot_ids = logical_nodes_for_physical_machine(&physical_machine_id)?;
 
-    Ok(MonitorLocalVpnIdentity {
+    Ok(MonitorLocalMachineIdentity {
         detected: true,
-        vpn_ip: Some(vpn_ip.clone()),
+        management_host: Some(management_host.clone()),
         physical_machine_id: Some(physical_machine_id.clone()),
         node_slot_ids,
-        message: format!("Detected local address {vpn_ip}; mapped to {physical_machine_id}."),
+        message: format!("Detected local address {management_host}; mapped to {physical_machine_id}."),
     })
 }
 
@@ -861,7 +835,7 @@ pub async fn monitor_mark_setup_complete(
     let workspace = resolve_monitor_workspace_path()?;
     validate_monitor_workspace_assets(&workspace)?;
 
-    let identity = monitor_detect_local_vpn_identity()?;
+    let identity = monitor_detect_local_machine_identity()?;
     if !identity.detected {
         return Err(format!(
             "Setup cannot be marked complete: local machine identity was not detected. {}",
@@ -1262,7 +1236,7 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
                 status.active_physical_machine_id = placement
                     .as_ref()
                     .map(|entry| entry.physical_machine_id.clone());
-                status.active_vpn_ip = placement.as_ref().map(|entry| entry.vpn_ip.clone());
+                status.active_management_host = placement.as_ref().map(|entry| entry.management_host.clone());
                 status
             }
         })
@@ -1476,7 +1450,7 @@ fn resolve_hosts_env_path() -> Result<PathBuf, String> {
         .map(|parent| parent.join("hosts.env"))
         .filter(|candidate| candidate.is_file())
         .ok_or_else(|| {
-            "Unable to resolve testbeta/lean15/hosts.env from the active monitor workspace."
+            "Unable to resolve testbeta/runtime/hosts.env from the active monitor workspace."
                 .to_string()
         })
 }
@@ -1647,7 +1621,7 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
     node_status.active_physical_machine_id = runtime_placement
         .as_ref()
         .map(|entry| entry.physical_machine_id.clone());
-    node_status.active_vpn_ip = runtime_placement.as_ref().map(|entry| entry.vpn_ip.clone());
+    node_status.active_management_host = runtime_placement.as_ref().map(|entry| entry.management_host.clone());
 
     let client = Client::builder()
         .timeout(Duration::from_secs(2))
@@ -1852,7 +1826,7 @@ pub async fn monitor_update_local_agent_from_context(
         .cloned()
         .ok_or_else(|| format!("Node not found in inventory: {node_slot_id}"))?;
 
-    let identity = monitor_detect_local_vpn_identity()?;
+    let identity = monitor_detect_local_machine_identity()?;
     if !identity.detected {
         return Err(format!(
             "Local testbeta-agent self-update is only available on the target machine. {}",
@@ -2056,7 +2030,7 @@ mod terminal_command_tests {
     #[test]
     fn splits_powershell_file_command_with_windows_path() {
         let tokens = split_command_arguments(
-            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testbeta\lean15\installers\node-12\install_and_start.ps1""#,
+            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testbeta\runtime\installers\node-12\install_and_start.ps1""#,
         )
         .expect("command should parse");
 
@@ -2068,7 +2042,7 @@ mod terminal_command_tests {
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                r"C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testbeta\lean15\installers\node-12\install_and_start.ps1",
+                r"C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testbeta\runtime\installers\node-12\install_and_start.ps1",
             ]
         );
     }
@@ -2139,28 +2113,33 @@ mod terminal_command_tests {
     }
 
     #[test]
-    fn prefers_vpn_ip_for_generated_control_plane_host() {
+    fn prefers_real_machine_address_for_generated_control_plane_host() {
         assert_eq!(
             preferred_control_plane_host(
-                "192.168.11.98",
-                "10.50.0.7",
+                "172.16.10.7",
+                "172.16.10.7",
                 "73.79.66.255",
                 "192.168.11.98"
             ),
-            "10.50.0.7"
+            "192.168.11.98"
         );
     }
 
     #[test]
-    fn host_override_prefers_vpn_ip_over_stale_host() {
+    fn host_override_prefers_non_overlay_management_host() {
         let overrides = HashMap::from([
             ("node_12_host".to_string(), "192.168.11.98".to_string()),
-            ("node_12_vpn_ip".to_string(), "10.50.0.7".to_string()),
+            ("node_12_management_host".to_string(), "192.168.11.99".to_string()),
         ]);
 
         assert_eq!(
-            resolve_host_override(&overrides, "node-12", "interop-04", "10.50.0.7".to_string()),
-            "10.50.0.7"
+            resolve_host_override(
+                &overrides,
+                "node-12",
+                "interop-04",
+                "192.168.11.98".to_string(),
+            ),
+            "192.168.11.99"
         );
     }
 }
@@ -2173,17 +2152,12 @@ pub fn monitor_apply_testbeta_topology_from_context(
 }
 
 fn apply_monitor_testbeta_topology(workspace: &Path) -> Result<String, String> {
-    let mapping = TESTBETA_NODE_VPN_MAP
-        .iter()
-        .map(|(machine, vpn)| (machine.to_string(), vpn.to_string()))
-        .collect::<HashMap<String, String>>();
-
-    let inventory_path = workspace.join("testbeta/lean15/node-inventory.csv");
-    apply_topology_to_inventory(&inventory_path, &mapping)?;
+    let inventory_path = workspace.join("testbeta/runtime/node-inventory.csv");
+    sanitize_inventory_hosts(&inventory_path)?;
 
     let mut warnings = Vec::new();
 
-    let hosts_env_path = workspace.join("testbeta/lean15/hosts.env");
+    let hosts_env_path = workspace.join("testbeta/runtime/hosts.env");
     generate_monitor_hosts_env(&workspace, &inventory_path, &hosts_env_path)?;
 
     // Re-render base configs from the refreshed inventory so installer rebuilds do not
@@ -2220,11 +2194,11 @@ fn apply_monitor_testbeta_topology(workspace: &Path) -> Result<String, String> {
     // Rebuild installer bundles so existing workspaces receive updated installer script logic
     // and refreshed machine-specific metadata. This is best-effort: setup must still
     // proceed when cross-platform build artifacts are unavailable.
-    let installers_dir = workspace.join("testbeta/lean15/installers");
+    let installers_dir = workspace.join("testbeta/runtime/installers");
     let build_installers_script = workspace.join("scripts/testbeta/build-node-installers.sh");
     if build_installers_script.is_file() {
         let rebuild_dir = workspace.join(format!(
-            "testbeta/lean15/.tmp-installer-rebuild-{}",
+            "testbeta/runtime/.tmp-installer-rebuild-{}",
             Utc::now().timestamp_millis()
         ));
         let rebuild_result = (|| -> Result<(), String> {
@@ -2266,13 +2240,26 @@ fn apply_monitor_testbeta_topology(workspace: &Path) -> Result<String, String> {
         let _ = fs::remove_dir_all(&rebuild_dir);
     }
 
-    for (node_slot_id, vpn_ip) in &mapping {
-        let installer_dir = installers_dir.join(node_slot_id);
+    let entries = load_monitor_hosts_env_entries(&inventory_path)?;
+    for entry in entries {
+        let installer_dir = installers_dir.join(&entry.node_slot_id);
         if !installer_dir.is_dir() {
             continue;
         }
-        apply_topology_to_installer_node_env(&installer_dir.join("node.env"), vpn_ip)?;
-        apply_topology_to_installer_node_toml(&installer_dir.join("config/node.toml"), vpn_ip)?;
+        let control_plane_host = preferred_control_plane_host(
+            &entry.host,
+            &entry.management_host,
+            &entry.public_ip,
+            &entry.local_ip,
+        );
+        if control_plane_host.is_empty() {
+            continue;
+        }
+        apply_topology_to_installer_node_env(&installer_dir.join("node.env"), &control_plane_host)?;
+        apply_topology_to_installer_node_toml(
+            &installer_dir.join("config/node.toml"),
+            &control_plane_host,
+        )?;
     }
 
     let mut message = format!(
@@ -2349,7 +2336,7 @@ fn resolve_inventory_path() -> Result<PathBuf, String> {
     }
 
     if let Ok(workspace) = resolve_monitor_workspace_path() {
-        let workspace_inventory = workspace.join("testbeta/lean15/node-inventory.csv");
+        let workspace_inventory = workspace.join("testbeta/runtime/node-inventory.csv");
         if workspace_inventory.is_file() {
             return Ok(workspace_inventory);
         }
@@ -2364,9 +2351,9 @@ fn resolve_inventory_path() -> Result<PathBuf, String> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
             candidates.extend(discovery_candidates_from_base(exe_dir));
-            candidates.push(exe_dir.join("../Resources/testbeta/lean15/node-inventory.csv"));
+            candidates.push(exe_dir.join("../Resources/testbeta/runtime/node-inventory.csv"));
             candidates.push(
-                exe_dir.join("../Resources/_up_/_up_/_up_/testbeta/lean15/node-inventory.csv"),
+                exe_dir.join("../Resources/_up_/_up_/_up_/testbeta/runtime/node-inventory.csv"),
             );
         }
     }
@@ -2381,11 +2368,11 @@ fn resolve_inventory_path() -> Result<PathBuf, String> {
 
 fn discovery_candidates_from_base(base: &Path) -> Vec<PathBuf> {
     let mut output = Vec::new();
-    output.push(base.join("testbeta/lean15/node-inventory.csv"));
+    output.push(base.join("testbeta/runtime/node-inventory.csv"));
     output.push(base.join("node-inventory.csv"));
 
     for ancestor in base.ancestors().take(10) {
-        output.push(ancestor.join("testbeta/lean15/node-inventory.csv"));
+        output.push(ancestor.join("testbeta/runtime/node-inventory.csv"));
     }
 
     output
@@ -2422,7 +2409,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
 
     let hosts_overrides = load_hosts_overrides(inventory_path);
     let node_addresses = load_node_address_map(inventory_path);
-    let lean15_dir = inventory_path
+    let runtime_dir = inventory_path
         .parent()
         .ok_or_else(|| "Inventory file is missing a parent directory".to_string())?;
 
@@ -2459,7 +2446,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
     let Some(host_idx) = resolve_column(&["host"]) else {
         return Err("Inventory header missing required column 'host'".to_string());
     };
-    let vpn_ip_idx = resolve_column(&["vpn_ip"]);
+    let management_host_idx = resolve_column(&["management_host"]);
     let rpc_target_idx = resolve_column(&[
         "public_rpc_url",
         "rpc_url",
@@ -2524,7 +2511,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             .unwrap_or_else(|| build_rpc_url(&host, rpc_port));
 
         let physical_machine_id = physical_machine_idx.map(&get).unwrap_or_default();
-        let vpn_ip = vpn_ip_idx
+        let management_host = management_host_idx
             .map(&get)
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
@@ -2541,7 +2528,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             node_address: node_addresses
                 .get(&node_slot_id.to_lowercase())
                 .cloned()
-                .or_else(|| fallback_node_address(lean15_dir, &node_slot_id)),
+                .or_else(|| fallback_node_address(runtime_dir, &node_slot_id)),
             physical_machine_id: if physical_machine_id.is_empty() {
                 node_slot_id.clone()
             } else {
@@ -2555,7 +2542,7 @@ fn load_inventory_nodes(inventory_path: &Path) -> Result<Vec<MonitorNode>, Strin
             operator,
             device,
             host,
-            vpn_ip,
+            management_host,
             rpc_port,
             p2p_port,
             ws_port,
@@ -2755,11 +2742,11 @@ fn expand_binding_targets(
 
 fn load_node_address_map(inventory_path: &Path) -> HashMap<String, String> {
     let mut output = HashMap::new();
-    let Some(lean15_dir) = inventory_path.parent() else {
+    let Some(runtime_dir) = inventory_path.parent() else {
         return output;
     };
 
-    let key_file = lean15_dir.join("keys/node-addresses.csv");
+    let key_file = runtime_dir.join("keys/node-addresses.csv");
     if !key_file.is_file() {
         return output;
     }
@@ -2792,13 +2779,13 @@ fn load_node_address_map(inventory_path: &Path) -> HashMap<String, String> {
     output
 }
 
-fn fallback_node_address(lean15_dir: &Path, node_slot_id: &str) -> Option<String> {
+fn fallback_node_address(runtime_dir: &Path, node_slot_id: &str) -> Option<String> {
     let candidates = [
-        lean15_dir
+        runtime_dir
             .join("keys")
             .join(node_slot_id)
             .join("address.txt"),
-        lean15_dir
+        runtime_dir
             .join("installers")
             .join(node_slot_id)
             .join("keys/address.txt"),
@@ -2830,8 +2817,8 @@ fn resolve_host_override(
     let fallback_key = fallback.to_lowercase();
 
     let candidate_keys = [
-        format!("{}_vpn_ip", machine_snake),
-        format!("{}_vpn_ip", node_snake),
+        format!("{}_management_host", machine_snake),
+        format!("{}_management_host", node_snake),
         format!("{}_internal_host", machine_snake),
         format!("{}_internal_host", node_snake),
         format!("{}_p2p_host", machine_snake),
@@ -2854,7 +2841,7 @@ fn resolve_host_override(
     fallback
 }
 
-fn resolve_vpn_override(
+fn resolve_management_host_override(
     overrides: &HashMap<String, String>,
     node_slot_id: &str,
     node_alias: &str,
@@ -2864,8 +2851,8 @@ fn resolve_vpn_override(
     let node = node_alias.to_lowercase().replace('-', "_");
 
     for key in [
-        format!("{machine}_vpn_ip"),
-        format!("{node}_vpn_ip"),
+        format!("{machine}_management_host"),
+        format!("{node}_management_host"),
         format!("{machine}_internal_host"),
         format!("{node}_internal_host"),
         format!("{machine}_p2p_host"),
@@ -3518,7 +3505,7 @@ async fn probe_node(node: MonitorNode) -> MonitorNodeStatus {
         status,
         online,
         active_physical_machine_id: None,
-        active_vpn_ip: None,
+        active_management_host: None,
         block_height,
         average_block_time_secs,
         throughput_tps,
@@ -3588,10 +3575,10 @@ async fn rpc_call_once(client: &Client, rpc_url: &str, payload: &Value) -> Resul
 }
 
 fn maybe_local_loopback_rpc_url(rpc_url: &str) -> Option<String> {
-    let local_vpn_ip = detect_local_vpn_ip()?;
+    let local_management_host = detect_local_management_host()?;
     let mut parsed = Url::parse(rpc_url).ok()?;
     let host = parsed.host_str()?;
-    if host != local_vpn_ip {
+    if host != local_management_host {
         return None;
     }
     parsed.set_host(Some("127.0.0.1")).ok()?;
@@ -4754,7 +4741,7 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
     let configuration_hint = if enabled {
         "Remote control is enabled for this node (hosts.env mappings and/or bundled orchestrator defaults).".to_string()
     } else {
-        "Add MACHINE_XX_START_CMD / STOP_CMD / RESTART_CMD / STATUS_CMD plus optional SETUP/EXPORT_LOGS/VIEW_CHAIN_DATA/EXPORT_CHAIN_DATA entries in testbeta/lean15/hosts.env, or ship bundled orchestration resources with the app.".to_string()
+        "Add MACHINE_XX_START_CMD / STOP_CMD / RESTART_CMD / STATUS_CMD plus optional SETUP/EXPORT_LOGS/VIEW_CHAIN_DATA/EXPORT_CHAIN_DATA entries in testbeta/runtime/hosts.env, or ship bundled orchestration resources with the app.".to_string()
     };
 
     MonitorControlCapabilities {
@@ -5681,9 +5668,9 @@ fn agent_endpoint_for_node(
     node: &MonitorNode,
     host_overrides: &HashMap<String, String>,
 ) -> Option<String> {
-    let fallback = canonical_vpn_ip_for_physical_machine(&node.physical_machine_id)
+    let fallback = canonical_management_host_for_physical_machine(&node.physical_machine_id)
         .unwrap_or_else(|| node.host.clone());
-    let host = resolve_vpn_override(
+    let host = resolve_management_host_override(
         host_overrides,
         &node.node_slot_id,
         &node.node_alias,
@@ -6145,8 +6132,8 @@ fn resolve_orchestrator_script_path(inventory_path: &Path) -> Option<String> {
 
     let mut candidates = Vec::new();
 
-    if let Some(lean15_dir) = inventory_path.parent() {
-        if let Some(testbeta_dir) = lean15_dir.parent() {
+    if let Some(runtime_dir) = inventory_path.parent() {
+        if let Some(testbeta_dir) = runtime_dir.parent() {
             if let Some(root_dir) = testbeta_dir.parent() {
                 candidates.push(root_dir.join("scripts/testbeta/remote-node-orchestrator.sh"));
             }
@@ -6208,7 +6195,7 @@ const MONITOR_WORKSPACE_ENV: &str = "SYNERGY_MONITOR_WORKSPACE";
 const MONITOR_SECURITY_CONFIG_RELATIVE: &str = "config/security.json";
 const MONITOR_AUDIT_LOG_RELATIVE: &str = "audit/control-actions.jsonl";
 const MONITOR_USER_MANUAL_RELATIVE: &str = "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md";
-const MONITOR_WORKSPACE_MANIFEST_RELATIVE: &str = "testbeta/lean15/workspace-manifest.json";
+const MONITOR_WORKSPACE_MANIFEST_RELATIVE: &str = "testbeta/runtime/workspace-manifest.json";
 const MONITOR_SETUP_WIZARD_VERSION: u32 = 3;
 const MONITOR_HOSTS_BACKUP_RETENTION: usize = 5;
 
@@ -6239,7 +6226,7 @@ pub fn ensure_monitor_workspace_with_context(app_context: &AppContext) -> Result
     ensure_security_config_exists(&workspace_root)?;
     validate_monitor_workspace_assets(&workspace_root)?;
 
-    let inventory_path = workspace_root.join("testbeta/lean15/node-inventory.csv");
+    let inventory_path = workspace_root.join("testbeta/runtime/node-inventory.csv");
     if inventory_path.is_file() {
         std::env::set_var(
             "SYNERGY_MONITOR_INVENTORY",
@@ -6286,7 +6273,7 @@ fn migrate_legacy_workspace_if_needed(
     app_context: &AppContext,
     workspace_root: &Path,
 ) -> Result<(), String> {
-    let target_inventory = workspace_root.join("testbeta/lean15/node-inventory.csv");
+    let target_inventory = workspace_root.join("testbeta/runtime/node-inventory.csv");
     if target_inventory.is_file() {
         return Ok(());
     }
@@ -6308,11 +6295,11 @@ fn extract_bundled_resources_to_workspace(
     workspace_root: &Path,
 ) -> Result<(), String> {
     let relative_paths = [
-        "testbeta/lean15/node-inventory.csv",
-        "testbeta/lean15/hosts.env.example",
-        "testbeta/lean15/keys",
-        "testbeta/lean15/configs",
-        "testbeta/lean15/installers",
+        "testbeta/runtime/node-inventory.csv",
+        "testbeta/runtime/hosts.env.example",
+        "testbeta/runtime/keys",
+        "testbeta/runtime/configs",
+        "testbeta/runtime/installers",
         MONITOR_WORKSPACE_MANIFEST_RELATIVE,
         "binaries",
         "scripts/testbeta",
@@ -6345,7 +6332,7 @@ fn extract_bundled_resources_to_workspace(
 
     // Always refresh critical orchestration scripts so existing installs receive runtime fixes.
     let always_refresh = [
-        "testbeta/lean15/node-inventory.csv",
+        "testbeta/runtime/node-inventory.csv",
         "scripts/testbeta/remote-node-orchestrator.sh",
         "scripts/testbeta/generate-monitor-hosts-env.sh",
         "scripts/testbeta/build-node-installers.sh",
@@ -6365,8 +6352,8 @@ fn extract_bundled_resources_to_workspace(
     }
 
     let always_refresh_dirs = [
-        "testbeta/lean15/configs",
-        "testbeta/lean15/keys",
+        "testbeta/runtime/configs",
+        "testbeta/runtime/keys",
         "binaries",
         "scripts/cleanup",
     ];
@@ -6385,14 +6372,14 @@ fn extract_bundled_resources_to_workspace(
     // machine metadata even when a full installer regeneration is skipped.
     if let Some(source_installers) = roots
         .iter()
-        .map(|root| root.join("testbeta/lean15/installers"))
+        .map(|root| root.join("testbeta/runtime/installers"))
         .find(|candidate| candidate.is_dir())
     {
-        let destination_installers = workspace_root.join("testbeta/lean15/installers");
+        let destination_installers = workspace_root.join("testbeta/runtime/installers");
         refresh_installer_bundle_assets(&source_installers, &destination_installers)?;
     }
 
-    let inventory_path = workspace_root.join("testbeta/lean15/node-inventory.csv");
+    let inventory_path = workspace_root.join("testbeta/runtime/node-inventory.csv");
     if !inventory_path.is_file() {
         return Err(format!(
             "Workspace initialization failed: {} not found after extraction",
@@ -6400,12 +6387,12 @@ fn extract_bundled_resources_to_workspace(
         ));
     }
 
-    let hosts_env = workspace_root.join("testbeta/lean15/hosts.env");
+    let hosts_env = workspace_root.join("testbeta/runtime/hosts.env");
     if !hosts_env.is_file() {
         if let Err(generate_error) =
             generate_monitor_hosts_env(workspace_root, &inventory_path, &hosts_env)
         {
-            let example = workspace_root.join("testbeta/lean15/hosts.env.example");
+            let example = workspace_root.join("testbeta/runtime/hosts.env.example");
             if example.is_file() {
                 if let Some(parent) = hosts_env.parent() {
                     fs::create_dir_all(parent).map_err(|error| {
@@ -6449,8 +6436,8 @@ fn validate_monitor_workspace_assets(workspace_root: &Path) -> Result<(), String
     }
 
     let required_files = [
-        "testbeta/lean15/node-inventory.csv",
-        "testbeta/lean15/hosts.env.example",
+        "testbeta/runtime/node-inventory.csv",
+        "testbeta/runtime/hosts.env.example",
         "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md",
     ];
     for relative in required_files {
@@ -6461,8 +6448,8 @@ fn validate_monitor_workspace_assets(workspace_root: &Path) -> Result<(), String
     }
 
     let required_dirs = [
-        "testbeta/lean15/configs",
-        "testbeta/lean15/installers",
+        "testbeta/runtime/configs",
+        "testbeta/runtime/installers",
         "binaries",
     ];
     for relative in required_dirs {
@@ -6935,10 +6922,37 @@ fn resolve_monitor_workspace_path() -> Result<PathBuf, String> {
     Ok(default)
 }
 
-fn apply_topology_to_inventory(
-    inventory_path: &Path,
-    mapping: &HashMap<String, String>,
-) -> Result<(), String> {
+fn is_obsolete_overlay_host(value: &str) -> bool {
+    let Ok(ip) = value.trim().parse::<Ipv4Addr>() else {
+        return false;
+    };
+    let octets = ip.octets();
+    octets[0] == 10 && octets[1] == 50 && octets[2] == 0
+}
+
+fn preferred_inventory_host(
+    host: &str,
+    management_host: &str,
+    public_ip: &str,
+    local_ip: &str,
+    physical_machine_id: &str,
+) -> String {
+    for candidate in [host, management_host, local_ip, public_ip] {
+        let trimmed = candidate.trim();
+        if !trimmed.is_empty() && !is_obsolete_overlay_host(trimmed) {
+            return trimmed.to_string();
+        }
+    }
+
+    let fallback = physical_machine_id.trim();
+    if !fallback.is_empty() {
+        return fallback.to_string();
+    }
+
+    String::new()
+}
+
+fn sanitize_inventory_hosts(inventory_path: &Path) -> Result<(), String> {
     let content = fs::read_to_string(inventory_path).map_err(|error| {
         format!(
             "Failed to read node inventory {}: {error}",
@@ -6961,9 +6975,11 @@ fn apply_topology_to_inventory(
             .ok_or_else(|| format!("Column '{name}' missing in {}", inventory_path.display()))
     };
 
-    let machine_idx = resolve_index("node_slot_id")?;
+    let physical_machine_idx = resolve_index("physical_machine_id")?;
     let host_idx = resolve_index("host")?;
-    let vpn_idx = resolve_index("vpn_ip")?;
+    let management_host_idx = resolve_index("management_host")?;
+    let public_ip_idx = resolve_index("public_ip")?;
+    let local_ip_idx = resolve_index("local_ip")?;
 
     let mut rewritten = Vec::new();
     rewritten.push(header_line.to_string());
@@ -6976,14 +6992,20 @@ fn apply_topology_to_inventory(
             .split(',')
             .map(|value| value.trim().trim_end_matches('\r').to_string())
             .collect::<Vec<_>>();
-        if let Some(node_slot_id) = values.get(machine_idx).cloned() {
-            if let Some(vpn_ip) = mapping.get(&node_slot_id) {
-                if host_idx < values.len() {
-                    values[host_idx] = vpn_ip.clone();
-                }
-                if vpn_idx < values.len() {
-                    values[vpn_idx] = vpn_ip.clone();
-                }
+        let get = |index: usize| values.get(index).cloned().unwrap_or_default();
+        let resolved_host = preferred_inventory_host(
+            &get(host_idx),
+            &get(management_host_idx),
+            &get(public_ip_idx),
+            &get(local_ip_idx),
+            &get(physical_machine_idx),
+        );
+        if !resolved_host.is_empty() {
+            if host_idx < values.len() {
+                values[host_idx] = resolved_host.clone();
+            }
+            if management_host_idx < values.len() {
+                values[management_host_idx] = resolved_host;
             }
         }
         rewritten.push(values.join(","));
@@ -7010,26 +7032,18 @@ struct MonitorHostsEnvEntry {
     role: String,
     node_type: String,
     host: String,
-    vpn_ip: String,
+    management_host: String,
     public_ip: String,
     local_ip: String,
 }
 
 fn preferred_control_plane_host(
     host: &str,
-    vpn_ip: &str,
+    management_host: &str,
     public_ip: &str,
     local_ip: &str,
 ) -> String {
-    if !vpn_ip.trim().is_empty() {
-        vpn_ip.trim().to_string()
-    } else if !host.trim().is_empty() {
-        host.trim().to_string()
-    } else if !public_ip.trim().is_empty() {
-        public_ip.trim().to_string()
-    } else {
-        local_ip.trim().to_string()
-    }
+    preferred_inventory_host(host, management_host, public_ip, local_ip, "")
 }
 
 fn generate_monitor_hosts_env(
@@ -7083,7 +7097,7 @@ fn generate_monitor_hosts_env(
         let node_slot_key = entry.node_slot_id.to_ascii_uppercase().replace('-', "_");
         let control_plane_host = preferred_control_plane_host(
             &entry.host,
-            &entry.vpn_ip,
+            &entry.management_host,
             &entry.public_ip,
             &entry.local_ip,
         );
@@ -7097,7 +7111,7 @@ fn generate_monitor_hosts_env(
             entry.node_slot_id, entry.node_alias, entry.role_group, entry.role, entry.node_type
         ));
         lines.push(format!("{node_slot_key}_HOST={control_plane_host}"));
-        lines.push(format!("{node_slot_key}_VPN_IP={}", entry.vpn_ip));
+        lines.push(format!("{node_slot_key}_MANAGEMENT_HOST={}", entry.management_host));
         lines.push(format!("{node_slot_key}_SSH_USER=ops"));
         lines.push(format!("{node_slot_key}_SSH_PORT=22"));
         lines.push(format!("# {node_slot_key}_SSH_KEY="));
@@ -7153,7 +7167,7 @@ fn load_monitor_hosts_env_entries(
     let role_idx = resolve_index("role")?;
     let node_type_idx = resolve_index("node_type")?;
     let host_idx = resolve_index("host")?;
-    let vpn_idx = resolve_index("vpn_ip")?;
+    let management_host_idx = resolve_index("management_host")?;
     let public_ip_idx = resolve_index("public_ip")?;
     let local_ip_idx = resolve_index("local_ip")?;
 
@@ -7180,7 +7194,7 @@ fn load_monitor_hosts_env_entries(
             role: read(role_idx),
             node_type: read(node_type_idx),
             host: read(host_idx),
-            vpn_ip: read(vpn_idx),
+            management_host: read(management_host_idx),
             public_ip: read(public_ip_idx),
             local_ip: read(local_ip_idx),
         });
@@ -7281,7 +7295,7 @@ fn prune_backup_files(path: &Path, retention: usize) -> Result<(), String> {
     Ok(())
 }
 
-fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(), String> {
+fn apply_topology_to_installer_node_env(path: &Path, management_host: &str) -> Result<(), String> {
     if !path.is_file() {
         return Ok(());
     }
@@ -7302,13 +7316,13 @@ fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(),
         }
     }
     let rpc_bind = format!(
-        "{vpn_ip}:{}",
+        "{management_host}:{}",
         rpc_port.clone().unwrap_or_else(|| "5640".to_string())
     );
 
-    upsert_key_value_line(&mut lines, "HOST", vpn_ip);
-    upsert_key_value_line(&mut lines, "MONITOR_HOST", vpn_ip);
-    upsert_key_value_line(&mut lines, "VPN_IP", vpn_ip);
+    upsert_key_value_line(&mut lines, "HOST", management_host);
+    upsert_key_value_line(&mut lines, "MONITOR_HOST", management_host);
+    upsert_key_value_line(&mut lines, "MANAGEMENT_HOST", management_host);
     upsert_key_value_line(&mut lines, "CHAIN_ID", "338639");
     upsert_key_value_line(&mut lines, "NETWORK_ID", "synergy-testnet-beta");
     upsert_key_value_line(&mut lines, "SYNERGY_CHAIN_ID", "338639");
@@ -7326,7 +7340,7 @@ fn apply_topology_to_installer_node_env(path: &Path, vpn_ip: &str) -> Result<(),
     Ok(())
 }
 
-fn apply_topology_to_installer_node_toml(path: &Path, vpn_ip: &str) -> Result<(), String> {
+fn apply_topology_to_installer_node_toml(path: &Path, management_host: &str) -> Result<(), String> {
     if !path.is_file() {
         return Ok(());
     }
@@ -7360,17 +7374,17 @@ fn apply_topology_to_installer_node_toml(path: &Path, vpn_ip: &str) -> Result<()
     replace_or_append_line(
         &mut lines,
         "bind_address =",
-        format!("bind_address = \"{vpn_ip}:{rpc_port}\""),
+        format!("bind_address = \"{management_host}:{rpc_port}\""),
     );
     replace_or_append_line(
         &mut lines,
         "listen_address =",
-        format!("listen_address = \"{vpn_ip}:{p2p_port}\""),
+        format!("listen_address = \"{management_host}:{p2p_port}\""),
     );
     replace_or_append_line(
         &mut lines,
         "public_address =",
-        format!("public_address = \"{vpn_ip}:{p2p_port}\""),
+        format!("public_address = \"{management_host}:{p2p_port}\""),
     );
 
     let mut encoded = lines.join("\n");
@@ -7458,8 +7472,8 @@ fn ensure_security_config_exists(workspace: &Path) -> Result<(), String> {
 }
 
 fn is_legacy_local_installers_path(value: &str) -> bool {
-    value.contains("/testbeta/lean15/installers")
-        || value.contains("\\testbeta\\lean15\\installers")
+    value.contains("/testbeta/runtime/installers")
+        || value.contains("\\testbeta\\runtime\\installers")
 }
 
 fn normalize_remote_root_opt(value: &Option<String>) -> Option<String> {
@@ -7514,13 +7528,13 @@ fn validate_host_override_for_binding(
     let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
         return Ok(normalized);
     };
-    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(&physical_machine_id) else {
+    let Some(expected_management_host) = canonical_management_host_for_physical_machine(&physical_machine_id) else {
         return Ok(normalized);
     };
 
-    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
+    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_management_host.as_str()) {
         return Err(format!(
-            "Invalid host override for {binding_target}: got {value}, expected {expected_vpn_ip}."
+            "Invalid host override for {binding_target}: got {value}, expected {expected_management_host}."
         ));
     }
 
@@ -7539,12 +7553,12 @@ fn migrate_host_override_for_binding(
     let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
         return normalized;
     };
-    let Some(expected_vpn_ip) = canonical_vpn_ip_for_physical_machine(&physical_machine_id) else {
+    let Some(expected_management_host) = canonical_management_host_for_physical_machine(&physical_machine_id) else {
         return normalized;
     };
 
-    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_vpn_ip.as_str()) {
-        return Some(expected_vpn_ip);
+    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_management_host.as_str()) {
+        return Some(expected_management_host);
     }
 
     normalized
@@ -7699,7 +7713,7 @@ fn build_monitor_setup_status(config: &MonitorSecurityConfig) -> MonitorSetupSta
     let local_identity_matches_machine = normalized_machine_id
         .as_ref()
         .and_then(|physical_machine_id| {
-            monitor_detect_local_vpn_identity()
+            monitor_detect_local_machine_identity()
                 .ok()
                 .and_then(|identity| identity.physical_machine_id)
                 .map(|detected| detected.eq_ignore_ascii_case(physical_machine_id))
@@ -7728,7 +7742,7 @@ fn build_monitor_setup_status(config: &MonitorSecurityConfig) -> MonitorSetupSta
 #[derive(Debug, Clone)]
 struct InventoryMachineTopology {
     physical_machine_id: String,
-    vpn_ip: String,
+    management_host: String,
     node_slot_ids: Vec<String>,
 }
 
@@ -7753,8 +7767,8 @@ fn build_inventory_machine_topology(
         }
 
         let node_slot_id = node.node_slot_id.trim().to_ascii_lowercase();
-        let vpn_ip = node
-            .vpn_ip
+        let management_host = node
+            .management_host
             .as_ref()
             .map(|value| value.trim().to_string())
             .filter(|value| is_private_management_ip(value))
@@ -7768,12 +7782,12 @@ fn build_inventory_machine_topology(
             .entry(physical_machine_id.clone())
             .or_insert_with(|| InventoryMachineTopology {
                 physical_machine_id: physical_machine_id.clone(),
-                vpn_ip: vpn_ip.clone(),
+                management_host: management_host.clone(),
                 node_slot_ids: Vec::new(),
             });
 
-        if entry.vpn_ip.is_empty() && !vpn_ip.is_empty() {
-            entry.vpn_ip = vpn_ip;
+        if entry.management_host.is_empty() && !management_host.is_empty() {
+            entry.management_host = management_host;
         }
 
         if !node_slot_id.is_empty()
@@ -7829,7 +7843,10 @@ fn load_inventory_machine_topology() -> Result<HashMap<String, InventoryMachineT
     };
 
     let node_slot_idx = resolve_column(&["node_slot_id", "machine_id"], "node_slot_id")?;
-    let vpn_ip_idx = resolve_column(&["vpn_ip"], "vpn_ip")?;
+    let host_idx = resolve_column(&["host"], "host")?;
+    let management_host_idx = resolve_column(&["management_host"], "management_host")?;
+    let public_ip_idx = resolve_column(&["public_ip"], "public_ip")?;
+    let local_ip_idx = resolve_column(&["local_ip"], "local_ip")?;
     let physical_machine_idx = resolve_column(
         &["physical_machine_id", "physical_machine"],
         "physical_machine_id",
@@ -7857,17 +7874,23 @@ fn load_inventory_machine_topology() -> Result<HashMap<String, InventoryMachineT
             continue;
         }
 
-        let vpn_ip = get(vpn_ip_idx);
+        let management_host = preferred_inventory_host(
+            &get(host_idx),
+            &get(management_host_idx),
+            &get(public_ip_idx),
+            &get(local_ip_idx),
+            &physical_machine_id,
+        );
         let entry = topology
             .entry(physical_machine_id.clone())
             .or_insert_with(|| InventoryMachineTopology {
                 physical_machine_id: physical_machine_id.clone(),
-                vpn_ip: String::new(),
+                management_host: String::new(),
                 node_slot_ids: Vec::new(),
             });
 
-        if entry.vpn_ip.is_empty() && is_private_management_ip(&vpn_ip) {
-            entry.vpn_ip = vpn_ip;
+        if entry.management_host.is_empty() && !management_host.is_empty() {
+            entry.management_host = management_host;
         }
 
         if !entry
@@ -7898,7 +7921,7 @@ fn load_inventory_machine_topology() -> Result<HashMap<String, InventoryMachineT
     Ok(topology)
 }
 
-fn canonical_vpn_ip_for_physical_machine(machine_id: &str) -> Option<String> {
+fn canonical_management_host_for_physical_machine(machine_id: &str) -> Option<String> {
     let normalized_machine = machine_id.trim().to_ascii_lowercase();
     if normalized_machine.is_empty() {
         return None;
@@ -7906,11 +7929,11 @@ fn canonical_vpn_ip_for_physical_machine(machine_id: &str) -> Option<String> {
 
     load_inventory_machine_topology().ok().and_then(|topology| {
         topology.get(&normalized_machine).and_then(|entry| {
-            let vpn_ip = entry.vpn_ip.trim();
-            if vpn_ip.is_empty() {
+            let management_host = entry.management_host.trim();
+            if management_host.is_empty() {
                 None
             } else {
-                Some(vpn_ip.to_string())
+                Some(management_host.to_string())
             }
         })
     })
@@ -7959,9 +7982,9 @@ fn physical_machine_for_binding_target(binding_target: &str) -> Option<String> {
     })
 }
 
-fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<String> {
-    let target_vpn_ip = vpn_ip.trim();
-    if target_vpn_ip.is_empty() {
+fn physical_machine_for_management_host(management_host: &str) -> Option<String> {
+    let target_management_host = management_host.trim();
+    if target_management_host.is_empty() {
         return None;
     }
 
@@ -7987,7 +8010,7 @@ fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<String> {
 
     let physical_machine_idx = resolve_column(&["physical_machine_id", "physical_machine"])?;
     let address_columns = [
-        resolve_column(&["vpn_ip"]),
+        resolve_column(&["management_host"]),
         resolve_column(&["host"]),
         resolve_column(&["public_ip"]),
         resolve_column(&["local_ip"]),
@@ -8012,7 +8035,7 @@ fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<String> {
             .iter()
             .flatten()
             .map(|index| get(*index))
-            .any(|value| !value.is_empty() && value.eq_ignore_ascii_case(target_vpn_ip))
+            .any(|value| !value.is_empty() && value.eq_ignore_ascii_case(target_management_host))
         {
             let physical_machine_id = get(physical_machine_idx);
             if !physical_machine_id.is_empty() {
@@ -8024,8 +8047,8 @@ fn physical_machine_for_vpn_ip(vpn_ip: &str) -> Option<String> {
     None
 }
 
-fn detect_local_vpn_ip() -> Option<String> {
-    for env_key in ["SYNERGY_MACHINE_ADDRESS", "SYNERGY_MACHINE_VPN_IP"] {
+fn detect_local_management_host() -> Option<String> {
+    for env_key in ["SYNERGY_MACHINE_ADDRESS", "SYNERGY_MACHINE_MANAGEMENT_HOST"] {
         if let Ok(override_ip) = std::env::var(env_key) {
             let trimmed = override_ip.trim().to_string();
             if trimmed.parse::<Ipv4Addr>().is_ok() {
@@ -8034,19 +8057,27 @@ fn detect_local_vpn_ip() -> Option<String> {
         }
     }
 
-    let candidates = detect_vpn_ip_from_system_commands();
-    candidates
+    let candidates = detect_management_host_from_system_commands();
+    let matched = candidates
         .iter()
-        .find(|ip| physical_machine_for_vpn_ip(ip).is_some())
-        .cloned()
-        .or_else(|| {
-            candidates
-                .into_iter()
-                .find(|ip| is_private_management_ip(ip))
-        })
+        .find(|ip| physical_machine_for_management_host(ip).is_some())
+        .cloned();
+    if matched.is_some() {
+        return matched;
+    }
+
+    let private_candidate = candidates
+        .iter()
+        .find(|ip| is_private_management_ip(ip))
+        .cloned();
+    if private_candidate.is_some() {
+        return private_candidate;
+    }
+
+    candidates.into_iter().next()
 }
 
-fn detect_vpn_ip_from_system_commands() -> Vec<String> {
+fn detect_management_host_from_system_commands() -> Vec<String> {
     let command_sets: Vec<Vec<&str>> = if cfg!(target_os = "windows") {
         // PowerShell is the most reliable way to enumerate IPs on Windows because
         // it returns clean, one-IP-per-line output without locale-dependent labels.
@@ -8087,7 +8118,7 @@ fn detect_vpn_ip_from_system_commands() -> Vec<String> {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        let ips = find_vpn_ip_in_text(&combined);
+        let ips = find_management_host_in_text(&combined);
         if !ips.is_empty() {
             return ips;
         }
@@ -8096,14 +8127,17 @@ fn detect_vpn_ip_from_system_commands() -> Vec<String> {
     Vec::new()
 }
 
-fn find_vpn_ip_in_text(text: &str) -> Vec<String> {
+fn find_management_host_in_text(text: &str) -> Vec<String> {
     let mut matches = HashSet::new();
     for raw_token in text
         .split(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '/'))
         .filter(|token| !token.is_empty())
     {
         let candidate = raw_token.split('/').next().unwrap_or_default();
-        if is_private_management_ip(candidate) {
+        let Ok(ip) = candidate.parse::<Ipv4Addr>() else {
+            continue;
+        };
+        if !ip.is_loopback() && !ip.is_link_local() {
             matches.insert(candidate.to_string());
         }
     }
@@ -8559,7 +8593,7 @@ fn try_execute_local_monitor_control(
         return Ok(None);
     };
 
-    let Ok(identity) = monitor_detect_local_vpn_identity() else {
+    let Ok(identity) = monitor_detect_local_machine_identity() else {
         return Ok(None);
     };
     if !identity.detected {

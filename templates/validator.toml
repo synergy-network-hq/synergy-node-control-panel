@@ -5,7 +5,7 @@ p2p_port = 5622
 rpc_port = 5640
 ws_port = 5660
 max_peers = 50
-# Devnet bootnodes (DNS)
+# Testnet-Beta bootnodes (DNS)
 # Format: snr://<validator-address>@<host>:<port>
 bootnodes = ["snr://bootstrap@bootnode1.synergynode.xyz:5620", "snr://bootstrap@bootnode2.synergynode.xyz:5620", "snr://bootstrap@bootnode3.synergynode.xyz:5620"]
 

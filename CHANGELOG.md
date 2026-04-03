@@ -2,17 +2,23 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
-## v5.11.0 - 2026-04-02
+## v5.11.2 - 2026-04-02
 
-- Added a Settings-level `Developer Mode` toggle and exposed the live peer list on the dashboard Connectivity tab when that mode is enabled.
-- Refreshed the bundled testbeta runtime defaults for genesis launch: removed the hard `max_validators = 4` ceiling while preserving `min_validators = 4`, and regenerated the runtime/genesis assets accordingly.
-- Pinned the installer release workflow to the updated testbeta source commit that includes real network vote collection, explicit equivocation evidence handling, rolling missed-vote jailing/slashing, and the current RPC/runtime fixes needed for fresh binaries.
+- Completed the monitor/control-service rename from `vpn_ip` detection to machine-level `management_host` detection so the setup wizard, monitor dashboard, node page, and operator agent snapshot all use the same identity model.
+- Fixed the headless control-service release build by shipping the matching monitor API and agent-health fields instead of a partial command rename.
+- Regenerated the bundled `testbeta/runtime` assets and installers for the repaired release tag.
 
 ## v5.11.1 - 2026-04-02
 
 - Reworked Jarvis genesis setup so the ceremony flow starts with the assigned setup package JSON, derives the role from that package, and pauses on an explicit machine-specific port-forwarding confirmation before sending the operator to the dashboard.
 - Fixed the Testnet-Beta node details tabs so shared runtime/network values are available across the wallet and connectivity views instead of throwing render-time errors when those tabs open.
 - Added the developer-mode live peer list to the node-details Connectivity tab and reduced initial dashboard/detail latency by caching local state and parallelizing the control-service live-status network probes.
+
+## v5.11.0 - 2026-04-02
+
+- Added a Settings-level `Developer Mode` toggle and exposed the live peer list on the dashboard Connectivity tab when that mode is enabled.
+- Refreshed the bundled testbeta runtime defaults for genesis launch: removed the hard `max_validators = 4` ceiling while preserving `min_validators = 4`, and regenerated the runtime/genesis assets accordingly.
+- Pinned the installer release workflow to the updated testbeta source commit that includes real network vote collection, explicit equivocation evidence handling, rolling missed-vote jailing/slashing, and the current RPC/runtime fixes needed for fresh binaries.
 
 ## v5.10.5 - 2026-04-02
 

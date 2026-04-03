@@ -186,7 +186,7 @@ function NetworkMonitorNodePage() {
 
   const [snapshot, setSnapshot] = useState(null);
   const [agentSnapshot, setAgentSnapshot] = useState(null);
-  const [localVpnIdentity, setLocalVpnIdentity] = useState(null);
+  const [localMachineIdentity, setLocalMachineIdentity] = useState(null);
 
   const [refreshSeconds, setRefreshSeconds] = useState(5);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -209,13 +209,13 @@ function NetworkMonitorNodePage() {
     }
   };
 
-  const fetchLocalVpnIdentity = async () => {
+  const fetchLocalMachineIdentity = async () => {
     try {
-      const identity = await invoke('monitor_detect_local_vpn_identity');
-      setLocalVpnIdentity(identity);
+      const identity = await invoke('monitor_detect_local_machine_identity');
+      setLocalMachineIdentity(identity);
     } catch (err) {
       console.error('Failed to detect local machine identity:', err);
-      setLocalVpnIdentity(null);
+      setLocalMachineIdentity(null);
     }
   };
 
@@ -238,7 +238,7 @@ function NetworkMonitorNodePage() {
   useEffect(() => {
     fetchNodeDetails();
     fetchSnapshot();
-    fetchLocalVpnIdentity();
+    fetchLocalMachineIdentity();
   }, [nodeSlotId]);
 
   useEffect(() => {
@@ -445,8 +445,8 @@ function NetworkMonitorNodePage() {
   const customActionsVisible = customActions.filter((action) => action?.key !== 'reset_chain');
   const node = nodeDetails?.status?.node;
   const localMachineMatch =
-    normalize(localVpnIdentity?.physical_machine_id) !== ''
-    && normalize(localVpnIdentity?.physical_machine_id) === normalize(node?.physical_machine_id);
+    normalize(localMachineIdentity?.physical_machine_id) !== ''
+    && normalize(localMachineIdentity?.physical_machine_id) === normalize(node?.physical_machine_id);
   const agentUpdateAvailable = localMachineMatch || control?.update_agent_configured;
   const agentUpdateTitle = localMachineMatch
     ? 'Reinstall the bundled local agent on this machine and restart the local service. No SSH keys are required.'
