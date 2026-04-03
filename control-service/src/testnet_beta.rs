@@ -379,6 +379,18 @@ struct TestnetBetaCeremonyRuntimeIdentity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct TestnetBetaCeremonyAssignedPorts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port_slot: Option<u16>,
+    pub p2p_port: u16,
+    pub rpc_port: u16,
+    pub ws_port: u16,
+    pub grpc_port: u16,
+    pub discovery_port: u16,
+    pub metrics_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TestnetBetaCeremonyPackage {
     pub format: String,
     pub package_type: String,
@@ -390,6 +402,8 @@ struct TestnetBetaCeremonyPackage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validator_slot: Option<u8>,
     pub artifacts: TestnetBetaCeremonyPackageArtifacts,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned_ports: Option<TestnetBetaCeremonyAssignedPorts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_identity: Option<TestnetBetaCeremonyRuntimeIdentity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2078,6 +2092,25 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         return Ok(());
     }
 
+    let workspace_directory = match config_path.parent().and_then(Path::parent) {
+        Some(path) => path,
+        None => return Ok(()),
+    };
+    let ceremony_package_path = workspace_directory
+        .join("manifests")
+        .join("ceremony-package.json");
+
+    if ceremony_package_path.is_file() {
+        if let Ok(package) = load_ceremony_package(&ceremony_package_path) {
+            repair_imported_validator_ports_if_needed(
+                workspace_directory,
+                config_path,
+                &package,
+            )?;
+        }
+        return Ok(());
+    }
+
     if config_path
         .parent()
         .and_then(Path::parent)
@@ -2108,6 +2141,133 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
     );
     fs::write(config_path, updated)
         .map_err(|error| format!("Failed to update {}: {error}", config_path.display()))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TestnetBetaRuntimePorts {
+    p2p_port: u16,
+    rpc_port: u16,
+    ws_port: u16,
+    discovery_port: u16,
+    metrics_port: u16,
+}
+
+fn runtime_ports_for_slot(slot: u16) -> TestnetBetaRuntimePorts {
+    TestnetBetaRuntimePorts {
+        p2p_port: TESTNET_BETA_P2P_PORT.saturating_add(slot),
+        rpc_port: TESTNET_BETA_RPC_PORT.saturating_add(slot),
+        ws_port: TESTNET_BETA_WS_PORT.saturating_add(slot),
+        discovery_port: TESTNET_BETA_DISCOVERY_PORT.saturating_add(slot),
+        metrics_port: TESTNET_BETA_METRICS_PORT.saturating_add(slot),
+    }
+}
+
+fn parse_runtime_ports_from_config(config_path: &Path) -> Option<TestnetBetaRuntimePorts> {
+    let contents = fs::read_to_string(config_path).ok()?;
+    let value: toml::Value = toml::from_str(&contents).ok()?;
+
+    let read_u16 = |section: &str, key: &str| -> Option<u16> {
+        value
+            .get(section)
+            .and_then(|section| section.get(key))
+            .and_then(toml::Value::as_integer)
+            .and_then(|value| u16::try_from(value).ok())
+    };
+
+    let metrics_port = value
+        .get("telemetry")
+        .and_then(|section| section.get("metrics_bind"))
+        .and_then(toml::Value::as_str)
+        .and_then(|bind| bind.rsplit(':').next())
+        .and_then(|port| port.parse::<u16>().ok())?;
+
+    Some(TestnetBetaRuntimePorts {
+        p2p_port: read_u16("network", "p2p_port")?,
+        rpc_port: read_u16("rpc", "http_port")?,
+        ws_port: read_u16("rpc", "ws_port")?,
+        discovery_port: read_u16("p2p", "discovery_port")?,
+        metrics_port,
+    })
+}
+
+fn repair_imported_validator_ports_if_needed(
+    workspace_directory: &Path,
+    config_path: &Path,
+    package: &TestnetBetaCeremonyPackage,
+) -> Result<(), String> {
+    let expected_slot = match derive_ceremony_port_slot(package) {
+        Some(slot) if slot > 0 => slot,
+        _ => return Ok(()),
+    };
+
+    let current_ports = match parse_runtime_ports_from_config(config_path) {
+        Some(ports) => ports,
+        None => return Ok(()),
+    };
+    let expected_ports = runtime_ports_for_slot(expected_slot);
+    let base_ports = runtime_ports_for_slot(0);
+
+    let root = ensure_testnet_beta_root()?;
+    let mut registry = load_registry(&root)?;
+    let Some(node_index) = registry
+        .nodes
+        .iter()
+        .position(|entry| Path::new(&entry.workspace_directory) == workspace_directory)
+    else {
+        return Ok(());
+    };
+
+    let mut registry_changed = false;
+    if registry.nodes[node_index].port_slot != Some(expected_slot) {
+        registry.nodes[node_index].port_slot = Some(expected_slot);
+        registry_changed = true;
+    }
+
+    if current_ports == expected_ports {
+        if registry_changed {
+            save_registry(&root, &registry)?;
+        }
+        return Ok(());
+    }
+
+    // Only auto-repair validator runtimes that have clearly fallen all the way
+    // back to the slot-0 defaults. This avoids clobbering deliberate manual
+    // edits while still fixing stale imports for validators 2/3/4.
+    if current_ports != base_ports {
+        if registry_changed {
+            save_registry(&root, &registry)?;
+        }
+        return Ok(());
+    }
+
+    let node_record = registry.nodes[node_index].clone();
+    let network_profile = load_or_create_network_profile(&root)?;
+    let role = find_role_profile(&node_record.role_id)?;
+    let public_host = node_record.public_host.clone();
+    let role_overlay = role_overlay_for(&role.id);
+
+    let mut node_contents = build_node_toml(
+        &node_record.id,
+        &node_record.display_label,
+        &role,
+        &node_record.node_address,
+        workspace_directory,
+        public_host.as_deref(),
+        &network_profile,
+        role_overlay.as_str(),
+        expected_slot,
+    );
+    if role.id == "validator" {
+        node_contents = apply_ceremony_validator_config_overrides(node_contents, package);
+    }
+
+    write_file(config_path, &node_contents)?;
+
+    if registry_changed {
+        save_registry(&root, &registry)?;
+    }
+
     Ok(())
 }
 
@@ -2491,9 +2651,17 @@ fn apply_workspace_runtime_env<'a>(
     config_path: &Path,
     workspace_directory: &Path,
 ) -> &'a mut std::process::Command {
-    command
+    let command = command
         .env("SYNERGY_PROJECT_ROOT", workspace_directory)
-        .env("SYNERGY_CONFIG_PATH", config_path)
+        .env("SYNERGY_CONFIG_PATH", config_path);
+
+    if let Some(validator_address) = parse_testbeta_validator_address(config_path) {
+        command
+            .env("SYNERGY_VALIDATOR_ADDRESS", &validator_address)
+            .env("NODE_ADDRESS", validator_address);
+    }
+
+    command
 }
 
 fn parse_testbeta_rpc_endpoint(config_path: &Path) -> Option<String> {
@@ -2505,6 +2673,18 @@ fn parse_testbeta_rpc_endpoint(config_path: &Path) -> Option<String> {
         .and_then(toml::Value::as_integer)
         .unwrap_or(i64::from(TESTNET_BETA_RPC_PORT));
     Some(format!("http://127.0.0.1:{port}"))
+}
+
+fn parse_testbeta_validator_address(config_path: &Path) -> Option<String> {
+    let contents = fs::read_to_string(config_path).ok()?;
+    let value = contents.parse::<toml::Value>().ok()?;
+    value
+        .get("node")
+        .and_then(|section| section.get("validator_address"))
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
 }
 
 async fn query_public_chain_height(client: &Client) -> Result<u64, String> {
@@ -4050,6 +4230,36 @@ fn apply_ceremony_validator_config_overrides(
     updated.replace("allowed_validator_addresses = []", &rendered_allowlist)
 }
 
+fn derive_ceremony_port_slot(package: &TestnetBetaCeremonyPackage) -> Option<u16> {
+    if let Some(assigned_ports) = package.assigned_ports.as_ref() {
+        if let Some(port_slot) = assigned_ports.port_slot {
+            return Some(port_slot);
+        }
+
+        let expected_slot = assigned_ports.p2p_port.checked_sub(TESTNET_BETA_P2P_PORT)?;
+        let slots = [
+            assigned_ports.rpc_port.checked_sub(TESTNET_BETA_RPC_PORT)?,
+            assigned_ports.ws_port.checked_sub(TESTNET_BETA_WS_PORT)?,
+            assigned_ports
+                .grpc_port
+                .checked_sub(TESTNET_BETA_RPC_PORT)?,
+            assigned_ports
+                .discovery_port
+                .checked_sub(TESTNET_BETA_DISCOVERY_PORT)?,
+            assigned_ports
+                .metrics_port
+                .checked_sub(TESTNET_BETA_METRICS_PORT)?,
+        ];
+        if slots.into_iter().all(|slot| slot == expected_slot) {
+            return Some(expected_slot);
+        }
+    }
+
+    package
+        .validator_slot
+        .and_then(|slot| slot.checked_sub(1).map(u16::from))
+}
+
 fn apply_imported_runtime_identity(
     root: &Path,
     setup_result: &mut TestnetBetaSetupResult,
@@ -4081,7 +4291,8 @@ fn apply_imported_runtime_identity(
         .and_then(normalize_public_host_candidate)
         .or_else(|| registry.nodes[node_index].public_host.clone());
     let role_overlay = role_overlay_for(&role.id);
-    let port_slot = registry.nodes[node_index].port_slot.unwrap_or(0);
+    let port_slot = derive_ceremony_port_slot(package)
+        .unwrap_or_else(|| registry.nodes[node_index].port_slot.unwrap_or(0));
 
     {
         let node_record = &mut registry.nodes[node_index];
@@ -4098,6 +4309,7 @@ fn apply_imported_runtime_identity(
             .join("private.key")
             .to_string_lossy()
             .to_string();
+        node_record.port_slot = Some(port_slot);
         if public_host.is_some() {
             node_record.public_host = public_host.clone();
         }
@@ -5081,6 +5293,7 @@ mod tests {
             network_id: TESTNET_BETA_CHAIN_NAME.to_string(),
             token_symbol: TOKEN_SYMBOL.to_string(),
             validator_slot: Some(1),
+            assigned_ports: None,
             artifacts: TestnetBetaCeremonyPackageArtifacts {
                 genesis: json!({
                     "contracts": {
@@ -5135,6 +5348,155 @@ mod tests {
     }
 
     #[test]
+    fn repair_workspace_config_restores_ceremony_validator_ports_from_base_slot() {
+        with_temp_home(|_| {
+            let root = ensure_testnet_beta_root().expect("testnet root should exist");
+            let workspace = root.join("nodes").join("validator4-workspace");
+            let config_path = workspace.join("config").join("node.toml");
+            let manifest_path = workspace.join("manifests").join("ceremony-package.json");
+            fs::create_dir_all(config_path.parent().expect("config parent"))
+                .expect("config dir should exist");
+            fs::create_dir_all(manifest_path.parent().expect("manifest parent"))
+                .expect("manifest dir should exist");
+
+            let network_profile =
+                load_or_create_network_profile(&root).expect("network profile should exist");
+            let role = find_role_profile("validator").expect("validator role should exist");
+            let package = TestnetBetaCeremonyPackage {
+                format: "synergy-testbeta-ceremony-package/v1".to_string(),
+                package_type: "validator-runtime".to_string(),
+                role_id: "validator".to_string(),
+                display_name: "Genesis Validator 4 Node".to_string(),
+                chain_id: TESTNET_BETA_CHAIN_ID,
+                network_id: TESTNET_BETA_CHAIN_NAME.to_string(),
+                token_symbol: TOKEN_SYMBOL.to_string(),
+                validator_slot: Some(4),
+                assigned_ports: Some(TestnetBetaCeremonyAssignedPorts {
+                    port_slot: Some(3),
+                    p2p_port: 5625,
+                    rpc_port: 5643,
+                    ws_port: 5663,
+                    grpc_port: 5643,
+                    discovery_port: 5683,
+                    metrics_port: 6033,
+                }),
+                artifacts: TestnetBetaCeremonyPackageArtifacts {
+                    genesis: json!({}),
+                    operational_manifest: json!({}),
+                },
+                runtime_identity: None,
+                validator_public: None,
+                public_host_required: false,
+                notes: Vec::new(),
+            };
+
+            let base_node_toml = build_node_toml(
+                "tbeta-validator4",
+                "Genesis Validator 4 Node",
+                &role,
+                "synv1validator4",
+                &workspace,
+                Some("validator4.example.net"),
+                &network_profile,
+                role_overlay_for("validator").as_str(),
+                0,
+            );
+            let base_node_toml =
+                apply_ceremony_validator_config_overrides(base_node_toml, &package);
+            write_file(&config_path, &base_node_toml).expect("node config should write");
+            write_file(
+                &manifest_path,
+                &serde_json::to_string_pretty(&package).expect("package should serialize"),
+            )
+            .expect("manifest should write");
+
+            let registry = TestnetBetaRegistryFile {
+                version: STATE_VERSION,
+                nodes: vec![TestnetBetaProvisionedNode {
+                    id: "tbeta-validator4".to_string(),
+                    role_id: "validator".to_string(),
+                    role_display_name: "Validator Node".to_string(),
+                    class_name: "Consensus".to_string(),
+                    display_label: "Genesis Validator 4 Node".to_string(),
+                    node_address: "synv1validator4".to_string(),
+                    public_key_path: workspace
+                        .join("keys")
+                        .join("public.key")
+                        .to_string_lossy()
+                        .to_string(),
+                    private_key_path: workspace
+                        .join("keys")
+                        .join("private.key")
+                        .to_string_lossy()
+                        .to_string(),
+                    workspace_directory: workspace.to_string_lossy().to_string(),
+                    config_paths: vec![config_path.to_string_lossy().to_string()],
+                    public_host: Some("validator4.example.net".to_string()),
+                    reward_payout_address: Some("synv1validator4".to_string()),
+                    connectivity_status: String::new(),
+                    role_certificate_status: String::new(),
+                    funding_manifest_id: "fund-test".to_string(),
+                    created_at_utc: Utc::now().to_rfc3339(),
+                    port_slot: Some(0),
+                }],
+            };
+            save_registry(&root, &registry).expect("registry should save");
+
+            repair_workspace_config_if_needed("validator", &config_path)
+                .expect("repair should succeed");
+
+            let node_toml = fs::read_to_string(&config_path).expect("node.toml should exist");
+            let node_value: toml::Value =
+                toml::from_str(&node_toml).expect("node.toml should parse");
+            assert_eq!(
+                node_value
+                    .get("network")
+                    .and_then(|section| section.get("p2p_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5625)
+            );
+            assert_eq!(
+                node_value
+                    .get("rpc")
+                    .and_then(|section| section.get("http_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5643)
+            );
+            assert_eq!(
+                node_value
+                    .get("rpc")
+                    .and_then(|section| section.get("ws_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5663)
+            );
+            assert_eq!(
+                node_value
+                    .get("p2p")
+                    .and_then(|section| section.get("discovery_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5683)
+            );
+            assert_eq!(
+                node_value
+                    .get("telemetry")
+                    .and_then(|section| section.get("metrics_bind"))
+                    .and_then(toml::Value::as_str),
+                Some("127.0.0.1:6033")
+            );
+            assert_eq!(
+                node_value
+                    .get("p2p")
+                    .and_then(|section| section.get("public_address"))
+                    .and_then(toml::Value::as_str),
+                Some("validator4.example.net:5625")
+            );
+
+            let registry = load_registry(&root).expect("registry should load");
+            assert_eq!(registry.nodes[0].port_slot, Some(3));
+        });
+    }
+
+    #[test]
     fn ceremony_import_reuses_existing_workspace_for_same_validator_identity() {
         let registry = TestnetBetaRegistryFile {
             version: STATE_VERSION,
@@ -5167,6 +5529,7 @@ mod tests {
             network_id: TESTNET_BETA_CHAIN_NAME.to_string(),
             token_symbol: TOKEN_SYMBOL.to_string(),
             validator_slot: Some(1),
+            assigned_ports: None,
             artifacts: TestnetBetaCeremonyPackageArtifacts {
                 genesis: json!({}),
                 operational_manifest: json!({}),
@@ -5284,6 +5647,113 @@ mod tests {
     }
 
     #[test]
+    fn ceremony_import_applies_assigned_validator_ports() {
+        with_temp_home(|home| {
+            let package_path = home.join("validator-4-setup-package.json");
+            let package = json!({
+                "format": "synergy-testbeta-ceremony-package/v1",
+                "package_type": "validator-runtime",
+                "role_id": "validator",
+                "display_name": "Genesis Validator 4 Node",
+                "chain_id": TESTNET_BETA_CHAIN_ID,
+                "network_id": TESTNET_BETA_CHAIN_NAME,
+                "token_symbol": TOKEN_SYMBOL,
+                "validator_slot": 4,
+                "assigned_ports": {
+                    "port_slot": 3,
+                    "p2p_port": 5625,
+                    "rpc_port": 5643,
+                    "ws_port": 5663,
+                    "grpc_port": 5643,
+                    "discovery_port": 5683,
+                    "metrics_port": 6033
+                },
+                "artifacts": {
+                    "genesis": {
+                        "contracts": {
+                            "validator_registry": {
+                                "init_params": {
+                                    "validators": [
+                                        {"validator_address": "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49"}
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "operational_manifest": {}
+                },
+                "runtime_identity": {
+                    "label": "Genesis Validator 4",
+                    "address": "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49",
+                    "address_type": "synv1",
+                    "algorithm": "ed25519",
+                    "created_at": Utc::now().to_rfc3339(),
+                    "public_key": "pub",
+                    "private_key": "priv"
+                },
+                "public_host_required": false
+            });
+            write_json_file(&package_path, &package).expect("package should write");
+
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let result = runtime
+                .block_on(testbeta_import_ceremony_package(
+                    TestnetBetaImportCeremonyPackageInput {
+                        setup_role_id: None,
+                        package_path: package_path.to_string_lossy().to_string(),
+                        intended_directory: None,
+                        public_host: Some("validator4.example.net".to_string()),
+                    },
+                ))
+                .expect("package import should succeed");
+
+            let node = result.node.expect("validator node should be returned");
+            assert_eq!(node.port_slot, Some(3));
+
+            let node_toml = fs::read_to_string(config_path_for(&node, "node.toml"))
+                .expect("node.toml should exist");
+            let node_value: toml::Value =
+                toml::from_str(&node_toml).expect("node.toml should parse");
+
+            assert_eq!(
+                node_value
+                    .get("network")
+                    .and_then(|section| section.get("p2p_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5625)
+            );
+            assert_eq!(
+                node_value
+                    .get("rpc")
+                    .and_then(|section| section.get("http_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5643)
+            );
+            assert_eq!(
+                node_value
+                    .get("rpc")
+                    .and_then(|section| section.get("ws_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5663)
+            );
+            assert_eq!(
+                node_value
+                    .get("p2p")
+                    .and_then(|section| section.get("discovery_port"))
+                    .and_then(toml::Value::as_integer),
+                Some(5683)
+            );
+            assert_eq!(
+                node_value
+                    .get("telemetry")
+                    .and_then(|section| section.get("metrics_bind"))
+                    .and_then(toml::Value::as_str),
+                Some("127.0.0.1:6033")
+            );
+        });
+    }
+
+    #[test]
     fn resolve_runner_falls_back_to_generic_platform_binary() {
         with_temp_home(|home| {
             let _cwd = CurrentDirGuard::set(home);
@@ -5332,17 +5802,29 @@ case "$cmd" in
     mkdir -p data logs
     echo $$ > data/synergy-testbeta.pid
     echo '{"ok":true}' > data/role-runtime.json
-    rpc_port="$(python3 - "$SYNERGY_CONFIG_PATH" <<'PY'
+    eval "$(python3 - "$SYNERGY_CONFIG_PATH" <<'PY'
 import pathlib
 import re
 import sys
 
 config_path = pathlib.Path(sys.argv[1])
 contents = config_path.read_text()
-match = re.search(r"(?m)^\s*http_port\s*=\s*(\d+)\s*$", contents)
-print(match.group(1) if match else "5640")
+rpc_match = re.search(r"(?m)^\s*http_port\s*=\s*(\d+)\s*$", contents)
+validator_match = re.search(r'(?m)^\s*validator_address\s*=\s*"([^"]+)"\s*$', contents)
+print(f'rpc_port="{rpc_match.group(1) if rpc_match else "5640"}"')
+print(f'validator_address="{validator_match.group(1) if validator_match else ""}"')
 PY
 )"
+    if [ -n "$validator_address" ]; then
+      if [ "${SYNERGY_VALIDATOR_ADDRESS:-}" != "$validator_address" ]; then
+        echo "missing validator env" >&2
+        exit 1
+      fi
+      if [ "${NODE_ADDRESS:-}" != "$validator_address" ]; then
+        echo "missing node address env" >&2
+        exit 1
+      fi
+    fi
     python3 - "$rpc_port" > logs/rpc-test.out 2> logs/rpc-test.err <<'PY' &
 import json
 import sys
@@ -5455,7 +5937,11 @@ esac
             fs::create_dir_all(&config_dir).expect("config dir should exist");
 
             let config_path = config_dir.join("node.toml");
-            fs::write(&config_path, "[rpc]\nhttp_port = 5640\n").expect("config should write");
+            fs::write(
+                &config_path,
+                "[rpc]\nhttp_port = 5640\n\n[node]\nvalidator_address = \"synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49\"\n",
+            )
+            .expect("config should write");
 
             let env_dump_path = workspace.join("env-sync.json");
             let runner_path = home.join("runner-env-check.sh");
@@ -5477,8 +5963,16 @@ if [ "${{SYNERGY_CONFIG_PATH:-}}" != "{config}" ]; then
   echo "missing config env" >&2
   exit 1
 fi
+if [ "${{SYNERGY_VALIDATOR_ADDRESS:-}}" != "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49" ]; then
+  echo "missing validator env" >&2
+  exit 1
+fi
+if [ "${{NODE_ADDRESS:-}}" != "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49" ]; then
+  echo "missing node address env" >&2
+  exit 1
+fi
 cat > "{dump}" <<EOF
-{{"project_root":"${{SYNERGY_PROJECT_ROOT}}","config_path":"${{SYNERGY_CONFIG_PATH}}"}}
+{{"project_root":"${{SYNERGY_PROJECT_ROOT}}","config_path":"${{SYNERGY_CONFIG_PATH}}","validator_address":"${{SYNERGY_VALIDATOR_ADDRESS}}","node_address":"${{NODE_ADDRESS}}"}}
 EOF
 "#,
                     workspace = workspace.display(),
@@ -5512,6 +6006,10 @@ EOF
             assert!(
                 env_dump.contains(&config_path.to_string_lossy().to_string()),
                 "config env should be passed through to runner"
+            );
+            assert!(
+                env_dump.contains("synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49"),
+                "validator identity env should be passed through to runner"
             );
         });
     }
