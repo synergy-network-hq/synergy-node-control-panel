@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.12.2 - 2026-04-03
+
+- Advanced the Testnet-Beta release source pin to commit `c7aab0ef41a2f154869845b0579dc3d36a75c235`, which removes the stale `node-control-panel` gitlink from the top-level source tree so `actions/checkout` no longer fails during auth cleanup.
+- Kept the runtime-root launcher fix, the runtime-root-aware node binary, the faster startup readiness probe, and the reduced monitor RPC timeouts from v5.12.1.
+- Rebuilt the installer release on top of the corrected top-level source graph so the packaged control panel and packaged node now ship from the same fixed lineage.
+
 ## v5.12.1 - 2026-04-03
 
 - Corrected the Testnet-Beta release source pin so installer builds now compile `synergy-testbeta` from commit `476a159956eaeffe5d6f4cb4c1caf94156828716`, which includes the runtime-root detection fix required for validator workspaces launched outside the source checkout.
