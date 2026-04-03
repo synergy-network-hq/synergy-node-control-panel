@@ -166,6 +166,12 @@ function toFiniteNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function toTimestampMs(value) {
+  if (!value) return null;
+  const timestamp = Date.parse(String(value));
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 function formatScore(value) {
   if (value == null || Number.isNaN(Number(value))) {
     return 'Not available';
@@ -986,6 +992,51 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     ...(liveStatus?.nodes || []).map((entry) => effectiveLocalChainHeight(entry)),
   ]), [liveStatus?.nodes, liveStatus?.public_chain_height]);
 
+  const chainSummaryIndexedAtMs = useMemo(
+    () => toTimestampMs(chainSummary?.indexedAt ?? chainSummary?.indexed_at),
+    [chainSummary?.indexedAt, chainSummary?.indexed_at],
+  );
+
+  const chainSummaryFresh = useMemo(() => {
+    if (chainSummaryIndexedAtMs == null) return false;
+    return (Date.now() - chainSummaryIndexedAtMs) <= 5 * 60 * 1000;
+  }, [chainSummaryIndexedAtMs]);
+
+  const atlasValidatorCount = useMemo(
+    () => toFiniteNumber(chainSummary?.total_validators),
+    [chainSummary?.total_validators],
+  );
+
+  const atlasClusterCount = useMemo(
+    () => toFiniteNumber(chainSummary?.total_validator_clusters),
+    [chainSummary?.total_validator_clusters],
+  );
+
+  const localActiveValidatorCount = useMemo(() => {
+    if (localValidatorStats?.total_validators != null) {
+      return toFiniteNumber(localValidatorStats.total_validators);
+    }
+    if (Array.isArray(localValidatorStats?.active_validators)) {
+      return localValidatorStats.active_validators.length;
+    }
+    return null;
+  }, [localValidatorStats]);
+
+  const localValidatorClusterCount = useMemo(() => {
+    if (!Array.isArray(localValidatorStats?.active_validators) || localValidatorStats.active_validators.length === 0) {
+      return null;
+    }
+    const clusterIds = new Set(
+      localValidatorStats.active_validators
+        .map((entry) => entry?.cluster_id)
+        .filter((value) => value != null),
+    );
+    if (clusterIds.size > 0) {
+      return clusterIds.size;
+    }
+    return null;
+  }, [localValidatorStats]);
+
   const networkChainTipDetail = useMemo(() => {
     const parts = [];
     if (liveStatus?.public_chain_height != null) {
@@ -1005,39 +1056,47 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   }, [liveChainTip, liveStatus?.public_chain_height, selectedNode, selectedNodeLive]);
 
   const activeValidatorCount = useMemo(() => {
-    if (chainSummary?.total_validators != null) return chainSummary.total_validators;
-    if (!syncedValidatorForNetworkStats) return null;
-    if (localValidatorStats?.total_validators != null) return localValidatorStats.total_validators;
-    if (Array.isArray(localValidatorStats?.active_validators)) {
-      return localValidatorStats.active_validators.length;
+    if (localActiveValidatorCount != null && localActiveValidatorCount > 0) {
+      return localActiveValidatorCount;
+    }
+    if (atlasValidatorCount != null && (chainSummaryFresh || atlasValidatorCount > 0)) {
+      return atlasValidatorCount;
+    }
+    if (localActiveValidatorCount != null) {
+      return localActiveValidatorCount;
+    }
+    if (!syncedValidatorForNetworkStats && atlasValidatorCount != null && atlasValidatorCount > 0) {
+      return atlasValidatorCount;
     }
     return null;
-  }, [chainSummary?.total_validators, localValidatorStats, syncedValidatorForNetworkStats]);
+  }, [atlasValidatorCount, chainSummaryFresh, localActiveValidatorCount, syncedValidatorForNetworkStats]);
 
   const validatorClusterCount = useMemo(() => {
-    if (chainSummary?.total_validator_clusters != null) {
-      return chainSummary.total_validator_clusters;
+    if (localValidatorClusterCount != null && localValidatorClusterCount > 0) {
+      return localValidatorClusterCount;
     }
-    if (!syncedValidatorForNetworkStats) {
+    if (atlasClusterCount != null && (chainSummaryFresh || atlasClusterCount > 0)) {
+      return atlasClusterCount;
+    }
+    if (!syncedValidatorForNetworkStats && activeValidatorCount == null) {
       return null;
-    }
-    if (Array.isArray(localValidatorStats?.active_validators) && localValidatorStats.active_validators.length > 0) {
-      const clusterIds = new Set(
-        localValidatorStats.active_validators
-          .map((entry) => entry?.cluster_id)
-          .filter((value) => value != null),
-      );
-      if (clusterIds.size > 0) {
-        return clusterIds.size;
-      }
     }
     if (activeValidatorCount == null) {
       return null;
     }
+    if (activeValidatorCount <= 0) {
+      return 0;
+    }
     if (activeValidatorCount <= 5) return 1;
     if (activeValidatorCount < 15) return 2;
     return 3 + Math.floor((activeValidatorCount - 15) / 5);
-  }, [activeValidatorCount, chainSummary?.total_validator_clusters, localValidatorStats, syncedValidatorForNetworkStats]);
+  }, [
+    activeValidatorCount,
+    atlasClusterCount,
+    chainSummaryFresh,
+    localValidatorClusterCount,
+    syncedValidatorForNetworkStats,
+  ]);
 
   const networkVisiblePeerCount = useMemo(() => {
     if (liveStatus?.network_peer_count != null) return liveStatus.network_peer_count;
