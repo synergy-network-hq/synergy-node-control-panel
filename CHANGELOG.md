@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.12.3 - 2026-04-03
+
+- Switched the Testnet-Beta release source pin from a raw commit SHA to the reachable top-level tag `v5.12.2-testbeta-source`, which points to the same fixed source commit but can be fetched reliably by `actions/checkout`.
+- Preserved the v5.12.2 source-graph fix that removed the stale top-level `node-control-panel` gitlink, along with the runtime-root and readiness-probe fixes already landed in the control panel.
+- Re-ran the control-panel installer release against the tagged top-level source so checkout and binary bundling resolve from stable refs on every runner.
+
 ## v5.12.2 - 2026-04-03
 
 - Advanced the Testnet-Beta release source pin to commit `c7aab0ef41a2f154869845b0579dc3d36a75c235`, which removes the stale `node-control-panel` gitlink from the top-level source tree so `actions/checkout` no longer fails during auth cleanup.

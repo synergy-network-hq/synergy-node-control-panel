@@ -8,7 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: "c7aab0ef41a2f154869845b0579dc3d36a75c235"
+  TESTNET_BETA_REF: "v5.12.2-testbeta-source"
 
 jobs:
   build:
