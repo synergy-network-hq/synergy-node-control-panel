@@ -316,7 +316,8 @@ pub struct TestnetBetaSetupResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestnetBetaImportCeremonyPackageInput {
-    pub setup_role_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_role_id: Option<String>,
     pub package_path: String,
     pub intended_directory: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -438,10 +439,12 @@ pub fn testbeta_get_state() -> Result<TestnetBetaState, String> {
 pub async fn testbeta_import_ceremony_package(
     input: TestnetBetaImportCeremonyPackageInput,
 ) -> Result<TestnetBetaImportCeremonyPackageResult, String> {
-    let requested_role = input.setup_role_id.trim().to_string();
-    if requested_role.is_empty() {
-        return Err("A ceremony setup role is required.".to_string());
-    }
+    let requested_role = input
+        .setup_role_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
     let package_path = PathBuf::from(input.package_path.trim());
     if !package_path.exists() {
@@ -451,13 +454,20 @@ pub async fn testbeta_import_ceremony_package(
         ));
     }
 
-    if matches!(requested_role.as_str(), "bootnode" | "seed_server") {
-        return import_bootstrap_bundle(requested_role, package_path, input.intended_directory)
-            .await;
+    if matches!(
+        requested_role.as_deref(),
+        Some("bootnode") | Some("seed_server")
+    ) {
+        return import_bootstrap_bundle(
+            requested_role.expect("validated bootstrap role should exist"),
+            package_path,
+            input.intended_directory,
+        )
+        .await;
     }
 
     let package = load_ceremony_package(&package_path)?;
-    validate_ceremony_package(&package, &requested_role)?;
+    let resolved_role = validate_ceremony_package(&package, requested_role.as_deref())?;
 
     let root = ensure_testnet_beta_root()?;
     let mut reused_existing_workspace = false;
@@ -478,7 +488,7 @@ pub async fn testbeta_import_ceremony_package(
         }
     } else {
         testbeta_setup_node(TestnetBetaSetupInput {
-            role_id: package.role_id.clone(),
+            role_id: resolved_role.clone(),
             display_label: Some(package.display_name.clone()),
             intended_directory: input.intended_directory.clone(),
             public_host: input.public_host.clone(),
@@ -580,6 +590,7 @@ pub fn testbeta_inspect_ceremony_package(
 
     let package = load_ceremony_package(&package_path)?;
     validate_ceremony_package_identity(&package)?;
+    validate_ceremony_package_role(&package, None)?;
 
     Ok(TestnetBetaCeremonyPackagePreview {
         role_id: package.role_id,
@@ -3808,16 +3819,10 @@ fn load_ceremony_package(package_path: &Path) -> Result<TestnetBetaCeremonyPacka
 
 fn validate_ceremony_package(
     package: &TestnetBetaCeremonyPackage,
-    requested_role: &str,
-) -> Result<(), String> {
+    requested_role: Option<&str>,
+) -> Result<String, String> {
     validate_ceremony_package_identity(package)?;
-    if package.role_id != requested_role {
-        return Err(format!(
-            "Ceremony package role mismatch. Expected {}, got {}.",
-            requested_role, package.role_id
-        ));
-    }
-    Ok(())
+    validate_ceremony_package_role(package, requested_role)
 }
 
 fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> Result<(), String> {
@@ -3846,6 +3851,29 @@ fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> R
         ));
     }
     Ok(())
+}
+
+fn validate_ceremony_package_role(
+    package: &TestnetBetaCeremonyPackage,
+    requested_role: Option<&str>,
+) -> Result<String, String> {
+    let package_role = package.role_id.trim();
+    if package_role.is_empty() {
+        return Err("Ceremony package is missing role_id.".to_string());
+    }
+
+    find_role_profile(package_role)?;
+
+    if let Some(requested_role) = requested_role.map(str::trim).filter(|value| !value.is_empty()) {
+        if package_role != requested_role {
+            return Err(format!(
+                "Ceremony package role mismatch. Expected {}, got {}.",
+                requested_role, package_role
+            ));
+        }
+    }
+
+    Ok(package_role.to_string())
 }
 
 fn write_package_artifacts_to_workspace(
@@ -5155,6 +5183,93 @@ mod tests {
 
         assert_eq!(matched.id, "tbeta-existing");
         assert_eq!(matched.workspace_directory, "/tmp/validator-workspace");
+    }
+
+    #[test]
+    fn inspect_ceremony_package_accepts_validator_setup_package_json() {
+        with_temp_home(|home| {
+            let package_path = home.join("validator-setup-package.json");
+            let package = json!({
+                "format": "synergy-testbeta-ceremony-package/v1",
+                "package_type": "validator-runtime",
+                "role_id": "validator",
+                "display_name": "Genesis Validator 1 Node",
+                "chain_id": TESTNET_BETA_CHAIN_ID,
+                "network_id": TESTNET_BETA_CHAIN_NAME,
+                "token_symbol": TOKEN_SYMBOL,
+                "validator_slot": 1,
+                "artifacts": {
+                    "genesis": {},
+                    "operational_manifest": {}
+                },
+                "public_host_required": false
+            });
+            write_json_file(&package_path, &package).expect("package should write");
+
+            let preview = testbeta_inspect_ceremony_package(TestnetBetaInspectCeremonyPackageInput {
+                package_path: package_path.to_string_lossy().to_string(),
+            })
+            .expect("validator setup package should inspect");
+
+            assert_eq!(preview.role_id, "validator");
+            assert_eq!(preview.package_type, "validator-runtime");
+            assert_eq!(preview.validator_slot, Some(1));
+        });
+    }
+
+    #[test]
+    fn ceremony_import_infers_role_from_package_when_setup_role_is_missing() {
+        with_temp_home(|home| {
+            let package_path = home.join("validator-setup-package.json");
+            let package = json!({
+                "format": "synergy-testbeta-ceremony-package/v1",
+                "package_type": "validator-runtime",
+                "role_id": "validator",
+                "display_name": "Genesis Validator 1 Node",
+                "chain_id": TESTNET_BETA_CHAIN_ID,
+                "network_id": TESTNET_BETA_CHAIN_NAME,
+                "token_symbol": TOKEN_SYMBOL,
+                "validator_slot": 1,
+                "artifacts": {
+                    "genesis": {
+                        "contracts": {
+                            "validator_registry": {
+                                "init_params": {
+                                    "validators": [
+                                        {"validator_address": "synv1alpha"}
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "operational_manifest": {}
+                },
+                "public_host_required": false
+            });
+            write_json_file(&package_path, &package).expect("package should write");
+
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let result = runtime
+                .block_on(testbeta_import_ceremony_package(
+                    TestnetBetaImportCeremonyPackageInput {
+                        setup_role_id: None,
+                        package_path: package_path.to_string_lossy().to_string(),
+                        intended_directory: None,
+                        public_host: None,
+                    },
+                ))
+                .expect("package import should infer the validator role");
+
+            assert_eq!(result.role_id, "validator");
+            assert_eq!(result.node.as_ref().map(|node| node.role_id.as_str()), Some("validator"));
+            assert!(
+                PathBuf::from(&result.workspace_directory)
+                    .join("manifests")
+                    .join("ceremony-package.json")
+                    .is_file(),
+                "ceremony import should stage the original package into the workspace"
+            );
+        });
     }
 
     #[test]

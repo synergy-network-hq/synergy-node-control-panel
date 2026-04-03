@@ -610,7 +610,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       const selectedPath = await showOpenDialog({
         title: 'Select Genesis Ceremony Package',
         buttonLabel: 'Select Package',
-        properties: ['openFile', 'openDirectory'],
+        properties: ['openFile'],
         filters: [
           { name: 'Ceremony Packages', extensions: ['json', 'zip', 'tgz', 'gz'] },
           { name: 'All Files', extensions: ['*'] },
@@ -658,22 +658,43 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         setPhase('review_device');
         return;
       } catch (previewError) {
+        const selectedArchiveBundle = /\.(zip|tgz|gz)$/i.test(selectedPath);
         setCeremonyPackagePreview(null);
         setSelectedRoleId('');
         setPublicHost('');
-        addTerminalLine('info', `Package preview unavailable: ${String(previewError)}`);
-        await queueJarvisMessages([
-          {
-            text: `Package selected: ${selectedPath}.`,
-            typingMs: 620,
-            pauseMs: 220,
-          },
-          {
-            text: 'I could not identify the package role automatically. Choose the ceremony role for this machine and then continue the import flow.',
-            typingMs: 1040,
-          },
-        ]);
-        setPhase('await_ceremony_role');
+        addTerminalLine('error', `Package preview unavailable: ${String(previewError)}`);
+        if (selectedArchiveBundle) {
+          await queueJarvisMessages([
+            {
+              text: `Package selected: ${selectedPath}.`,
+              typingMs: 620,
+              pauseMs: 220,
+            },
+            {
+              text: 'This looks like a bootstrap bundle archive, so choose the ceremony role for this machine and then continue the import flow.',
+              typingMs: 1040,
+            },
+          ]);
+          setPhase('await_ceremony_role');
+        } else {
+          await queueJarvisMessages([
+            {
+              text: `Package selected: ${selectedPath}.`,
+              typingMs: 620,
+              pauseMs: 220,
+            },
+            {
+              text: `I could not inspect that setup package: ${String(previewError)}.`,
+              typingMs: 920,
+              pauseMs: 220,
+            },
+            {
+              text: 'Select the approved setup package JSON again. Jarvis will derive the machine assignment from the package file itself.',
+              typingMs: 1040,
+            },
+          ]);
+          setPhase('select_ceremony_package');
+        }
       }
     } catch (error) {
       addTerminalLine('error', `Package selection failed: ${String(error)}`);
@@ -687,24 +708,26 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   ]);
 
   const runCeremonyImport = useCallback(async () => {
-    if (!selectedRole) {
-      await queueJarvisMessage('Choose the ceremony role for this machine before importing a package.');
-      return;
-    }
-
     if (!ceremonyPackagePath) {
       await queueJarvisMessage('Select the approved ceremony package from the Genesis Dashboard first.');
       return;
     }
 
+    const resolvedRoleId = String(selectedRole?.id || ceremonyPackagePreview?.role_id || '').trim();
+    const resolvedRoleDisplayName = (
+      ceremonyPackagePreview?.display_name
+      || selectedRole?.display_name
+      || 'approved ceremony package'
+    );
+
     setRunning(true);
-    addTerminalLine('info', `Importing ${selectedRole.display_name} from ${ceremonyPackagePath}...`);
+    addTerminalLine('info', `Importing ${resolvedRoleDisplayName} from ${ceremonyPackagePath}...`);
 
     try {
       let appliedPortSettings = null;
       const result = await invoke('testbeta_import_ceremony_package', {
         input: {
-          setupRoleId: selectedRole.id,
+          setupRoleId: resolvedRoleId || null,
           packagePath: ceremonyPackagePath,
           intendedDirectory: directoryChoice || null,
           publicHost: publicHost || null,
@@ -762,7 +785,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
         await queueJarvisMessages([
           {
-            text: `${selectedRole.display_name} import is complete.`,
+            text: `${resolvedRoleDisplayName} import is complete.`,
             typingMs: 700,
             pauseMs: 220,
           },
@@ -784,7 +807,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
       await queueJarvisMessages([
         {
-          text: `${selectedRole.display_name} package import is complete.`,
+          text: `${resolvedRoleDisplayName} package import is complete.`,
           typingMs: 720,
           pauseMs: 220,
         },
@@ -813,6 +836,8 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   }, [
     addTerminalLine,
     ceremonyPackagePath,
+    ceremonyPackagePreview?.display_name,
+    ceremonyPackagePreview?.role_id,
     directoryChoice,
     navigate,
     onComplete,

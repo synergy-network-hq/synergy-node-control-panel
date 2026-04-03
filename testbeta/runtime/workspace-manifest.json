@@ -1,6 +1,6 @@
 {
-  "workspace_resource_version": "5.11.2+a7347978b186",
-  "app_version": "5.11.2",
+  "workspace_resource_version": "5.11.3+a7347978b186",
+  "app_version": "5.11.3",
   "bundle_digest": "a7347978b186ef7533bbebb26308fd95abd2da0f1f31e5f972f9c49fc3a781b1",
   "required_paths": [
     "testbeta/runtime/node-inventory.csv",

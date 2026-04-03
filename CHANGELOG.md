@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.11.3 - 2026-04-03
+
+- Fixed Jarvis Genesis Setup so validator `setup-package.json` files remain package-driven from selection through import instead of dropping into a manual ceremony-role prompt when the package role should already be known.
+- Hardened ceremony import so the control service can infer the role directly from the approved validator package when no manual role is supplied, while preserving the explicit bootstrap-bundle role path for legacy bootnode and seed archives.
+- Kept the discovery-only bootnode genesis-hash handshake allowance verified in the testbeta runtime and rebuilt the control-panel installers around the repaired Genesis Setup flow.
+
 ## v5.11.2 - 2026-04-02
 
 - Completed the monitor/control-service rename from `vpn_ip` detection to machine-level `management_host` detection so the setup wizard, monitor dashboard, node page, and operator agent snapshot all use the same identity model.
