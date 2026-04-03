@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.11.0 - 2026-04-02
+
+- Added a Settings-level `Developer Mode` toggle and exposed the live peer list on the dashboard Connectivity tab when that mode is enabled.
+- Refreshed the bundled testbeta runtime defaults for genesis launch: removed the hard `max_validators = 4` ceiling while preserving `min_validators = 4`, and regenerated the runtime/genesis assets accordingly.
+- Pinned the installer release workflow to the updated testbeta source commit that includes real network vote collection, explicit equivocation evidence handling, rolling missed-vote jailing/slashing, and the current RPC/runtime fixes needed for fresh binaries.
+
 ## v5.10.5 - 2026-04-02
 
 - Fixed genesis validator crash loop on macOS arm64: the `synergy-testbeta-macos-arm64` binary search was incorrectly taking priority over the fixed `synergy-testbeta-darwin-arm64` binary. The control service binary search order now tries `darwin-arm64` first, with `macos-arm64` as a fallback only. The `macos-arm64` binary on disk has also been replaced with the fixed `darwin-arm64` build. This restored all 4 genesis validators to active quorum (`qc_cumulative_weight: 4.0`).
@@ -25,14 +31,14 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Refined monitor and backend integration around topology-aware node views and app update behavior.
 
 ## v2.8.1 - 2026-03-08
-- Regenerated `lean15` installer bundles after topology changes across the testbeta fleet.
+- Regenerated `runtime` installer bundles after topology changes across the testbeta fleet.
 - Updated per-node install/start scripts and binary status markers.
 - Primarily a topology and installer refresh release.
 
 ## v2.8.0 - 2026-03-08
 - Hardened fleet sync behavior and dashboard machine metadata handling.
 - Fixed Windows installer refresh when a node binary is already running.
-- Reworked `lean15` topology assets, including genesis data, node roles, hosts examples, installer configs, and cross-platform install scripts.
+- Reworked `runtime` topology assets, including genesis data, node roles, hosts examples, installer configs, and cross-platform install scripts.
 
 ## v2.7.2 - 2026-03-07
 - Fixed Windows node setup scripts and process launch behavior to avoid broken or stuck installs.
@@ -74,7 +80,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Added missing workflow permissions to satisfy code-scanning and security requirements.
 
 ## v2.4.2 - 2026-03-04
-- Updated `lean15` machine installer configs and validator allowlists in the node inventory.
+- Updated `runtime` machine installer configs and validator allowlists in the node inventory.
 - Temporarily disabled the in-app updater path and removed updater UI while signing and release configuration was being corrected.
 - Simplified release workflow signing setup during that transition.
 

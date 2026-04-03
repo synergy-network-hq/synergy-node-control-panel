@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
-KEYS_DIR="$ROOT_DIR/testbeta/lean15/keys"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
+KEYS_DIR="$ROOT_DIR/testbeta/runtime/keys"
 SIGNER_BIN="$ROOT_DIR/target/release/wallet-pqc-cli"
 default_rpc_port="$(awk -F, '$1=="node-06" {print $8}' "$INVENTORY_FILE" 2>/dev/null || true)"
 default_rpc_port="${default_rpc_port:-48643}"

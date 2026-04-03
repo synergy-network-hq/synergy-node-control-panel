@@ -25,7 +25,7 @@ ACTION="$1"
 NODE_SLOT_ID="$2"
 FOLLOW_FLAG="${3:-}"
 
-CONFIG_FILE="$ROOT_DIR/testbeta/lean15/configs/${NODE_SLOT_ID}.toml"
+CONFIG_FILE="$ROOT_DIR/testbeta/runtime/configs/${NODE_SLOT_ID}.toml"
 DATA_DIR="$ROOT_DIR/data/testbeta15/${NODE_SLOT_ID}"
 PID_FILE="$DATA_DIR/node.pid"
 LOG_DIR="$DATA_DIR/logs"

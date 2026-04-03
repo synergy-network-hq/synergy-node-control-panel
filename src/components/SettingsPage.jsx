@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getVersion, invoke, openExternal, openPath } from '../lib/desktopClient';
+import { useDeveloperMode } from '../lib/developerMode';
 import {
   applyTestnetBetaPortSettings,
   formatPortSettingsForForm,
@@ -514,6 +515,7 @@ function SettingsPage() {
   const [state, setState] = useState(null);
   const [liveStatus, setLiveStatus] = useState(null);
   const [version, setVersion] = useState('');
+  const [developerModeEnabled, setDeveloperModeEnabled] = useDeveloperMode();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [savedPortSettings, setSavedPortSettings] = useState(() => readStoredTestnetBetaPortSettings());
@@ -909,6 +911,13 @@ function SettingsPage() {
         detail: 'Node workspaces on this computer',
       },
       {
+        label: 'Developer Mode',
+        value: developerModeEnabled ? 'Enabled' : 'Off',
+        detail: developerModeEnabled
+          ? 'Connectivity peer diagnostics are visible in the dashboard'
+          : 'Operator-only diagnostics stay hidden until enabled',
+      },
+      {
         label: 'Bootnodes Online',
         value: formatEndpointStatus(liveStatus?.bootnodes),
         detail: 'Public bootstrap listeners responding',
@@ -933,12 +942,12 @@ function SettingsPage() {
     ],
     [
       liveStatus?.bootnodes,
+      developerModeEnabled,
       liveStatus?.network_peer_count,
       liveStatus?.public_chain_height,
       liveStatus?.public_peer_count,
       liveStatus?.seed_servers,
       provisionedNodes.length,
-      savedPortSummary,
       state?.device_profile?.hostname,
       state?.device_profile?.operating_system,
       version,
@@ -1044,6 +1053,27 @@ function SettingsPage() {
                 label="Workspace Root"
                 value={formatPath(storageRoot)}
               />
+            </div>
+            <div className="settings-shell-feature-card">
+              <div className="settings-shell-feature-copy">
+                <span className="settings-shell-feature-kicker">Developer Mode</span>
+                <strong>{developerModeEnabled ? 'Operator diagnostics are visible' : 'Operator diagnostics are hidden'}</strong>
+                <p>
+                  Reveal hidden troubleshooting surfaces in the dashboard, including the selected node&apos;s
+                  live peer list on the Connectivity tab.
+                </p>
+              </div>
+              <label className="settings-shell-toggle" aria-label="Enable developer mode">
+                <input
+                  type="checkbox"
+                  checked={developerModeEnabled}
+                  onChange={(event) => setDeveloperModeEnabled(event.target.checked)}
+                />
+                <span className="settings-shell-toggle-track" aria-hidden="true">
+                  <span className="settings-shell-toggle-thumb"></span>
+                </span>
+                <span className="settings-shell-toggle-text">{developerModeEnabled ? 'On' : 'Off'}</span>
+              </label>
             </div>
             <div className="settings-shell-definition-actions">
               <SNRGButton

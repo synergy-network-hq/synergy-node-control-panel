@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 
 usage() {
   cat <<USAGE
@@ -47,9 +47,9 @@ else
     echo "Missing inventory file: $INVENTORY_FILE" >&2
     exit 1
   fi
-  while IFS=, read -r node_slot_id _ _ _ _ _ _ rpc_port _ _ _ host vpn_ip _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
+  while IFS=, read -r node_slot_id _ _ _ _ _ _ rpc_port _ _ _ host management_host _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
     [[ "$node_slot_id" == "node_slot_id" ]] && continue
-    endpoint_host="${vpn_ip:-$host}"
+    endpoint_host="${management_host:-$host}"
     [[ -z "$endpoint_host" || -z "$rpc_port" ]] && continue
     targets+=("${node_slot_id}=http://${endpoint_host}:${rpc_port}")
   done < "$INVENTORY_FILE"

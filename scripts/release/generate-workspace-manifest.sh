@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-MANIFEST_PATH="$ROOT_DIR/testbeta/lean15/workspace-manifest.json"
+MANIFEST_PATH="$ROOT_DIR/testbeta/runtime/workspace-manifest.json"
 APP_VERSION="$(node -e 'const fs=require("fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));process.stdout.write(pkg.version);')"
 python3 - <<'PY' "$ROOT_DIR" "$MANIFEST_PATH" "$APP_VERSION"
 import hashlib
@@ -18,10 +18,10 @@ manifest_path = pathlib.Path(sys.argv[2])
 app_version = sys.argv[3]
 
 required_paths = [
-    "testbeta/lean15/node-inventory.csv",
-    "testbeta/lean15/hosts.env.example",
-    "testbeta/lean15/configs",
-    "testbeta/lean15/installers",
+    "testbeta/runtime/node-inventory.csv",
+    "testbeta/runtime/hosts.env.example",
+    "testbeta/runtime/configs",
+    "testbeta/runtime/installers",
     "binaries",
     "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md",
 ]

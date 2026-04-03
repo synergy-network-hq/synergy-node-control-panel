@@ -8,7 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: "7a09e80af342325ae57252eb073c9aaa7eb3e354"
+  TESTNET_BETA_REF: "42b425c177b6dcb60082b7865462e5539dc4e5de"
 
 jobs:
   build:
@@ -157,23 +157,15 @@ jobs:
         run: rm -f electron-dist/builder-debug.yml
 
       - name: Upload installer artifacts
+        if: github.event_name == 'workflow_dispatch'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
 
-  publish-releases-repo:
-    name: Publish installers to releases repo
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Publish GitHub Release (releases repo)
+      - name: Publish installer artifacts to releases repo
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
@@ -185,41 +177,34 @@ jobs:
           title="Synergy Node Control Panel ${tag#v}"
           notes="Automated build from ${GITHUB_REPOSITORY}@${GITHUB_SHA}."
 
-          shopt -s globstar nullglob
+          if ! gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$repo" --title "$title" --notes "$notes" || true
+          fi
+
+          shopt -s nullglob
           files=(
-            artifacts/**/*.dmg
-            artifacts/**/*.zip
-            artifacts/**/*.deb
-            artifacts/**/*.AppImage
-            artifacts/**/*.exe
-            artifacts/**/*.yml
-            artifacts/**/*.yaml
-            artifacts/**/*.blockmap
+            electron-dist/*.dmg
+            electron-dist/*.zip
+            electron-dist/*.deb
+            electron-dist/*.AppImage
+            electron-dist/*.exe
+            electron-dist/*.yml
+            electron-dist/*.yaml
+            electron-dist/*.blockmap
           )
 
           if [[ "${#files[@]}" -eq 0 ]]; then
-            echo "No installer artifacts found under ./artifacts"
-            ls -R artifacts || true
+            echo "No installer artifacts found under ./electron-dist"
+            ls -R electron-dist || true
             exit 1
           fi
 
-          # Deduplicate files by basename (keep first occurrence)
-          declare -A seen
-          unique_files=()
-          for f in "${files[@]}"; do
-            base="$(basename "$f")"
-            if [[ -z "${seen[$base]:-}" ]]; then
-              seen[$base]=1
-              unique_files+=("$f")
-            else
-              echo "Skipping duplicate: $f (already have $base)"
-            fi
-          done
+          gh release upload "$tag" "${files[@]}" --repo "$repo" --clobber
 
-          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-            echo "Release already exists: $repo@$tag"
-          else
-            gh release create "$tag" --repo "$repo" --title "$title" --notes "$notes"
-          fi
-
-          gh release upload "$tag" "${unique_files[@]}" --repo "$repo" --clobber
+  publish-releases-repo:
+    name: Publish installers to releases repo
+    needs: build
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - run: echo "Installer publication is handled directly in each matrix build job."

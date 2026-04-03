@@ -5,12 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 required_paths=(
-  "testbeta/lean15/node-inventory.csv"
-  "testbeta/lean15/hosts.env.example"
-  "testbeta/lean15/configs"
-  "testbeta/lean15/installers"
-  "testbeta/lean15/keys"
-  "testbeta/lean15/workspace-manifest.json"
+  "testbeta/runtime/node-inventory.csv"
+  "testbeta/runtime/hosts.env.example"
+  "testbeta/runtime/configs"
+  "testbeta/runtime/installers"
+  "testbeta/runtime/keys"
+  "testbeta/runtime/workspace-manifest.json"
   "binaries"
 )
 
@@ -21,7 +21,7 @@ for required_path in "${required_paths[@]}"; do
   fi
 done
 
-for node_dir in testbeta/lean15/installers/node-*; do
+for node_dir in testbeta/runtime/installers/node-*; do
   [[ -d "$node_dir" ]] || continue
   for required_file in install_and_start.sh nodectl.sh install_and_start.ps1 nodectl.ps1 node.env config/node.toml; do
     if [[ ! -f "$node_dir/$required_file" ]]; then
@@ -81,7 +81,7 @@ for binary_path in "${windows_binary_paths[@]}"; do
 done
 
 if [[ "${ALLOW_DIRTY_BUNDLE_PREP:-0}" != "1" ]]; then
-  BUNDLE_PATHS=(testbeta/lean15/keys testbeta/lean15/configs testbeta/lean15/installers testbeta/lean15/workspace-manifest.json)
+  BUNDLE_PATHS=(testbeta/runtime/keys testbeta/runtime/configs testbeta/runtime/installers testbeta/runtime/workspace-manifest.json)
 
   # Detect untracked files (new files not yet in index)
   untracked="$(git status --short --untracked-files=all -- "${BUNDLE_PATHS[@]}" | grep '^??' || true)"
@@ -93,7 +93,7 @@ if [[ "${ALLOW_DIRTY_BUNDLE_PREP:-0}" != "1" ]]; then
   content_diff="$(git diff --ignore-cr-at-eol -- "${BUNDLE_PATHS[@]}" 2>/dev/null || true)"
 
   if [[ -n "$untracked" || -n "$content_diff" ]]; then
-    echo "Deterministic bundle assets are stale or untracked. Re-run bundle prep and commit testbeta/lean15/keys, configs, installers, and workspace-manifest outputs." >&2
+    echo "Deterministic bundle assets are stale or untracked. Re-run bundle prep and commit testbeta/runtime/keys, configs, installers, and workspace-manifest outputs." >&2
     git status --short --untracked-files=all -- "${BUNDLE_PATHS[@]}" >&2 || true
     git diff --ignore-cr-at-eol -- "${BUNDLE_PATHS[@]}" >&2 || true
     exit 1

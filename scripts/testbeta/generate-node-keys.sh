@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
-KEY_DIR="$ROOT_DIR/testbeta/lean15/keys"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
+KEY_DIR="$ROOT_DIR/testbeta/runtime/keys"
 FORCE="false"
 HOST_OS="$(uname -s)"
 HOST_ARCH="$(uname -m)"

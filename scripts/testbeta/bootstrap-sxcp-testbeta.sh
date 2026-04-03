@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
-KEYS_DIR="$ROOT_DIR/testbeta/lean15/keys"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
+KEYS_DIR="$ROOT_DIR/testbeta/runtime/keys"
 ROLE_GROUP_FILTER="${SXCP_BOOTSTRAP_ROLE_GROUPS:-interop}"
 ROLE_FILTER="${SXCP_BOOTSTRAP_ROLES:-}"
 
@@ -33,7 +33,7 @@ if [[ -n "$ROLE_FILTER" ]]; then
 fi
 
 id_counter=1
-while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host management_host physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
   [[ "$node_slot_id" == "node_slot_id" ]] && continue
 
   if [[ ",$ROLE_GROUP_FILTER," != *",$role_group,"* ]]; then

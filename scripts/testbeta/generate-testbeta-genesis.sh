@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
-NODE_ADDRESSES_FILE="$ROOT_DIR/testbeta/lean15/keys/node-addresses.csv"
-OUTPUT_FILE="${1:-$ROOT_DIR/testbeta/lean15/configs/genesis/genesis.json}"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
+NODE_ADDRESSES_FILE="$ROOT_DIR/testbeta/runtime/keys/node-addresses.csv"
+OUTPUT_FILE="${1:-$ROOT_DIR/testbeta/runtime/configs/genesis/genesis.json}"
 
 if [[ ! -f "$INVENTORY_FILE" ]]; then
   echo "Missing inventory file: $INVENTORY_FILE" >&2
@@ -31,7 +31,7 @@ chain_id = int(os.environ.get("TESTBETA_CHAIN_ID", "338639"))
 genesis_time = os.environ.get("TESTBETA_GENESIS_TIME", "2026-01-01T00:00:00Z")
 node_stake = int(os.environ.get("TESTBETA_NODE_STAKE", os.environ.get("TESTBETA_VALIDATOR_STAKE", "50000000000000")))
 min_validators = int(os.environ.get("TESTBETA_MIN_VALIDATORS", "4"))
-max_validators = int(os.environ.get("TESTBETA_MAX_VALIDATORS", "4"))
+max_validators = int(os.environ.get("TESTBETA_MAX_VALIDATORS", "100"))
 
 faucet_address = os.environ.get("TESTBETA_FAUCET_ADDRESS", "synw1prdr55ggjhupx0d7jycftrl2hzs3k8zuw5ad")
 treasury_address = os.environ.get("TESTBETA_TREASURY_ADDRESS", "synu1nd0fvzfhhj4s0te3ks06csfsnpg2hed8vsmh")
@@ -81,7 +81,7 @@ validator_rows = [
 bootnodes = []
 for row in validator_rows:
     node_slot_id = row["node_slot_id"]
-    endpoint_ip = row.get("vpn_ip") or row.get("host")
+    endpoint_ip = row.get("management_host") or row.get("host")
     p2p_port = row.get("p2p_port")
     address = addresses.get(node_slot_id)
     if endpoint_ip and p2p_port and address:
@@ -129,7 +129,7 @@ for index, row in enumerate(validator_rows, start=1):
     validators.append(
         {
             "address": address,
-            "public_key_file": f"testbeta/lean15/keys/{node_slot_id}/identity.json",
+            "public_key_file": f"testbeta/runtime/keys/{node_slot_id}/identity.json",
             "stake": str(node_stake),
             "commission_rate": 0.05,
             "min_self_delegation": "1",

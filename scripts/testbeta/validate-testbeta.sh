@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CONFIG_DIR="${1:-$ROOT_DIR/testbeta/lean15/configs}"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
+CONFIG_DIR="${1:-$ROOT_DIR/testbeta/runtime/configs}"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 
 if [[ ! -d "$CONFIG_DIR" ]]; then
   echo "Config directory not found: $CONFIG_DIR" >&2

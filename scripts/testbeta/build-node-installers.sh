@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-INVENTORY_FILE="$ROOT_DIR/testbeta/lean15/node-inventory.csv"
-CONFIG_DIR="$ROOT_DIR/testbeta/lean15/configs"
-GENESIS_FILE="$ROOT_DIR/testbeta/lean15/configs/genesis/genesis.json"
-KEYS_DIR="$ROOT_DIR/testbeta/lean15/keys"
-OUT_DIR="${OUT_DIR:-$ROOT_DIR/testbeta/lean15/installers}"
+INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
+CONFIG_DIR="$ROOT_DIR/testbeta/runtime/configs"
+GENESIS_FILE="$ROOT_DIR/testbeta/runtime/configs/genesis/genesis.json"
+KEYS_DIR="$ROOT_DIR/testbeta/runtime/keys"
+OUT_DIR="${OUT_DIR:-$ROOT_DIR/testbeta/runtime/installers}"
 TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
 TESTBETA_NETWORK_ID="${TESTBETA_NETWORK_ID:-synergy-testnet-beta}"
 SOURCE_REPO_ROOT="${SYNERGY_TESTBETA_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/../.." && pwd)}"
@@ -64,7 +64,7 @@ normalize_bool() {
 
 collect_allowlisted_validators_csv() {
   local addresses=()
-  while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+  while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host management_host physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
     [[ "$node_slot_id" == "node_slot_id" ]] && continue
     local normalized_group normalized_role normalized_type
     normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
@@ -735,7 +735,7 @@ show_info() {
   echo "Address Class: $ADDRESS_CLASS"
   echo "Address: $NODE_ADDRESS"
   echo "Monitor Host: ${MONITOR_HOST:-$HOST}"
-  echo "Inventory Address: ${VPN_IP:-not-set}"
+  echo "Inventory Address: ${MANAGEMENT_HOST:-not-set}"
   echo "Transport: ${NETWORK_TRANSPORT:-standard}"
   echo "P2P: $P2P_PORT"
   echo "RPC: $RPC_PORT"
@@ -1291,7 +1291,7 @@ function Info-Node {
   Write-Host "Address Class: $(Get-NodeEnvValue 'ADDRESS_CLASS')"
   Write-Host "Address: $(Get-NodeEnvValue 'NODE_ADDRESS')"
   Write-Host "Monitor Host: $(Get-NodeEnvValue 'MONITOR_HOST')"
-  Write-Host "Inventory Address: $(Get-NodeEnvValue 'VPN_IP')"
+  Write-Host "Inventory Address: $(Get-NodeEnvValue 'MANAGEMENT_HOST')"
   Write-Host "Transport: $(Get-NodeEnvValue 'NETWORK_TRANSPORT')"
   Write-Host "P2P: $(Get-NodeEnvValue 'P2P_PORT')"
   Write-Host "RPC: $(Get-NodeEnvValue 'RPC_PORT')"
@@ -1497,7 +1497,7 @@ TXT
 
 ALLOWED_VALIDATOR_ADDRESSES_CSV="$(collect_allowlisted_validators_csv)"
 
-while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host vpn_ip physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
+while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host management_host physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
   [[ "$node_slot_id" == "node_slot_id" ]] && continue
 
   auto_register="$(normalize_bool "$auto_register")"
@@ -1533,7 +1533,7 @@ GRPC_PORT=$grpc_port
 DISCOVERY_PORT=$discovery_port
 HOST=$host
 MONITOR_HOST=$host
-VPN_IP=$vpn_ip
+MANAGEMENT_HOST=$management_host
 NETWORK_TRANSPORT=public
 CHAIN_ID=$TESTBETA_CHAIN_ID
 NETWORK_ID=$TESTBETA_NETWORK_ID
@@ -1542,13 +1542,13 @@ ENABLE_PRUNING=$enable_pruning
 VRF_ENABLED=$vrf_enabled
 STRICT_VALIDATOR_ALLOWLIST=true
 ALLOWED_VALIDATOR_ADDRESSES=$ALLOWED_VALIDATOR_ADDRESSES_CSV
-RPC_BIND_ADDRESS=${vpn_ip}:${rpc_port}
+RPC_BIND_ADDRESS=${management_host}:${rpc_port}
 SYNERGY_CHAIN_ID=$TESTBETA_CHAIN_ID
 SYNERGY_NETWORK_ID=$TESTBETA_NETWORK_ID
 SYNERGY_AUTO_REGISTER_VALIDATOR=$auto_register
 SYNERGY_STRICT_VALIDATOR_ALLOWLIST=true
 SYNERGY_ALLOWED_VALIDATOR_ADDRESSES=$ALLOWED_VALIDATOR_ADDRESSES_CSV
-SYNERGY_RPC_BIND_ADDRESS=${vpn_ip}:${rpc_port}
+SYNERGY_RPC_BIND_ADDRESS=${management_host}:${rpc_port}
 SYNERGY_CONFIG_PATH=config/node.toml
 ENV
 
