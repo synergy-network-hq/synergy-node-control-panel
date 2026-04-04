@@ -797,7 +797,7 @@ function SettingsPage() {
     setPortErrors({});
     setPortNotice(
       'good',
-      `Saved base port profile: ${formatPortSettingsSummary(saved)}. Each node keeps a stable local port offset from this base during setup, start, and sync.`,
+      `Saved base port profile: ${formatPortSettingsSummary(saved)}. Standard nodes keep a stable local port offset from this base during setup, start, and sync. Ceremony-imported validators keep their package-assigned ports.`,
     );
   }, [setPortNotice, validatePortForm]);
 

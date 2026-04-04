@@ -1286,7 +1286,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       if (action === 'start' || action === 'sync') {
         try {
           const portConfig = await applyStoredTestnetBetaPortSettings(selectedNode);
-          bootstrapNotice = ` Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`;
+          bootstrapNotice = portConfig.source === 'ceremony-package'
+            ? ` Electron preserved ceremony-assigned node.toml ports: ${formatPortSettingsSummary(portConfig.portSettings)}.`
+            : ` Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`;
 
           const bootstrapConfig = await refreshTestnetBetaBootstrapConfig(
             selectedNode,

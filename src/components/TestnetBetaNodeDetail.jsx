@@ -693,7 +693,9 @@ function TestnetBetaNodeDetail() {
       if (action === 'start' || action === 'sync') {
         try {
           const portConfig = await applyStoredTestnetBetaPortSettings(node);
-          bootstrapNotice = ` Port profile applied: ${formatPortSettingsSummary(portConfig.portSettings)}.`;
+          bootstrapNotice = portConfig.source === 'ceremony-package'
+            ? ` Ceremony-assigned ports preserved: ${formatPortSettingsSummary(portConfig.portSettings)}.`
+            : ` Port profile applied: ${formatPortSettingsSummary(portConfig.portSettings)}.`;
           const bootstrapConfig = await refreshTestnetBetaBootstrapConfig(node, network);
           bootstrapNotice += ` Peers.toml refreshed with ${bootstrapConfig.additionalDialTargets.length} seed targets.`;
         } catch (e) {
