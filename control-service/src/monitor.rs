@@ -513,10 +513,12 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
 
     let mut targets = machine_targets
         .into_iter()
-        .map(|(physical_machine_id, (management_host, mut node_slot_ids))| {
-            node_slot_ids.sort();
-            (physical_machine_id, management_host, node_slot_ids)
-        })
+        .map(
+            |(physical_machine_id, (management_host, mut node_slot_ids))| {
+                node_slot_ids.sort();
+                (physical_machine_id, management_host, node_slot_ids)
+            },
+        )
         .collect::<Vec<_>>();
     targets.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -526,119 +528,122 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
         .build()
         .unwrap_or_else(|_| Client::new());
 
-    let probes = targets
-        .into_iter()
-        .map(|(physical_machine_id, management_host, node_slot_ids)| {
-            let client = client.clone();
-            async move {
-                let checked_at_utc = Utc::now().to_rfc3339();
-                if management_host.trim().is_empty() {
-                    return MonitorAgentReachability {
-                        physical_machine_id,
-                        management_host,
-                        node_slot_ids,
-                        reachable: false,
-                        response_ms: 0,
-                        version: None,
-                        workspace_path: None,
-                        local_management_host: None,
-                        supported_actions: Vec::new(),
-                        checked_at_utc,
-                        error: Some("No inventory address resolved for this machine.".to_string()),
-                    };
-                }
-
-                let endpoint = format!("http://{management_host}:{TESTBETA_AGENT_PORT}/health");
-                let started = Instant::now();
-                match client.get(&endpoint).send().await {
-                    Ok(response) => {
-                        let response_ms = started.elapsed().as_millis() as u64;
-                        let status = response.status();
-                        if !status.is_success() {
-                            let body = response.text().await.unwrap_or_default();
-                            return MonitorAgentReachability {
-                                physical_machine_id,
-                                management_host,
-                                node_slot_ids,
-                                reachable: false,
-                                response_ms,
-                                version: None,
-                                workspace_path: None,
-                                local_management_host: None,
-                                supported_actions: Vec::new(),
-                                checked_at_utc,
-                                error: Some(format!(
-                                    "HTTP {} from agent health endpoint{}",
-                                    status,
-                                    if body.trim().is_empty() {
-                                        String::new()
-                                    } else {
-                                        format!(": {}", truncate_text(body.trim(), 220))
-                                    }
-                                )),
-                            };
-                        }
-
-                        match response.json::<TestnetBetaAgentHealth>().await {
-                            Ok(payload) => {
-                                let mut installed_node_slot_ids = payload
-                                    .node_slot_ids
-                                    .into_iter()
-                                    .map(|value| value.trim().to_ascii_lowercase())
-                                    .filter(|value| !value.is_empty())
-                                    .collect::<Vec<_>>();
-                                installed_node_slot_ids.dedup();
-
-                                MonitorAgentReachability {
-                                    physical_machine_id: payload
-                                        .physical_machine_id
-                                        .filter(|value| !value.trim().is_empty())
-                                        .unwrap_or(physical_machine_id),
-                                    management_host,
-                                    node_slot_ids: installed_node_slot_ids,
-                                    reachable: true,
-                                    response_ms,
-                                    version: Some(payload.version),
-                                    workspace_path: Some(payload.workspace_path),
-                                    local_management_host: payload.local_management_host,
-                                    supported_actions: payload.supported_actions,
-                                    checked_at_utc,
-                                    error: None,
-                                }
-                            }
-                            Err(error) => MonitorAgentReachability {
-                                physical_machine_id,
-                                management_host,
-                                node_slot_ids,
-                                reachable: false,
-                                response_ms,
-                                version: None,
-                                workspace_path: None,
-                                local_management_host: None,
-                                supported_actions: Vec::new(),
-                                checked_at_utc,
-                                error: Some(format!(
-                                    "Failed to decode agent health payload: {error}"
-                                )),
-                            },
-                        }
+    let probes =
+        targets
+            .into_iter()
+            .map(|(physical_machine_id, management_host, node_slot_ids)| {
+                let client = client.clone();
+                async move {
+                    let checked_at_utc = Utc::now().to_rfc3339();
+                    if management_host.trim().is_empty() {
+                        return MonitorAgentReachability {
+                            physical_machine_id,
+                            management_host,
+                            node_slot_ids,
+                            reachable: false,
+                            response_ms: 0,
+                            version: None,
+                            workspace_path: None,
+                            local_management_host: None,
+                            supported_actions: Vec::new(),
+                            checked_at_utc,
+                            error: Some(
+                                "No inventory address resolved for this machine.".to_string(),
+                            ),
+                        };
                     }
-                    Err(error) => MonitorAgentReachability {
-                        physical_machine_id,
-                        management_host,
-                        node_slot_ids,
-                        reachable: false,
-                        response_ms: started.elapsed().as_millis() as u64,
-                        version: None,
-                        workspace_path: None,
-                        local_management_host: None,
-                        supported_actions: Vec::new(),
-                        checked_at_utc,
-                        error: Some(error.to_string()),
-                    },
+
+                    let endpoint = format!("http://{management_host}:{TESTBETA_AGENT_PORT}/health");
+                    let started = Instant::now();
+                    match client.get(&endpoint).send().await {
+                        Ok(response) => {
+                            let response_ms = started.elapsed().as_millis() as u64;
+                            let status = response.status();
+                            if !status.is_success() {
+                                let body = response.text().await.unwrap_or_default();
+                                return MonitorAgentReachability {
+                                    physical_machine_id,
+                                    management_host,
+                                    node_slot_ids,
+                                    reachable: false,
+                                    response_ms,
+                                    version: None,
+                                    workspace_path: None,
+                                    local_management_host: None,
+                                    supported_actions: Vec::new(),
+                                    checked_at_utc,
+                                    error: Some(format!(
+                                        "HTTP {} from agent health endpoint{}",
+                                        status,
+                                        if body.trim().is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!(": {}", truncate_text(body.trim(), 220))
+                                        }
+                                    )),
+                                };
+                            }
+
+                            match response.json::<TestnetBetaAgentHealth>().await {
+                                Ok(payload) => {
+                                    let mut installed_node_slot_ids = payload
+                                        .node_slot_ids
+                                        .into_iter()
+                                        .map(|value| value.trim().to_ascii_lowercase())
+                                        .filter(|value| !value.is_empty())
+                                        .collect::<Vec<_>>();
+                                    installed_node_slot_ids.dedup();
+
+                                    MonitorAgentReachability {
+                                        physical_machine_id: payload
+                                            .physical_machine_id
+                                            .filter(|value| !value.trim().is_empty())
+                                            .unwrap_or(physical_machine_id),
+                                        management_host,
+                                        node_slot_ids: installed_node_slot_ids,
+                                        reachable: true,
+                                        response_ms,
+                                        version: Some(payload.version),
+                                        workspace_path: Some(payload.workspace_path),
+                                        local_management_host: payload.local_management_host,
+                                        supported_actions: payload.supported_actions,
+                                        checked_at_utc,
+                                        error: None,
+                                    }
+                                }
+                                Err(error) => MonitorAgentReachability {
+                                    physical_machine_id,
+                                    management_host,
+                                    node_slot_ids,
+                                    reachable: false,
+                                    response_ms,
+                                    version: None,
+                                    workspace_path: None,
+                                    local_management_host: None,
+                                    supported_actions: Vec::new(),
+                                    checked_at_utc,
+                                    error: Some(format!(
+                                        "Failed to decode agent health payload: {error}"
+                                    )),
+                                },
+                            }
+                        }
+                        Err(error) => MonitorAgentReachability {
+                            physical_machine_id,
+                            management_host,
+                            node_slot_ids,
+                            reachable: false,
+                            response_ms: started.elapsed().as_millis() as u64,
+                            version: None,
+                            workspace_path: None,
+                            local_management_host: None,
+                            supported_actions: Vec::new(),
+                            checked_at_utc,
+                            error: Some(error.to_string()),
+                        },
+                    }
                 }
-            }
-        });
+            });
 
     let agents = join_all(probes).await;
     let reachable_agents = agents.iter().filter(|entry| entry.reachable).count();
@@ -736,7 +741,8 @@ fn effective_machine_id_for_node(
         fallback,
     );
 
-    physical_machine_for_management_host(&resolved_host).unwrap_or_else(|| node.physical_machine_id.clone())
+    physical_machine_for_management_host(&resolved_host)
+        .unwrap_or_else(|| node.physical_machine_id.clone())
 }
 
 pub fn monitor_get_setup_status() -> Result<MonitorSetupStatus, String> {
@@ -787,7 +793,9 @@ pub fn monitor_detect_local_machine_identity() -> Result<MonitorLocalMachineIden
         management_host: Some(management_host.clone()),
         physical_machine_id: Some(physical_machine_id.clone()),
         node_slot_ids,
-        message: format!("Detected local address {management_host}; mapped to {physical_machine_id}."),
+        message: format!(
+            "Detected local address {management_host}; mapped to {physical_machine_id}."
+        ),
     })
 }
 
@@ -1236,7 +1244,9 @@ pub async fn get_monitor_snapshot() -> Result<MonitorSnapshot, String> {
                 status.active_physical_machine_id = placement
                     .as_ref()
                     .map(|entry| entry.physical_machine_id.clone());
-                status.active_management_host = placement.as_ref().map(|entry| entry.management_host.clone());
+                status.active_management_host = placement
+                    .as_ref()
+                    .map(|entry| entry.management_host.clone());
                 status
             }
         })
@@ -1621,7 +1631,9 @@ pub async fn get_monitor_node_details(node_slot_id: String) -> Result<MonitorNod
     node_status.active_physical_machine_id = runtime_placement
         .as_ref()
         .map(|entry| entry.physical_machine_id.clone());
-    node_status.active_management_host = runtime_placement.as_ref().map(|entry| entry.management_host.clone());
+    node_status.active_management_host = runtime_placement
+        .as_ref()
+        .map(|entry| entry.management_host.clone());
 
     let client = Client::builder()
         .timeout(Duration::from_millis(750))
@@ -2116,8 +2128,8 @@ mod terminal_command_tests {
     fn prefers_real_machine_address_for_generated_control_plane_host() {
         assert_eq!(
             preferred_control_plane_host(
-                "172.16.10.7",
-                "172.16.10.7",
+                "10.50.0.7",
+                "10.50.0.7",
                 "73.79.66.255",
                 "192.168.11.98"
             ),
@@ -2129,7 +2141,10 @@ mod terminal_command_tests {
     fn host_override_prefers_non_overlay_management_host() {
         let overrides = HashMap::from([
             ("node_12_host".to_string(), "192.168.11.98".to_string()),
-            ("node_12_management_host".to_string(), "192.168.11.99".to_string()),
+            (
+                "node_12_management_host".to_string(),
+                "192.168.11.99".to_string(),
+            ),
         ]);
 
         assert_eq!(
@@ -7111,7 +7126,10 @@ fn generate_monitor_hosts_env(
             entry.node_slot_id, entry.node_alias, entry.role_group, entry.role, entry.node_type
         ));
         lines.push(format!("{node_slot_key}_HOST={control_plane_host}"));
-        lines.push(format!("{node_slot_key}_MANAGEMENT_HOST={}", entry.management_host));
+        lines.push(format!(
+            "{node_slot_key}_MANAGEMENT_HOST={}",
+            entry.management_host
+        ));
         lines.push(format!("{node_slot_key}_SSH_USER=ops"));
         lines.push(format!("{node_slot_key}_SSH_PORT=22"));
         lines.push(format!("# {node_slot_key}_SSH_KEY="));
@@ -7528,11 +7546,15 @@ fn validate_host_override_for_binding(
     let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
         return Ok(normalized);
     };
-    let Some(expected_management_host) = canonical_management_host_for_physical_machine(&physical_machine_id) else {
+    let Some(expected_management_host) =
+        canonical_management_host_for_physical_machine(&physical_machine_id)
+    else {
         return Ok(normalized);
     };
 
-    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_management_host.as_str()) {
+    if is_private_management_ip(value)
+        && !value.eq_ignore_ascii_case(expected_management_host.as_str())
+    {
         return Err(format!(
             "Invalid host override for {binding_target}: got {value}, expected {expected_management_host}."
         ));
@@ -7553,11 +7575,15 @@ fn migrate_host_override_for_binding(
     let Some(physical_machine_id) = physical_machine_for_binding_target(binding_target) else {
         return normalized;
     };
-    let Some(expected_management_host) = canonical_management_host_for_physical_machine(&physical_machine_id) else {
+    let Some(expected_management_host) =
+        canonical_management_host_for_physical_machine(&physical_machine_id)
+    else {
         return normalized;
     };
 
-    if is_private_management_ip(value) && !value.eq_ignore_ascii_case(expected_management_host.as_str()) {
+    if is_private_management_ip(value)
+        && !value.eq_ignore_ascii_case(expected_management_host.as_str())
+    {
         return Some(expected_management_host);
     }
 

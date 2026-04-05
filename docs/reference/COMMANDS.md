@@ -78,7 +78,7 @@ Node installer bundles are per-node archives deployed to remote machines during 
 
 ### `scripts/testbeta/build-node-installers.sh`
 **Run from:** repo root
-**What it does:** Assembles per-node installer bundles under `testbeta/lean15/installers/<node-slot-id>/`. Each bundle is uploaded to the corresponding remote machine by `remote-node-orchestrator.sh install_node`. The script resolves platform binaries automatically — it prefers freshly compiled binaries in `target/` and falls back to pre-built binaries in `binaries/`.
+**What it does:** Assembles per-node installer bundles under `testbeta/runtime/installers/<node-slot-id>/`. Each bundle is uploaded to the corresponding remote machine by `remote-node-orchestrator.sh install_node`. The script resolves platform binaries automatically — it prefers freshly compiled binaries in `target/` and falls back to pre-built binaries in `binaries/`.
 
 ```bash
 bash scripts/testbeta/build-node-installers.sh
@@ -119,8 +119,8 @@ bash scripts/testbeta/remote-node-orchestrator.sh node-01 deploy_agent
 | `restart` | Restarts the node (`nodectl restart`) |
 | `status` | Returns node running status (`nodectl status`) |
 | `logs` | Tails the last 120 lines of node logs |
-| `export_logs` | Downloads a full logs archive to `testbeta/lean15/reports/remote-exports/` |
-| `install_node` | Copies the installer bundle from `testbeta/lean15/installers/<id>/` to the remote machine |
+| `export_logs` | Downloads a full logs archive to `testbeta/runtime/reports/remote-exports/` |
+| `install_node` | Copies the installer bundle from `testbeta/runtime/installers/<id>/` to the remote machine |
 | `setup_node` | Copies installer bundle and runs `install_and_start.sh` — full first-time node setup |
 | `bootstrap_node` | Same as `setup_node` — alias used during genesis bootstrap |
 | `reset_chain` | Stops the node, deletes all chain state on the remote machine, and redeploys config. Does **not** restart — use `start` afterward |
@@ -128,7 +128,7 @@ bash scripts/testbeta/remote-node-orchestrator.sh node-01 deploy_agent
 | `deploy_agent` | SCPs the matching `binaries/synergy-testbeta-agent-<platform>` binary to the remote machine and installs/restarts it as a systemd service. Requires the binary to already exist in `binaries/` |
 | `explorer_reset` | Triggers the block explorer to reindex from the remote machine using VPN-safe routing |
 | `view_chain_data` | Shows chain data directory size and top files on the remote machine |
-| `export_chain_data` | Downloads a chain data archive to `testbeta/lean15/reports/remote-exports/` |
+| `export_chain_data` | Downloads a chain data archive to `testbeta/runtime/reports/remote-exports/` |
 | `info` | Prints resolved host/SSH/path config for this node — useful for debugging connectivity |
 
 **Node-type-specific operations** (only valid for the appropriate node role):
@@ -146,9 +146,9 @@ bash scripts/testbeta/remote-node-orchestrator.sh node-01 deploy_agent
 | `trigger_da_sample` | Data Availability | Triggers a data availability sampling round |
 | `reindex_from_height` | Indexer | Reindexes from genesis |
 
-**How routing works:** The orchestrator tries the agent HTTP API first (`http://<vpn_ip>:47990/v1/control`). If the agent is unreachable it falls back to SSH. The `deploy_agent` operation always uses SSH (by design — the agent can't update itself).
+**How routing works:** The orchestrator tries the agent HTTP API first (`http://<management_host>:47990/v1/control`). If the agent is unreachable it falls back to SSH. The `deploy_agent` operation always uses SSH (by design — the agent can't update itself).
 
-**Environment / config:** The script reads `testbeta/lean15/hosts.env` for SSH credentials and VPN IPs. Override specific machines with env vars like `NODE_03_HOST`, `NODE_03_SSH_KEY`, etc.
+**Environment / config:** The script reads `testbeta/runtime/hosts.env` for SSH credentials and VPN IPs. Override specific machines with env vars like `NODE_03_HOST`, `NODE_03_SSH_KEY`, etc.
 
 ---
 
@@ -192,7 +192,7 @@ bash scripts/reset-testbeta.sh
 |---|---|
 | `--rebuild-installers` | Also rebuilds all node installer bundles after the reset (calls `build-node-installers.sh`) |
 | `--skip-restart` | Skip the final cluster restart (default is already skip — nodes don't restart after reset) |
-| `--hosts-file <path>` | Override the default `testbeta/lean15/hosts.env` with a custom hosts file |
+| `--hosts-file <path>` | Override the default `testbeta/runtime/hosts.env` with a custom hosts file |
 
 ---
 

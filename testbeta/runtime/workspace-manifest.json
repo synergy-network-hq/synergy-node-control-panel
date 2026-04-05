@@ -1,7 +1,7 @@
 {
-  "workspace_resource_version": "5.12.0+d8463c87db95",
-  "app_version": "5.12.0",
-  "bundle_digest": "d8463c87db95981eb63ab117eb55767268a2b270432a909158b3d4299705519d",
+  "workspace_resource_version": "5.13.0+d77c58f02ef1",
+  "app_version": "5.13.0",
+  "bundle_digest": "d77c58f02ef19ec18719d6560ebbfb0ca25ea6c664516df5768048ed4ed032e9",
   "required_paths": [
     "testbeta/runtime/node-inventory.csv",
     "testbeta/runtime/hosts.env.example",

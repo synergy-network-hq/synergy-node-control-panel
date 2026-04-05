@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.13.0 - 2026-04-04
+
+- Advanced the bundled Testnet-Beta source pin to `v5.13.0-testbeta-source`, which includes the runtime-root migration, canonical genesis refresh, and current validator/bootstrap assets used for the clean reinstall path.
+- Hardened local node control so duplicate `start` actions now detect an already-running process from the installed `node.toml`, and regenerated every bundled installer `nodectl` script with the same live-PID safeguard.
+- Fixed peer-list presentation by deduplicating repeated sessions that announce the same validator or public address, updated runtime-root documentation paths, and kept the control-service monitor/control-plane host fixtures aligned with the legacy overlay range we still migrate away from.
+
 ## v5.12.4 - 2026-04-03
 
 - Advanced the bundled Testnet-Beta source pin to `v5.12.4-testbeta-source`, which includes the P2P discovery fix that keeps bootnodes and other non-validator discovery peers connected even when they do not advertise a genesis hash in their status payload.

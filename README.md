@@ -2,7 +2,7 @@
 
 This app is the desktop operator console for the Synergy closed testbeta.
 
-It ships the active node-slot inventory in `testbeta/lean15/node-inventory.csv`, rendered node configs, installer bundles, and the in-app operator manual used by the Help window.
+It ships the active node-slot inventory in `testbeta/runtime/node-inventory.csv`, rendered node configs, installer bundles, and the in-app operator manual used by the Help window.
 
 ## Core Responsibilities
 
@@ -42,7 +42,7 @@ Operational requirement:
 - `electron/`: Electron main-process and preload bridge
 - `control-service/`: Rust control-service and shared native orchestration code
 - `control-service/src/bin/control-service.rs`: local Rust control-service used by Electron
-- `testbeta/lean15/`: inventory, rendered configs, installers, and reports
+- `testbeta/runtime/`: inventory, rendered configs, installers, and reports
 - `guides/`: bundled operator manuals used by the app Help window
 - `docs/`: current project/reference docs not bundled into the app
 - `archive/`: superseded or generated material moved out of the root
@@ -71,18 +71,18 @@ The monitor resolves the inventory file in this order:
 
 1. `SYNERGY_MONITOR_INVENTORY` environment variable
 2. repo-local relative paths
-3. bundled fallback under `testbeta/lean15/node-inventory.csv`
+3. bundled fallback under `testbeta/runtime/node-inventory.csv`
 
 Recommended override:
 
 ```bash
-export SYNERGY_MONITOR_INVENTORY="/absolute/path/to/synergy-testbeta/tools/testbeta-control-panel/testbeta/lean15/node-inventory.csv"
+export SYNERGY_MONITOR_INVENTORY="/absolute/path/to/synergy-testbeta/tools/testbeta-control-panel/testbeta/runtime/node-inventory.csv"
 ```
 
 PowerShell:
 
 ```powershell
-$env:SYNERGY_MONITOR_INVENTORY="C:\absolute\path\to\synergy-testbeta\tools\testbeta-control-panel\testbeta\lean15\node-inventory.csv"
+$env:SYNERGY_MONITOR_INVENTORY="C:\absolute\path\to\synergy-testbeta\tools\testbeta-control-panel\testbeta\runtime\node-inventory.csv"
 ```
 
 ## Docs

@@ -147,7 +147,7 @@ Server IP: $(curl -s ifconfig.me)
 Operator: $(whoami)
 Generated: $(date)
 
-SHARE THIS FILE (NOT identity.json!) WITH THE DEVNET COORDINATOR
+SHARE THIS FILE (NOT identity.json!) WITH THE TESTNET-BETA COORDINATOR
 EOF
 
 echo ""

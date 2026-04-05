@@ -13,7 +13,7 @@ As of this update, the control panel's bulk `reset_chain` action will attempt to
 Set the explorer reset endpoint in one of these locations (checked in order):
 
 1. **Environment variable:** `SYNERGY_EXPLORER_RESET_ENDPOINT`
-2. **hosts.env file:** Add `SYNERGY_EXPLORER_RESET_ENDPOINT=https://your-explorer-api.example.com/v1/admin/reindex-from-genesis` to `testbeta/lean15/hosts.env`
+2. **hosts.env file:** Add `SYNERGY_EXPLORER_RESET_ENDPOINT=https://your-explorer-api.example.com/v1/admin/reindex-from-genesis` to `testbeta/runtime/hosts.env`
 
 ### Request Format
 
