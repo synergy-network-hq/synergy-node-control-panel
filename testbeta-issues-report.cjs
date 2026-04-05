@@ -101,7 +101,7 @@ const doc = new Document({
     children: [
       // TITLE PAGE
       new Paragraph({ spacing: { before: 2400 } }),
-      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: "SYNERGY DEVNET CONTROL PANEL", font: "Arial", size: 44, bold: true, color: "1B2A4A" })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: "SYNERGY TESTNET-BETA CONTROL PANEL", font: "Arial", size: 44, bold: true, color: "1B2A4A" })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 400 }, children: [new TextRun({ text: "Setup Issue Analysis & Root Cause Report", font: "Arial", size: 32, color: "2E75B6" })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [new TextRun({ text: "March 8, 2026", font: "Arial", size: 24, color: "666666" })] }),
       new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 600 }, children: [new TextRun({ text: "Based on full codebase analysis of Electron app, Rust backend, shell scripts, and React frontend", font: "Arial", size: 20, color: "888888", italics: true })] }),

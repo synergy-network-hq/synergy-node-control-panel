@@ -21,9 +21,9 @@ use crate::testnet_beta::{
     testbeta_get_device_profile, testbeta_get_live_status, testbeta_get_node_logs,
     testbeta_get_node_readiness, testbeta_get_state, testbeta_import_ceremony_package,
     testbeta_inspect_ceremony_package, testbeta_node_control, testbeta_remove_node,
-    testbeta_run_register_with_seeds, testbeta_setup_node,
-    TestnetBetaImportCeremonyPackageInput, TestnetBetaInspectCeremonyPackageInput,
-    TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
+    testbeta_run_register_with_seeds, testbeta_setup_node, TestnetBetaImportCeremonyPackageInput,
+    TestnetBetaInspectCeremonyPackageInput, TestnetBetaNodeControlInput,
+    TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -349,7 +349,9 @@ async fn dispatch_command(
         "get_monitor_inventory_path" => to_value(get_monitor_inventory_path()?),
         "get_monitor_user_manual_markdown" => to_value(get_monitor_user_manual_markdown()?),
         "get_monitor_security_state" => to_value(get_monitor_security_state()?),
-        "monitor_detect_local_machine_identity" => to_value(monitor_detect_local_machine_identity()?),
+        "monitor_detect_local_machine_identity" => {
+            to_value(monitor_detect_local_machine_identity()?)
+        }
         "monitor_ensure_ssh_keypair" => {
             to_value(monitor_ensure_ssh_keypair_from_context(&state.app_context)?)
         }

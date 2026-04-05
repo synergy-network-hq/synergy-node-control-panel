@@ -454,7 +454,20 @@ fn execute_control(
         }
         "start" => {
             let install = resolve_node_install(workspace_root, &node_slot_id)?;
-            run_nodectl(&install, &normalized_action)
+            if is_node_process_running(&install) {
+                Ok(CommandOutcome {
+                    success: true,
+                    exit_code: 0,
+                    stdout: format!(
+                        "{} already running (live process detected for {}). Refusing duplicate start.",
+                        node_slot_id,
+                        install.install_dir.display()
+                    ),
+                    stderr: String::new(),
+                })
+            } else {
+                run_nodectl(&install, &normalized_action)
+            }
         }
         "sync_node" => {
             // Catch the node up from peers and let nodectl promote the node into

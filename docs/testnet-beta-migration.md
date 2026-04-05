@@ -6,19 +6,19 @@
 
 ## Executive Summary
 
-The current control panel is built for a closed testbeta with private-overlay reachability, VPN-based machine identity, and agent trust derived from the private `10.50.0.0/24` network. That model is causing operational friction and does not fit a broader testnet-beta where each node publishes its own stable public endpoint.
+The current control panel is built for a closed testbeta with private-overlay reachability, overlay-based machine identity, and agent trust derived from a legacy private management network. That model is causing operational friction and does not fit a broader testnet-beta where each node publishes its own stable public endpoint.
 
 The migration target is a public-endpoint testnet-beta where:
 - every node has a public RPC hostname such as `node0202.synergynode.net`
 - node health and status checks use public endpoints
-- local same-machine operations do not require VPN identity
+- local same-machine operations do not require overlay identity
 - remote control is no longer coupled to a private overlay
 
 ## Problem
 
 The current design assumes:
-- `host` and `vpn_ip` are effectively the same private address
-- local machine identity is derived from a `10.50.0.x` address
+- `host` and `management_host` are effectively the same private address
+- local machine identity is derived from a legacy private overlay address
 - the testbeta agent is reachable only from trusted private-network peers
 - installer generation rewrites config and inventory around private overlay addresses
 
@@ -28,7 +28,7 @@ That is appropriate for a closed testbeta and inappropriate for a public testnet
 
 - Support public per-node RPC endpoints in inventory.
 - Decouple read-path monitoring from private control transport.
-- Allow same-machine local actions without VPN detection.
+- Allow same-machine local actions without overlay detection.
 - Preserve backward compatibility while the old testbeta profile still exists.
 
 ## Non-Goals
@@ -58,7 +58,7 @@ Control must be separated from public RPC:
 
 ### Local Machine Identity
 
-For testnet-beta and non-VPN deployments, local identity should be allowed via:
+For testnet-beta and non-overlay deployments, local identity should be allowed via:
 - `SYNERGY_MACHINE_ID=<physical_machine_id>`
 
 This provides a deterministic local-machine mapping when no overlay address exists.
@@ -87,12 +87,12 @@ This is enough to begin migrating the read path to public node endpoints.
 
 ### P2
 
-- Remove topology rewrites that force `host` and `vpn_ip` to the same private address.
-- Add a dedicated `testnet-beta` inventory/profile beside `testbeta/lean15`.
+- Remove topology rewrites that force `host` and `management_host` to the same private address.
+- Add a dedicated `testnet-beta` inventory/profile beside `testbeta/runtime`.
 - Rework installer templates so bind/public addresses are not forced to private overlay IPs.
 
 ## Acceptance Criteria
 
 - A node inventory row can specify a public RPC target and the dashboard uses it for health checks.
-- A same-machine operator can run local control actions with `SYNERGY_MACHINE_ID` set and no VPN present.
+- A same-machine operator can run local control actions with `SYNERGY_MACHINE_ID` set and no overlay network present.
 - Existing closed-testbeta inventory continues to work unchanged.

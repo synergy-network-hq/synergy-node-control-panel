@@ -454,6 +454,86 @@ export function resolveNginxConfPath(node) {
   return resolveConfigPath(node, 'nginx.conf');
 }
 
+function resolveCeremonyPackagePath(node) {
+  const nodeTomlPath = resolveNodeTomlPath(node);
+  if (!nodeTomlPath) {
+    const workspace = String(node?.workspace_directory || '').trim();
+    return workspace ? `${workspace.replace(/[\\/]+$/, '')}/manifests/ceremony-package.json` : null;
+  }
+
+  return nodeTomlPath.replace(
+    /([/\\])config\1node\.toml$/i,
+    '$1manifests$1ceremony-package.json',
+  );
+}
+
+function normalizeCeremonyAssignedPorts(value) {
+  const source = value && typeof value === 'object' ? value : null;
+  if (!source) {
+    return null;
+  }
+
+  const p2p = parsePortValue(source.p2p_port ?? source.p2pPort);
+  const rpc = parsePortValue(source.rpc_port ?? source.rpcPort);
+  const ws = parsePortValue(source.ws_port ?? source.wsPort);
+  const discovery = parsePortValue(source.discovery_port ?? source.discoveryPort);
+  const metrics = parsePortValue(source.metrics_port ?? source.metricsPort);
+
+  if ([p2p, rpc, ws, discovery, metrics].some((valueToCheck) => valueToCheck == null)) {
+    return null;
+  }
+
+  return normalizeStoredPortSettings({
+    p2p,
+    rpc,
+    ws,
+    discovery,
+    metrics,
+  });
+}
+
+async function readCeremonyAssignedPortSettings(node) {
+  const ceremonyPackagePath = resolveCeremonyPackagePath(node);
+  if (!ceremonyPackagePath) {
+    return null;
+  }
+
+  try {
+    const contents = await readTextFile(ceremonyPackagePath);
+    const payload = JSON.parse(contents);
+    const portSettings = normalizeCeremonyAssignedPorts(
+      payload?.assigned_ports ?? payload?.assignedPorts,
+    );
+    if (!portSettings) {
+      return null;
+    }
+
+    return {
+      ceremonyPackagePath,
+      portSettings,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveEffectiveNodePortSettings(node, settings) {
+  const ceremonyAssignedPorts = await readCeremonyAssignedPortSettings(node);
+  if (ceremonyAssignedPorts) {
+    return {
+      portSettings: ceremonyAssignedPorts.portSettings,
+      source: 'ceremony-package',
+      ceremonyPackagePath: ceremonyAssignedPorts.ceremonyPackagePath,
+    };
+  }
+
+  return {
+    portSettings: resolveNodePortSettings(settings, node),
+    source: 'stored-profile',
+    ceremonyPackagePath: null,
+  };
+}
+
 export function buildPeersToml(networkProfile, additionalDialTargets = []) {
   const bootnodes = (Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : [])
     .map((entry) => `${entry.host}:${entry.port}`);
@@ -529,7 +609,11 @@ export async function applyTestnetBetaPortSettings(node, settings) {
   }
 
   let contents = await readTextFile(nodeTomlPath);
-  const portSettings = resolveNodePortSettings(settings, node);
+  const {
+    portSettings,
+    source,
+    ceremonyPackagePath,
+  } = await resolveEffectiveNodePortSettings(node, settings);
 
   const rpcBindAddress = updateAddressPort(
     readSectionValue(contents, 'rpc', 'bind_address'),
@@ -594,6 +678,8 @@ export async function applyTestnetBetaPortSettings(node, settings) {
     updatedFiles,
     portSlot: resolveNodePortSlot(node),
     portSettings,
+    source,
+    ceremonyPackagePath,
   };
 }
 

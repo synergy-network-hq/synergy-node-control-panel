@@ -8,7 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: "4ac8c557933cee9bb15c4bed28f1ba8172d3d667"
+  TESTNET_BETA_REF: "v5.13.1-testbeta-source"
 
 jobs:
   build:
@@ -33,14 +33,18 @@ jobs:
               electron-dist/*.yml
               electron-dist/*.yaml
               electron-dist/*.blockmap
-          - os: windows-latest
-            artifact_name: windows
-            build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
-            artifact_glob: |
-              electron-dist/*.exe
-              electron-dist/*.yml
-              electron-dist/*.yaml
-              electron-dist/*.blockmap
+          # Windows installer builds are intentionally disabled for now to cut
+          # release build time while we are only shipping macOS/Linux desktop
+          # packages. Re-enable this matrix entry when Windows distribution
+          # resumes.
+          # - os: windows-latest
+          #   artifact_name: windows
+          #   build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
+          #   artifact_glob: |
+          #     electron-dist/*.exe
+          #     electron-dist/*.yml
+          #     electron-dist/*.yaml
+          #     electron-dist/*.blockmap
 
     runs-on: ${{ matrix.os }}
     env:
@@ -61,6 +65,8 @@ jobs:
           path: testnet-beta-source
           ref: ${{ env.TESTNET_BETA_REF }}
           token: ${{ secrets.RELEASES_REPO_TOKEN }}
+          persist-credentials: false
+          submodules: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

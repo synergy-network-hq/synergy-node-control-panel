@@ -165,6 +165,17 @@ is_running() {
       return 0
     fi
   fi
+
+  local config_path live_pid
+  config_path="$BASE_DIR/config/node.toml"
+  if command -v pgrep >/dev/null 2>&1; then
+    live_pid="$(pgrep -f -o "$config_path" 2>/dev/null || true)"
+    if [[ -n "$live_pid" ]]; then
+      echo "$live_pid" > "$PID_FILE"
+      return 0
+    fi
+  fi
+
   return 1
 }
 

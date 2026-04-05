@@ -2,6 +2,42 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v5.13.0 - 2026-04-04
+
+- Advanced the bundled Testnet-Beta source pin to `v5.13.0-testbeta-source`, which includes the runtime-root migration, canonical genesis refresh, and current validator/bootstrap assets used for the clean reinstall path.
+- Hardened local node control so duplicate `start` actions now detect an already-running process from the installed `node.toml`, and regenerated every bundled installer `nodectl` script with the same live-PID safeguard.
+- Fixed peer-list presentation by deduplicating repeated sessions that announce the same validator or public address, updated runtime-root documentation paths, and kept the control-service monitor/control-plane host fixtures aligned with the legacy overlay range we still migrate away from.
+
+## v5.12.4 - 2026-04-03
+
+- Advanced the bundled Testnet-Beta source pin to `v5.12.4-testbeta-source`, which includes the P2P discovery fix that keeps bootnodes and other non-validator discovery peers connected even when they do not advertise a genesis hash in their status payload.
+- Preserved the runtime-root launcher/runtime fix, the faster startup readiness probe, and the reduced monitor RPC timeouts already landed in the control panel release line.
+- Rebuilt the installers so the packaged `synergy-testbeta` binary matches the current top-level source used for genesis-validator operation.
+
+## v5.12.3 - 2026-04-03
+
+- Switched the Testnet-Beta release source pin from a raw commit SHA to the reachable top-level tag `v5.12.2-testbeta-source`, which points to the same fixed source commit but can be fetched reliably by `actions/checkout`.
+- Preserved the v5.12.2 source-graph fix that removed the stale top-level `node-control-panel` gitlink, along with the runtime-root and readiness-probe fixes already landed in the control panel.
+- Re-ran the control-panel installer release against the tagged top-level source so checkout and binary bundling resolve from stable refs on every runner.
+
+## v5.12.2 - 2026-04-03
+
+- Advanced the Testnet-Beta release source pin to commit `c7aab0ef41a2f154869845b0579dc3d36a75c235`, which removes the stale `node-control-panel` gitlink from the top-level source tree so `actions/checkout` no longer fails during auth cleanup.
+- Kept the runtime-root launcher fix, the runtime-root-aware node binary, the faster startup readiness probe, and the reduced monitor RPC timeouts from v5.12.1.
+- Rebuilt the installer release on top of the corrected top-level source graph so the packaged control panel and packaged node now ship from the same fixed lineage.
+
+## v5.12.1 - 2026-04-03
+
+- Corrected the Testnet-Beta release source pin so installer builds now compile `synergy-testbeta` from commit `476a159956eaeffe5d6f4cb4c1caf94156828716`, which includes the runtime-root detection fix required for validator workspaces launched outside the source checkout.
+- Preserved the v5.12.0 control-service launcher fix that exports `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH`, while ensuring the bundled node binary now understands those runtime-root environment variables too.
+- Disabled submodule cleanup for the pinned Testnet-Beta checkout in the release workflow so GitHub Actions no longer trips over the broken `node-control-panel` gitlink metadata during post-job cleanup.
+
+## v5.12.0 - 2026-04-03
+
+- Fixed Testnet-Beta node launches from generated validator workspaces by exporting `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH` into every control-service runner invocation, which stops the validator restart loop caused by runtime root detection failures.
+- Added focused regression coverage for workspace-scoped runner environment propagation and strengthened the start-path test so it validates the local RPC readiness gate instead of depending on an ambient service on the default port.
+- Regenerated the bundled testbeta runtime assets and installer bundles for the repaired workspace launch flow.
+
 ## v5.11.3 - 2026-04-03
 
 - Fixed Jarvis Genesis Setup so validator `setup-package.json` files remain package-driven from selection through import instead of dropping into a manual ceremony-role prompt when the package role should already be known.

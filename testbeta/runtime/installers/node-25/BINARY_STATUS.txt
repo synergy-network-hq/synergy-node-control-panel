@@ -4,17 +4,17 @@ Synergy Testnet-Beta Binary Status
 Linux Binary
 ------------
 Path: ./bin/synergy-testbeta-linux-amd64
-SHA-256: 7e392329c866a9a77a4440592f75d325a1b844ca4eb0dd1d35a5c65d12d09d1d
+SHA-256: f3d3548589fa7b7e919c9eecf563c8698243349f5c24c13490a8f6d265136111
 
 Darwin Binary
 -------------
 Path: ./bin/synergy-testbeta-darwin-arm64
-SHA-256: b5900510737f6d28688662f2aea632cdb73e7197167a0e67828553a61a6d492e
+SHA-256: fdcdff5a9f3145312638a15f5d57b9fd26a41a62a3e2e9ee200daedd1e3be46f
 
 Windows Binary
 --------------
 Path: ./bin/synergy-testbeta-windows-amd64.exe
-SHA-256: 2d9729639fd0040332ca6d395d430b9aab1e0f2a0e2c44c91a4dfc9e39b20baa
+SHA-256: a49f86aea704e58d83c159c83da59e8e16f4bd10923c0f970498419563731473
 
 Interpretation
 --------------

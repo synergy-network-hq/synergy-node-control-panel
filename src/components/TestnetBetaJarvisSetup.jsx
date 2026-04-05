@@ -753,7 +753,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           appliedPortSettings = portConfig.portSettings || null;
           addTerminalLine(
             'info',
-            `Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`,
+            portConfig.source === 'ceremony-package'
+              ? `Electron preserved ceremony-assigned node.toml ports: ${formatPortSettingsSummary(portConfig.portSettings)}.`
+              : `Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`,
           );
         } catch (portError) {
           addTerminalLine('info', `Electron port profile update skipped: ${String(portError)}`);
@@ -879,7 +881,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         const portConfig = await applyStoredTestnetBetaPortSettings(result?.node);
         addTerminalLine(
           'info',
-          `Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`,
+          portConfig.source === 'ceremony-package'
+            ? `Electron preserved ceremony-assigned node.toml ports: ${formatPortSettingsSummary(portConfig.portSettings)}.`
+            : `Electron wrote node.toml port profile: ${formatPortSettingsSummary(portConfig.portSettings)}.`,
         );
       } catch (portError) {
         addTerminalLine('info', `Electron port profile update skipped: ${String(portError)}`);
