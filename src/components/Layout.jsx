@@ -141,26 +141,17 @@ function Layout({ children }) {
       }
     });
 
-    const unsubDownloaded = onUpdaterEvent('update-downloaded', async (data) => {
+    const unsubDownloaded = onUpdaterEvent('update-downloaded', (data) => {
       if (!disposed) {
+        // Surface a 'ready' state so the user can choose when to restart.
+        // installDownloadedUpdate() is called only when the user clicks the
+        // "Restart to Update" button via handleUpdateAction.
         setUpdateState((previous) => ({
           ...previous,
-          status: 'installing',
-          message: `Update ${data?.version || previous.version} downloaded. Restarting to apply.`,
+          status: 'ready',
+          message: `Update ${data?.version || previous.version} downloaded. Click "Restart to Update" to apply.`,
           version: data?.version || previous.version,
         }));
-
-        try {
-          await installDownloadedUpdate();
-        } catch (error) {
-          if (!disposed) {
-            setUpdateState((previous) => ({
-              ...previous,
-              status: 'error',
-              message: error?.message || 'Update install failed.',
-            }));
-          }
-        }
       }
     });
 

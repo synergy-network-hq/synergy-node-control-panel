@@ -453,6 +453,17 @@ app.whenReady().then(async () => {
   setupIpc();
   await createMainWindow();
 
+  // Proactively check for updates ~10 s after launch so the renderer is
+  // fully loaded before the network round-trip is made.  Only runs in
+  // packaged builds; dev mode has no published release to check against.
+  if (app.isPackaged) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((error) => {
+        console.error(`[auto-updater] background check failed: ${error?.message || error}`);
+      });
+    }, 10_000);
+  }
+
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createMainWindow();

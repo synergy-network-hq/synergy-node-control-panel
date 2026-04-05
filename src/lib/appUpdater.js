@@ -29,22 +29,26 @@ export async function relaunchApp() {
 export async function checkForUpdate() {
   try {
     if (hasNativeUpdater()) {
-      const bridge = getBridge();
-      const result = await bridge.checkForUpdate();
-      const updateInfo = result?.updateInfo;
-      if (updateInfo?.version) {
-        const currentVersion = await getVersion();
-        const isNewer = compareVersions(updateInfo.version, currentVersion) > 0;
-        return {
-          available: isNewer,
-          version: updateInfo.version,
-          currentVersion,
-        };
+      try {
+        const bridge = getBridge();
+        const result = await bridge.checkForUpdate();
+        const updateInfo = result?.updateInfo;
+        if (updateInfo?.version) {
+          const currentVersion = await getVersion();
+          const isNewer = compareVersions(updateInfo.version, currentVersion) > 0;
+          return {
+            available: isNewer,
+            version: updateInfo.version,
+            currentVersion,
+          };
+        }
+        // Native updater returned no version info — fall through to GitHub API
+      } catch {
+        // Native updater threw (e.g. no latest.yml published yet) — fall through
       }
-      return { available: false };
     }
 
-    // Fallback: check GitHub releases API
+    // Fallback: check GitHub releases API directly
     return await checkForPublishedUpdate();
   } catch (error) {
     return { available: false, error: normalizeUpdateError(error) };

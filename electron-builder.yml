@@ -28,6 +28,7 @@ mac:
   artifactName: "Synergy.Node.Control.Panel-${version}-${arch}.${ext}"
   target:
     - dmg
+    - zip
 
 win:
   icon: control-service/icons/icon.ico
