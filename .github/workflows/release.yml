@@ -8,7 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: "v1.1.0"
+  TESTNET_BETA_REF: "v1.1.1"
 
 jobs:
   build:
