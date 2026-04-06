@@ -301,6 +301,8 @@ pub struct TestnetBetaSetupInput {
     /// generated nginx.conf at provisioning time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_address_override: Option<String>,
     #[serde(default)]
     pub skip_canonical_manifests: bool,
 }
@@ -506,6 +508,7 @@ pub async fn testbeta_import_ceremony_package(
             display_label: Some(package.display_name.clone()),
             intended_directory: input.intended_directory.clone(),
             public_host: input.public_host.clone(),
+            node_address_override: package.runtime_identity.as_ref().map(|identity| identity.address.clone()),
             skip_canonical_manifests: true,
         })
         .await?
@@ -1300,6 +1303,13 @@ pub async fn testbeta_setup_node(
     }
 
     let node_identity = generate_node_wallet(&role, &keys_directory)?;
+    let effective_node_address = input
+        .node_address_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| node_identity.wallet.address.clone());
     // Use the caller-supplied public host (remote server IP) if provided;
     // otherwise fall back to automatic detection via ipify / ifconfig.
     let detected_public_host = match input
@@ -1313,7 +1323,7 @@ pub async fn testbeta_setup_node(
     let funding_manifest = TestnetBetaFundingManifest {
         id: format!("fund-{}", Uuid::new_v4().simple()),
         source_wallet: network_profile.treasury_wallet.address.clone(),
-        destination_wallet: node_identity.wallet.address.clone(),
+        destination_wallet: effective_node_address.clone(),
         destination_role: role.display_name.clone(),
         amount_snrg: format_amount(MINIMUM_STAKE_SNRG),
         amount_nwei: amount_to_nwei_string(MINIMUM_STAKE_SNRG),
@@ -1335,7 +1345,7 @@ pub async fn testbeta_setup_node(
         &node_id,
         &label,
         &role,
-        &node_identity.wallet.address,
+        &effective_node_address,
         &workspace_directory,
         detected_public_host.as_deref(),
         &network_profile,
@@ -1346,7 +1356,7 @@ pub async fn testbeta_setup_node(
         &node_id,
         &label,
         &role,
-        &node_identity.wallet.address,
+        &effective_node_address,
         detected_public_host.as_deref(),
         &funding_manifest,
         &device_profile,
@@ -1355,7 +1365,7 @@ pub async fn testbeta_setup_node(
     let readme_contents = build_node_readme(
         &label,
         &role,
-        &node_identity.wallet.address,
+        &effective_node_address,
         &workspace_directory,
         &network_profile,
         detected_public_host.as_deref(),
@@ -1488,7 +1498,7 @@ pub async fn testbeta_setup_node(
         role_display_name: role.display_name.clone(),
         class_name: role.class_name.clone(),
         display_label: label.clone(),
-        node_address: node_identity.wallet.address.clone(),
+        node_address: effective_node_address,
         public_key_path: node_identity.wallet.public_key_path.clone(),
         private_key_path: node_identity.wallet.private_key_path.clone(),
         workspace_directory: workspace_directory.to_string_lossy().to_string(),
@@ -5094,6 +5104,7 @@ mod tests {
                     display_label: Some("Test Validator Node".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    node_address_override: None,
                     skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
@@ -5250,6 +5261,33 @@ mod tests {
     }
 
     #[test]
+    fn setup_node_honors_node_address_override() {
+        with_temp_home(|_| {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let override_address = "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49".to_string();
+            let result = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Genesis Validator Override".to_string()),
+                    intended_directory: None,
+                    public_host: None,
+                    node_address_override: Some(override_address.clone()),
+                    skip_canonical_manifests: false,
+                }))
+                .expect("setup should succeed");
+
+            assert_eq!(result.node.node_address, override_address);
+
+            let node_toml = fs::read_to_string(config_path_for(&result.node, "node.toml"))
+                .expect("node.toml should exist");
+            assert!(
+                node_toml.contains("validator_address = \"synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49\""),
+                "node.toml should be rendered with the override address"
+            );
+        });
+    }
+
+    #[test]
     fn setup_node_can_skip_canonical_workspace_manifests() {
         with_temp_home(|_| {
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
@@ -5259,6 +5297,7 @@ mod tests {
                     display_label: Some("Validator Import Staging".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    node_address_override: None,
                     skip_canonical_manifests: true,
                 }))
                 .expect("setup should succeed");
@@ -5882,6 +5921,7 @@ esac
                     display_label: Some("Validator Test".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    node_address_override: None,
                     skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
@@ -6026,6 +6066,7 @@ EOF
                     display_label: Some("Validator A".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    node_address_override: None,
                     skip_canonical_manifests: false,
                 }))
                 .expect("first setup should succeed");
@@ -6035,6 +6076,7 @@ EOF
                     display_label: Some("RPC B".to_string()),
                     intended_directory: None,
                     public_host: None,
+                    node_address_override: None,
                     skip_canonical_manifests: false,
                 }))
                 .expect("second setup should succeed");

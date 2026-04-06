@@ -649,6 +649,11 @@ function nodeWorkspaceStatus(nodeLive) {
 let _cachedState = null;
 let _cachedLiveStatus = null;
 
+export function clearTestnetBetaDashboardCache() {
+  _cachedState = null;
+  _cachedLiveStatus = null;
+}
+
 function TestnetBetaDashboard({ onLaunchSetup }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedNodeId, setSelectedNodeId] = useState('');

@@ -6,6 +6,7 @@ import {
   formatPortSettingsSummary,
   refreshTestnetBetaBootstrapConfig,
 } from '../lib/testnetBetaBootstrap';
+import { clearTestnetBetaDashboardCache } from './TestnetBetaDashboard';
 import { SNRGButton } from '../styles/SNRGButton';
 
 function createId(prefix = 'item') {
@@ -504,6 +505,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     } else if (typeof onComplete === 'function') {
       onComplete();
     }
+    clearTestnetBetaDashboardCache();
     navigate('/');
   }, [navigate, onComplete, onDefer, queueJarvisMessages, resetMessageQueue]);
 
@@ -524,6 +526,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     if (typeof onComplete === 'function') {
       onComplete();
     }
+    clearTestnetBetaDashboardCache();
     navigate('/');
   }, [navigate, onComplete, queueJarvisMessages, resetMessageQueue]);
 
@@ -935,6 +938,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       if (typeof onComplete === 'function') {
         onComplete();
       }
+      clearTestnetBetaDashboardCache();
       navigate('/');
     } catch (error) {
       addTerminalLine('error', `Provisioning failed: ${String(error)}`);
