@@ -190,7 +190,7 @@ function formatCompactScoreOutOfHundred(value) {
   if (value == null || Number.isNaN(Number(value))) {
     return 'N/A / 100';
   }
-  return `${Math.round(Number(value))}/100`;
+  return `${Number(value).toFixed(1)}/100`;
 }
 
 function roleTypeLabel(roleDisplayName) {

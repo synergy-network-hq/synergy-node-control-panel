@@ -779,14 +779,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           addTerminalLine('info', `Electron bootstrap refresh skipped: ${String(bootstrapError)}`);
         }
 
-        addTerminalLine('info', 'Starting the imported node runtime and joining the bootstrap network...');
-        const startResult = await invoke('testbeta_node_control', {
-          input: {
-            nodeId: result?.node?.id,
-            action: 'start',
-          },
-        });
-        addTerminalLine('success', startResult?.message || 'Imported node runtime started.');
+        addTerminalLine('info', 'Ceremony import finished. The workspace is configured but the node remains stopped until you start it manually.');
 
         await queueJarvisMessages([
           {
@@ -795,11 +788,11 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             pauseMs: 220,
           },
           {
-            text: 'I staged the approved package, applied the canonical beta manifests, and started the node runtime for this role.',
+            text: 'I staged the approved package and applied the canonical beta manifests for this role.',
             typingMs: 1060,
           },
           {
-            text: 'Before I send you to the dashboard, forward the assigned ports for this machine so the validator can accept inbound traffic on the correct ports.',
+            text: 'Before I send you to the dashboard, forward the assigned ports for this machine. After that, start the node manually from the dashboard when you are ready.',
             typingMs: 1180,
           },
         ]);
@@ -912,15 +905,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           `Electron bootstrap refresh skipped: ${String(bootstrapError)}`,
         );
       }
-      addTerminalLine('info', 'Starting the role-bound node runtime and joining the bootstrap network...');
-
-      const startResult = await invoke('testbeta_node_control', {
-        input: {
-          nodeId: result?.node?.id,
-          action: 'start',
-        },
-      });
-      addTerminalLine('success', startResult?.message || 'Node runtime started.');
+      addTerminalLine('info', 'Provisioning finished. The workspace is configured but the node remains stopped until you start it manually.');
 
       await queueJarvisMessages([
         {
@@ -929,7 +914,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           pauseMs: 220,
         },
         {
-          text: 'I created the private workspace, prepared the node wallet, and started the node runtime. It is now discovering peers and syncing chain data.',
+          text: 'I created the private workspace and prepared the node wallet. Start the node manually from the dashboard when you are ready to join the bootstrap network.',
           typingMs: 980,
         },
       ]);

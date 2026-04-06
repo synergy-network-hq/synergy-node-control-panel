@@ -149,7 +149,7 @@ chain_id = $CHAIN_ID
 [consensus]
 algorithm = "Proof of Synergy"
 block_time_secs = 5
-epoch_length = 30000
+epoch_length = 1000
 min_validators = $MIN_VALIDATORS
 validator_cluster_size = $VALIDATOR_CLUSTER_SIZE
 max_validators = $MAX_VALIDATORS

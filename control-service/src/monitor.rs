@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const BOOTSTRAP_VALIDATOR_QUORUM: usize = 3;
+const BOOTSTRAP_VALIDATOR_QUORUM: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorNode {

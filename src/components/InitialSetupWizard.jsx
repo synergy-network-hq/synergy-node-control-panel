@@ -28,7 +28,7 @@ const AUTOPILOT_PLAN = [
 const AUTOPILOT_STEP_PAUSE_MS = 520;
 const AUTOPILOT_NODE_PAUSE_MS = 320;
 const AUTOPILOT_RUN_START_PAUSE_MS = 260;
-const BOOTSTRAP_VALIDATOR_QUORUM = 3;
+const BOOTSTRAP_VALIDATOR_QUORUM = 4;
 
 function newAutopilotSteps() {
   return AUTOPILOT_PLAN.map((entry) => ({
