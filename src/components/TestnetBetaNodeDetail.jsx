@@ -1269,7 +1269,6 @@ function TestnetBetaNodeDetail() {
   );
 
   const renderWallet = () => {
-    const rewardStandard = roleRewardStandard(node.role_id, node.role_display_name);
     const catchUpStatus = computeCatchUpStatus(nodeLive, networkHeight);
     const snapshot = walletSnapshot || {};
 
@@ -1389,35 +1388,6 @@ function TestnetBetaNodeDetail() {
               </div>
             </div>
 
-            <div className="nodecp-summary-block">
-              <span className="nodecp-summary-label">Role Economics</span>
-              <div className="nodecp-definition-list">
-                <div className="nodecp-definition-row">
-                  <span>Base monthly rewards</span>
-                  <strong>{rewardStandard.baseMonthlySnrg} SNRG</strong>
-                </div>
-                <div className="nodecp-definition-row">
-                  <span>Funding source</span>
-                  <strong>{rewardStandard.fundingSource}</strong>
-                </div>
-                <div className="nodecp-definition-row">
-                  <span>Minimum tier</span>
-                  <strong>{rewardStandard.minTier}</strong>
-                </div>
-                <div className="nodecp-definition-row">
-                  <span>Bond / slash</span>
-                  <strong>{rewardStandard.bondSlash}</strong>
-                </div>
-                <div className="nodecp-definition-row">
-                  <span>Stake vault wallet</span>
-                  <strong className="nodecp-wallet-address">{fundingManifest?.stake_vault_wallet || 'N/A'}</strong>
-                </div>
-                <div className="nodecp-definition-row">
-                  <span>Source treasury</span>
-                  <strong className="nodecp-wallet-address">{fundingManifest?.source_wallet || 'N/A'}</strong>
-                </div>
-              </div>
-            </div>
           </div>
         </section>
       </div>

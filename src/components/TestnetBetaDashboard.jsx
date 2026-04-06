@@ -15,15 +15,6 @@ import {
   refreshTestnetBetaBootstrapConfig,
 } from '../lib/testnetBetaBootstrap';
 import { SNRGButton } from '../styles/SNRGButton';
-
-const COMMON_TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'connectivity', label: 'Connectivity' },
-  { id: 'wallet', label: 'Rewards' },
-  { id: 'files', label: 'Files' },
-  { id: 'chain', label: 'Chain' },
-  { id: 'logs', label: 'Logs' },
-];
 const MAX_NODE_SLOTS = 4;
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 const NWEI_PER_SNRG = 1000000000n;
@@ -168,6 +159,22 @@ function formatNumber(value) {
   return number.toLocaleString();
 }
 
+function formatRuntimeDuration(value) {
+  const totalSeconds = Number(value);
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    return 'Not running';
+  }
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return '<1m';
+}
+
 function toFiniteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -272,6 +279,64 @@ function latencyLabel(entry) {
     return entry?.detail || 'Unavailable';
   }
   return `${entry.latency_ms} ms`;
+}
+
+function infrastructureLabel(kind, index) {
+  return `${kind === 'seed' ? 'Seed' : 'Bootnode'}${index + 1}`;
+}
+
+function endpointAddressLabel(entry) {
+  if (entry?.ip_address && entry?.port != null) {
+    return `${entry.ip_address}:${entry.port}`;
+  }
+  if (entry?.host && entry?.port != null) {
+    return `${entry.host}:${entry.port}`;
+  }
+  return entry?.host || 'Endpoint unavailable';
+}
+
+function formatEndpointHost(value) {
+  const text = String(value || '').trim();
+  if (!text) return 'Unavailable';
+  try {
+    return new URL(text).host;
+  } catch {
+    return text.replace(/^https?:\/\//, '');
+  }
+}
+
+function readinessIcon(status) {
+  switch (status) {
+    case 'pass': return '\u2713';
+    case 'in_progress': return '\u25CB';
+    case 'warn': return '\u26A0';
+    case 'fail': return '\u2717';
+    default: return '\u2014';
+  }
+}
+
+function readinessTone(status) {
+  switch (status) {
+    case 'pass': return 'good';
+    case 'in_progress': return 'warn';
+    case 'warn': return 'warn';
+    case 'fail': return 'bad';
+    default: return '';
+  }
+}
+
+function readinessOverallTone(status) {
+  if (status === 'ready') return 'good';
+  if (status === 'progressing') return 'warn';
+  if (status === 'not_ready') return 'bad';
+  return '';
+}
+
+function readinessOverallLabel(status) {
+  if (status === 'ready') return 'Ready';
+  if (status === 'progressing') return 'Progressing';
+  if (status === 'not_ready') return 'Not Ready';
+  return 'Not Checked';
 }
 
 function formatPeerLastSeen(value) {
@@ -611,7 +676,6 @@ function tabsForRole(_role) {
     { id: 'overview', label: 'Overview' },
     { id: 'connectivity', label: 'Connectivity' },
     { id: 'wallet', label: 'Wallet & Rewards' },
-    { id: 'files', label: 'Files' },
     { id: 'chain', label: 'Chain' },
     { id: 'logs', label: 'Logs' },
   ];
@@ -677,6 +741,10 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [localPeerInfo, setLocalPeerInfo] = useState(null);
   const [localPeerInfoLoading, setLocalPeerInfoLoading] = useState(false);
   const [localPeerInfoError, setLocalPeerInfoError] = useState('');
+  const [readinessReport, setReadinessReport] = useState(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [boostBusy, setBoostBusy] = useState(false);
+  const [registerBusy, setRegisterBusy] = useState(false);
 
   const atlasAvailable = useRef(true);
 
@@ -911,6 +979,69 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       setActiveTab('overview');
     }
   }, [activeTab, dashboardTabs]);
+
+  const fetchReadiness = async (showSpinner = true) => {
+    if (!selectedNode) {
+      setReadinessReport(null);
+      return;
+    }
+
+    if (showSpinner) {
+      setReadinessLoading(true);
+    }
+
+    try {
+      const report = await invoke('testbeta_get_node_readiness', { nodeId: selectedNode.id });
+      setReadinessReport(report);
+    } catch (readinessError) {
+      setError(`Readiness check failed: ${String(readinessError)}`);
+    } finally {
+      if (showSpinner) {
+        setReadinessLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'connectivity' || !selectedNode) {
+      setReadinessReport(null);
+      setReadinessLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadReadiness = async (showSpinner = true) => {
+      if (showSpinner && !cancelled) {
+        setReadinessLoading(true);
+      }
+
+      try {
+        const report = await invoke('testbeta_get_node_readiness', { nodeId: selectedNode.id });
+        if (!cancelled) {
+          setReadinessReport(report);
+        }
+      } catch (readinessError) {
+        if (!cancelled) {
+          setError(`Readiness check failed: ${String(readinessError)}`);
+        }
+      } finally {
+        if (showSpinner && !cancelled) {
+          setReadinessLoading(false);
+        }
+      }
+    };
+
+    loadReadiness(true);
+    const intervalId = window.setInterval(() => {
+      loadReadiness(false);
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeTab, selectedNode?.id]);
 
   // Fetch logs when the logs tab is active
   useEffect(() => {
@@ -1190,13 +1321,17 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
         typeLabel: roleTypeLabel(node.role_display_name),
         classLabel: classTierLabel(role),
         addressLabel: truncateAddress(node.node_address),
-        blockHeightLabel: nodeLive?.is_running
-          ? formatNumber(effectiveLocalChainHeight(nodeLive))
-          : 'Offline',
         scoreLabel: formatCompactScoreOutOfHundred(nodeLive?.synergy_score),
+        pidLabel: nodeLive?.pid != null ? String(nodeLive.pid) : '—',
+        localBlockLabel: nodeLive?.is_running
+          ? formatNumber(effectiveLocalChainHeight(nodeLive))
+          : '—',
+        publicBlockLabel: formatNumber(liveChainTip),
+        syncGapLabel: nodeLive?.is_running ? formatNumber(nodeLive?.sync_gap) : '—',
+        runtimeLabel: formatRuntimeDuration(nodeLive?.process_uptime_secs),
       };
     });
-  }, [liveStatus?.public_chain_height, nodeLiveById, nodes, roleById]);
+  }, [liveChainTip, nodeLiveById, nodes, roleById]);
 
   const relayerSummary = useMemo(() => {
     const relayers = relayerHealth?.relayers || [];
@@ -1213,6 +1348,68 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       finalized: sxcpStatus?.event_totals?.finalized ?? null,
     };
   }, [relayerHealth, sxcpStatus]);
+
+  const infrastructureEndpoints = useMemo(() => ([
+    ...((liveStatus?.bootnodes || []).map((entry, index) => ({
+      ...entry,
+      kind: 'bootnode',
+      label: infrastructureLabel('bootnode', index),
+      endpoint: endpointAddressLabel(entry),
+      key: `bootnode-${entry.host || index}`,
+    })) || []),
+    ...((liveStatus?.seed_servers || []).map((entry, index) => ({
+      ...entry,
+      kind: 'seed',
+      label: infrastructureLabel('seed', index),
+      endpoint: endpointAddressLabel(entry),
+      key: `seed-${entry.host || index}`,
+    })) || []),
+  ]), [liveStatus?.bootnodes, liveStatus?.seed_servers]);
+
+  const connectivityServiceCards = useMemo(() => ([
+    {
+      label: 'Public RPC',
+      value: liveStatus?.public_rpc_online ? 'Online' : 'Offline',
+      detail: formatEndpointHost(liveStatus?.public_rpc_endpoint),
+      tone: liveStatus?.public_rpc_online ? 'good' : 'bad',
+    },
+    {
+      label: 'Public Height',
+      value: formatNumber(liveStatus?.public_chain_height),
+      detail: liveStatus?.chain_status || 'Waiting for chain probe',
+      tone: liveStatus?.public_chain_height != null ? 'good' : 'warn',
+    },
+    {
+      label: 'Network Peers',
+      value: formatNumber(networkVisiblePeerCount),
+      detail: activeValidatorCount != null
+        ? `${formatNumber(activeValidatorCount)} active validators visible`
+        : 'Validator visibility pending',
+      tone: networkVisiblePeerCount != null ? 'good' : 'warn',
+    },
+    {
+      label: 'Relayer Quorum',
+      value: relayerSummary.quorum,
+      detail: `${formatNumber(relayerSummary.online)} / ${formatNumber(relayerSummary.total)} relayers online`,
+      tone: sxcpError ? 'bad' : 'good',
+    },
+  ]), [
+    activeValidatorCount,
+    liveStatus?.chain_status,
+    liveStatus?.public_chain_height,
+    liveStatus?.public_rpc_endpoint,
+    liveStatus?.public_rpc_online,
+    networkVisiblePeerCount,
+    relayerSummary.online,
+    relayerSummary.quorum,
+    relayerSummary.total,
+    sxcpError,
+  ]);
+
+  const readinessIssues = useMemo(
+    () => (readinessReport?.checks || []).filter((check) => check.status !== 'pass'),
+    [readinessReport],
+  );
 
   useEffect(() => {
     if (activeTab !== 'wallet' || !nodes.length) {
@@ -1366,6 +1563,34 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     }
   };
 
+  const handleBoostSync = async () => {
+    if (!selectedNode) return;
+    setBoostBusy(true);
+    try {
+      const result = await invoke('testbeta_boost_sync', { nodeId: selectedNode.id });
+      setControlMessage(result?.message || 'Boost sync completed.');
+      await Promise.all([fetchDashboard(true), fetchReadiness(false)]);
+    } catch (boostError) {
+      setError(`Boost sync failed: ${String(boostError)}`);
+    } finally {
+      setBoostBusy(false);
+    }
+  };
+
+  const handleRegisterWithSeeds = async () => {
+    if (!selectedNode) return;
+    setRegisterBusy(true);
+    try {
+      await invoke('testbeta_run_register_with_seeds', { nodeId: selectedNode.id });
+      setControlMessage('Re-registered with seed servers.');
+      await Promise.all([fetchDashboard(true), fetchReadiness(false)]);
+    } catch (registerError) {
+      setError(`Re-register failed: ${String(registerError)}`);
+    } finally {
+      setRegisterBusy(false);
+    }
+  };
+
   const metrics = selectedNode
     ? [
         {
@@ -1495,6 +1720,86 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     }
   };
 
+  const overviewChainMetrics = [
+    {
+      label: 'Network Tip',
+      value: formatNumber(liveChainTip),
+      detail: networkChainTipDetail,
+    },
+    {
+      label: 'Avg Block Time',
+      value: chainSummary?.avg_block_time != null ? `${chainSummary.avg_block_time}s` : '—',
+      detail: 'Observed public-chain cadence',
+    },
+    {
+      label: 'Active Validators',
+      value: formatNumber(activeValidatorCount),
+      detail: `${formatNumber(validatorClusterCount)} validator clusters`,
+    },
+    {
+      label: 'Network Peers',
+      value: formatNumber(networkVisiblePeerCount),
+      detail: 'Seed-registry visible peer targets',
+    },
+    {
+      label: 'Total Transactions',
+      value: chainSummary?.total_transactions != null ? formatNumber(chainSummary.total_transactions) : '—',
+      detail: 'Indexed public-chain transactions',
+    },
+    {
+      label: 'Network Stake',
+      value: chainSummary?.total_stake_snrg != null ? `${formatWholeSnrg(chainSummary.total_stake_snrg)} SNRG` : '—',
+      detail: 'Current bonded SNRG across the network',
+    },
+  ];
+
+  const renderReadinessAction = (check) => {
+    if (check.id === 'process_running' && check.status === 'fail') {
+      return (
+        <SNRGButton variant="lime" size="sm" disabled={!!controlBusy} onClick={() => runNodeControl('start')}>
+          Start
+        </SNRGButton>
+      );
+    }
+
+    if (check.id === 'rpc_responding' && check.status === 'fail' && selectedNodeLive?.is_running) {
+      return (
+        <SNRGButton variant="yellow" size="sm" disabled={!!controlBusy} onClick={handleRestart}>
+          Restart
+        </SNRGButton>
+      );
+    }
+
+    if ((check.id === 'peers_connected' || check.id === 'synced') && (check.status === 'fail' || check.status === 'warn')) {
+      return (
+        <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+          {boostBusy ? 'Boosting...' : 'Boost Sync'}
+        </SNRGButton>
+      );
+    }
+
+    if (check.id === 'seed_registered' && check.status === 'fail') {
+      return (
+        <SNRGButton variant="blue" size="sm" disabled={registerBusy} onClick={handleRegisterWithSeeds}>
+          {registerBusy ? 'Registering...' : 'Re-register'}
+        </SNRGButton>
+      );
+    }
+
+    if (
+      ['workspace_ready', 'config_ready', 'wallet_generated', 'genesis_included'].includes(check.id)
+      && check.status === 'fail'
+    ) {
+      return (
+        <SNRGButton variant="blue" size="sm" onClick={onLaunchSetup}>
+          Open Setup
+        </SNRGButton>
+      );
+    }
+
+    return null;
+  };
+
   const renderNodeControls = () => {
     const isRunning = Boolean(selectedNodeLive?.is_running);
     const controlDisabled = !selectedNode || Boolean(controlBusy);
@@ -1540,15 +1845,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           >
             {controlBusy === 'sync' ? `${syncLabel}ing…` : syncLabel}
           </SNRGButton>
-          <SNRGButton
-            className="nodecp-control-btn"
-            variant="blue"
-            size="sm"
-            disabled={!selectedNode}
-            onClick={() => selectedNode && openPath(`${selectedNode.workspace_directory}/logs`)}
-          >
-            Logs
-          </SNRGButton>
         </div>
         <div className="nodecp-controls-status">
           <span className={`nodecp-health-pill nodecp-health-${nodeRuntimeTone(selectedNodeLive)}`}>
@@ -1582,121 +1878,23 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           </div>
         ) : (
           <>
-            {/* First section: Node Controls + Chain Details side-by-side */}
             <div className="nodecp-overview-first-section">
-              {/* Left: Node Controls */}
               {renderNodeControls()}
-
-              {/* Right: Chain Details */}
-              <section className="nodecp-panel">
+              <section className="nodecp-panel nodecp-overview-chain-panel">
                 <h3 className="nodecp-panel-title-standalone">Chain Details</h3>
-                <div className="nodecp-chain-details-grid">
-                  <div className="nodecp-chain-detail-item">
-                    <span className="nodecp-chain-detail-label">Block Height</span>
-                    <strong className="nodecp-chain-detail-value">
-                      {liveChainTip != null
-                        ? formatNumber(liveChainTip)
-                        : (effectiveLocalChainHeight(selectedNodeLive) != null
-                          ? formatNumber(effectiveLocalChainHeight(selectedNodeLive))
-                          : '—')}
-                    </strong>
-                    <span className="nodecp-chain-detail-sub">
-                      {networkChainTipDetail}
-                    </span>
-                  </div>
-                  <div className="nodecp-chain-detail-item">
-                    <span className="nodecp-chain-detail-label">Sync Gap</span>
-                    <strong className="nodecp-chain-detail-value">
-                      {selectedNodeLive?.sync_gap != null ? formatNumber(selectedNodeLive.sync_gap) : '—'}
-                    </strong>
-                    <span className="nodecp-chain-detail-sub">
-                      {selectedNodeLive?.sync_gap === 0
-                        ? 'Fully synced with network'
-                        : selectedNodeLive?.sync_gap > 0
-                          ? 'Blocks behind the network'
-                          : 'Start a node to measure sync'}
-                    </span>
-                  </div>
-                  <div className="nodecp-chain-detail-item">
-                    <span className="nodecp-chain-detail-label">Active Validators</span>
-                    <strong className="nodecp-chain-detail-value">
-                      {activeValidatorCount != null ? formatNumber(activeValidatorCount) : '—'}
-                    </strong>
-                    <span className="nodecp-chain-detail-sub">Validators on the network</span>
-                  </div>
-                  <div className="nodecp-chain-detail-item">
-                    <span className="nodecp-chain-detail-label">Validator Clusters</span>
-                    <strong className="nodecp-chain-detail-value">
-                      {validatorClusterCount != null ? formatNumber(validatorClusterCount) : '—'}
-                    </strong>
-                    <span className="nodecp-chain-detail-sub">Distributed validator groups</span>
-                  </div>
+                <div className="nodecp-chain-metric-grid">
+                  {overviewChainMetrics.map((metric) => (
+                    <div key={metric.label} className="nodecp-chain-metric-card">
+                      <span className="nodecp-chain-detail-label">{metric.label}</span>
+                      <strong className="nodecp-chain-detail-value">{metric.value}</strong>
+                      <span className="nodecp-chain-detail-sub">{metric.detail}</span>
+                    </div>
+                  ))}
                 </div>
               </section>
             </div>
-
-            {/* All-nodes live state table */}
-            <section className="nodecp-panel">
-              <div className="nodecp-panel-header">
-                <div>
-                  <p className="nodecp-panel-kicker">Live node state</p>
-                  <h3>All nodes on this machine</h3>
-                </div>
-              </div>
-              <div className="nodecp-nodes-table-wrap">
-                <table className="nodecp-nodes-table">
-                  <thead>
-                    <tr>
-                      <th>Node</th>
-                      <th>Status</th>
-                      <th>PID</th>
-                      <th>Local Block</th>
-                      <th>Public Block</th>
-                      <th>Sync Gap</th>
-                      <th>Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {nodes.map((node) => {
-                      const live = nodeLiveById[node.id];
-                      const status = nodeRuntimeLabel(live);
-                      const tone = nodeRuntimeTone(live);
-                      const isSelected = selectedNode?.id === node.id;
-                      return (
-                        <tr
-                          key={node.id}
-                          className={isSelected ? 'nodecp-nodes-row-selected' : ''}
-                          onClick={() => setSelectedNodeId(node.id)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => e.key === 'Enter' && setSelectedNodeId(node.id)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          <td className="nodecp-nodes-label">
-                            {node.display_label || node.role_display_name || node.id}
-                          </td>
-                          <td>
-                            <span className={`nodecp-health-pill nodecp-health-${tone}`}>{status}</span>
-                          </td>
-                          <td className="nodecp-nodes-mono">{live?.pid ?? '—'}</td>
-                          <td className="nodecp-nodes-mono">{formatNumber(effectiveLocalChainHeight(live))}</td>
-                          <td className="nodecp-nodes-mono">{formatNumber(pubHeight)}</td>
-                          <td className="nodecp-nodes-mono">
-                            {formatNumber(live?.sync_gap)}
-                            {live?.sync_trending === 'improving' ? ' \u2191' : live?.sync_trending === 'stalled' ? ' \u26A0' : live?.sync_trending === 'synced' ? ' \u2713' : ''}
-                          </td>
-                          <td className="nodecp-nodes-mono">{formatScoreOutOfHundred(live?.synergy_score)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
           </>
         )}
-
-        {/* Network health strip */}
         <div className="nodecp-status-strip">
           <div className={`nodecp-strip-item nodecp-strip-${networkUp ? 'ok' : 'error'}`}>
             <span className="nodecp-strip-label">Network</span>
@@ -1748,24 +1946,79 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       <section className="nodecp-panel">
         <div className="nodecp-panel-header">
           <div>
-            <p className="nodecp-panel-kicker">Bootstrap health</p>
-            <h3>Bootnodes</h3>
+            <p className="nodecp-panel-kicker">Consensus gating</p>
+            <h3>Readiness Status</h3>
+          </div>
+          <div className="nodecp-connectivity-actions">
+            <span className={`nodecp-health-pill nodecp-health-${readinessOverallTone(readinessReport?.overall_status) || 'warn'}`}>
+              {readinessOverallLabel(readinessReport?.overall_status)}
+            </span>
+            <SNRGButton variant="blue" size="sm" onClick={() => fetchReadiness(true)} disabled={readinessLoading}>
+              {readinessLoading ? 'Checking...' : 'Run Check'}
+            </SNRGButton>
           </div>
         </div>
-        <div className="nodecp-endpoint-stack">
-          {(liveStatus?.bootnodes || []).map((entry) => (
-            <div key={entry.host} className="nodecp-endpoint-row">
-              <div>
-                <span className="nodecp-endpoint-name">{entry.host}</span>
-                <span className="nodecp-endpoint-meta">{entry.ip_address}:{entry.port}</span>
+        {readinessReport ? (
+          <>
+            <div className="nodecp-readiness-summary">
+              <span className="nodecp-readiness-ratio">
+                {readinessReport.ready_count}/{readinessReport.total_count} checks passed
+              </span>
+            </div>
+            {readinessIssues.length ? (
+              <div className="nodecp-readiness-list">
+                {readinessIssues.map((check) => (
+                  <div key={check.id} className={`nodecp-readiness-item nodecp-readiness-${check.status}`}>
+                    <span className={`nodecp-readiness-icon nodecp-health-${readinessTone(check.status)}`}>
+                      {readinessIcon(check.status)}
+                    </span>
+                    <div className="nodecp-readiness-content">
+                      <strong className="nodecp-readiness-label">{check.label}</strong>
+                      <span className="nodecp-readiness-detail">{check.detail}</span>
+                      {(check.suggestion || renderReadinessAction(check)) ? (
+                        <div className="nodecp-readiness-suggestion">
+                          {check.suggestion ? <span>{check.suggestion}</span> : null}
+                          {renderReadinessAction(check)}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="nodecp-endpoint-health">
+            ) : (
+              <p className="nodecp-readiness-empty">
+                This node is ready for consensus. No current blockers were detected.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="nodecp-readiness-empty">
+            Run the readiness check to see why this node is blocked from consensus and fix it from here.
+          </p>
+        )}
+      </section>
+
+      <section className="nodecp-panel">
+        <div className="nodecp-panel-header">
+          <div>
+            <p className="nodecp-panel-kicker">Bootstrap + discovery</p>
+            <h3>Bootnodes &amp; Seed Servers</h3>
+          </div>
+        </div>
+        <div className="nodecp-endpoint-compact-grid">
+          {infrastructureEndpoints.map((entry) => (
+            <article key={entry.key} className="nodecp-endpoint-compact-card">
+              <div className="nodecp-endpoint-compact-head">
+                <div>
+                  <strong className="nodecp-endpoint-name">{entry.label}</strong>
+                  <span className="nodecp-endpoint-meta">{entry.endpoint}</span>
+                </div>
                 <span className={`nodecp-health-pill nodecp-health-${formatStatusTone(entry.status)}`}>
                   {entry.status}
                 </span>
-                <span className="nodecp-endpoint-latency">{latencyLabel(entry)}</span>
               </div>
-            </div>
+              <span className="nodecp-endpoint-latency">{latencyLabel(entry)}</span>
+            </article>
           ))}
         </div>
       </section>
@@ -1773,24 +2026,17 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       <section className="nodecp-panel">
         <div className="nodecp-panel-header">
           <div>
-            <p className="nodecp-panel-kicker">Discovery services</p>
-            <h3>Seed services</h3>
+            <p className="nodecp-panel-kicker">Network service health</p>
+            <h3>Public Chain &amp; Relayers</h3>
           </div>
         </div>
-        <div className="nodecp-endpoint-stack">
-          {(liveStatus?.seed_servers || []).map((entry) => (
-            <div key={entry.host} className="nodecp-endpoint-row">
-              <div>
-                <span className="nodecp-endpoint-name">{entry.host}</span>
-                <span className="nodecp-endpoint-meta">{entry.ip_address}:{entry.port}</span>
-              </div>
-              <div className="nodecp-endpoint-health">
-                <span className={`nodecp-health-pill nodecp-health-${formatStatusTone(entry.status)}`}>
-                  {entry.status}
-                </span>
-                <span className="nodecp-endpoint-latency">{latencyLabel(entry)}</span>
-              </div>
-            </div>
+        <div className="nodecp-service-compact-grid">
+          {connectivityServiceCards.map((card) => (
+            <article key={card.label} className={`nodecp-service-card nodecp-service-${card.tone}`}>
+              <span className="nodecp-summary-label">{card.label}</span>
+              <strong className="nodecp-service-value">{card.value}</strong>
+              <span className="nodecp-service-detail">{card.detail}</span>
+            </article>
           ))}
         </div>
       </section>
@@ -1889,86 +2135,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           )}
         </section>
       )}
-
-      <section className="nodecp-panel">
-        <div className="nodecp-panel-header">
-          <div>
-            <p className="nodecp-panel-kicker">Relayer status</p>
-            <h3>SXCP quorum + events</h3>
-          </div>
-          <span className={`nodecp-health-pill nodecp-health-${sxcpError ? 'bad' : 'good'}`}>
-            {sxcpError ? 'Unavailable' : 'Online'}
-          </span>
-        </div>
-        <div className="nodecp-summary-grid">
-          <div className="nodecp-stat-card">
-            <div className="nodecp-stat-icon">{ICONS.pulse}</div>
-            <div className="nodecp-stat-copy">
-              <span className="nodecp-stat-label">Quorum</span>
-              <span className="nodecp-stat-value">{relayerSummary.quorum}</span>
-            </div>
-          </div>
-          <div className="nodecp-stat-card">
-            <div className="nodecp-stat-icon">{ICONS.peers}</div>
-            <div className="nodecp-stat-copy">
-              <span className="nodecp-stat-label">Relayers online</span>
-              <span className="nodecp-stat-value">{formatNumber(relayerSummary.online)} / {formatNumber(relayerSummary.total)}</span>
-              <span className="nodecp-stat-detail">Quorum-eligible: {formatNumber(relayerSummary.eligible)}</span>
-            </div>
-          </div>
-          <div className="nodecp-stat-card">
-            <div className="nodecp-stat-icon">{ICONS.chain}</div>
-            <div className="nodecp-stat-copy">
-              <span className="nodecp-stat-label">Pending events</span>
-              <span className="nodecp-stat-value">
-                {relayerSummary.pending == null ? '—' : formatNumber(relayerSummary.pending)}
-              </span>
-            </div>
-          </div>
-          <div className="nodecp-stat-card">
-            <div className="nodecp-stat-icon">{ICONS.shield}</div>
-            <div className="nodecp-stat-copy">
-              <span className="nodecp-stat-label">Finalized events</span>
-              <span className="nodecp-stat-value">
-                {relayerSummary.finalized == null ? '—' : formatNumber(relayerSummary.finalized)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="nodecp-panel">
-        <div className="nodecp-panel-header">
-          <div>
-            <p className="nodecp-panel-kicker">Public chain</p>
-            <h3>Chain availability</h3>
-          </div>
-        </div>
-        <div className="nodecp-definition-list">
-          <div className="nodecp-definition-row">
-            <span>Public RPC</span>
-            <strong>{liveStatus?.public_rpc_endpoint || 'Not available'}</strong>
-          </div>
-          <div className="nodecp-definition-row">
-            <span>Chain status</span>
-            <strong>{liveStatus?.chain_status || 'Unknown'}</strong>
-          </div>
-          <div className="nodecp-definition-row">
-            <span>Block height</span>
-            <strong>{formatNumber(liveStatus?.public_chain_height)}</strong>
-          </div>
-          <div className="nodecp-definition-row">
-            <span>Network peers</span>
-            <strong>{formatNumber(networkVisiblePeerCount)}</strong>
-          </div>
-          {(network?.bootstrap_policy?.fallback_sequence || []).length > 0 && (
-            <div className="nodecp-definition-row">
-              <span>Discovery fallback</span>
-              <strong>{(network.bootstrap_policy.fallback_sequence).join(' → ')}</strong>
-            </div>
-          )}
-        </div>
-      </section>
     </div>
   );
 
@@ -1977,7 +2143,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       <section className="nodecp-panel">
         <div className="nodecp-panel-header">
           <div>
-            <p className="nodecp-panel-kicker">Rewards standard</p>
+            <p className="nodecp-panel-kicker">Live wallet telemetry</p>
             <h3>Wallet &amp; Rewards by Node Slot</h3>
           </div>
         </div>
@@ -2013,7 +2179,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           const fundingManifest = (network?.funding_manifests || []).find(
             (entry) => entry.id === node.funding_manifest_id,
           ) || null;
-          const rewardStandard = roleRewardStandard(node.role_id, node.role_display_name);
           const walletSnapshot = walletSnapshots[node.id] || {};
           const publicHeight = liveStatus?.public_chain_height;
           const networkHeight = nodeLive?.best_network_height ?? publicHeight;
@@ -2110,28 +2275,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                     <SNRGButton variant="yellow" size="sm" disabled title="Reward withdrawals are not enabled yet.">
                       Withdraw Rewards
                     </SNRGButton>
-                  </div>
-                </div>
-
-                <div className="nodecp-summary-block">
-                  <span className="nodecp-summary-label">Role Economics</span>
-                  <div className="nodecp-definition-list">
-                    <div className="nodecp-definition-row">
-                      <span>Base monthly rewards</span>
-                      <strong>{rewardStandard.baseMonthlySnrg} SNRG</strong>
-                    </div>
-                    <div className="nodecp-definition-row">
-                      <span>Funding source</span>
-                      <strong>{rewardStandard.fundingSource}</strong>
-                    </div>
-                    <div className="nodecp-definition-row">
-                      <span>Minimum tier</span>
-                      <strong>{rewardStandard.minTier}</strong>
-                    </div>
-                    <div className="nodecp-definition-row">
-                      <span>Bond / slash</span>
-                      <strong>{rewardStandard.bondSlash}</strong>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -2467,8 +2610,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
         return renderConnectivity();
       case 'wallet':
         return renderWallet();
-      case 'files':
-        return renderFiles();
       case 'chain':
         return renderChain();
       case 'logs':
@@ -2490,12 +2631,12 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
 
           <div className="node-list nodecp-node-list">
             {nodeSlots.map((slot) => (
-              <button
+              <div
                 key={slot.id}
-                type="button"
                 aria-label={slot.isEmpty ? `Empty node slot ${slot.index + 1}` : `${slot.typeLabel} ${slot.statusLabel}`}
                 className={[
                   'nodecp-node-row',
+                  slot.isEmpty ? '' : 'nodecp-node-row-configured',
                   slot.isEmpty ? 'nodecp-node-row-empty' : '',
                   !slot.isEmpty && slot.isOnline ? 'nodecp-node-row-online' : '',
                   !slot.isEmpty && !slot.isOnline ? 'nodecp-node-row-offline' : '',
@@ -2506,39 +2647,72 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                     setSelectedNodeId(slot.id);
                   }
                 }}
-                disabled={slot.isEmpty}
+                onKeyDown={(event) => {
+                  if (!slot.isEmpty && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    setSelectedNodeId(slot.id);
+                  }
+                }}
+                role={slot.isEmpty ? undefined : 'button'}
+                tabIndex={slot.isEmpty ? -1 : 0}
               >
                 {slot.isEmpty ? (
                   <span className="nodecp-node-empty-fill" aria-hidden="true"></span>
                 ) : (
-                  <>
-                    <div className="nodecp-node-row-top">
-                      <span className="nodecp-node-row-type">{slot.typeLabel}</span>
-                      <span className={`nodecp-health-pill nodecp-health-${slot.statusTone}`}>
-                        {slot.statusLabel}
-                      </span>
-                    </div>
-                    <span className="nodecp-node-row-class">{slot.classLabel}</span>
-                    <div className="nodecp-node-row-bottom">
-                      <div className="nodecp-node-row-address-stack">
-                        <span className="nodecp-node-row-address">{slot.addressLabel}</span>
-                        <span className="nodecp-node-row-height">Block {slot.blockHeightLabel}</span>
+                  <div className="nodecp-node-row-inner">
+                    <div className="nodecp-node-row-face nodecp-node-row-front">
+                      <div className="nodecp-node-row-top">
+                        <span className="nodecp-node-row-type">{slot.typeLabel}</span>
+                        <span className={`nodecp-health-pill nodecp-health-${slot.statusTone}`}>
+                          {slot.statusLabel}
+                        </span>
                       </div>
-                      <div className="nodecp-node-row-score">
-                        <span>Synergy Score</span>
-                        <strong>{slot.scoreLabel}</strong>
+                      <span className="nodecp-node-row-class">{slot.classLabel}</span>
+                      <div className="nodecp-node-row-bottom">
+                        <div className="nodecp-node-row-address-stack">
+                          <span className="nodecp-node-row-address">{slot.addressLabel}</span>
+                          <span className="nodecp-node-row-height">Score {slot.scoreLabel}</span>
+                        </div>
+                      </div>
+                      <div className="nodecp-node-row-metrics">
+                        <div className="nodecp-node-row-metric">
+                          <span>PID</span>
+                          <strong>{slot.pidLabel}</strong>
+                        </div>
+                        <div className="nodecp-node-row-metric">
+                          <span>Local</span>
+                          <strong>{slot.localBlockLabel}</strong>
+                        </div>
+                        <div className="nodecp-node-row-metric">
+                          <span>Public</span>
+                          <strong>{slot.publicBlockLabel}</strong>
+                        </div>
+                        <div className="nodecp-node-row-metric">
+                          <span>Gap</span>
+                          <strong>{slot.syncGapLabel}</strong>
+                        </div>
                       </div>
                     </div>
-                    <Link
-                      to={`/node/${slot.id}`}
-                      className="nodecp-node-row-details-link"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      View Details &rarr;
-                    </Link>
-                  </>
+                    <div className="nodecp-node-row-face nodecp-node-row-back">
+                      <div className="nodecp-node-row-back-copy">
+                        <span className="nodecp-node-row-back-label">Total Running Time</span>
+                        <strong>{slot.runtimeLabel}</strong>
+                      </div>
+                      <div className="nodecp-node-row-back-copy">
+                        <span className="nodecp-node-row-back-label">Node</span>
+                        <strong>{slot.typeLabel}</strong>
+                      </div>
+                      <Link
+                        to={`/node/${slot.id}`}
+                        className="nodecp-node-row-details-btn"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        Details
+                      </Link>
+                    </div>
+                  </div>
                 )}
-              </button>
+              </div>
             ))}
           </div>
 

@@ -4464,7 +4464,7 @@ fn build_role_diagnostics(
 
         let notes = vec![
             "Consensus/governance nodes should maintain steady peer count and progress in block production.".to_string(),
-            "If local validator is null, verify genesis validator list and auto-registration settings.".to_string(),
+            "If the local validator is null, verify the canonical genesis validator list and validator peer mesh first; auto-registration is only relevant for non-genesis validators.".to_string(),
         ];
 
         return (diagnostic, notes);
