@@ -3,6 +3,13 @@ import { Link } from 'react-router-dom';
 import { invoke, openPath } from '../lib/desktopClient';
 import { useDeveloperMode } from '../lib/developerMode';
 import {
+  clearTestnetBetaPageDataCache,
+  fetchTestnetBetaLiveStatus,
+  fetchTestnetBetaState,
+  peekTestnetBetaLiveStatus,
+  peekTestnetBetaState,
+} from '../lib/testnetBetaPageData';
+import {
   applyStoredTestnetBetaPortSettings,
   formatPortSettingsSummary,
   refreshTestnetBetaBootstrapConfig,
@@ -645,27 +652,22 @@ function nodeWorkspaceStatus(nodeLive) {
   };
 }
 
-// Module-level cache so navigate-back renders instantly with last-known data
-let _cachedState = null;
-let _cachedLiveStatus = null;
-
 export function clearTestnetBetaDashboardCache() {
-  _cachedState = null;
-  _cachedLiveStatus = null;
+  clearTestnetBetaPageDataCache();
 }
 
 function TestnetBetaDashboard({ onLaunchSetup }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [selectedNodeId, setSelectedNodeId] = useState('');
   const [developerModeEnabled] = useDeveloperMode();
-  const [state, setState] = useState(_cachedState);
-  const [liveStatus, setLiveStatus] = useState(_cachedLiveStatus);
+  const [state, setState] = useState(() => peekTestnetBetaState());
+  const [liveStatus, setLiveStatus] = useState(() => peekTestnetBetaLiveStatus());
   const [relayerHealth, setRelayerHealth] = useState(null);
   const [sxcpStatus, setSxcpStatus] = useState(null);
   const [sxcpError, setSxcpError] = useState('');
   const [chainSummary, setChainSummary] = useState(null);
   const [localValidatorStats, setLocalValidatorStats] = useState(null);
-  const [loading, setLoading] = useState(_cachedState === null);
+  const [loading, setLoading] = useState(() => peekTestnetBetaState() === null);
   const [error, setError] = useState('');
   const [copiedNotice, setCopiedNotice] = useState('');
   const [controlBusy, setControlBusy] = useState('');
@@ -738,38 +740,37 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   };
 
   const fetchDashboard = async (silent = false) => {
-    if (!silent) {
+    const shouldBlock = !silent && !state;
+    if (shouldBlock) {
       setLoading(true);
     }
 
-    const [stateResult, liveResult] = await Promise.allSettled([
-      invoke('testbeta_get_state'),
-      invoke('testbeta_get_live_status'),
-    ]);
-
+    const statePromise = fetchTestnetBetaState({ force: true });
+    const livePromise = fetchTestnetBetaLiveStatus({ force: true });
     const nextErrors = [];
 
-    if (stateResult.status === 'fulfilled') {
-      _cachedState = stateResult.value;
-      setState(stateResult.value);
-    } else {
-      nextErrors.push(String(stateResult.reason));
+    try {
+      const nextState = await statePromise;
+      setState(nextState);
+    } catch (error) {
+      nextErrors.push(String(error));
+    } finally {
+      if (shouldBlock) {
+        setLoading(false);
+      }
     }
 
-    if (liveResult.status === 'fulfilled') {
-      _cachedLiveStatus = liveResult.value;
-      setLiveStatus(liveResult.value);
-    } else {
-      nextErrors.push(String(liveResult.reason));
+    // Atlas API runs after the dashboard is visible — does not block render.
+    void fetchAtlas();
+
+    try {
+      const nextLiveStatus = await livePromise;
+      setLiveStatus(nextLiveStatus);
+    } catch (error) {
+      nextErrors.push(String(error));
     }
 
     setError(nextErrors.join(' '));
-    if (!silent) {
-      setLoading(false);
-    }
-
-    // Atlas API runs after the dashboard is visible — does not block render
-    fetchAtlas();
   };
 
   useEffect(() => {

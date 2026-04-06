@@ -1,5 +1,5 @@
 use crate::app_context::AppContext;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use flate2::read::GzDecoder;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
@@ -2793,7 +2793,7 @@ async fn fetch_all_seed_peer_dial_targets(
     client: &Client,
     seed_servers: &[TestnetBetaBootstrapEndpoint],
 ) -> Vec<String> {
-    let mut unique_dials: HashMap<String, ()> = HashMap::new();
+    let mut unique_dials: HashMap<String, (Option<DateTime<Utc>>, String)> = HashMap::new();
 
     for seed in seed_servers {
         let url = format!("http://{}:{}/peers", seed.host, seed.port);
@@ -2810,25 +2810,84 @@ async fn fetch_all_seed_peer_dial_targets(
             None => continue,
         };
         for peer in peers {
-            // Try to extract a usable dial target.  The `dial` field is preferred
-            // (format: `snr://address@host:port`).  If absent, build one from
-            // the peer's `public_host` and default P2P port.
-            if let Some(dial) = peer.get("dial").and_then(Value::as_str) {
-                // Convert snr:// dial to plain host:port for additional_dial_targets.
-                if let Some(host_port) = dial.split('@').last() {
-                    unique_dials.entry(host_port.to_string()).or_insert(());
-                }
-            } else if let Some(host) = peer.get("public_host").and_then(Value::as_str) {
-                let port = peer
-                    .get("p2p_port")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(u64::from(TESTNET_BETA_P2P_PORT));
-                unique_dials.entry(format!("{host}:{port}")).or_insert(());
-            }
+            record_seed_peer_dial_target(&mut unique_dials, peer);
         }
     }
 
-    unique_dials.into_keys().collect()
+    let mut dials = unique_dials
+        .into_values()
+        .map(|(_, dial)| dial)
+        .collect::<Vec<_>>();
+    dials.sort();
+    dials
+}
+
+fn record_seed_peer_dial_target(
+    unique_dials: &mut HashMap<String, (Option<DateTime<Utc>>, String)>,
+    peer: &Value,
+) {
+    let Some(dial) = extract_seed_peer_dial_target(peer) else {
+        return;
+    };
+    let identity_key = seed_peer_identity_key(peer, &dial);
+    let registered_at = seed_peer_registered_at(peer);
+
+    let replace_existing = unique_dials
+        .get(&identity_key)
+        .map(|(existing_registered_at, _)| match (existing_registered_at, &registered_at) {
+            (None, Some(_)) => true,
+            (Some(existing), Some(candidate)) => candidate > existing,
+            _ => false,
+        })
+        .unwrap_or(true);
+
+    if replace_existing {
+        unique_dials.insert(identity_key, (registered_at, dial));
+    }
+}
+
+fn extract_seed_peer_dial_target(peer: &Value) -> Option<String> {
+    if let Some(dial) = peer.get("dial").and_then(Value::as_str) {
+        return dial
+            .split('@')
+            .last()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+    }
+
+    let host = peer.get("public_host").and_then(Value::as_str)?.trim();
+    if host.is_empty() {
+        return None;
+    }
+    let port = peer
+        .get("p2p_port")
+        .and_then(Value::as_u64)
+        .unwrap_or(u64::from(TESTNET_BETA_P2P_PORT));
+    Some(format!("{host}:{port}"))
+}
+
+fn seed_peer_identity_key(peer: &Value, dial: &str) -> String {
+    peer.get("wallet_address")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("wallet:{value}"))
+        .or_else(|| {
+            peer.get("node_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("node:{value}"))
+        })
+        .unwrap_or_else(|| format!("dial:{dial}"))
+}
+
+fn seed_peer_registered_at(peer: &Value) -> Option<DateTime<Utc>> {
+    peer.get("registered_at_utc")
+        .and_then(Value::as_str)
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
 }
 
 async fn refresh_workspace_peer_targets(
@@ -2844,12 +2903,17 @@ async fn refresh_workspace_peer_targets(
         .map_err(|error| format!("HTTP client error: {error}"))?;
     let seed_peers = fetch_all_seed_peer_dial_targets(&client, &network_profile.seed_servers).await;
     let siblings = local_sibling_dial_targets(all_nodes, &node.id);
-    let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
-    for peer in seed_peers.iter().chain(siblings.iter()) {
-        if !targets.contains(peer) {
-            targets.push(peer.clone());
+    let mut targets = seed_peers;
+    for peer in siblings {
+        if !targets.contains(&peer) {
+            targets.push(peer);
         }
     }
+    if targets.is_empty() {
+        targets = read_peers_toml_additional_targets(&peers_toml_path);
+    }
+    targets.sort();
+    targets.dedup();
 
     let peers_contents = build_peers_toml_with_additional(network_profile, &targets);
     write_file(&peers_toml_path, &peers_contents)
@@ -5282,6 +5346,70 @@ mod tests {
                 "node.toml should be rendered with the override address"
             );
         });
+    }
+
+    #[test]
+    fn seed_peer_target_dedup_prefers_latest_registration_for_same_validator() {
+        let mut unique = HashMap::new();
+
+        record_seed_peer_dial_target(
+            &mut unique,
+            &json!({
+                "wallet_address": "synv1validator",
+                "dial": "snr://synv1validator@73.79.66.255:5622",
+                "registered_at_utc": "2026-04-06T17:00:00Z"
+            }),
+        );
+        record_seed_peer_dial_target(
+            &mut unique,
+            &json!({
+                "wallet_address": "synv1validator",
+                "dial": "snr://synv1validator@73.79.66.255:5623",
+                "registered_at_utc": "2026-04-06T17:05:00Z"
+            }),
+        );
+
+        let mut dials = unique
+            .into_values()
+            .map(|(_, dial)| dial)
+            .collect::<Vec<_>>();
+        dials.sort();
+        assert_eq!(dials, vec!["73.79.66.255:5623".to_string()]);
+    }
+
+    #[test]
+    fn seed_peer_target_dedup_preserves_distinct_validators_on_shared_public_host() {
+        let mut unique = HashMap::new();
+
+        for (wallet, port) in [
+            ("synv1validator2", 5623_u16),
+            ("synv1validator3", 5624_u16),
+            ("synv1validator4", 5625_u16),
+        ] {
+            record_seed_peer_dial_target(
+                &mut unique,
+                &json!({
+                    "wallet_address": wallet,
+                    "public_host": "73.79.66.255",
+                    "p2p_port": port,
+                    "registered_at_utc": "2026-04-06T17:05:00Z"
+                }),
+            );
+        }
+
+        let mut dials = unique
+            .into_values()
+            .map(|(_, dial)| dial)
+            .collect::<Vec<_>>();
+        dials.sort();
+        assert_eq!(
+            dials,
+            vec![
+                "73.79.66.255:5623".to_string(),
+                "73.79.66.255:5624".to_string(),
+                "73.79.66.255:5625".to_string(),
+            ]
+        );
     }
 
     #[test]

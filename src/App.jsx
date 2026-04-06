@@ -8,7 +8,7 @@ import StartupLoadingScreen from './components/StartupLoadingScreen';
 import TestnetBetaJarvisSetup from './components/TestnetBetaJarvisSetup';
 import TestnetBetaDashboard from './components/TestnetBetaDashboard';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { invoke } from './lib/desktopClient';
+import { fetchTestnetBetaLiveStatus, fetchTestnetBetaState } from './lib/testnetBetaPageData';
 
 const SPLASH_DURATION_MS = 4800;
 const SPLASH_FADE_OUT_MS = 720;
@@ -63,9 +63,12 @@ function App() {
 
     const resolveSetupState = async () => {
       try {
-        const state = await invoke('testbeta_get_state');
+        const state = await fetchTestnetBetaState({ force: true });
         const isComplete = Array.isArray(state?.nodes) && state.nodes.length > 0;
         setSetupComplete(isComplete);
+        if (isComplete) {
+          void fetchTestnetBetaLiveStatus({ force: true });
+        }
         if (isComplete && typeof window !== 'undefined') {
           window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
           setSetupDeferred(false);
@@ -87,7 +90,7 @@ function App() {
 
     const intervalId = window.setInterval(async () => {
       try {
-        const state = await invoke('testbeta_get_state');
+        const state = await fetchTestnetBetaState({ force: true });
         if (Array.isArray(state?.nodes) && state.nodes.length > 0) {
           setSetupComplete(true);
           setSetupStateReady(true);

@@ -3,6 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { invoke, openPath, readTextFile } from '../lib/desktopClient';
 import { useDeveloperMode } from '../lib/developerMode';
 import {
+  fetchTestnetBetaLiveStatus,
+  fetchTestnetBetaState,
+  peekTestnetBetaLiveStatus,
+  peekTestnetBetaState,
+} from '../lib/testnetBetaPageData';
+import {
   applyTestnetBetaPortSettings,
   applyStoredTestnetBetaPortSettings,
   formatPortSettingsForForm,
@@ -19,8 +25,6 @@ const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 const POLL_INTERVAL_MS = 8000;
 
 const NWEI_PER_SNRG = 1000000000n;
-let _cachedNodeDetailState = null;
-let _cachedNodeDetailLiveStatus = null;
 
 async function fetchExplorerJson(baseUrl, path) {
   const base = String(baseUrl || '').trim().replace(/\/+$/, '');
@@ -440,10 +444,10 @@ function TestnetBetaNodeDetail() {
   const navigate = useNavigate();
   const [developerModeEnabled] = useDeveloperMode();
 
-  const [state, setState] = useState(_cachedNodeDetailState);
-  const [liveStatus, setLiveStatus] = useState(_cachedNodeDetailLiveStatus);
+  const [state, setState] = useState(() => peekTestnetBetaState());
+  const [liveStatus, setLiveStatus] = useState(() => peekTestnetBetaLiveStatus());
   const [explorerData, setExplorerData] = useState(null);
-  const [loading, setLoading] = useState(_cachedNodeDetailState === null);
+  const [loading, setLoading] = useState(() => peekTestnetBetaState() === null);
   const [error, setError] = useState('');
   const [controlBusy, setControlBusy] = useState('');
   const [controlMessage, setControlMessage] = useState('');
@@ -471,32 +475,26 @@ function TestnetBetaNodeDetail() {
   const [localPeerInfoLoading, setLocalPeerInfoLoading] = useState(false);
   const [localPeerInfoError, setLocalPeerInfoError] = useState('');
   const atlasAvailable = useRef(true);
+  const hasLoadedState = useRef(Boolean(peekTestnetBetaState()));
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
 
   const fetchData = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+    const shouldBlock = !silent && !hasLoadedState.current;
+    if (shouldBlock) setLoading(true);
 
-    const [stateResult, liveResult] = await Promise.allSettled([
-      invoke('testbeta_get_state'),
-      invoke('testbeta_get_live_status'),
-    ]);
-
-    if (stateResult.status === 'fulfilled') setState(stateResult.value);
-    if (liveResult.status === 'fulfilled') setLiveStatus(liveResult.value);
-
+    const statePromise = fetchTestnetBetaState({ force: true });
+    const livePromise = fetchTestnetBetaLiveStatus({ force: true });
     const errors = [];
-    if (stateResult.status === 'rejected') errors.push(String(stateResult.reason));
-    if (liveResult.status === 'rejected') errors.push(String(liveResult.reason));
-    setError(errors.join(' '));
 
-    if (stateResult.status === 'fulfilled') {
-      _cachedNodeDetailState = stateResult.value;
+    try {
+      const nextState = await statePromise;
+      hasLoadedState.current = true;
+      setState(nextState);
+    } catch (error) {
+      errors.push(String(error));
+    } finally {
+      if (shouldBlock) setLoading(false);
     }
-    if (liveResult.status === 'fulfilled') {
-      _cachedNodeDetailLiveStatus = liveResult.value;
-    }
-
-    if (!silent) setLoading(false);
 
     if (atlasAvailable.current) {
       void (async () => {
@@ -513,6 +511,15 @@ function TestnetBetaNodeDetail() {
         }
       })();
     }
+
+    try {
+      const nextLiveStatus = await livePromise;
+      setLiveStatus(nextLiveStatus);
+    } catch (error) {
+      errors.push(String(error));
+    }
+
+    setError(errors.join(' '));
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);

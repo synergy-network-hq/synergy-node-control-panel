@@ -3,6 +3,12 @@ import { Link } from 'react-router-dom';
 import { getVersion, invoke, openExternal, openPath } from '../lib/desktopClient';
 import { useDeveloperMode } from '../lib/developerMode';
 import {
+  fetchTestnetBetaLiveStatus,
+  fetchTestnetBetaState,
+  peekTestnetBetaLiveStatus,
+  peekTestnetBetaState,
+} from '../lib/testnetBetaPageData';
+import {
   applyTestnetBetaPortSettings,
   formatPortSettingsForForm,
   formatPortSettingsSummary,
@@ -512,11 +518,11 @@ function DefinitionRow({ label, value, detail }) {
 }
 
 function SettingsPage() {
-  const [state, setState] = useState(null);
-  const [liveStatus, setLiveStatus] = useState(null);
+  const [state, setState] = useState(() => peekTestnetBetaState());
+  const [liveStatus, setLiveStatus] = useState(() => peekTestnetBetaLiveStatus());
   const [version, setVersion] = useState('');
   const [developerModeEnabled, setDeveloperModeEnabled] = useDeveloperMode();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => peekTestnetBetaState() === null);
   const [error, setError] = useState('');
   const [savedPortSettings, setSavedPortSettings] = useState(() => readStoredTestnetBetaPortSettings());
   const [portForm, setPortForm] = useState(() => formatPortSettingsForForm(readStoredTestnetBetaPortSettings()));
@@ -538,6 +544,7 @@ function SettingsPage() {
   const [bootstrapRefreshStatus, setBootstrapRefreshStatus] = useState('');
 
   const terminalScrollRef = useRef(null);
+  const hasLoadedState = useRef(Boolean(peekTestnetBetaState()));
   const portFields = useMemo(() => getTestnetBetaPortFields(), []);
   const defaultPortSettings = useMemo(() => getTestnetBetaDefaultPortSettings(), []);
 
@@ -575,31 +582,55 @@ function SettingsPage() {
   }, []);
 
   const loadPage = useCallback(async (silent = false) => {
-    if (!silent) {
+    const shouldBlock = !silent && !hasLoadedState.current;
+    if (shouldBlock) {
       setLoading(true);
     }
 
+    const statePromise = fetchTestnetBetaState({ force: true });
+    const livePromise = fetchTestnetBetaLiveStatus({ force: true });
+    const nextErrors = [];
+    let nextState = null;
+
     try {
-      const [nextState, nextLiveStatus, nextVersion] = await Promise.all([
-        invoke('testbeta_get_state'),
-        invoke('testbeta_get_live_status'),
-        getVersion(),
-      ]);
-
-      const nextNodePortProfiles = await loadNodePortProfiles(nextState?.nodes);
-
+      nextState = await statePromise;
+      hasLoadedState.current = true;
       setState(nextState);
-      setLiveStatus(nextLiveStatus);
-      setVersion(String(nextVersion || ''));
-      setNodePortProfiles(nextNodePortProfiles);
-      setError('');
     } catch (loadError) {
-      setError(String(loadError));
+      nextErrors.push(String(loadError));
     } finally {
-      if (!silent) {
+      if (shouldBlock) {
         setLoading(false);
       }
     }
+
+    if (nextState) {
+      void loadNodePortProfiles(nextState?.nodes)
+        .then((profiles) => {
+          setNodePortProfiles(profiles);
+        })
+        .catch((loadError) => {
+          nextErrors.push(String(loadError));
+          setError(nextErrors.join(' '));
+        });
+    }
+
+    void getVersion()
+      .then((nextVersion) => {
+        setVersion(String(nextVersion || ''));
+      })
+      .catch(() => {
+        // Version is informative only; keep the last-known value if it fails.
+      });
+
+    try {
+      const nextLiveStatus = await livePromise;
+      setLiveStatus(nextLiveStatus);
+    } catch (loadError) {
+      nextErrors.push(String(loadError));
+    }
+
+    setError(nextErrors.join(' '));
   }, [loadNodePortProfiles]);
 
   useEffect(() => {
