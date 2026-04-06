@@ -25,6 +25,10 @@ export default defineConfig({
   build: {
     target: 'esnext',
     minify: 'esbuild',
-    sourcemap: false
+    sourcemap: false,
+    // The desktop renderer intentionally ships as a mostly single bundle.
+    // Raise the warning threshold to match the actual release profile so
+    // production builds stay signal-rich.
+    chunkSizeWarningLimit: 650
   }
 });
