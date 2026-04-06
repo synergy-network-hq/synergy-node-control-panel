@@ -2667,12 +2667,15 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                           {slot.statusLabel}
                         </span>
                       </div>
-                      <span className="nodecp-node-row-class">{slot.classLabel}</span>
-                      <div className="nodecp-node-row-bottom">
-                        <div className="nodecp-node-row-address-stack">
-                          <span className="nodecp-node-row-address">{slot.addressLabel}</span>
-                          <span className="nodecp-node-row-height">Score {slot.scoreLabel}</span>
-                        </div>
+                      <div className="nodecp-node-row-meta">
+                        <span className="nodecp-node-row-class">{slot.classLabel}</span>
+                        <span className="nodecp-node-row-score-inline">
+                          <span>Score</span>
+                          <strong>{slot.scoreLabel}</strong>
+                        </span>
+                      </div>
+                      <div className="nodecp-node-row-address-stack">
+                        <span className="nodecp-node-row-address">{slot.addressLabel}</span>
                       </div>
                       <div className="nodecp-node-row-metrics">
                         <div className="nodecp-node-row-metric">
