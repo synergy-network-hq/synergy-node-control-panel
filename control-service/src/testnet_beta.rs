@@ -509,7 +509,10 @@ pub async fn testbeta_import_ceremony_package(
             display_label: Some(package.display_name.clone()),
             intended_directory: input.intended_directory.clone(),
             public_host: input.public_host.clone(),
-            node_address_override: package.runtime_identity.as_ref().map(|identity| identity.address.clone()),
+            node_address_override: package
+                .runtime_identity
+                .as_ref()
+                .map(|identity| identity.address.clone()),
             skip_canonical_manifests: true,
         })
         .await?
@@ -782,22 +785,18 @@ pub async fn testbeta_node_control(
             // relying on NAT loop-back through the public IP.  We merge with
             // whatever the JS bootstrap refresh already wrote (seed-server peers)
             // so nothing is lost.
+            if let Err(error) = refresh_workspace_peer_targets(
+                &state.network_profile,
+                &state.nodes,
+                &node,
+                &workspace_directory,
+            )
+            .await
             {
-                let peers_toml_path = workspace_directory.join("config").join("peers.toml");
-                let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
-                for sibling in local_sibling_dial_targets(&state.nodes, &node.id) {
-                    if !targets.contains(&sibling) {
-                        targets.push(sibling);
-                    }
-                }
-                let peers_contents =
-                    build_peers_toml_with_additional(&state.network_profile, &targets);
-                if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
-                    eprintln!(
-                        "Warning: could not refresh peers.toml for {}: {e}",
-                        node.display_label
-                    );
-                }
+                eprintln!(
+                    "Warning: could not refresh peers.toml for {}: {error}",
+                    node.display_label
+                );
             }
 
             launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
@@ -863,22 +862,18 @@ pub async fn testbeta_node_control(
                     );
                 }
 
+                if let Err(error) = refresh_workspace_peer_targets(
+                    &state.network_profile,
+                    &state.nodes,
+                    &node,
+                    &workspace_directory,
+                )
+                .await
                 {
-                    let peers_toml_path = workspace_directory.join("config").join("peers.toml");
-                    let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
-                    for sibling in local_sibling_dial_targets(&state.nodes, &node.id) {
-                        if !targets.contains(&sibling) {
-                            targets.push(sibling);
-                        }
-                    }
-                    let peers_contents =
-                        build_peers_toml_with_additional(&state.network_profile, &targets);
-                    if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
-                        eprintln!(
-                            "Warning: could not refresh peers.toml for {}: {e}",
-                            node.display_label
-                        );
-                    }
+                    eprintln!(
+                        "Warning: could not refresh peers.toml for {}: {error}",
+                        node.display_label
+                    );
                 }
 
                 launch_runner_detached(&runner, "start", &config_path, &workspace_directory)
@@ -917,22 +912,18 @@ pub async fn testbeta_node_control(
             }
 
             // Same local-sibling injection as the start path.
+            if let Err(error) = refresh_workspace_peer_targets(
+                &state.network_profile,
+                &state.nodes,
+                &node,
+                &workspace_directory,
+            )
+            .await
             {
-                let peers_toml_path = workspace_directory.join("config").join("peers.toml");
-                let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
-                for sibling in local_sibling_dial_targets(&state.nodes, &node.id) {
-                    if !targets.contains(&sibling) {
-                        targets.push(sibling);
-                    }
-                }
-                let peers_contents =
-                    build_peers_toml_with_additional(&state.network_profile, &targets);
-                if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
-                    eprintln!(
-                        "Warning: could not refresh peers.toml for {}: {e}",
-                        node.display_label
-                    );
-                }
+                eprintln!(
+                    "Warning: could not refresh peers.toml for {}: {error}",
+                    node.display_label
+                );
             }
 
             run_runner_and_wait(&runner, "sync", &config_path, &workspace_directory).await?;
@@ -1179,34 +1170,15 @@ pub async fn testbeta_boost_sync(
         .cloned()
         .ok_or_else(|| format!("Node not found: {node_id}"))?;
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(8))
-        .build()
-        .map_err(|e| format!("HTTP client error: {e}"))?;
-
-    // 1. Query all seed servers for their full peer lists.
-    let seed_peers =
-        fetch_all_seed_peer_dial_targets(&client, &state.network_profile.seed_servers).await;
     let seeds_queried = state.network_profile.seed_servers.len();
-
-    // 2. Merge with local sibling targets.
-    let siblings = local_sibling_dial_targets(&state.nodes, &node.id);
-
-    // 3. Read existing peers.toml targets and merge all unique targets.
     let workspace_directory = PathBuf::from(&node.workspace_directory);
-    let peers_toml_path = workspace_directory.join("config").join("peers.toml");
-    let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
-    for peer in seed_peers.iter().chain(siblings.iter()) {
-        if !targets.contains(peer) {
-            targets.push(peer.clone());
-        }
-    }
-
-    // 4. Write enriched peers.toml.
-    let peers_contents = build_peers_toml_with_additional(&state.network_profile, &targets);
-    if let Err(e) = write_file(&peers_toml_path, &peers_contents) {
-        return Err(format!("Failed to write peers.toml: {e}"));
-    }
+    let targets = refresh_workspace_peer_targets(
+        &state.network_profile,
+        &state.nodes,
+        &node,
+        &workspace_directory,
+    )
+    .await?;
 
     write_canonical_workspace_manifests(&workspace_directory).ok();
 
@@ -1225,7 +1197,7 @@ pub async fn testbeta_boost_sync(
     // 7. Re-register with seeds.
     register_node_with_seeds_best_effort(&state.network_profile, &node).await;
 
-    let unique_dial_targets = targets.len();
+    let unique_dial_targets = targets;
     Ok(AcceleratedSyncResult {
         node_id: node.id.clone(),
         peers_injected: unique_dial_targets,
@@ -2113,11 +2085,7 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
 
     if ceremony_package_path.is_file() {
         if let Ok(package) = load_ceremony_package(&ceremony_package_path) {
-            repair_imported_validator_ports_if_needed(
-                workspace_directory,
-                config_path,
-                &package,
-            )?;
+            repair_imported_validator_ports_if_needed(workspace_directory, config_path, &package)?;
         }
         return Ok(());
     }
@@ -2861,6 +2829,32 @@ async fn fetch_all_seed_peer_dial_targets(
     }
 
     unique_dials.into_keys().collect()
+}
+
+async fn refresh_workspace_peer_targets(
+    network_profile: &TestnetBetaNetworkProfile,
+    all_nodes: &[TestnetBetaProvisionedNode],
+    node: &TestnetBetaProvisionedNode,
+    workspace_directory: &Path,
+) -> Result<usize, String> {
+    let peers_toml_path = workspace_directory.join("config").join("peers.toml");
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    let seed_peers = fetch_all_seed_peer_dial_targets(&client, &network_profile.seed_servers).await;
+    let siblings = local_sibling_dial_targets(all_nodes, &node.id);
+    let mut targets = read_peers_toml_additional_targets(&peers_toml_path);
+    for peer in seed_peers.iter().chain(siblings.iter()) {
+        if !targets.contains(peer) {
+            targets.push(peer.clone());
+        }
+    }
+
+    let peers_contents = build_peers_toml_with_additional(network_profile, &targets);
+    write_file(&peers_toml_path, &peers_contents)
+        .map_err(|error| format!("Failed to write peers.toml: {error}"))?;
+    Ok(targets.len())
 }
 
 async fn build_node_readiness_report(
@@ -5283,7 +5277,8 @@ mod tests {
             let node_toml = fs::read_to_string(config_path_for(&result.node, "node.toml"))
                 .expect("node.toml should exist");
             assert!(
-                node_toml.contains("validator_address = \"synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49\""),
+                node_toml
+                    .contains("validator_address = \"synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49\""),
                 "node.toml should be rendered with the override address"
             );
         });

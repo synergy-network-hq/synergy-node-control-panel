@@ -2127,12 +2127,7 @@ mod terminal_command_tests {
     #[test]
     fn prefers_real_machine_address_for_generated_control_plane_host() {
         assert_eq!(
-            preferred_control_plane_host(
-                "10.50.0.7",
-                "10.50.0.7",
-                "73.79.66.255",
-                "192.168.11.98"
-            ),
+            preferred_control_plane_host("10.50.0.7", "10.50.0.7", "73.79.66.255", "192.168.11.98"),
             "192.168.11.98"
         );
     }
