@@ -6,7 +6,7 @@ use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -57,6 +57,13 @@ struct CachedNodeLiveSnapshot {
     previous_chain_height: Option<u64>,
     height_sampled_at: Option<Instant>,
     previous_sampled_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct RpcPeerSummary {
+    peer_count: usize,
+    connected_validator_count: usize,
+    status_ready_validator_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +237,8 @@ pub struct TestnetBetaNodeLiveStatus {
     pub process_uptime_secs: Option<u64>,
     pub local_chain_height: Option<u64>,
     pub local_peer_count: Option<usize>,
+    pub connected_validator_count: Option<usize>,
+    pub status_ready_validator_count: Option<usize>,
     pub sync_gap: Option<u64>,
     pub log_local_chain_height: Option<u64>,
     pub best_observed_peer_height: Option<u64>,
@@ -1764,10 +1773,12 @@ async fn build_node_live_status(
     } else {
         (None, None)
     };
-    let (fresh_local_peer_count, local_peer_error) = if is_running {
+    let local_validator_address = role_supports_validator_registration(&node.role_id)
+        .then_some(node.node_address.as_str());
+    let (fresh_peer_summary, local_peer_error) = if is_running {
         match query_rpc_value(client, &rpc_endpoint, "synergy_getPeerInfo", json!([])).await {
-            Ok(value) => match parse_rpc_peer_count(value) {
-                Ok(count) => (Some(count), None),
+            Ok(value) => match parse_rpc_peer_summary(&value, local_validator_address) {
+                Ok(summary) => (Some(summary), None),
                 Err(error) => (None, Some(error)),
             },
             Err(error) => (None, Some(error)),
@@ -1775,6 +1786,13 @@ async fn build_node_live_status(
     } else {
         (None, None)
     };
+    let fresh_local_peer_count = fresh_peer_summary.as_ref().map(|summary| summary.peer_count);
+    let connected_validator_count = fresh_peer_summary
+        .as_ref()
+        .map(|summary| summary.connected_validator_count);
+    let status_ready_validator_count = fresh_peer_summary
+        .as_ref()
+        .map(|summary| summary.status_ready_validator_count);
     let cached_snapshot = {
         let cache = NODE_LIVE_CACHE.lock().unwrap();
         cache.get(&node.id).cloned()
@@ -1890,6 +1908,8 @@ async fn build_node_live_status(
         process_uptime_secs,
         local_chain_height,
         local_peer_count,
+        connected_validator_count,
+        status_ready_validator_count,
         sync_gap,
         log_local_chain_height,
         best_observed_peer_height,
@@ -3087,7 +3107,82 @@ async fn build_node_readiness_report(
         },
     });
 
-    // 8. Seed Registered
+    // 8. Validator Quorum / Mesh Status
+    let is_validator = role_supports_validator_registration(&node.role_id);
+    if is_validator {
+        let required_validators = TESTNET_BETA_MIN_GENESIS_VALIDATORS;
+        let connected_validators = live.connected_validator_count.unwrap_or(0);
+        let status_ready_validators = live.status_ready_validator_count.unwrap_or(0);
+        let uptime_secs = live.process_uptime_secs.unwrap_or(0);
+
+        let live_validator_status = if !live.is_running {
+            "skip"
+        } else if connected_validators >= required_validators {
+            "pass"
+        } else if connected_validators > 0 && uptime_secs < 20 {
+            "in_progress"
+        } else {
+            "fail"
+        };
+        checks.push(NodeReadinessCheck {
+            id: "validator_live_quorum".to_string(),
+            label: "Validator Quorum".to_string(),
+            status: live_validator_status.to_string(),
+            detail: if live.is_running {
+                format!(
+                    "{connected_validators}/{required_validators} validator participants are connected (including this node)."
+                )
+            } else {
+                "Node is offline.".to_string()
+            },
+            suggestion: match live_validator_status {
+                "fail" => Some(
+                    "Consensus cannot start until all required validators are connected. Use Boost Sync, then verify each validator is running and its P2P port is reachable."
+                        .to_string(),
+                ),
+                "in_progress" => Some(
+                    "Validator sessions are still settling. If this does not reach full quorum within a few seconds, use Boost Sync."
+                        .to_string(),
+                ),
+                _ => None,
+            },
+        });
+
+        let mesh_status = if !live.is_running {
+            "skip"
+        } else if status_ready_validators >= required_validators {
+            "pass"
+        } else if status_ready_validators > 0 && uptime_secs < 20 {
+            "in_progress"
+        } else {
+            "fail"
+        };
+        checks.push(NodeReadinessCheck {
+            id: "validator_mesh_status".to_string(),
+            label: "Validator Mesh Sync".to_string(),
+            status: mesh_status.to_string(),
+            detail: if live.is_running {
+                format!(
+                    "{status_ready_validators}/{required_validators} validators have completed handshake/status sync. Consensus will not start until all required validators are status-ready."
+                )
+            } else {
+                "Node is offline.".to_string()
+            },
+            suggestion: match mesh_status {
+                "fail" => Some(
+                    "Validator sessions are connected but not fully status-synced. Use Rejoin to rebuild validator sessions; if the count stays low, run Boost Sync and inspect the validator logs for peer resets."
+                        .to_string(),
+                ),
+                "in_progress" => Some(
+                    "Validator handshake/status exchange is still in progress. If this stalls, use Rejoin."
+                        .to_string(),
+                ),
+                _ => None,
+            },
+        });
+    }
+
+    // 9. Seed Registered
     let (seed_registered, seed_count) = if live.is_running {
         verify_node_seed_registration(client, seed_servers, &node.id, &node.node_address).await
     } else {
@@ -3120,7 +3215,7 @@ async fn build_node_readiness_report(
         },
     });
 
-    // 9. Syncing / Synced
+    // 10. Syncing / Synced
     let sync_status = match live.sync_gap {
         Some(gap) if gap <= 5 => "pass",
         Some(_) if live.sync_trending == "improving" => "in_progress",
@@ -3161,8 +3256,7 @@ async fn build_node_readiness_report(
         },
     });
 
-    // 10. Scoring (validators only)
-    let is_validator = role_supports_validator_registration(&node.role_id);
+    // 11. Scoring (validators only)
     if is_validator {
         let score_status = if live.synergy_score.unwrap_or(0.0) > 0.0 {
             "pass"
@@ -3463,21 +3557,71 @@ fn parse_rpc_block_height(value: Value) -> Result<u64, String> {
     Err("RPC block-height payload did not contain a numeric height.".to_string())
 }
 
+fn rpc_peer_entries(value: &Value) -> Option<&Vec<Value>> {
+    value
+        .get("peers")
+        .and_then(Value::as_array)
+        .or_else(|| value.as_array())
+}
+
+fn parse_rpc_peer_summary(
+    value: &Value,
+    local_validator_address: Option<&str>,
+) -> Result<RpcPeerSummary, String> {
+    let peer_count = if let Some(number) = value.get("peer_count").and_then(Value::as_u64) {
+        usize::try_from(number)
+            .map_err(|error| format!("Failed to convert peer count to usize: {error}"))?
+    } else if let Some(peers) = rpc_peer_entries(value) {
+        peers.len()
+    } else {
+        return Err("Peer RPC returned neither peer_count nor peers.".to_string());
+    };
+
+    let mut connected_validators = HashSet::new();
+    let mut status_ready_validators = HashSet::new();
+
+    if let Some(address) = local_validator_address
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        connected_validators.insert(address.to_string());
+        status_ready_validators.insert(address.to_string());
+    }
+
+    if let Some(peers) = rpc_peer_entries(value) {
+        for peer in peers {
+            let Some(validator_address) = peer
+                .get("validator_address")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+
+            connected_validators.insert(validator_address.to_string());
+
+            let has_remote_status = peer
+                .get("genesis_hash")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some();
+            if has_remote_status {
+                status_ready_validators.insert(validator_address.to_string());
+            }
+        }
+    }
+
+    Ok(RpcPeerSummary {
+        peer_count,
+        connected_validator_count: connected_validators.len(),
+        status_ready_validator_count: status_ready_validators.len(),
+    })
+}
+
 fn parse_rpc_peer_count(value: Value) -> Result<usize, String> {
-    if let Some(number) = value.get("peer_count").and_then(Value::as_u64) {
-        return usize::try_from(number)
-            .map_err(|error| format!("Failed to convert peer count to usize: {error}"));
-    }
-
-    if let Some(peers) = value.get("peers").and_then(Value::as_array) {
-        return Ok(peers.len());
-    }
-
-    if let Some(peers) = value.as_array() {
-        return Ok(peers.len());
-    }
-
-    Err("Peer RPC returned neither peer_count nor peers.".to_string())
+    parse_rpc_peer_summary(&value, None).map(|summary| summary.peer_count)
 }
 
 fn ensure_testnet_beta_root() -> Result<PathBuf, String> {
@@ -5122,6 +5266,62 @@ mod tests {
             .expect("legacy peer array should parse"),
             2
         );
+    }
+
+    #[test]
+    fn parse_rpc_peer_summary_counts_connected_and_status_ready_validators() {
+        let summary = parse_rpc_peer_summary(
+            &json!({
+                "peer_count": 4,
+                "peers": [
+                    {
+                        "node_id": "validator-2",
+                        "validator_address": "synv1b",
+                        "genesis_hash": "genesis-a"
+                    },
+                    {
+                        "node_id": "validator-3",
+                        "validator_address": "synv1c",
+                        "genesis_hash": ""
+                    },
+                    {
+                        "node_id": "bootnode-1",
+                        "validator_address": "",
+                        "genesis_hash": "genesis-a"
+                    }
+                ]
+            }),
+            Some("synv1a"),
+        )
+        .expect("peer summary should parse");
+
+        assert_eq!(summary.peer_count, 4);
+        assert_eq!(summary.connected_validator_count, 3);
+        assert_eq!(summary.status_ready_validator_count, 2);
+    }
+
+    #[test]
+    fn parse_rpc_peer_summary_supports_legacy_arrays() {
+        let summary = parse_rpc_peer_summary(
+            &json!([
+                {
+                    "node_id": "validator-2",
+                    "validator_address": "synv1b",
+                    "genesis_hash": "genesis-a"
+                },
+                {
+                    "node_id": "validator-3",
+                    "validator_address": "synv1c",
+                    "genesis_hash": ""
+                }
+            ]),
+            Some("synv1a"),
+        )
+        .expect("legacy peer summary should parse");
+
+        assert_eq!(summary.peer_count, 2);
+        assert_eq!(summary.connected_validator_count, 3);
+        assert_eq!(summary.status_ready_validator_count, 2);
     }
 
     #[test]

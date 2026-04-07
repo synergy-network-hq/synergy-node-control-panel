@@ -1778,6 +1778,27 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       );
     }
 
+    if (check.id === 'validator_live_quorum' && (check.status === 'fail' || check.status === 'warn' || check.status === 'in_progress')) {
+      return (
+        <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+          {boostBusy ? 'Boosting...' : 'Boost Sync'}
+        </SNRGButton>
+      );
+    }
+
+    if (check.id === 'validator_mesh_status' && (check.status === 'fail' || check.status === 'warn' || check.status === 'in_progress')) {
+      return (
+        <>
+          <SNRGButton variant="yellow" size="sm" disabled={!!controlBusy} onClick={() => runNodeControl('sync')}>
+            Rejoin
+          </SNRGButton>
+          <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+            {boostBusy ? 'Boosting...' : 'Boost Sync'}
+          </SNRGButton>
+        </>
+      );
+    }
+
     if (check.id === 'seed_registered' && check.status === 'fail') {
       return (
         <SNRGButton variant="blue" size="sm" disabled={registerBusy} onClick={handleRegisterWithSeeds}>

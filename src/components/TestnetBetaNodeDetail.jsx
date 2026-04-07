@@ -1613,6 +1613,19 @@ function TestnetBetaNodeDetail() {
                               {boostBusy ? 'Boosting...' : 'Boost Sync'}
                             </SNRGButton>
                           ) : null}
+                          {check.id === 'validator_live_quorum' && (check.status === 'fail' || check.status === 'warn' || check.status === 'in_progress') ? (
+                            <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+                              {boostBusy ? 'Boosting...' : 'Boost Sync'}
+                            </SNRGButton>
+                          ) : null}
+                          {check.id === 'validator_mesh_status' && (check.status === 'fail' || check.status === 'warn' || check.status === 'in_progress') ? (
+                            <>
+                              <SNRGButton variant="yellow" size="sm" disabled={!!controlBusy} onClick={() => runNodeControl('sync')}>Rejoin</SNRGButton>
+                              <SNRGButton variant="blue" size="sm" disabled={boostBusy || !!controlBusy} onClick={handleBoostSync}>
+                                {boostBusy ? 'Boosting...' : 'Boost Sync'}
+                              </SNRGButton>
+                            </>
+                          ) : null}
                           {check.id === 'seed_registered' && check.status === 'fail' ? (
                             <SNRGButton variant="blue" size="sm" disabled={registerBusy} onClick={async () => {
                               setRegisterBusy(true);
