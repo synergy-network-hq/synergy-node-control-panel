@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v7.0.2 - 2026-04-08
+
+- Fixed the control-service topology host selection so genesis validators keep their public `genesisval*.synergynode.xyz` identity for RPC/read paths while control-plane generation, SSH targeting, and installer rewrites continue to use `management_host`.
+- Prevented topology refreshes from collapsing validator machine-management state onto the public validator DNS names, which was causing duplicate node generation and overload across the RPC, bootnode, and seed infrastructure after the hostname migration.
+- Added regression tests covering the `genesisval1.synergynode.xyz` plus `192.168.11.228` case to lock the public-host versus management-host split in place.
+
 ## v5.13.0 - 2026-04-04
 
 - Advanced the bundled Testnet-Beta source pin to `v5.13.0-testbeta-source`, which includes the runtime-root migration, canonical genesis refresh, and current validator/bootstrap assets used for the clean reinstall path.
