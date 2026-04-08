@@ -2034,8 +2034,8 @@ fn split_command_arguments(command: &str) -> Result<Vec<String>, String> {
 mod terminal_command_tests {
     use super::{
         agent_error_requires_ssh_fallback, logical_nodes_for_physical_machine,
-        physical_machine_for_binding_target, preferred_control_plane_host, resolve_host_override,
-        split_command_arguments,
+        physical_machine_for_binding_target, preferred_control_plane_host,
+        preferred_public_inventory_host, resolve_host_override, split_command_arguments,
     };
     use std::collections::HashMap;
 
@@ -2129,6 +2129,33 @@ mod terminal_command_tests {
         assert_eq!(
             preferred_control_plane_host("10.50.0.7", "10.50.0.7", "73.79.66.255", "192.168.11.98"),
             "192.168.11.98"
+        );
+    }
+
+    #[test]
+    fn prefers_management_host_over_public_validator_hostname_for_control_plane_host() {
+        assert_eq!(
+            preferred_control_plane_host(
+                "genesisval1.synergynode.xyz",
+                "192.168.11.228",
+                "71.86.65.178",
+                "192.168.11.228",
+            ),
+            "192.168.11.228"
+        );
+    }
+
+    #[test]
+    fn preserves_public_validator_hostname_for_inventory_host() {
+        assert_eq!(
+            preferred_public_inventory_host(
+                "genesisval1.synergynode.xyz",
+                "192.168.11.228",
+                "71.86.65.178",
+                "192.168.11.228",
+                "machine-01",
+            ),
+            "genesisval1.synergynode.xyz"
         );
     }
 
@@ -6940,14 +6967,36 @@ fn is_obsolete_overlay_host(value: &str) -> bool {
     octets[0] == 10 && octets[1] == 50 && octets[2] == 0
 }
 
-fn preferred_inventory_host(
+fn preferred_public_inventory_host(
     host: &str,
     management_host: &str,
     public_ip: &str,
     local_ip: &str,
     physical_machine_id: &str,
 ) -> String {
-    for candidate in [host, management_host, local_ip, public_ip] {
+    for candidate in [host, local_ip, management_host, public_ip] {
+        let trimmed = candidate.trim();
+        if !trimmed.is_empty() && !is_obsolete_overlay_host(trimmed) {
+            return trimmed.to_string();
+        }
+    }
+
+    let fallback = physical_machine_id.trim();
+    if !fallback.is_empty() {
+        return fallback.to_string();
+    }
+
+    String::new()
+}
+
+fn preferred_management_host(
+    host: &str,
+    management_host: &str,
+    public_ip: &str,
+    local_ip: &str,
+    physical_machine_id: &str,
+) -> String {
+    for candidate in [management_host, local_ip, public_ip, host] {
         let trimmed = candidate.trim();
         if !trimmed.is_empty() && !is_obsolete_overlay_host(trimmed) {
             return trimmed.to_string();
@@ -7003,7 +7052,14 @@ fn sanitize_inventory_hosts(inventory_path: &Path) -> Result<(), String> {
             .map(|value| value.trim().trim_end_matches('\r').to_string())
             .collect::<Vec<_>>();
         let get = |index: usize| values.get(index).cloned().unwrap_or_default();
-        let resolved_host = preferred_inventory_host(
+        let resolved_host = preferred_public_inventory_host(
+            &get(host_idx),
+            &get(management_host_idx),
+            &get(public_ip_idx),
+            &get(local_ip_idx),
+            &get(physical_machine_idx),
+        );
+        let resolved_management_host = preferred_management_host(
             &get(host_idx),
             &get(management_host_idx),
             &get(public_ip_idx),
@@ -7014,9 +7070,9 @@ fn sanitize_inventory_hosts(inventory_path: &Path) -> Result<(), String> {
             if host_idx < values.len() {
                 values[host_idx] = resolved_host.clone();
             }
-            if management_host_idx < values.len() {
-                values[management_host_idx] = resolved_host;
-            }
+        }
+        if !resolved_management_host.is_empty() && management_host_idx < values.len() {
+            values[management_host_idx] = resolved_management_host;
         }
         rewritten.push(values.join(","));
     }
@@ -7053,7 +7109,7 @@ fn preferred_control_plane_host(
     public_ip: &str,
     local_ip: &str,
 ) -> String {
-    preferred_inventory_host(host, management_host, public_ip, local_ip, "")
+    preferred_management_host(host, management_host, public_ip, local_ip, "")
 }
 
 fn generate_monitor_hosts_env(
@@ -7775,10 +7831,10 @@ fn build_inventory_machine_topology(
             .management_host
             .as_ref()
             .map(|value| value.trim().to_string())
-            .filter(|value| is_private_management_ip(value))
+            .filter(|value| !value.is_empty() && !is_obsolete_overlay_host(value))
             .or_else(|| {
                 let host = node.host.trim();
-                is_private_management_ip(host).then(|| host.to_string())
+                (!host.is_empty() && !is_obsolete_overlay_host(host)).then(|| host.to_string())
             })
             .unwrap_or_default();
 
@@ -7878,7 +7934,7 @@ fn load_inventory_machine_topology() -> Result<HashMap<String, InventoryMachineT
             continue;
         }
 
-        let management_host = preferred_inventory_host(
+        let management_host = preferred_management_host(
             &get(host_idx),
             &get(management_host_idx),
             &get(public_ip_idx),
