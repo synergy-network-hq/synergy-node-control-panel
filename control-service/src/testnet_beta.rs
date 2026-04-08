@@ -43,7 +43,8 @@ const MINIMUM_STAKE_SNRG: u64 = 5_000;
 const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
 const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 4;
-const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 4;
+const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 5;
+const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 3;
 const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
 
@@ -352,6 +353,8 @@ pub struct TestnetBetaCeremonyPackagePreview {
     pub validator_slot: Option<u8>,
     pub public_host_required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_identity_address: Option<String>,
     #[serde(default)]
     pub notes: Vec<String>,
@@ -395,10 +398,14 @@ struct TestnetBetaCeremonyAssignedPorts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port_slot: Option<u16>,
     pub p2p_port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_p2p_port: Option<u16>,
     pub rpc_port: u16,
     pub ws_port: u16,
     pub grpc_port: u16,
     pub discovery_port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_discovery_port: Option<u16>,
     pub metrics_port: u16,
 }
 
@@ -420,6 +427,8 @@ struct TestnetBetaCeremonyPackage {
     pub runtime_identity: Option<TestnetBetaCeremonyRuntimeIdentity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validator_public: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_host: Option<String>,
     #[serde(default)]
     pub public_host_required: bool,
     #[serde(default)]
@@ -517,7 +526,10 @@ pub async fn testbeta_import_ceremony_package(
             role_id: resolved_role.clone(),
             display_label: Some(package.display_name.clone()),
             intended_directory: input.intended_directory.clone(),
-            public_host: input.public_host.clone(),
+            public_host: input
+                .public_host
+                .clone()
+                .or_else(|| package.public_host.clone()),
             node_address_override: package
                 .runtime_identity
                 .as_ref()
@@ -557,7 +569,10 @@ pub async fn testbeta_import_ceremony_package(
             &mut setup_result,
             runtime_identity,
             &package,
-            input.public_host.as_deref(),
+            input
+                .public_host
+                .as_deref()
+                .or(package.public_host.as_deref()),
         )?;
         staged_paths.extend(identity_paths);
     }
@@ -628,6 +643,7 @@ pub fn testbeta_inspect_ceremony_package(
         package_type: package.package_type,
         validator_slot: package.validator_slot,
         public_host_required: package.public_host_required,
+        public_host: package.public_host,
         runtime_identity_address: package.runtime_identity.map(|identity| identity.address),
         notes: package.notes,
     })
@@ -1333,6 +1349,7 @@ pub async fn testbeta_setup_node(
         &network_profile,
         role_overlay.as_str(),
         port_slot,
+        None,
     );
     let manifest_contents = build_bootstrap_manifest_contents(
         &node_id,
@@ -2146,19 +2163,41 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TestnetBetaRuntimePorts {
     p2p_port: u16,
+    public_p2p_port: u16,
     rpc_port: u16,
     ws_port: u16,
     discovery_port: u16,
+    public_discovery_port: u16,
     metrics_port: u16,
 }
 
 fn runtime_ports_for_slot(slot: u16) -> TestnetBetaRuntimePorts {
+    let p2p_port = TESTNET_BETA_P2P_PORT.saturating_add(slot);
+    let discovery_port = TESTNET_BETA_DISCOVERY_PORT.saturating_add(slot);
     TestnetBetaRuntimePorts {
-        p2p_port: TESTNET_BETA_P2P_PORT.saturating_add(slot),
+        p2p_port,
+        public_p2p_port: p2p_port,
         rpc_port: TESTNET_BETA_RPC_PORT.saturating_add(slot),
         ws_port: TESTNET_BETA_WS_PORT.saturating_add(slot),
-        discovery_port: TESTNET_BETA_DISCOVERY_PORT.saturating_add(slot),
+        discovery_port,
+        public_discovery_port: discovery_port,
         metrics_port: TESTNET_BETA_METRICS_PORT.saturating_add(slot),
+    }
+}
+
+fn runtime_ports_for_assigned_ports(
+    assigned_ports: &TestnetBetaCeremonyAssignedPorts,
+) -> TestnetBetaRuntimePorts {
+    TestnetBetaRuntimePorts {
+        p2p_port: assigned_ports.p2p_port,
+        public_p2p_port: assigned_ports.public_p2p_port.unwrap_or(assigned_ports.p2p_port),
+        rpc_port: assigned_ports.rpc_port,
+        ws_port: assigned_ports.ws_port,
+        discovery_port: assigned_ports.discovery_port,
+        public_discovery_port: assigned_ports
+            .public_discovery_port
+            .unwrap_or(assigned_ports.discovery_port),
+        metrics_port: assigned_ports.metrics_port,
     }
 }
 
@@ -2180,14 +2219,38 @@ fn parse_runtime_ports_from_config(config_path: &Path) -> Option<TestnetBetaRunt
         .and_then(toml::Value::as_str)
         .and_then(|bind| bind.rsplit(':').next())
         .and_then(|port| port.parse::<u16>().ok())?;
+    let public_p2p_port = value
+        .get("p2p")
+        .and_then(|section| section.get("public_address"))
+        .and_then(toml::Value::as_str)
+        .and_then(|address| address.rsplit(':').next())
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or_else(|| read_u16("network", "p2p_port").unwrap_or(TESTNET_BETA_P2P_PORT));
 
     Some(TestnetBetaRuntimePorts {
         p2p_port: read_u16("network", "p2p_port")?,
+        public_p2p_port,
         rpc_port: read_u16("rpc", "http_port")?,
         ws_port: read_u16("rpc", "ws_port")?,
         discovery_port: read_u16("p2p", "discovery_port")?,
+        public_discovery_port: read_u16("p2p", "discovery_port")?,
         metrics_port,
     })
+}
+
+fn config_path_for_node(
+    node: &TestnetBetaProvisionedNode,
+    file_name: &str,
+) -> Option<PathBuf> {
+    node.config_paths
+        .iter()
+        .map(PathBuf::from)
+        .find(|path| path.file_name().and_then(|value| value.to_str()) == Some(file_name))
+}
+
+fn read_runtime_ports_for_node(node: &TestnetBetaProvisionedNode) -> Option<TestnetBetaRuntimePorts> {
+    let config_path = config_path_for_node(node, "node.toml")?;
+    parse_runtime_ports_from_config(&config_path)
 }
 
 fn repair_imported_validator_ports_if_needed(
@@ -2204,7 +2267,11 @@ fn repair_imported_validator_ports_if_needed(
         Some(ports) => ports,
         None => return Ok(()),
     };
-    let expected_ports = runtime_ports_for_slot(expected_slot);
+    let expected_ports = package
+        .assigned_ports
+        .as_ref()
+        .map(runtime_ports_for_assigned_ports)
+        .unwrap_or_else(|| runtime_ports_for_slot(expected_slot));
     let base_ports = runtime_ports_for_slot(0);
 
     let root = ensure_testnet_beta_root()?;
@@ -2256,6 +2323,7 @@ fn repair_imported_validator_ports_if_needed(
         &network_profile,
         role_overlay.as_str(),
         expected_slot,
+        package.assigned_ports.as_ref(),
     );
     if role.id == "validator" {
         node_contents = apply_ceremony_validator_config_overrides(node_contents, package);
@@ -2948,7 +3016,9 @@ async fn build_node_readiness_report(
     seed_servers: &[TestnetBetaBootstrapEndpoint],
 ) -> NodeReadinessReport {
     let mut checks = Vec::new();
-    let p2p_port = TESTNET_BETA_P2P_PORT + node.port_slot.unwrap_or(0);
+    let p2p_port = read_runtime_ports_for_node(node)
+        .map(|ports| ports.p2p_port)
+        .unwrap_or_else(|| TESTNET_BETA_P2P_PORT + node.port_slot.unwrap_or(0));
 
     // 1. Workspace Ready
     checks.push(NodeReadinessCheck {
@@ -3946,14 +4016,16 @@ fn build_seed_registration(
     node: &TestnetBetaProvisionedNode,
     public_host: &str,
 ) -> SeedPeerRegistration {
-    // Use the slot-adjusted P2P port so the seed server publishes the correct
-    // address for this node. Without this, every node on the same machine
-    // would advertise the slot-0 base port and the seed-server peer list would
-    // be wrong for higher slots.
-    let p2p_port = TESTNET_BETA_P2P_PORT.saturating_add(node.port_slot.unwrap_or(0));
+    let p2p_port = read_runtime_ports_for_node(node)
+        .map(|ports| ports.public_p2p_port)
+        .unwrap_or_else(|| TESTNET_BETA_P2P_PORT.saturating_add(node.port_slot.unwrap_or(0)));
     let dial = format!("snr://{}@{}:{}", node.node_address, public_host, p2p_port);
     SeedPeerRegistration {
-        node_id: node.id.clone(),
+        node_id: if node.role_id == "validator" {
+            node.node_address.clone()
+        } else {
+            node.id.clone()
+        },
         role_id: node.role_id.clone(),
         role_display_name: node.role_display_name.clone(),
         wallet_address: node.node_address.clone(),
@@ -3978,8 +4050,12 @@ fn local_sibling_dial_targets(
         .iter()
         .filter(|n| n.id != current_node_id)
         .filter_map(|n| {
-            let slot = n.port_slot?;
-            let port = TESTNET_BETA_P2P_PORT.saturating_add(slot);
+            let port = read_runtime_ports_for_node(n)
+                .map(|ports| ports.p2p_port)
+                .or_else(|| {
+                    n.port_slot
+                        .map(|slot| TESTNET_BETA_P2P_PORT.saturating_add(slot))
+                })?;
             Some(format!("127.0.0.1:{port}"))
         })
         .collect()
@@ -4078,22 +4154,34 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
     vec![
         TestnetBetaBootstrapEndpoint {
             kind: host_prefix.to_string(),
-            host: format!("{host_prefix}1.synergynode.xyz"),
+            host: if is_seed {
+                "seed1.synergynode.xyz".to_string()
+            } else {
+                "bootnode1.synergyvps.xyz".to_string()
+            },
             ip_address: "74.208.227.23".to_string(),
             port,
             dns_mode: dns_mode.clone(),
         },
         TestnetBetaBootstrapEndpoint {
             kind: host_prefix.to_string(),
-            host: format!("{host_prefix}2.synergynode.xyz"),
+            host: if is_seed {
+                "seed2.synergynode.xyz".to_string()
+            } else {
+                "bootnode2.synergyvps.xyz".to_string()
+            },
             ip_address: "73.79.66.255".to_string(),
             port,
             dns_mode: dns_mode.clone(),
         },
         TestnetBetaBootstrapEndpoint {
             kind: host_prefix.to_string(),
-            host: format!("{host_prefix}3.synergynode.xyz"),
-            ip_address: "157.245.226.24".to_string(),
+            host: if is_seed {
+                "seed3.synergynode.xyz".to_string()
+            } else {
+                "bootnode3.synergyvps.xyz".to_string()
+            },
+            ip_address: "157.245.226.240".to_string(),
             port,
             dns_mode,
         },
@@ -4448,24 +4536,6 @@ fn derive_ceremony_port_slot(package: &TestnetBetaCeremonyPackage) -> Option<u16
         if let Some(port_slot) = assigned_ports.port_slot {
             return Some(port_slot);
         }
-
-        let expected_slot = assigned_ports.p2p_port.checked_sub(TESTNET_BETA_P2P_PORT)?;
-        let slots = [
-            assigned_ports.rpc_port.checked_sub(TESTNET_BETA_RPC_PORT)?,
-            assigned_ports.ws_port.checked_sub(TESTNET_BETA_WS_PORT)?,
-            assigned_ports
-                .grpc_port
-                .checked_sub(TESTNET_BETA_RPC_PORT)?,
-            assigned_ports
-                .discovery_port
-                .checked_sub(TESTNET_BETA_DISCOVERY_PORT)?,
-            assigned_ports
-                .metrics_port
-                .checked_sub(TESTNET_BETA_METRICS_PORT)?,
-        ];
-        if slots.into_iter().all(|slot| slot == expected_slot) {
-            return Some(expected_slot);
-        }
     }
 
     package
@@ -4557,6 +4627,7 @@ fn apply_imported_runtime_identity(
         &network_profile,
         role_overlay.as_str(),
         port_slot,
+        package.assigned_ports.as_ref(),
     );
     if role.id == "validator" {
         node_contents = apply_ceremony_validator_config_overrides(node_contents, package);
@@ -4932,17 +5003,26 @@ fn build_node_toml(
     network_profile: &TestnetBetaNetworkProfile,
     role_overlay: &str,
     port_slot: u16,
+    assigned_ports: Option<&TestnetBetaCeremonyAssignedPorts>,
 ) -> String {
-    let p2p_port = TESTNET_BETA_P2P_PORT.saturating_add(port_slot);
-    let rpc_port = TESTNET_BETA_RPC_PORT.saturating_add(port_slot);
-    let ws_port = TESTNET_BETA_WS_PORT.saturating_add(port_slot);
-    let discovery_port = TESTNET_BETA_DISCOVERY_PORT.saturating_add(port_slot);
-    let metrics_port = TESTNET_BETA_METRICS_PORT.saturating_add(port_slot);
+    let runtime_ports = assigned_ports
+        .map(runtime_ports_for_assigned_ports)
+        .unwrap_or_else(|| runtime_ports_for_slot(port_slot));
+    let p2p_port = runtime_ports.p2p_port;
+    let rpc_port = runtime_ports.rpc_port;
+    let ws_port = runtime_ports.ws_port;
+    let discovery_port = runtime_ports.discovery_port;
+    let metrics_port = runtime_ports.metrics_port;
+    let config_node_id = if role.id == "validator" {
+        node_address.to_string()
+    } else {
+        node_id.to_string()
+    };
     let public_host_line = normalize_optional(public_host)
         .map(|value| format!("public_host = \"{value}\"\n"))
         .unwrap_or_default();
     let runtime_public_address = normalize_optional(public_host)
-        .map(|value| format!("{value}:{p2p_port}"))
+        .map(|value| format!("{value}:{}", runtime_ports.public_p2p_port))
         .unwrap_or_else(|| format!("127.0.0.1:{p2p_port}"));
     let bootnodes = network_profile
         .bootnodes
@@ -4975,11 +5055,12 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
         display_name = TESTNET_BETA_DISPLAY_NAME,
+        config_node_id = config_node_id,
         chain_name = network_profile.chain_name,
         chain_id = network_profile.chain_id,
         p2p_port = p2p_port,
@@ -5003,6 +5084,7 @@ fn build_node_toml(
         epoch_length = TESTNET_BETA_EPOCH_LENGTH,
         min_validators = TESTNET_BETA_MIN_GENESIS_VALIDATORS,
         validator_cluster_size = TESTNET_BETA_VALIDATOR_CLUSTER_SIZE,
+        validator_vote_threshold = TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD,
         max_validators = TESTNET_BETA_MAX_VALIDATORS,
         sponsored_stake_snrg = format_amount(MINIMUM_STAKE_SNRG),
         sponsored_stake_nwei = amount_to_nwei_string(MINIMUM_STAKE_SNRG),
@@ -5421,15 +5503,15 @@ mod tests {
             assert_eq!(bootnodes.len(), 3);
             assert_eq!(
                 bootnodes[0].as_str(),
-                Some("bootnode1.synergynode.xyz:5620")
+                Some("bootnode1.synergyvps.xyz:5620")
             );
             assert_eq!(
                 bootnodes[1].as_str(),
-                Some("bootnode2.synergynode.xyz:5620")
+                Some("bootnode2.synergyvps.xyz:5620")
             );
             assert_eq!(
                 bootnodes[2].as_str(),
-                Some("bootnode3.synergynode.xyz:5620")
+                Some("bootnode3.synergyvps.xyz:5620")
             );
 
             let seeds = node_value
@@ -5474,7 +5556,7 @@ mod tests {
             assert_eq!(peer_bootnodes.len(), 3);
             assert_eq!(
                 peer_bootnodes[0].as_str(),
-                Some("bootnode1.synergynode.xyz:5620")
+                Some("bootnode1.synergyvps.xyz:5620")
             );
 
             let peer_dns_records = peers_value
@@ -5675,6 +5757,7 @@ mod tests {
             },
             runtime_identity: None,
             validator_public: None,
+            public_host: None,
             public_host_required: false,
             notes: Vec::new(),
         };
@@ -5737,12 +5820,14 @@ mod tests {
                 validator_slot: Some(4),
                 assigned_ports: Some(TestnetBetaCeremonyAssignedPorts {
                     port_slot: Some(3),
-                    p2p_port: 5625,
-                    rpc_port: 5643,
-                    ws_port: 5663,
-                    grpc_port: 5643,
-                    discovery_port: 5683,
-                    metrics_port: 6033,
+                    p2p_port: 5622,
+                    public_p2p_port: Some(5624),
+                    rpc_port: 5640,
+                    ws_port: 5660,
+                    grpc_port: 5640,
+                    discovery_port: 5680,
+                    public_discovery_port: Some(5682),
+                    metrics_port: 6030,
                 }),
                 artifacts: TestnetBetaCeremonyPackageArtifacts {
                     genesis: json!({}),
@@ -5750,6 +5835,7 @@ mod tests {
                 },
                 runtime_identity: None,
                 validator_public: None,
+                public_host: None,
                 public_host_required: false,
                 notes: Vec::new(),
             };
@@ -5764,6 +5850,7 @@ mod tests {
                 &network_profile,
                 role_overlay_for("validator").as_str(),
                 0,
+                None,
             );
             let base_node_toml =
                 apply_ceremony_validator_config_overrides(base_node_toml, &package);
@@ -5817,42 +5904,42 @@ mod tests {
                     .get("network")
                     .and_then(|section| section.get("p2p_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5625)
+                Some(5622)
             );
             assert_eq!(
                 node_value
                     .get("rpc")
                     .and_then(|section| section.get("http_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5643)
+                Some(5640)
             );
             assert_eq!(
                 node_value
                     .get("rpc")
                     .and_then(|section| section.get("ws_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5663)
+                Some(5660)
             );
             assert_eq!(
                 node_value
                     .get("p2p")
                     .and_then(|section| section.get("discovery_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5683)
+                Some(5680)
             );
             assert_eq!(
                 node_value
                     .get("telemetry")
                     .and_then(|section| section.get("metrics_bind"))
                     .and_then(toml::Value::as_str),
-                Some("127.0.0.1:6033")
+                Some("127.0.0.1:6030")
             );
             assert_eq!(
                 node_value
                     .get("p2p")
                     .and_then(|section| section.get("public_address"))
                     .and_then(toml::Value::as_str),
-                Some("validator4.example.net:5625")
+                Some("validator4.example.net:5624")
             );
 
             let registry = load_registry(&root).expect("registry should load");
@@ -5908,6 +5995,7 @@ mod tests {
                 private_key: "priv".to_string(),
             }),
             validator_public: None,
+            public_host: None,
             public_host_required: false,
             notes: Vec::new(),
         };
@@ -6025,12 +6113,14 @@ mod tests {
                 "validator_slot": 4,
                 "assigned_ports": {
                     "port_slot": 3,
-                    "p2p_port": 5625,
-                    "rpc_port": 5643,
-                    "ws_port": 5663,
-                    "grpc_port": 5643,
-                    "discovery_port": 5683,
-                    "metrics_port": 6033
+                    "p2p_port": 5622,
+                    "public_p2p_port": 5624,
+                    "rpc_port": 5640,
+                    "ws_port": 5660,
+                    "grpc_port": 5640,
+                    "discovery_port": 5680,
+                    "public_discovery_port": 5682,
+                    "metrics_port": 6030
                 },
                 "artifacts": {
                     "genesis": {
@@ -6084,35 +6174,42 @@ mod tests {
                     .get("network")
                     .and_then(|section| section.get("p2p_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5625)
+                Some(5622)
             );
             assert_eq!(
                 node_value
                     .get("rpc")
                     .and_then(|section| section.get("http_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5643)
+                Some(5640)
             );
             assert_eq!(
                 node_value
                     .get("rpc")
                     .and_then(|section| section.get("ws_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5663)
+                Some(5660)
             );
             assert_eq!(
                 node_value
                     .get("p2p")
                     .and_then(|section| section.get("discovery_port"))
                     .and_then(toml::Value::as_integer),
-                Some(5683)
+                Some(5680)
             );
             assert_eq!(
                 node_value
                     .get("telemetry")
                     .and_then(|section| section.get("metrics_bind"))
                     .and_then(toml::Value::as_str),
-                Some("127.0.0.1:6033")
+                Some("127.0.0.1:6030")
+            );
+            assert_eq!(
+                node_value
+                    .get("p2p")
+                    .and_then(|section| section.get("public_address"))
+                    .and_then(toml::Value::as_str),
+                Some("validator4.example.net:5624")
             );
         });
     }

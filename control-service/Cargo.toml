@@ -1,6 +1,6 @@
 [package]
 name = "synergy-node-control-panel"
-version = "6.0.2"
+version = "7.0.0"
 description = "Synergy Node Control Panel"
 authors = ["Synergy Network"]
 edition = "2021"
