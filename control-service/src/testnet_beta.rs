@@ -2883,6 +2883,7 @@ async fn verify_node_seed_registration(
 async fn fetch_all_seed_peer_dial_targets(
     client: &Client,
     seed_servers: &[TestnetBetaBootstrapEndpoint],
+    current_node: Option<&TestnetBetaProvisionedNode>,
 ) -> Vec<String> {
     let mut unique_dials: HashMap<String, (Option<DateTime<Utc>>, String)> = HashMap::new();
 
@@ -2901,6 +2902,9 @@ async fn fetch_all_seed_peer_dial_targets(
             None => continue,
         };
         for peer in peers {
+            if current_node.is_some_and(|node| seed_peer_matches_node(peer, node)) {
+                continue;
+            }
             record_seed_peer_dial_target(&mut unique_dials, peer);
         }
     }
@@ -2911,6 +2915,22 @@ async fn fetch_all_seed_peer_dial_targets(
         .collect::<Vec<_>>();
     dials.sort();
     dials
+}
+
+fn seed_peer_matches_node(peer: &Value, node: &TestnetBetaProvisionedNode) -> bool {
+    let node_id = node.id.trim();
+    let node_address = node.node_address.trim();
+
+    [
+        peer.get("wallet_address").and_then(Value::as_str),
+        peer.get("validator_address").and_then(Value::as_str),
+        peer.get("node_id").and_then(Value::as_str),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .any(|value| value.eq_ignore_ascii_case(node_id) || value.eq_ignore_ascii_case(node_address))
 }
 
 fn record_seed_peer_dial_target(
@@ -3004,7 +3024,8 @@ async fn refresh_workspace_peer_targets(
         .timeout(Duration::from_secs(8))
         .build()
         .map_err(|error| format!("HTTP client error: {error}"))?;
-    let seed_peers = fetch_all_seed_peer_dial_targets(&client, &network_profile.seed_servers).await;
+    let seed_peers =
+        fetch_all_seed_peer_dial_targets(&client, &network_profile.seed_servers, Some(node)).await;
     let siblings = local_sibling_dial_targets(all_nodes, &node.id);
     let mut targets = seed_peers;
     for peer in siblings {
@@ -3015,6 +3036,7 @@ async fn refresh_workspace_peer_targets(
     if targets.is_empty() {
         targets = read_peers_toml_additional_targets(&peers_toml_path);
     }
+    filter_self_dial_targets_for_node(&mut targets, node, workspace_directory);
     targets.sort();
     targets.dedup();
 
@@ -3022,6 +3044,139 @@ async fn refresh_workspace_peer_targets(
     write_file(&peers_toml_path, &peers_contents)
         .map_err(|error| format!("Failed to write peers.toml: {error}"))?;
     Ok(targets.len())
+}
+
+fn filter_self_dial_targets_for_node(
+    targets: &mut Vec<String>,
+    node: &TestnetBetaProvisionedNode,
+    workspace_directory: &Path,
+) {
+    let self_targets = self_dial_target_aliases_for_node(node, workspace_directory);
+    if self_targets.is_empty() {
+        return;
+    }
+
+    targets.retain(|target| {
+        normalize_testnet_beta_dial_target(target)
+            .map(|value| !self_targets.contains(&value))
+            .unwrap_or(true)
+    });
+}
+
+fn self_dial_target_aliases_for_node(
+    node: &TestnetBetaProvisionedNode,
+    workspace_directory: &Path,
+) -> HashSet<String> {
+    let mut aliases = HashSet::new();
+    let public_p2p_port = read_runtime_ports_for_node(node)
+        .map(|ports| ports.public_p2p_port)
+        .unwrap_or_else(|| TESTNET_BETA_P2P_PORT.saturating_add(node.port_slot.unwrap_or(0)));
+
+    let mut record = |candidate: String| {
+        if let Some(normalized) = normalize_testnet_beta_dial_target(&candidate) {
+            aliases.insert(normalized);
+        }
+    };
+
+    if let Some(public_host) = node.public_host.as_deref() {
+        let public_host = public_host.trim();
+        if !public_host.is_empty() {
+            record(format!("{public_host}:{public_p2p_port}"));
+        }
+    }
+
+    let node_toml_path = workspace_directory.join("config").join("node.toml");
+    if let Ok(contents) = fs::read_to_string(&node_toml_path) {
+        if let Ok(value) = toml::from_str::<toml::Value>(&contents) {
+            if let Some(public_address) = value
+                .get("p2p")
+                .and_then(|section| section.get("public_address"))
+                .and_then(toml::Value::as_str)
+            {
+                record(public_address.to_string());
+            }
+            if let Some(public_host) = value
+                .get("network")
+                .and_then(|section| section.get("public_host"))
+                .and_then(toml::Value::as_str)
+            {
+                let public_host = public_host.trim();
+                if !public_host.is_empty() {
+                    record(format!("{public_host}:{public_p2p_port}"));
+                }
+            }
+        }
+    }
+
+    if node.role_id.eq_ignore_ascii_case("validator") {
+        if let Some(slot) = validator_slot_for_workspace(node, workspace_directory) {
+            record(format!(
+                "genesisval{slot}.synergynode.xyz:{public_p2p_port}"
+            ));
+        }
+    }
+
+    aliases
+}
+
+fn validator_slot_for_workspace(
+    node: &TestnetBetaProvisionedNode,
+    workspace_directory: &Path,
+) -> Option<u64> {
+    let manifest_path = workspace_directory
+        .join("config")
+        .join("operational-manifest.json");
+    let contents = fs::read_to_string(manifest_path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+    value
+        .get("validators")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|entry| {
+            entry
+                .get("address")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .is_some_and(|address| address.eq_ignore_ascii_case(node.node_address.trim()))
+        })
+        .and_then(|entry| entry.get("slot"))
+        .and_then(Value::as_u64)
+}
+
+fn normalize_testnet_beta_dial_target(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let raw = raw
+        .strip_prefix("snr://")
+        .or_else(|| raw.strip_prefix("enode://"))
+        .unwrap_or(raw);
+    let raw = raw.rsplit_once('@').map(|(_, right)| right).unwrap_or(raw);
+    let raw = raw.split('/').next().unwrap_or(raw);
+    let raw = raw.split('?').next().unwrap_or(raw);
+    let raw = raw.split('#').next().unwrap_or(raw);
+
+    let (host, port) = if let Some(stripped) = raw.strip_prefix('[') {
+        let (host, port) = stripped.rsplit_once("]:")?;
+        (host, port)
+    } else {
+        raw.rsplit_once(':')?
+    };
+
+    let host = host
+        .trim()
+        .trim_matches('[')
+        .trim_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let port = port.trim().parse::<u16>().ok()?;
+    if host.is_empty() || port == 0 {
+        return None;
+    }
+
+    Some(format!("{host}:{port}"))
 }
 
 async fn build_node_readiness_report(
@@ -5725,6 +5880,103 @@ mod tests {
         );
 
         assert!(unique.is_empty());
+    }
+
+    #[test]
+    fn seed_peer_matches_current_validator_identity() {
+        let node = TestnetBetaProvisionedNode {
+            id: "tbeta-validator1".to_string(),
+            role_id: "validator".to_string(),
+            role_display_name: "Validator Node".to_string(),
+            class_name: "Consensus".to_string(),
+            display_label: "Genesis Validator 1 Node".to_string(),
+            node_address: "synv1validator1".to_string(),
+            public_key_path: String::new(),
+            private_key_path: String::new(),
+            workspace_directory: String::new(),
+            config_paths: Vec::new(),
+            public_host: Some("71.86.65.178".to_string()),
+            reward_payout_address: None,
+            connectivity_status: String::new(),
+            role_certificate_status: String::new(),
+            funding_manifest_id: String::new(),
+            created_at_utc: Utc::now().to_rfc3339(),
+            port_slot: Some(0),
+        };
+
+        assert!(seed_peer_matches_node(
+            &json!({
+                "role_id": "validator",
+                "wallet_address": "synv1validator1",
+                "public_host": "genesisval1.synergynode.xyz",
+                "p2p_port": 5622
+            }),
+            &node
+        ));
+    }
+
+    #[test]
+    fn self_dial_filter_only_removes_current_validator_target() {
+        with_temp_home(|home| {
+            let workspace = home.join("validator-workspace");
+            let config_dir = workspace.join("config");
+            fs::create_dir_all(&config_dir).expect("config dir should exist");
+
+            write_file(
+                &config_dir.join("node.toml"),
+                r#"[network]
+public_host = "71.86.65.178"
+p2p_port = 5622
+
+[p2p]
+public_address = "71.86.65.178:5622"
+"#,
+            )
+            .expect("node.toml should write");
+
+            write_file(
+                &config_dir.join("operational-manifest.json"),
+                &serde_json::to_string_pretty(&json!({
+                    "validators": [
+                        {"address": "synv1validator1", "slot": 1},
+                        {"address": "synv1validator5", "slot": 5}
+                    ]
+                }))
+                .expect("manifest should serialize"),
+            )
+            .expect("manifest should write");
+
+            let node = TestnetBetaProvisionedNode {
+                id: "tbeta-validator1".to_string(),
+                role_id: "validator".to_string(),
+                role_display_name: "Validator Node".to_string(),
+                class_name: "Consensus".to_string(),
+                display_label: "Genesis Validator 1 Node".to_string(),
+                node_address: "synv1validator1".to_string(),
+                public_key_path: String::new(),
+                private_key_path: String::new(),
+                workspace_directory: workspace.to_string_lossy().to_string(),
+                config_paths: vec![config_dir.join("node.toml").to_string_lossy().to_string()],
+                public_host: Some("71.86.65.178".to_string()),
+                reward_payout_address: None,
+                connectivity_status: String::new(),
+                role_certificate_status: String::new(),
+                funding_manifest_id: String::new(),
+                created_at_utc: Utc::now().to_rfc3339(),
+                port_slot: Some(0),
+            };
+
+            let mut targets = vec![
+                "genesisval1.synergynode.xyz:5622".to_string(),
+                "genesisval5.synergynode.xyz:5626".to_string(),
+            ];
+            filter_self_dial_targets_for_node(&mut targets, &node, &workspace);
+
+            assert_eq!(
+                targets,
+                vec!["genesisval5.synergynode.xyz:5626".to_string()]
+            );
+        });
     }
 
     #[test]
