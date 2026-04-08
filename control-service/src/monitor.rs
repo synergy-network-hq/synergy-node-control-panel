@@ -7333,7 +7333,6 @@ fn apply_topology_to_installer_node_env(path: &Path, management_host: &str) -> R
         rpc_port.clone().unwrap_or_else(|| "5640".to_string())
     );
 
-    upsert_key_value_line(&mut lines, "HOST", management_host);
     upsert_key_value_line(&mut lines, "MONITOR_HOST", management_host);
     upsert_key_value_line(&mut lines, "MANAGEMENT_HOST", management_host);
     upsert_key_value_line(&mut lines, "CHAIN_ID", "338639");
@@ -7369,17 +7368,11 @@ fn apply_topology_to_installer_node_toml(path: &Path, management_host: &str) -> 
         .collect::<Vec<_>>();
 
     let mut rpc_port = "5640".to_string();
-    let mut p2p_port = "5622".to_string();
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.starts_with("rpc_port =") {
             if let Some((_, value)) = trimmed.split_once('=') {
                 rpc_port = value.trim().trim_matches('"').to_string();
-            }
-        }
-        if trimmed.starts_with("p2p_port =") {
-            if let Some((_, value)) = trimmed.split_once('=') {
-                p2p_port = value.trim().trim_matches('"').to_string();
             }
         }
     }
@@ -7388,16 +7381,6 @@ fn apply_topology_to_installer_node_toml(path: &Path, management_host: &str) -> 
         &mut lines,
         "bind_address =",
         format!("bind_address = \"{management_host}:{rpc_port}\""),
-    );
-    replace_or_append_line(
-        &mut lines,
-        "listen_address =",
-        format!("listen_address = \"{management_host}:{p2p_port}\""),
-    );
-    replace_or_append_line(
-        &mut lines,
-        "public_address =",
-        format!("public_address = \"{management_host}:{p2p_port}\""),
     );
 
     let mut encoded = lines.join("\n");

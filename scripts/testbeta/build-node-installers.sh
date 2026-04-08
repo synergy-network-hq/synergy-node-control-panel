@@ -1539,6 +1539,14 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type address_cl
   cp "$GENESIS_FILE" "$node_dir/config/genesis.json"
   cp "$KEYS_DIR/${node_slot_id}"/* "$node_dir/keys/"
 
+  public_address="$(awk -F'"' '/^[[:space:]]*public_address[[:space:]]*=/ { print $2; exit }' "$node_dir/config/node.toml")"
+  public_host="${public_address%:*}"
+  public_p2p_port="${public_address##*:}"
+  if [[ -z "$public_address" || -z "$public_host" || -z "$public_p2p_port" ]]; then
+    public_host="$host"
+    public_p2p_port="$p2p_port"
+  fi
+
   cat > "$node_dir/node.env" <<ENV
 NODE_SLOT_ID=$node_slot_id
 NODE_ALIAS=$node_alias
@@ -1549,12 +1557,15 @@ ADDRESS_CLASS=$address_class
 NODE_ADDRESS=$(cat "$KEYS_DIR/${node_slot_id}/address.txt")
 SYNERGY_VALIDATOR_ADDRESS=$(cat "$KEYS_DIR/${node_slot_id}/address.txt")
 P2P_PORT=$p2p_port
+PUBLIC_P2P_PORT=$public_p2p_port
 RPC_PORT=$rpc_port
 WS_PORT=$ws_port
 GRPC_PORT=$grpc_port
 DISCOVERY_PORT=$discovery_port
-HOST=$host
-MONITOR_HOST=$host
+HOST=$public_host
+NODE_PUBLIC_HOST=$public_host
+NODE_PUBLIC_IP=$public_ip
+MONITOR_HOST=$management_host
 MANAGEMENT_HOST=$management_host
 NETWORK_TRANSPORT=public
 CHAIN_ID=$TESTBETA_CHAIN_ID

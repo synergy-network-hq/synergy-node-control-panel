@@ -1790,8 +1790,8 @@ async fn build_node_live_status(
     } else {
         (None, None)
     };
-    let local_validator_address = role_supports_validator_registration(&node.role_id)
-        .then_some(node.node_address.as_str());
+    let local_validator_address =
+        role_supports_validator_registration(&node.role_id).then_some(node.node_address.as_str());
     let (fresh_peer_summary, local_peer_error) = if is_running {
         match query_rpc_value(client, &rpc_endpoint, "synergy_getPeerInfo", json!([])).await {
             Ok(value) => match parse_rpc_peer_summary(&value, local_validator_address) {
@@ -1803,7 +1803,9 @@ async fn build_node_live_status(
     } else {
         (None, None)
     };
-    let fresh_local_peer_count = fresh_peer_summary.as_ref().map(|summary| summary.peer_count);
+    let fresh_local_peer_count = fresh_peer_summary
+        .as_ref()
+        .map(|summary| summary.peer_count);
     let connected_validator_count = fresh_peer_summary
         .as_ref()
         .map(|summary| summary.connected_validator_count);
@@ -2190,7 +2192,9 @@ fn runtime_ports_for_assigned_ports(
 ) -> TestnetBetaRuntimePorts {
     TestnetBetaRuntimePorts {
         p2p_port: assigned_ports.p2p_port,
-        public_p2p_port: assigned_ports.public_p2p_port.unwrap_or(assigned_ports.p2p_port),
+        public_p2p_port: assigned_ports
+            .public_p2p_port
+            .unwrap_or(assigned_ports.p2p_port),
         rpc_port: assigned_ports.rpc_port,
         ws_port: assigned_ports.ws_port,
         discovery_port: assigned_ports.discovery_port,
@@ -2238,17 +2242,16 @@ fn parse_runtime_ports_from_config(config_path: &Path) -> Option<TestnetBetaRunt
     })
 }
 
-fn config_path_for_node(
-    node: &TestnetBetaProvisionedNode,
-    file_name: &str,
-) -> Option<PathBuf> {
+fn config_path_for_node(node: &TestnetBetaProvisionedNode, file_name: &str) -> Option<PathBuf> {
     node.config_paths
         .iter()
         .map(PathBuf::from)
         .find(|path| path.file_name().and_then(|value| value.to_str()) == Some(file_name))
 }
 
-fn read_runtime_ports_for_node(node: &TestnetBetaProvisionedNode) -> Option<TestnetBetaRuntimePorts> {
+fn read_runtime_ports_for_node(
+    node: &TestnetBetaProvisionedNode,
+) -> Option<TestnetBetaRuntimePorts> {
     let config_path = config_path_for_node(node, "node.toml")?;
     parse_runtime_ports_from_config(&config_path)
 }
@@ -2914,6 +2917,9 @@ fn record_seed_peer_dial_target(
     unique_dials: &mut HashMap<String, (Option<DateTime<Utc>>, String)>,
     peer: &Value,
 ) {
+    if !seed_peer_is_validator(peer) {
+        return;
+    }
     let Some(dial) = extract_seed_peer_dial_target(peer) else {
         return;
     };
@@ -2922,16 +2928,25 @@ fn record_seed_peer_dial_target(
 
     let replace_existing = unique_dials
         .get(&identity_key)
-        .map(|(existing_registered_at, _)| match (existing_registered_at, &registered_at) {
-            (None, Some(_)) => true,
-            (Some(existing), Some(candidate)) => candidate > existing,
-            _ => false,
-        })
+        .map(
+            |(existing_registered_at, _)| match (existing_registered_at, &registered_at) {
+                (None, Some(_)) => true,
+                (Some(existing), Some(candidate)) => candidate > existing,
+                _ => false,
+            },
+        )
         .unwrap_or(true);
 
     if replace_existing {
         unique_dials.insert(identity_key, (registered_at, dial));
     }
+}
+
+fn seed_peer_is_validator(peer: &Value) -> bool {
+    peer.get("role_id")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().eq_ignore_ascii_case("validator"))
+        .unwrap_or(false)
 }
 
 fn extract_seed_peer_dial_target(peer: &Value) -> Option<String> {
@@ -5692,6 +5707,24 @@ mod tests {
                 "73.79.66.255:5625".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn seed_peer_target_dedup_ignores_non_validator_roles() {
+        let mut unique = HashMap::new();
+
+        record_seed_peer_dial_target(
+            &mut unique,
+            &json!({
+                "node_id": "rpc-gateway-01",
+                "role_id": "rpc_gateway",
+                "public_host": "testbeta-core-rpc.synergy-network.io",
+                "p2p_port": 5635,
+                "registered_at_utc": "2026-04-07T03:05:00Z"
+            }),
+        );
+
+        assert!(unique.is_empty());
     }
 
     #[test]

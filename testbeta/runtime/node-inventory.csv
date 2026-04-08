@@ -1,11 +1,11 @@
 node_slot_id,node_alias,role_group,role,node_type,address_class,p2p_port,rpc_port,ws_port,grpc_port,discovery_port,host,management_host,physical_machine_id,auto_register_validator,enable_pruning,vrf_enabled,operator,device,operating_system,public_ip,local_ip
-node-01,consensus-01,consensus,validator,validator,1,5622,5640,5660,5640,5680,192.168.11.228,192.168.11.228,machine-01,true,false,true,Rob,Synergy Node,Mac OS beta 26.4,73.79.66.255,192.168.11.228
+node-01,consensus-01,consensus,validator,validator,1,5622,5640,5660,5640,5680,genesisval1.synergynode.xyz,192.168.11.228,machine-01,true,false,true,Rob,Synergy Node,Mac OS beta 26.4,71.86.65.178,192.168.11.228
 node-14,service-03,services,indexer,indexer,5,5623,5641,5661,5641,5681,192.168.11.228,192.168.11.228,machine-01,false,false,false,Rob,Synergy Node,Mac OS beta 26.4,73.79.66.255,192.168.11.228
-node-02,consensus-02,consensus,validator,validator,1,5624,5642,5662,5642,5682,192.168.1.65,192.168.1.65,machine-02,true,false,true,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65
+node-02,consensus-02,consensus,validator,validator,1,5622,5642,5662,5642,5680,genesisval2.synergynode.xyz,192.168.1.65,machine-02,true,false,true,Justin,Mac Mini,Mac OS Tahoe 26.3,73.79.66.255,192.168.1.65
 node-03,service-01,services,observer,observer,5,5625,5643,5663,5643,5683,192.168.1.65,192.168.1.65,machine-02,false,false,false,Justin,Mac Mini,Mac OS Tahoe 26.3,24.181.87.76,192.168.1.65
-node-04,consensus-03,consensus,validator,validator,1,5626,5644,5664,5644,5684,192.168.11.178,192.168.11.178,machine-03,true,false,true,Rob,Garage mini,Mac OS beta 26.4,73.79.66.255,192.168.11.178
+node-04,consensus-03,consensus,validator,validator,1,5622,5644,5664,5644,5680,genesisval3.synergynode.xyz,192.168.11.178,machine-03,true,false,true,Rob,Garage mini,Mac OS beta 26.4,73.79.66.255,192.168.11.178
 node-05,interop-01,interop,cross-chain-verifier,cross-chain-verifier,2,5627,5645,5665,5645,5685,192.168.11.178,192.168.11.178,machine-03,false,true,false,Rob,Garage mini,Mac OS beta 26.4,73.79.66.255,192.168.11.178
-node-06,consensus-04,consensus,validator,validator,1,5628,5646,5666,5646,5686,192.168.1.98,192.168.1.98,machine-04,true,false,true,Justin,HP Victus,Ubuntu 25.10 Desktop,24.181.87.76,192.168.1.98
+node-06,consensus-04,consensus,validator,validator,1,5622,5646,5666,5646,5680,genesisval4.synergynode.xyz,192.168.1.98,machine-04,true,false,true,Justin,HP Victus,Ubuntu 25.10 Desktop,73.79.66.255,192.168.1.98
 node-07,interop-02,interop,relayer,relayer,2,5629,5647,5667,5647,5687,192.168.1.98,192.168.1.98,machine-04,false,true,false,Justin,HP Victus,Ubuntu 25.10 Desktop,24.181.87.76,192.168.1.98
 node-08,archive-01,consensus,archive-validator,archive-validator,1,5630,5648,5668,5648,5688,192.168.11.229,192.168.11.229,machine-05,false,false,true,Rob,Mac Pro (Linux),Ubuntu 24.04.4 LTS,73.79.66.255,192.168.11.229
 node-09,committee-01,consensus,committee,committee,1,5631,5649,5669,5649,5689,192.168.11.229,192.168.11.229,machine-05,false,false,true,Rob,Mac Pro (Linux),Ubuntu 24.04.4 LTS,73.79.66.255,192.168.11.229

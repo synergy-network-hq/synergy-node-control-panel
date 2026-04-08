@@ -6,11 +6,11 @@ Type: validator
 
 Ports
 -----
-P2P: 5624
+P2P: 5622
 RPC: 5642
 WebSocket: 5662
 gRPC: 5642
-Discovery: 5682
+Discovery: 5680
 
 Linux/macOS Commands
 --------------------
