@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v7.1.0 - 2026-04-08
+
+- Fixed the developer-mode local peer list so weak inbound socket entries are merged into the canonical validator peer card instead of rendering as duplicate peers when the same validator is visible by both its public endpoint and an ephemeral incoming connection.
+- Filled in validator identities for hostname-only peer entries by mapping known `genesisval*.synergynode.xyz` hosts back to their configured validator addresses, so validator peers no longer show `Unknown` when the RPC payload has not yet populated `validator_address`.
+- Added a validator runtime pill to peer cards that shows `Live`, `Syncing`, `Starting`, or `Offline`; the `Live` state now renders with an animated cyan/lime/blue/purple gradient glow to make block-producing validators immediately visible.
+
 ## v7.0.2 - 2026-04-08
 
 - Fixed the control-service topology host selection so genesis validators keep their public `genesisval*.synergynode.xyz` identity for RPC/read paths while control-plane generation, SSH targeting, and installer rewrites continue to use `management_host`.
