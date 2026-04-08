@@ -14,6 +14,13 @@ import {
   formatPortSettingsSummary,
   refreshTestnetBetaBootstrapConfig,
 } from '../lib/testnetBetaBootstrap';
+import {
+  buildKnownValidatorAddressMap,
+  buildValidatorNodeMap,
+  formatPeerLastSeen,
+  normalizePeerInfoPayload,
+  peerValidatorRuntimeStatus,
+} from '../lib/testnetBetaPeerInfo';
 import { SNRGButton } from '../styles/SNRGButton';
 const MAX_NODE_SLOTS = 4;
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
@@ -337,102 +344,6 @@ function readinessOverallLabel(status) {
   if (status === 'progressing') return 'Progressing';
   if (status === 'not_ready') return 'Not Ready';
   return 'Not Checked';
-}
-
-function formatPeerLastSeen(value) {
-  const numeric = toFiniteNumber(value);
-  if (numeric == null || numeric <= 0) {
-    return 'Unknown';
-  }
-
-  const milliseconds = numeric < 1e12 ? numeric * 1000 : numeric;
-  const timestamp = new Date(milliseconds);
-  if (Number.isNaN(timestamp.getTime())) {
-    return 'Unknown';
-  }
-
-  return timestamp.toLocaleString();
-}
-
-function choosePreferredPeerAddress(currentAddress, nextAddress, publicAddress) {
-  const current = String(currentAddress || '').trim();
-  const next = String(nextAddress || '').trim();
-  const announced = String(publicAddress || '').trim();
-
-  if (announced) {
-    if (next === announced) return next;
-    if (current === announced) return current;
-  }
-
-  return current || next;
-}
-
-function mergePeerEntries(current, next) {
-  const publicAddress = current.publicAddress || next.publicAddress;
-  return {
-    id: current.id,
-    address: choosePreferredPeerAddress(current.address, next.address, publicAddress),
-    nodeId: current.nodeId || next.nodeId,
-    publicAddress,
-    validatorAddress: current.validatorAddress || next.validatorAddress,
-    version: current.version || next.version,
-    capabilities: Array.from(new Set([...current.capabilities, ...next.capabilities])),
-    lastSeen: Math.max(current.lastSeen ?? 0, next.lastSeen ?? 0) || null,
-    blocksSent: Math.max(current.blocksSent, next.blocksSent),
-    blocksReceived: Math.max(current.blocksReceived, next.blocksReceived),
-    txsSent: Math.max(current.txsSent, next.txsSent),
-    txsReceived: Math.max(current.txsReceived, next.txsReceived),
-  };
-}
-
-function normalizePeerInfoPayload(raw) {
-  const peers = Array.isArray(raw?.peers) ? raw.peers : [];
-  const dedupedPeers = new Map();
-
-  peers.forEach((peer, index) => {
-    const normalized = {
-      id: String(
-        peer?.validator_address
-          || peer?.node_id
-          || peer?.public_address
-          || peer?.address
-          || `peer-${index}`,
-      ).trim(),
-      address: String(peer?.address || '').trim(),
-      nodeId: String(peer?.node_id || '').trim(),
-      publicAddress: String(peer?.public_address || '').trim(),
-      validatorAddress: String(peer?.validator_address || '').trim(),
-      version: String(peer?.version || '').trim(),
-      capabilities: Array.isArray(peer?.capabilities)
-        ? peer.capabilities.map((entry) => String(entry || '').trim()).filter(Boolean)
-        : [],
-      lastSeen: toFiniteNumber(peer?.last_seen),
-      blocksSent: toFiniteNumber(peer?.blocks_sent) ?? 0,
-      blocksReceived: toFiniteNumber(peer?.blocks_received) ?? 0,
-      txsSent: toFiniteNumber(peer?.txs_sent) ?? 0,
-      txsReceived: toFiniteNumber(peer?.txs_received) ?? 0,
-    };
-
-    const existing = dedupedPeers.get(normalized.id);
-    dedupedPeers.set(
-      normalized.id,
-      existing ? mergePeerEntries(existing, normalized) : normalized,
-    );
-  });
-
-  const normalizedPeers = Array.from(dedupedPeers.values()).sort((left, right) => {
-    const leftSeen = left.lastSeen ?? 0;
-    const rightSeen = right.lastSeen ?? 0;
-    if (rightSeen !== leftSeen) {
-      return rightSeen - leftSeen;
-    }
-    return left.id.localeCompare(right.id);
-  });
-
-  return {
-    peerCount: normalizedPeers.length,
-    peers: normalizedPeers,
-  };
 }
 
 function rewardProfileForRole(role) {
@@ -872,6 +783,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const nodes = state?.nodes || [];
   const network = state?.network_profile || {};
   const nodeCatalog = state?.node_catalog || [];
+  const knownValidatorAddressesByHost = useMemo(() => buildKnownValidatorAddressMap(nodes), [nodes]);
+  const validatorNodesByAddress = useMemo(() => buildValidatorNodeMap(nodes), [nodes]);
 
   useEffect(() => {
     if (!nodes.length) {
@@ -933,7 +846,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       try {
         const peerInfo = await queryLocalRpc(endpoint, 'synergy_getPeerInfo', []);
         if (!cancelled) {
-          setLocalPeerInfo(normalizePeerInfoPayload(peerInfo));
+          setLocalPeerInfo(normalizePeerInfoPayload(peerInfo, knownValidatorAddressesByHost));
           setLocalPeerInfoError('');
         }
       } catch (error) {
@@ -960,6 +873,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   }, [
     activeTab,
     developerModeEnabled,
+    knownValidatorAddressesByHost,
     selectedNode,
     selectedNodeLive,
   ]);
@@ -2111,14 +2025,26 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             </div>
           ) : (
             <div className="nodecp-peer-list">
-              {localPeerInfo.peers.map((peer, index) => (
+              {localPeerInfo.peers.map((peer, index) => {
+                const peerRuntimeStatus = peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById);
+                const peerRuntimeStatusClassName = peerRuntimeStatus
+                  ? (peerRuntimeStatus.label === 'Live'
+                    ? 'nodecp-health-pill nodecp-health-live'
+                    : `nodecp-health-pill nodecp-health-${peerRuntimeStatus.tone}`)
+                  : '';
+                return (
                 <article key={`${peer.id}-${index}`} className="nodecp-peer-card">
                   <div className="nodecp-peer-card-header">
                     <div className="nodecp-peer-card-title">
                       <strong>{peer.nodeId || peer.validatorAddress || `Peer ${index + 1}`}</strong>
                       <span>{peer.publicAddress || peer.address || 'Public address unavailable'}</span>
                     </div>
-                    <span className="nodecp-health-pill nodecp-health-good">Connected</span>
+                    <div className="nodecp-peer-card-badges">
+                      {peerRuntimeStatus ? (
+                        <span className={peerRuntimeStatusClassName}>{peerRuntimeStatus.label}</span>
+                      ) : null}
+                      <span className="nodecp-health-pill nodecp-health-good">Connected</span>
+                    </div>
                   </div>
                   <div className="nodecp-peer-card-grid">
                     <div className="nodecp-peer-metric">
@@ -2151,7 +2077,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                     </div>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
