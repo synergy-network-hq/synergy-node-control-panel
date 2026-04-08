@@ -26,6 +26,12 @@ function parsePeerEndpoint(value) {
 }
 
 function buildKnownValidatorAddressMap(nodes) {
+  // Keys by publicHost → validatorAddress.
+  // Each genesis validator has a unique genesisval*.synergynode.xyz hostname so
+  // host-only keying is correct when nodes announce that hostname as their
+  // public_address.  When multiple validators share a raw IP as their public_host
+  // (e.g. during a non-ceremony setup before hostname assignment), only the first
+  // entry for that IP is kept to avoid clobbering entries with wrong addresses.
   const byHost = new Map();
   (Array.isArray(nodes) ? nodes : []).forEach((node) => {
     const roleId = String(node?.role_id || '').trim().toLowerCase();
@@ -34,7 +40,9 @@ function buildKnownValidatorAddressMap(nodes) {
     if (roleId !== 'validator' || !validatorAddress || !publicHost) {
       return;
     }
-    byHost.set(publicHost, validatorAddress);
+    if (!byHost.has(publicHost)) {
+      byHost.set(publicHost, validatorAddress);
+    }
   });
   return byHost;
 }
@@ -77,7 +85,11 @@ function inferValidatorAddress(peer, knownValidatorsByHost) {
     return '';
   }
 
-  for (const entry of [peer?.address, peer?.public_address]) {
+  // Check public_address first: it carries the node's announced hostname
+  // (e.g. genesisval2.synergynode.xyz:5622) which is unique per validator even
+  // when multiple validators share the same raw IP.  address is checked second
+  // as a fallback and may be a shared NAT IP that cannot distinguish validators.
+  for (const entry of [peer?.public_address, peer?.address]) {
     const host = parsePeerEndpoint(entry)?.host;
     if (!host) continue;
     const match = knownValidatorsByHost.get(host);

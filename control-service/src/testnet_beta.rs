@@ -4616,11 +4616,28 @@ fn find_existing_ceremony_node_match(
         }
     }
 
-    registry
+    if let Some(existing) = registry
         .nodes
         .iter()
         .find(|node| node.role_id == package.role_id && node.display_label == package.display_name)
-        .cloned()
+    {
+        return Some(existing.clone());
+    }
+
+    // Last resort: if there is exactly one node with the target role in the registry, reuse it.
+    // This handles the common case where a machine was provisioned with a generic validator
+    // workspace before the ceremony package was available. Without this check, a second
+    // workspace would be created alongside the existing one.
+    let role_nodes: Vec<_> = registry
+        .nodes
+        .iter()
+        .filter(|node| node.role_id == package.role_id)
+        .collect();
+    if role_nodes.len() == 1 {
+        return Some(role_nodes[0].clone());
+    }
+
+    None
 }
 
 fn extract_ceremony_validator_allowlist(
