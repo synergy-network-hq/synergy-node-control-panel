@@ -4157,7 +4157,7 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
             host: if is_seed {
                 "seed1.synergynode.xyz".to_string()
             } else {
-                "bootnode1.synergyvps.xyz".to_string()
+                "bootnode1.synergynode.xyz".to_string()
             },
             ip_address: "74.208.227.23".to_string(),
             port,
@@ -4168,7 +4168,7 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
             host: if is_seed {
                 "seed2.synergynode.xyz".to_string()
             } else {
-                "bootnode2.synergyvps.xyz".to_string()
+                "bootnode2.synergynode.xyz".to_string()
             },
             ip_address: "73.79.66.255".to_string(),
             port,
@@ -4179,7 +4179,7 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
             host: if is_seed {
                 "seed3.synergynode.xyz".to_string()
             } else {
-                "bootnode3.synergyvps.xyz".to_string()
+                "bootnode3.synergynode.xyz".to_string()
             },
             ip_address: "157.245.226.240".to_string(),
             port,
@@ -5503,15 +5503,15 @@ mod tests {
             assert_eq!(bootnodes.len(), 3);
             assert_eq!(
                 bootnodes[0].as_str(),
-                Some("bootnode1.synergyvps.xyz:5620")
+                Some("bootnode1.synergynode.xyz:5620")
             );
             assert_eq!(
                 bootnodes[1].as_str(),
-                Some("bootnode2.synergyvps.xyz:5620")
+                Some("bootnode2.synergynode.xyz:5620")
             );
             assert_eq!(
                 bootnodes[2].as_str(),
-                Some("bootnode3.synergyvps.xyz:5620")
+                Some("bootnode3.synergynode.xyz:5620")
             );
 
             let seeds = node_value
@@ -5556,7 +5556,7 @@ mod tests {
             assert_eq!(peer_bootnodes.len(), 3);
             assert_eq!(
                 peer_bootnodes[0].as_str(),
-                Some("bootnode1.synergyvps.xyz:5620")
+                Some("bootnode1.synergynode.xyz:5620")
             );
 
             let peer_dns_records = peers_value
