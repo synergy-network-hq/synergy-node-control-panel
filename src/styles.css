@@ -5500,21 +5500,22 @@ code {
 
 /* Compact network health strip (replaces old 4-card + panel) */
 .nodecp-status-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 0.65rem;
   padding: 0.5rem 0;
 }
 
 .nodecp-strip-item {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.45rem 0.75rem;
-  border-radius: 10px;
+  gap: 0.24rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
   background: rgba(11, 21, 36, 0.7);
   border: 1px solid rgba(88, 118, 162, 0.18);
-  min-width: 90px;
+  min-width: 0;
+  min-height: 78px;
 }
 
 .nodecp-strip-item strong {
@@ -5541,6 +5542,16 @@ code {
 
 .nodecp-strip-error {
   border-color: rgba(255, 112, 112, 0.28);
+}
+
+.nodecp-overview-status-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.nodecp-status-detail {
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: rgba(203, 222, 240, 0.7);
 }
 
 /* Copy button used next to wallet addresses */
@@ -5614,7 +5625,7 @@ code {
 
 .nodecp-endpoint-compact-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.7rem;
 }
 

@@ -6,15 +6,23 @@ INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 HOSTS_FILE="${1:-${HOSTS_FILE:-}}"
 OUT_DIR="$ROOT_DIR/testbeta/runtime/configs"
 NODE_ADDRESSES_FILE="$ROOT_DIR/testbeta/runtime/keys/node-addresses.csv"
+MANIFEST_FILE="$ROOT_DIR/../config/operational-manifest.json"
+TESTBETA_ENV_DIR_DEFAULT="${TESTBETA_ENV_DIR_DEFAULT:-$ROOT_DIR/testbeta/runtime/env-files}"
+ENV_OVERRIDE_HELPER="${ENV_OVERRIDE_HELPER:-$ROOT_DIR/../scripts/testbeta/testbeta-env-overrides.sh}"
 USE_HOST_OVERRIDES="false"
 TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
 TESTBETA_NETWORK_NAME="${TESTBETA_NETWORK_NAME:-synergy-testnet-beta}"
 TESTBETA_BLOCK_TIME_SECS="${TESTBETA_BLOCK_TIME_SECS:-2}"
 TESTBETA_EPOCH_LENGTH="${TESTBETA_EPOCH_LENGTH:-1000}"
 TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-4}"
-TESTBETA_VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-4}"
+TESTBETA_VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-5}"
 TESTBETA_MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-100}"
 ALLOW_WILDCARD_LISTEN="${ALLOW_WILDCARD_LISTEN:-false}"
+
+if [[ -f "$ENV_OVERRIDE_HELPER" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_OVERRIDE_HELPER"
+fi
 
 normalize_bool() {
   local raw="${1:-}"
@@ -42,6 +50,11 @@ if [[ ! -f "$NODE_ADDRESSES_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$MANIFEST_FILE" ]]; then
+  echo "Missing operational manifest: $MANIFEST_FILE" >&2
+  exit 1
+fi
+
 if [[ -n "${HOSTS_FILE:-}" && -s "$HOSTS_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$HOSTS_FILE"
@@ -55,6 +68,7 @@ else
 fi
 
 mkdir -p "$OUT_DIR"
+find "$OUT_DIR" -maxdepth 1 -type f -name '*.toml' -delete 2>/dev/null || true
 
 resolve_public_host() {
   local node_slot_id="$1"
@@ -78,14 +92,26 @@ resolve_public_host() {
 resolve_public_p2p_port() {
   local validator_address="$1"
   local default_port="$2"
-  case "$validator_address" in
-    synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra) echo "5622" ;;
-    synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu) echo "5622" ;;
-    synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu) echo "5623" ;;
-    synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49) echo "5624" ;;
-    synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46) echo "5622" ;;
-    *) echo "$default_port" ;;
-  esac
+  local env_port=""
+  if declare -F testbeta_validator_env_value >/dev/null 2>&1; then
+    env_port="$(testbeta_first_nonempty \
+      "$(testbeta_validator_env_value "$validator_address" "P2P_PORT_EXTERNAL" || true)" \
+      "$(testbeta_validator_env_value "$validator_address" "P2P_PORT" || true)" \
+    )"
+  fi
+
+  if [[ -n "$env_port" ]]; then
+    echo "$env_port"
+    return
+  fi
+
+  echo "$default_port"
+}
+
+is_assigned_synergy_host() {
+  local host
+  host="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  [[ -n "$host" && "$host" == *.synergynode.xyz ]]
 }
 
 normalize_role_id() {
@@ -226,34 +252,70 @@ compute_public_address() {
   echo "${p2p_host}:${p2p_port}"
 }
 
+compute_p2p_listen_address() {
+  local role_group="$1"
+  local node_type="$2"
+  local p2p_host="$3"
+  local p2p_port="$4"
+
+  if [[ "$role_group" == "consensus" && "$node_type" == "validator" ]]; then
+    echo "0.0.0.0:${p2p_port}"
+    return
+  fi
+
+  compute_listen_address "$p2p_host" "$p2p_port"
+}
+
+compute_discovery_listen_address() {
+  local role_group="$1"
+  local node_type="$2"
+  local p2p_host="$3"
+  local discovery_port="$4"
+
+  if [[ "$role_group" == "consensus" && "$node_type" == "validator" ]]; then
+    echo "0.0.0.0:${discovery_port}"
+    return
+  fi
+
+  compute_listen_address "$p2p_host" "$discovery_port"
+}
+
+resolve_bind_host() {
+  local bind_ip="${1:-}"
+  local local_ip="${2:-}"
+  local management_host="${3:-}"
+  local public_host="${4:-}"
+  testbeta_first_nonempty "$bind_ip" "$local_ip" "$management_host" "$public_host"
+}
+
 lookup_node_address() {
   local node_slot_id="$1"
   awk -F, -v id="$node_slot_id" 'NR > 1 && $1 == id { print $6; exit }' "$NODE_ADDRESSES_FILE"
 }
 
+read_canonical_validators() {
+  python3 - "$MANIFEST_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+for entry in manifest.get("validators", []):
+    slot = entry.get("slot")
+    address = str(entry.get("address") or "").strip()
+    if slot is None or not address:
+        continue
+    print(f"{slot},{address}")
+PY
+}
+
 collect_allowed_validator_addresses() {
   local addresses=()
-  while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host management_host physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
-    [[ "$node_slot_id" == "node_slot_id" ]] && continue
-    local normalized_group normalized_role normalized_type
-    normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    normalized_role="$(echo "${role:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    normalized_type="$(echo "${node_type:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    if [[ "$(normalize_bool "$auto_register")" != "true" ]]; then
-      continue
-    fi
-    if [[ "$normalized_group" != "consensus" ]]; then
-      continue
-    fi
-    if [[ "$normalized_type" != "validator" && "$normalized_role" != "validator" ]]; then
-      continue
-    fi
-    local validator_address
-    validator_address="$(lookup_node_address "$node_slot_id")"
-    if [[ -n "$validator_address" ]]; then
-      addresses+=("\"$validator_address\"")
-    fi
-  done < "$INVENTORY_FILE"
+  while IFS=, read -r _ validator_address || [[ -n "${validator_address:-}" ]]; do
+    [[ -n "${validator_address:-}" ]] || continue
+    addresses+=("\"$validator_address\"")
+  done < <(read_canonical_validators)
 
   if [[ "${#addresses[@]}" -eq 0 ]]; then
     echo "[]"
@@ -265,69 +327,96 @@ collect_allowed_validator_addresses() {
   echo "[$joined]"
 }
 
-collect_bootnodes() {
-  local bootnodes=()
-  while IFS=, read -r node_slot_id _ role_group role node_type _ p2p_port _ _ _ _ host management_host _ auto_register _ _ || [[ -n "${node_slot_id:-}" ]]; do
-    [[ "$node_slot_id" == "node_slot_id" ]] && continue
-    local normalized_group normalized_role normalized_type
-    normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    normalized_role="$(echo "${role:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    normalized_type="$(echo "${node_type:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    if [[ "$(normalize_bool "$auto_register")" != "true" ]]; then
-      continue
-    fi
-    if [[ "$normalized_group" != "consensus" ]]; then
-      continue
-    fi
-    if [[ "$normalized_type" != "validator" && "$normalized_role" != "validator" ]]; then
+collect_static_validator_mesh_peers() {
+  local current_node_slot_id="${1:-}"
+  local current_validator_address="${2:-}"
+  local peers=()
+  while IFS=, read -r slot peer_id || [[ -n "${peer_id:-}" ]]; do
+    [[ -n "${peer_id:-}" ]] || continue
+    if [[ -n "$current_validator_address" && "$peer_id" == "$current_validator_address" ]]; then
       continue
     fi
 
-    local resolved_host resolved_p2p_host peer_id public_p2p_port
-    resolved_host="$(resolve_public_host "$node_slot_id" "$host")"
-    resolved_p2p_host="$(resolve_p2p_host "$node_slot_id" "$management_host" "$resolved_host")"
-    peer_id="$(lookup_node_address "$node_slot_id")"
-    if [[ -z "$peer_id" ]]; then
-      echo "Could not resolve peer ID for ${node_slot_id} from node-addresses.csv." >&2
-      exit 1
+    local validator_env_file resolved_host public_p2p_port
+    validator_env_file=""
+    if declare -F testbeta_env_file_for_validator_address >/dev/null 2>&1; then
+      validator_env_file="$(testbeta_env_file_for_validator_address "$peer_id" || true)"
     fi
-    public_p2p_port="$(resolve_public_p2p_port "$peer_id" "$p2p_port")"
+    resolved_host="$(testbeta_first_nonempty \
+      "$(testbeta_env_value "$validator_env_file" "HOSTNAME" || true)" \
+      "genesisval${slot}.synergynode.xyz" \
+    )"
+    if ! is_assigned_synergy_host "$resolved_host"; then
+      continue
+    fi
+    public_p2p_port="$(testbeta_first_nonempty \
+      "$(testbeta_env_value "$validator_env_file" "P2P_PORT_EXTERNAL" || true)" \
+      "$(testbeta_env_value "$validator_env_file" "P2P_PORT" || true)" \
+      "$(resolve_public_p2p_port "$peer_id" "5622")" \
+    )"
+    peers+=("\"snr://${peer_id}@${resolved_host}:${public_p2p_port}\"")
+  done < <(read_canonical_validators)
 
-    bootnodes+=("\"snr://${peer_id}@${resolved_host}:${public_p2p_port}\"")
-  done < "$INVENTORY_FILE"
-
-  if [[ "${#bootnodes[@]}" -eq 0 ]]; then
-    echo "Inventory does not define any auto-register consensus validators for bootstrap dialing." >&2
+  if [[ "${#peers[@]}" -eq 0 ]]; then
+    echo "Inventory does not define any assigned consensus validators for static mesh dialing." >&2
     exit 1
   fi
 
   local joined
-  joined="$(IFS=,; echo "${bootnodes[*]}")"
+  joined="$(IFS=,; echo "${peers[*]}")"
   echo "[$joined]"
 }
-
-BOOTNODES="$(collect_bootnodes)"
 ALLOWED_VALIDATOR_ADDRESSES="$(collect_allowed_validator_addresses)"
 
 generated_count=0
 
 while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port rpc_port ws_port grpc_port discovery_port host management_host physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
   [[ "$node_slot_id" == "node_slot_id" ]] && continue
+  if [[ "$(printf '%s' "$node_type" | tr '[:upper:]' '[:lower:]')" == "bootnode" ]]; then
+    continue
+  fi
 
-  resolved_public_host="$(resolve_public_host "$node_slot_id" "$host")"
-  resolved_p2p_host="$(resolve_p2p_host "$node_slot_id" "$management_host" "$resolved_public_host")"
-  listen_address="$(compute_listen_address "$resolved_p2p_host" "$p2p_port")"
-  validator_address="$(lookup_node_address "$node_slot_id")"
+  source_env_file="$(testbeta_env_file_for_inventory_node "$node_slot_id" "$node_type" "" "$host" || true)"
+  validator_address="$(testbeta_first_nonempty \
+    "$(testbeta_env_value "$source_env_file" "NODE_WALLET" || true)" \
+    "$(lookup_node_address "$node_slot_id")" \
+  )"
   if [[ -z "$validator_address" ]]; then
     echo "Missing validator address mapping for ${node_slot_id} in ${NODE_ADDRESSES_FILE}" >&2
     exit 1
   fi
-  public_p2p_port="$(resolve_public_p2p_port "$validator_address" "$p2p_port")"
+
+  host="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "HOSTNAME" "$host")"
+  public_ip="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "PUBLIC_IP" "$public_ip")"
+  local_ip="$(testbeta_inventory_env_value_allow_empty "$node_slot_id" "$node_type" "$validator_address" "$host" "LOCAL_IP" "$local_ip")"
+  bind_ip="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "BIND_IP" "")"
+  p2p_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "P2P_PORT" "$p2p_port")"
+  rpc_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "RPC_PORT" "$rpc_port")"
+  ws_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "WS_PORT" "$ws_port")"
+  grpc_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "GRPC_PORT" "$grpc_port")"
+  discovery_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "DISCOVERY_PORT" "$discovery_port")"
+
+  management_host="$(testbeta_first_nonempty \
+    "$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "MANAGEMENT_HOST" "")" \
+    "$local_ip" \
+    "$management_host" \
+    "$public_ip" \
+    "$host" \
+  )"
+  resolved_public_host="$(resolve_public_host "$node_slot_id" "$host")"
+  resolved_p2p_host="$(resolve_p2p_host "$node_slot_id" "$management_host" "$resolved_public_host")"
+  bind_host="$(resolve_bind_host "$bind_ip" "$local_ip" "$resolved_p2p_host" "$resolved_public_host")"
+  listen_address="$(compute_p2p_listen_address "$role_group" "$node_type" "$bind_host" "$p2p_port")"
+  public_p2p_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "P2P_PORT_EXTERNAL" "$(resolve_public_p2p_port "$validator_address" "$p2p_port")")"
   public_address="$(compute_public_address "$resolved_public_host" "$public_p2p_port")"
+  public_discovery_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "DISCOVERY_PORT_EXTERNAL" "$discovery_port")"
+  discovery_listen_address="$(compute_discovery_listen_address "$role_group" "$node_type" "$bind_host" "$discovery_port")"
+  discovery_public_address="$(compute_public_address "$resolved_public_host" "$public_discovery_port")"
+  rpc_bind_address="${bind_host}:${rpc_port}"
   role_id="$(normalize_role_id "$role")"
   compiled_profile="$(compiled_profile_for_role "$role_id")"
 
-  bootnodes="$BOOTNODES"
+  bootnodes="$(collect_static_validator_mesh_peers "$node_slot_id" "$validator_address")"
 
   auto_register="$(normalize_bool "$auto_register")"
   enable_pruning="$(normalize_bool "$enable_pruning")"
@@ -359,6 +448,9 @@ rpc_port = ${rpc_port}
 ws_port = ${ws_port}
 max_peers = 100
 bootnodes = ${bootnodes}
+seed_servers = []
+bootstrap_dns_records = []
+additional_dial_targets = []
 
 [blockchain]
 block_time = ${TESTBETA_BLOCK_TIME_SECS}
@@ -391,7 +483,7 @@ max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "${resolved_p2p_host}:${rpc_port}"
+bind_address = "${rpc_bind_address}"
 enable_http = true
 http_port = ${rpc_port}
 enable_ws = true
@@ -405,8 +497,10 @@ cors_origins = []
 listen_address = "${listen_address}"
 public_address = "${public_address}"
 node_name = "${node_alias}"
-enable_discovery = true
+enable_discovery = false
 discovery_port = ${discovery_port}
+discovery_listen_address = "${discovery_listen_address}"
+discovery_public_address = "${discovery_public_address}"
 heartbeat_interval = 30
 
 [storage]
@@ -422,7 +516,7 @@ interval_blocks = 10000
 [node]
 auto_register_validator = ${auto_register}
 validator_address = "${validator_address}"
-strict_validator_allowlist = false
+strict_validator_allowlist = true
 allowed_validator_addresses = ${ALLOWED_VALIDATOR_ADDRESSES}
 CONFIG
 

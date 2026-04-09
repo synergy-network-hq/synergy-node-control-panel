@@ -1148,6 +1148,35 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     return parts.join(' • ') || 'Best observed network tip';
   }, [liveChainTip, liveStatus?.public_chain_height, selectedNode, selectedNodeLive]);
 
+  const networkPresence = useMemo(() => {
+    const chainStatus = String(liveStatus?.chain_status || '').trim().toLowerCase();
+    const healthyBootnodes = (liveStatus?.bootnodes || []).filter((entry) => entry.reachable).length;
+
+    if (chainStatus === 'live' || (liveChainTip ?? 0) > 0) {
+      return {
+        label: 'Online',
+        tone: 'ok',
+        detail: liveChainTip != null
+          ? `Chain activity visible at block ${formatNumber(liveChainTip)}`
+          : 'Chain activity is visible.',
+      };
+    }
+
+    if (healthyBootnodes > 0 || chainStatus.includes('bootstrap')) {
+      return {
+        label: 'Bootstrapping',
+        tone: 'warn',
+        detail: 'Bootnodes are reachable, but block production is not visible yet.',
+      };
+    }
+
+    return {
+      label: 'Offline',
+      tone: 'error',
+      detail: 'No chain activity is visible yet.',
+    };
+  }, [liveChainTip, liveStatus?.bootnodes, liveStatus?.chain_status]);
+
   const activeValidatorCount = useMemo(() => {
     if (localActiveValidatorCount != null && localActiveValidatorCount > 0) {
       return localActiveValidatorCount;
@@ -1240,7 +1269,10 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
         localBlockLabel: nodeLive?.is_running
           ? formatNumber(effectiveLocalChainHeight(nodeLive))
           : '—',
-        publicBlockLabel: formatNumber(liveChainTip),
+        networkTipLabel: formatNumber(liveChainTip),
+        localPeerLabel: nodeLive?.is_running
+          ? formatNumber(nodeLive?.local_peer_count)
+          : '—',
         syncGapLabel: nodeLive?.is_running ? formatNumber(nodeLive?.sync_gap) : '—',
         runtimeLabel: formatRuntimeDuration(nodeLive?.process_uptime_secs),
       };
@@ -1271,14 +1303,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       endpoint: endpointAddressLabel(entry),
       key: `bootnode-${entry.host || index}`,
     })) || []),
-    ...((liveStatus?.seed_servers || []).map((entry, index) => ({
-      ...entry,
-      kind: 'seed',
-      label: infrastructureLabel('seed', index),
-      endpoint: endpointAddressLabel(entry),
-      key: `seed-${entry.host || index}`,
-    })) || []),
-  ]), [liveStatus?.bootnodes, liveStatus?.seed_servers]);
+  ]), [liveStatus?.bootnodes]);
 
   const connectivityServiceCards = useMemo(() => ([
     {
@@ -1453,9 +1478,9 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             selectedNode,
             network,
           );
-          bootstrapNotice += ` Electron refreshed peers.toml with ${bootstrapConfig.additionalDialTargets.length} seed-discovered dial target(s).`;
+          bootstrapNotice += ` Electron refreshed peers.toml with ${bootstrapConfig.additionalDialTargets.length} dial target(s).`;
           if (bootstrapConfig.failures.length > 0) {
-            bootstrapNotice += ` Seed preload warnings: ${bootstrapConfig.failures.join(' | ')}.`;
+            bootstrapNotice += ` Bootstrap warnings: ${bootstrapConfig.failures.join(' | ')}.`;
           }
         } catch (bootstrapError) {
           bootstrapNotice = ` Electron bootstrap refresh skipped: ${String(bootstrapError)}.`;
@@ -1523,8 +1548,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           label: 'Network Peers',
           value: formatNumber(networkVisiblePeerCount),
           detail: liveStatus?.network_peer_count != null
-            ? 'Unique peer dial targets currently published by the seed registry.'
-            : 'Waiting for a live seed-registry peer count.',
+            ? 'Visible peer endpoints across the validator mesh.'
+            : 'Waiting for live validator-mesh visibility.',
           icon: ICONS.peers,
         },
         {
@@ -1563,14 +1588,14 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
 
   const statusCards = [
     {
-      label: 'Bootstrap Discovery',
+      label: 'Connectivity Status',
       value: liveStatus?.discovery_status || 'Unknown',
       detail: liveStatus?.discovery_detail || 'Waiting for live discovery results.',
       tone: formatStatusTone(liveStatus?.discovery_status),
       icon: ICONS.pulse,
     },
     {
-      label: 'Chain Height',
+      label: 'Local Chain Height',
       value: formatNumber(nodeBlockHeightValue(selectedNodeLive, liveStatus)),
       detail: selectedNodeLive?.is_running
         ? (selectedNodeLive?.local_rpc_ready === false
@@ -1653,7 +1678,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     {
       label: 'Network Peers',
       value: formatNumber(networkVisiblePeerCount),
-      detail: 'Seed-registry visible peer targets',
+      detail: 'Observed validator-mesh peer visibility',
     },
     {
       label: 'Total Transactions',
@@ -1795,9 +1820,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     const pubHeight = liveChainTip;
     const healthyBootnodes = (liveStatus?.bootnodes || []).filter((b) => b.reachable).length;
     const totalBootnodes = (liveStatus?.bootnodes || []).length;
-    const healthySeeds = (liveStatus?.seed_servers || []).filter((s) => s.reachable).length;
-    const totalSeeds = (liveStatus?.seed_servers || []).length;
-    const networkUp = liveStatus?.public_rpc_online;
 
     return (
       <div className="nodecp-tab-stack">
@@ -1831,12 +1853,12 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           </>
         )}
         <div className="nodecp-status-strip">
-          <div className={`nodecp-strip-item nodecp-strip-${networkUp ? 'ok' : 'error'}`}>
+          <div className={`nodecp-strip-item nodecp-strip-${networkPresence.tone}`}>
             <span className="nodecp-strip-label">Network</span>
-            <strong>{networkUp ? 'Online' : 'Offline'}</strong>
+            <strong>{networkPresence.label}</strong>
           </div>
           <div className={`nodecp-strip-item nodecp-strip-${pubHeight != null ? 'ok' : 'warn'}`}>
-            <span className="nodecp-strip-label">Block Height</span>
+            <span className="nodecp-strip-label">Network Tip</span>
             <strong>{formatNumber(pubHeight)}</strong>
           </div>
           <div className={`nodecp-strip-item nodecp-strip-${chainSummary?.avg_block_time != null ? 'ok' : 'warn'}`}>
@@ -1850,10 +1872,6 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           <div className={`nodecp-strip-item nodecp-strip-${totalBootnodes > 0 ? (healthyBootnodes === totalBootnodes ? 'ok' : 'warn') : 'warn'}`}>
             <span className="nodecp-strip-label">Bootnodes</span>
             <strong>{totalBootnodes > 0 ? `${healthyBootnodes}/${totalBootnodes}` : '—'}</strong>
-          </div>
-          <div className={`nodecp-strip-item nodecp-strip-${totalSeeds > 0 ? (healthySeeds === totalSeeds ? 'ok' : 'warn') : 'warn'}`}>
-            <span className="nodecp-strip-label">Seed Servers</span>
-            <strong>{totalSeeds > 0 ? `${healthySeeds}/${totalSeeds}` : '—'}</strong>
           </div>
           {chainSummary?.total_transactions != null && (
             <div className="nodecp-strip-item nodecp-strip-ok">
@@ -1872,6 +1890,27 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             <strong>{formatScoreOutOfHundred(selectedNodeLive?.synergy_score)}</strong>
           </div>
         </div>
+
+        <section className="nodecp-panel nodecp-overview-snapshot-panel">
+          <div className="nodecp-panel-header">
+            <div>
+              <p className="nodecp-panel-kicker">Operational snapshot</p>
+              <h3>Live Node Signals</h3>
+            </div>
+          </div>
+          <div className="nodecp-status-grid nodecp-overview-status-grid">
+            {statusCards.map((card) => (
+              <article key={card.label} className={`nodecp-status-card nodecp-status-${card.tone}`}>
+                <div className="nodecp-status-head">
+                  <div className="nodecp-status-icon">{card.icon}</div>
+                  <span className="nodecp-status-label">{card.label}</span>
+                </div>
+                <strong className="nodecp-status-value">{card.value}</strong>
+                <span className="nodecp-status-detail">{card.detail}</span>
+              </article>
+            ))}
+          </div>
+        </section>
       </div>
     );
   };
@@ -1936,8 +1975,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       <section className="nodecp-panel">
         <div className="nodecp-panel-header">
           <div>
-            <p className="nodecp-panel-kicker">Bootstrap + discovery</p>
-            <h3>Bootnodes &amp; Seed Servers</h3>
+            <p className="nodecp-panel-kicker">Bootstrap mesh</p>
+            <h3>Bootnodes</h3>
           </div>
         </div>
         <div className="nodecp-endpoint-compact-grid">
@@ -2627,16 +2666,16 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       </div>
                       <div className="nodecp-node-row-metrics">
                         <div className="nodecp-node-row-metric">
-                          <span>PID</span>
-                          <strong>{slot.pidLabel}</strong>
-                        </div>
-                        <div className="nodecp-node-row-metric">
                           <span>Local</span>
                           <strong>{slot.localBlockLabel}</strong>
                         </div>
                         <div className="nodecp-node-row-metric">
-                          <span>Public</span>
-                          <strong>{slot.publicBlockLabel}</strong>
+                          <span>Network Tip</span>
+                          <strong>{slot.networkTipLabel}</strong>
+                        </div>
+                        <div className="nodecp-node-row-metric">
+                          <span>Peers</span>
+                          <strong>{slot.localPeerLabel}</strong>
                         </div>
                         <div className="nodecp-node-row-metric">
                           <span>Gap</span>
@@ -2645,6 +2684,10 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       </div>
                     </div>
                     <div className="nodecp-node-row-face nodecp-node-row-back">
+                      <div className="nodecp-node-row-back-copy">
+                        <span className="nodecp-node-row-back-label">PID</span>
+                        <strong>{slot.pidLabel}</strong>
+                      </div>
                       <div className="nodecp-node-row-back-copy">
                         <span className="nodecp-node-row-back-label">Total Running Time</span>
                         <strong>{slot.runtimeLabel}</strong>

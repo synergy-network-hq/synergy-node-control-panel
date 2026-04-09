@@ -25,6 +25,19 @@ function parsePeerEndpoint(value) {
   return host ? { host, port } : null;
 }
 
+function hasAssignedSynergyEndpoint(value) {
+  const host = parsePeerEndpoint(value)?.host || '';
+  return host.endsWith('.synergynode.xyz');
+}
+
+const CANONICAL_VALIDATOR_HOSTS = new Map([
+  ['genesisval1.synergynode.xyz', 'synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra'],
+  ['genesisval2.synergynode.xyz', 'synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu'],
+  ['genesisval3.synergynode.xyz', 'synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu'],
+  ['genesisval4.synergynode.xyz', 'synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49'],
+  ['genesisval5.synergynode.xyz', 'synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46'],
+]);
+
 function buildKnownValidatorAddressMap(nodes) {
   // Keys by publicHost → validatorAddress.
   // Each genesis validator has a unique genesisval*.synergynode.xyz hostname so
@@ -42,6 +55,11 @@ function buildKnownValidatorAddressMap(nodes) {
     }
     if (!byHost.has(publicHost)) {
       byHost.set(publicHost, validatorAddress);
+    }
+  });
+  CANONICAL_VALIDATOR_HOSTS.forEach((validatorAddress, host) => {
+    if (!byHost.has(host)) {
+      byHost.set(host, validatorAddress);
     }
   });
   return byHost;
@@ -103,6 +121,10 @@ function choosePreferredPeerAddress(currentAddress, nextAddress, publicAddress) 
   const current = String(currentAddress || '').trim();
   const next = String(nextAddress || '').trim();
   const announced = String(publicAddress || '').trim();
+
+  if (hasAssignedSynergyEndpoint(announced)) {
+    return announced;
+  }
 
   if (announced) {
     if (next === announced) return next;
@@ -225,14 +247,19 @@ function normalizePeerInfoPayload(raw, knownValidatorsByHost) {
     );
   });
 
-  const normalizedPeers = Array.from(dedupedPeers.values()).sort((left, right) => {
-    const leftSeen = left.lastSeen ?? 0;
-    const rightSeen = right.lastSeen ?? 0;
-    if (rightSeen !== leftSeen) {
-      return rightSeen - leftSeen;
-    }
-    return left.id.localeCompare(right.id);
-  });
+  const normalizedPeers = Array.from(dedupedPeers.values())
+    .filter((peer) => peer.validatorAddress && (
+      hasAssignedSynergyEndpoint(peer.publicAddress)
+      || hasAssignedSynergyEndpoint(peer.address)
+    ))
+    .sort((left, right) => {
+      const leftSeen = left.lastSeen ?? 0;
+      const rightSeen = right.lastSeen ?? 0;
+      if (rightSeen !== leftSeen) {
+        return rightSeen - leftSeen;
+      }
+      return left.id.localeCompare(right.id);
+    });
 
   return {
     peerCount: normalizedPeers.length,
@@ -249,24 +276,37 @@ function peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById)
   const node = validatorNodesByAddress instanceof Map
     ? validatorNodesByAddress.get(validatorAddress)
     : null;
-  if (!node) {
-    return { label: 'Unknown', tone: 'warn' };
+  const live = node ? (nodeLiveById?.[node.id] || null) : null;
+  if (live) {
+    if (!live.is_running) {
+      return { label: 'Offline', tone: 'bad' };
+    }
+    if (live.local_rpc_ready === false) {
+      return { label: 'Starting', tone: 'warn' };
+    }
+    if ((Number(live.sync_gap) || 0) > 0) {
+      return { label: 'Syncing', tone: 'warn' };
+    }
+    return { label: 'Live', tone: 'good' };
   }
 
-  const live = nodeLiveById?.[node.id] || null;
-  if (!live) {
-    return { label: 'Unknown', tone: 'warn' };
+  const ageSeconds = peerSeenAgeSeconds(peer);
+  if (ageSeconds != null && ageSeconds > 120) {
+    return { label: 'Stale', tone: 'warn' };
   }
-  if (!live.is_running) {
-    return { label: 'Offline', tone: 'bad' };
-  }
-  if (live.local_rpc_ready === false) {
-    return { label: 'Starting', tone: 'warn' };
-  }
-  if ((Number(live.sync_gap) || 0) > 0) {
-    return { label: 'Syncing', tone: 'warn' };
-  }
+
   return { label: 'Live', tone: 'good' };
+}
+
+function peerSeenAgeSeconds(peer) {
+  const lastSeen = toFiniteNumber(peer?.lastSeen);
+  if (lastSeen == null || lastSeen <= 0) {
+    return null;
+  }
+
+  const timestampMs = lastSeen < 1e12 ? lastSeen * 1000 : lastSeen;
+  const ageSeconds = (Date.now() - timestampMs) / 1000;
+  return Number.isFinite(ageSeconds) ? ageSeconds : null;
 }
 
 export {

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 HOSTS_ENV_FILE="${SYNERGY_MONITOR_HOSTS_ENV:-$ROOT_DIR/testbeta/runtime/hosts.env}"
 INSTALLERS_DIR="$ROOT_DIR/testbeta/runtime/installers"
+BOOTSTRAP_BUNDLES_DIR="$ROOT_DIR/../bootstrap-bundles"
 REMOTE_ROOT_DEFAULT="${SYNERGY_REMOTE_ROOT:-/opt/synergy}"
 REMOTE_EXPORTS_DIR="$ROOT_DIR/testbeta/runtime/reports/remote-exports"
 
@@ -80,6 +81,18 @@ inventory_management_host() {
   awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $13; exit}' "$INVENTORY_FILE"
 }
 
+inventory_public_ip() {
+  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $21; exit}' "$INVENTORY_FILE"
+}
+
+inventory_node_alias() {
+  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $2; exit}' "$INVENTORY_FILE"
+}
+
+inventory_node_type() {
+  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print tolower($5); exit}' "$INVENTORY_FILE"
+}
+
 resolve_var() {
   local name="$1"
   printf '%s' "${!name:-}"
@@ -102,17 +115,21 @@ SSH_USER_VAR="${MACHINE_KEY_UPPER}_SSH_USER"
 SSH_PORT_VAR="${MACHINE_KEY_UPPER}_SSH_PORT"
 SSH_KEY_VAR="${MACHINE_KEY_UPPER}_SSH_KEY"
 REMOTE_DIR_VAR="${MACHINE_KEY_UPPER}_REMOTE_DIR"
+PUBLIC_IP_VAR="${MACHINE_KEY_UPPER}_PUBLIC_IP"
+
+HOST="$(resolve_var "$HOST_VAR")"
+if [[ -z "$HOST" ]]; then
+  HOST="$(inventory_host)"
+fi
 
 MANAGEMENT_HOST="$(resolve_var "$MANAGEMENT_HOST_VAR")"
 if [[ -z "$MANAGEMENT_HOST" ]]; then
   MANAGEMENT_HOST="$(inventory_management_host)"
 fi
-HOST="$MANAGEMENT_HOST"
-if [[ -z "$HOST" ]]; then
-  HOST="$(resolve_var "$HOST_VAR")"
-fi
-if [[ -z "$HOST" ]]; then
-  HOST="$(inventory_host)"
+
+PUBLIC_IP="$(resolve_var "$PUBLIC_IP_VAR")"
+if [[ -z "$PUBLIC_IP" ]]; then
+  PUBLIC_IP="$(inventory_public_ip)"
 fi
 
 SSH_USER="$(resolve_var "$SSH_USER_VAR")"
@@ -138,6 +155,18 @@ if [[ -z "$HOST" ]]; then
   echo "Unable to resolve host for $NODE_SLOT_ID from hosts.env or inventory." >&2
   exit 1
 fi
+
+append_unique_host_candidate() {
+  local candidate="${1:-}"
+  [[ -n "$candidate" ]] || return 0
+  local existing
+  for existing in "${HOST_CANDIDATES[@]:-}"; do
+    if [[ "$existing" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  HOST_CANDIDATES+=( "$candidate" )
+}
 
 local_ipv4_list() {
   if command -v ip >/dev/null 2>&1; then
@@ -179,6 +208,11 @@ if is_local_host_token "$HOST" || { [[ -n "$MANAGEMENT_HOST" ]] && is_local_host
   IS_LOCAL_TARGET=1
 fi
 
+HOST_CANDIDATES=()
+append_unique_host_candidate "$HOST"
+append_unique_host_candidate "$MANAGEMENT_HOST"
+append_unique_host_candidate "$PUBLIC_IP"
+
 if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
   LOCAL_INSTALLER_DIR="$INSTALLERS_DIR/$NODE_SLOT_ID"
   if [[ ! -d "$REMOTE_NODE_DIR" && -d "$LOCAL_INSTALLER_DIR" ]]; then
@@ -209,14 +243,79 @@ if [[ -n "$SSH_KEY" ]]; then
 fi
 
 REMOTE_TARGET="${SSH_USER}@${HOST}"
+ACTIVE_REMOTE_HOST="$HOST"
+NODE_ALIAS="$(inventory_node_alias)"
+NODE_TYPE="$(inventory_node_type)"
 INSTALLER_DIR="$INSTALLERS_DIR/$NODE_SLOT_ID"
+if [[ "$NODE_TYPE" == "bootnode" && -n "$NODE_ALIAS" && -d "$BOOTSTRAP_BUNDLES_DIR/$NODE_ALIAS" ]]; then
+  INSTALLER_DIR="$BOOTSTRAP_BUNDLES_DIR/$NODE_ALIAS"
+fi
+
+ssh_run() {
+  local remote_cmd="$1"
+  local stdin_payload="${2-__NO_STDIN__}"
+  local candidate target
+
+  for candidate in "${HOST_CANDIDATES[@]}"; do
+    target="${SSH_USER}@${candidate}"
+    if [[ "$stdin_payload" == "__NO_STDIN__" ]]; then
+      if ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd"; then
+        ACTIVE_REMOTE_HOST="$candidate"
+        REMOTE_TARGET="$target"
+        return 0
+      fi
+    else
+      if ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd" <<<"$stdin_payload"; then
+        ACTIVE_REMOTE_HOST="$candidate"
+        REMOTE_TARGET="$target"
+        return 0
+      fi
+    fi
+  done
+
+  return 1
+}
+
+scp_to_remote() {
+  local local_path="$1"
+  local remote_path="$2"
+  local candidate target
+
+  for candidate in "${HOST_CANDIDATES[@]}"; do
+    target="${SSH_USER}@${candidate}"
+    if scp "${SCP_ARGS[@]}" "$local_path" "${target}:$remote_path"; then
+      ACTIVE_REMOTE_HOST="$candidate"
+      REMOTE_TARGET="$target"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+scp_from_remote() {
+  local remote_path="$1"
+  local local_path="$2"
+  local candidate target
+
+  for candidate in "${HOST_CANDIDATES[@]}"; do
+    target="${SSH_USER}@${candidate}"
+    if scp "${SCP_ARGS[@]}" "${target}:$remote_path" "$local_path"; then
+      ACTIVE_REMOTE_HOST="$candidate"
+      REMOTE_TARGET="$target"
+      return 0
+    fi
+  done
+
+  return 1
+}
 
 remote_run_script() {
   local script="$1"
   if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
     bash -s <<<"$script"
   else
-    ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "bash -s" <<<"$script"
+    ssh_run "bash -s" "$script"
   fi
 }
 
@@ -227,7 +326,7 @@ copy_to_remote() {
     mkdir -p "$(dirname "$remote_path")"
     cp "$local_path" "$remote_path"
   else
-    scp "${SCP_ARGS[@]}" "$local_path" "${REMOTE_TARGET}:$remote_path"
+    scp_to_remote "$local_path" "$remote_path"
   fi
 }
 
@@ -238,7 +337,7 @@ copy_from_remote() {
     mkdir -p "$(dirname "$local_path")"
     cp "$remote_path" "$local_path"
   else
-    scp "${SCP_ARGS[@]}" "${REMOTE_TARGET}:$remote_path" "$local_path"
+    scp_from_remote "$remote_path" "$local_path"
   fi
 }
 
@@ -738,13 +837,13 @@ deploy_agent() {
   fi
 
   # Detect remote OS and architecture so we pick the right pre-built binary.
-  echo "Detecting remote platform for $REMOTE_TARGET ..."
+  echo "Detecting remote platform for ${SSH_USER}@${HOST} ..."
   local remote_os remote_arch
-  remote_os="$(ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" 'uname -s' 2>/dev/null | tr '[:upper:]' '[:lower:]')" || {
-    echo "Failed to connect to $REMOTE_TARGET via SSH. Check connectivity and SSH key." >&2
+  remote_os="$(ssh_run 'uname -s' 2>/dev/null | tr '[:upper:]' '[:lower:]')" || {
+    echo "Failed to connect to any SSH candidate for $NODE_SLOT_ID. Checked: ${HOST_CANDIDATES[*]}" >&2
     exit 1
   }
-  remote_arch="$(ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" 'uname -m' 2>/dev/null)"
+  remote_arch="$(ssh_run 'uname -m' 2>/dev/null)"
 
   local platform_suffix
   case "$remote_os" in
@@ -782,21 +881,21 @@ deploy_agent() {
   local workspace_dir="$agent_dir/workspace"
 
   echo "Creating remote directories ..."
-  ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "mkdir -p '$agent_dir' '$workspace_dir/testbeta/runtime'"
+  ssh_run "mkdir -p '$agent_dir' '$workspace_dir/testbeta/runtime'"
 
   # Push workspace metadata so the agent can resolve node installs.
   echo "Pushing inventory and hosts config ..."
-  scp "${SCP_ARGS[@]}" \
+  scp_to_remote \
     "$ROOT_DIR/testbeta/runtime/node-inventory.csv" \
-    "${REMOTE_TARGET}:${workspace_dir}/testbeta/runtime/node-inventory.csv"
-  scp "${SCP_ARGS[@]}" \
+    "${workspace_dir}/testbeta/runtime/node-inventory.csv"
+  scp_to_remote \
     "$ROOT_DIR/testbeta/runtime/hosts.env" \
-    "${REMOTE_TARGET}:${workspace_dir}/testbeta/runtime/hosts.env"
+    "${workspace_dir}/testbeta/runtime/hosts.env"
 
   # Push the agent binary.
   echo "Pushing agent binary ($binary_src) ..."
-  scp "${SCP_ARGS[@]}" "$binary_src" "${REMOTE_TARGET}:${agent_bin}"
-  ssh "${SSH_ARGS[@]}" "$REMOTE_TARGET" "chmod +x '$agent_bin'"
+  scp_to_remote "$binary_src" "${agent_bin}"
+  ssh_run "chmod +x '$agent_bin'"
 
   # Install as a systemd service (Linux) or run in background (macOS/other).
   remote_run_script "
@@ -863,10 +962,12 @@ show_info() {
 Machine:            $NODE_SLOT_ID
 Host:               $HOST
 Management Host:             ${MANAGEMENT_HOST:-unknown}
+SSH candidates:     ${HOST_CANDIDATES[*]}
 Execution mode:     $([[ "$IS_LOCAL_TARGET" -eq 1 ]] && echo "local" || echo "ssh")
 SSH user:           $SSH_USER
 SSH port:           $SSH_PORT
 SSH key:            ${SSH_KEY:-default-agent}
+Active remote host: ${ACTIVE_REMOTE_HOST:-n/a}
 Remote node dir:    $REMOTE_NODE_DIR
 Installer source:   $INSTALLER_DIR
 INFO

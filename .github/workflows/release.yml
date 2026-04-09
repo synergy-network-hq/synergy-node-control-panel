@@ -8,7 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: "v1.2.2"
+  TESTNET_BETA_REF: ${{ github.ref_name }}
 
 jobs:
   build:
@@ -34,18 +34,14 @@ jobs:
               electron-dist/*.yml
               electron-dist/*.yaml
               electron-dist/*.blockmap
-          # Windows installer builds are intentionally disabled for now to cut
-          # release build time while we are only shipping macOS/Linux desktop
-          # packages. Re-enable this matrix entry when Windows distribution
-          # resumes.
-          # - os: windows-latest
-          #   artifact_name: windows
-          #   build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
-          #   artifact_glob: |
-          #     electron-dist/*.exe
-          #     electron-dist/*.yml
-          #     electron-dist/*.yaml
-          #     electron-dist/*.blockmap
+          - os: windows-latest
+            artifact_name: windows
+            build_cmd: npx electron-builder --config electron-builder.yml --win nsis --publish never
+            artifact_glob: |
+              electron-dist/*.exe
+              electron-dist/*.yml
+              electron-dist/*.yaml
+              electron-dist/*.blockmap
 
     runs-on: ${{ matrix.os }}
     env:

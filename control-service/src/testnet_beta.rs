@@ -2969,18 +2969,28 @@ fn seed_peer_is_validator(peer: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn is_assigned_synergy_host(host: &str) -> bool {
+    let normalized = host
+        .trim()
+        .trim_matches('[')
+        .trim_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    !normalized.is_empty() && normalized.ends_with(".synergynode.xyz")
+}
+
 fn extract_seed_peer_dial_target(peer: &Value) -> Option<String> {
     if let Some(dial) = peer.get("dial").and_then(Value::as_str) {
-        return dial
-            .split('@')
-            .last()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToString::to_string);
+        let normalized = normalize_testnet_beta_dial_target(dial)?;
+        let (host, _) = normalized.rsplit_once(':')?;
+        if !is_assigned_synergy_host(host) {
+            return None;
+        }
+        return Some(normalized);
     }
 
     let host = peer.get("public_host").and_then(Value::as_str)?.trim();
-    if host.is_empty() {
+    if !is_assigned_synergy_host(host) {
         return None;
     }
     let port = peer
@@ -3026,8 +3036,15 @@ async fn refresh_workspace_peer_targets(
         .map_err(|error| format!("HTTP client error: {error}"))?;
     let seed_peers =
         fetch_all_seed_peer_dial_targets(&client, &network_profile.seed_servers, Some(node)).await;
+    let canonical_targets =
+        canonical_validator_dial_targets_for_workspace(workspace_directory, &node.node_address);
     let siblings = local_sibling_dial_targets(all_nodes, &node.id);
-    let mut targets = seed_peers;
+    let mut targets = canonical_targets;
+    for peer in seed_peers {
+        if !targets.contains(&peer) {
+            targets.push(peer);
+        }
+    }
     for peer in siblings {
         if !targets.contains(&peer) {
             targets.push(peer);
@@ -3931,6 +3948,109 @@ fn write_operational_manifest_for_workspace(workspace_directory: &Path) -> Resul
 fn write_canonical_workspace_manifests(workspace_directory: &Path) -> Result<(), String> {
     write_genesis_json_for_workspace(&[], workspace_directory)?;
     write_operational_manifest_for_workspace(workspace_directory)
+}
+
+#[derive(Debug, Clone)]
+struct CanonicalValidatorPeer {
+    slot: u64,
+    address: String,
+}
+
+fn canonical_public_p2p_port_for_validator_slot(slot: u64) -> u16 {
+    match slot {
+        1 | 2 | 5 => 5622,
+        3 => 5623,
+        4 => 5624,
+        _ => TESTNET_BETA_P2P_PORT,
+    }
+}
+
+fn canonical_validator_peers_from_manifest_path(path: &Path) -> Vec<CanonicalValidatorPeer> {
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(_) => return Vec::new(),
+    };
+    let value: Value = match serde_json::from_str(&contents) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+    value
+        .get("validators")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let slot = entry.get("slot").and_then(Value::as_u64)?;
+            let address = entry
+                .get("address")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            Some(CanonicalValidatorPeer { slot, address })
+        })
+        .collect()
+}
+
+fn canonical_testnet_beta_validator_peers() -> Vec<CanonicalValidatorPeer> {
+    canonical_testnet_beta_operational_manifest_path()
+        .ok()
+        .map(|path| canonical_validator_peers_from_manifest_path(&path))
+        .unwrap_or_default()
+}
+
+fn canonical_validator_peers_for_workspace(workspace_directory: &Path) -> Vec<CanonicalValidatorPeer> {
+    canonical_validator_peers_from_manifest_path(
+        &workspace_directory
+            .join("config")
+            .join("operational-manifest.json"),
+    )
+}
+
+fn canonical_validator_dial_target(entry: &CanonicalValidatorPeer) -> String {
+    format!(
+        "genesisval{}.synergynode.xyz:{}",
+        entry.slot,
+        canonical_public_p2p_port_for_validator_slot(entry.slot)
+    )
+}
+
+fn canonical_validator_bootnodes(
+    peers: &[CanonicalValidatorPeer],
+    current_node_address: &str,
+) -> String {
+    peers.iter()
+        .filter(|entry| !entry.address.eq_ignore_ascii_case(current_node_address.trim()))
+        .map(|entry| {
+            format!(
+                "\"snr://{}@{}\"",
+                entry.address,
+                canonical_validator_dial_target(entry)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn canonical_validator_allowlist(peers: &[CanonicalValidatorPeer]) -> String {
+    format!(
+        "[{}]",
+        peers.iter()
+            .map(|entry| format!("\"{}\"", entry.address))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn canonical_validator_dial_targets_for_workspace(
+    workspace_directory: &Path,
+    current_node_address: &str,
+) -> Vec<String> {
+    canonical_validator_peers_for_workspace(workspace_directory)
+        .into_iter()
+        .filter(|entry| !entry.address.eq_ignore_ascii_case(current_node_address.trim()))
+        .map(|entry| canonical_validator_dial_target(&entry))
+        .collect()
 }
 
 fn load_or_create_network_profile(root: &Path) -> Result<TestnetBetaNetworkProfile, String> {
@@ -5211,23 +5331,57 @@ fn build_node_toml(
     let runtime_public_address = normalize_optional(public_host)
         .map(|value| format!("{value}:{}", runtime_ports.public_p2p_port))
         .unwrap_or_else(|| format!("127.0.0.1:{p2p_port}"));
-    let bootnodes = network_profile
-        .bootnodes
-        .iter()
-        .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let seeds = network_profile
-        .seed_servers
-        .iter()
-        .map(|entry| format!("\"http://{}:{}\"", entry.host, entry.port))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let bootstrap_dns_records = "\"_dnsaddr.bootstrap.synergynode.xyz\"";
+    let canonical_validator_peers = canonical_testnet_beta_validator_peers();
+    let use_static_validator_mesh = role.id == "validator" && !canonical_validator_peers.is_empty();
+    let bootnodes = if use_static_validator_mesh {
+        canonical_validator_bootnodes(&canonical_validator_peers, node_address)
+    } else {
+        network_profile
+            .bootnodes
+            .iter()
+            .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let seeds = if use_static_validator_mesh {
+        String::new()
+    } else {
+        network_profile
+            .seed_servers
+            .iter()
+            .map(|entry| format!("\"http://{}:{}\"", entry.host, entry.port))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let bootstrap_dns_records = if use_static_validator_mesh {
+        String::new()
+    } else {
+        "\"_dnsaddr.bootstrap.synergynode.xyz\"".to_string()
+    };
     let auto_register_validator = if role_supports_validator_registration(&role.id) {
         "true"
     } else {
         "false"
+    };
+    let enable_discovery = if use_static_validator_mesh {
+        "false"
+    } else {
+        "true"
+    };
+    let strict_validator_allowlist = if use_static_validator_mesh {
+        "true"
+    } else {
+        "false"
+    };
+    let allowed_validator_addresses = if use_static_validator_mesh {
+        canonical_validator_allowlist(&canonical_validator_peers)
+    } else {
+        "[]".to_string()
+    };
+    let bootstrap_note = if use_static_validator_mesh {
+        "Validator nodes are pinned to the canonical five-validator mesh with assigned genesisval*.synergynode.xyz endpoints."
+    } else {
+        "Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup."
     };
 
     // RPC Gateway, Indexer, and Observer roles expose a public-facing RPC surface.
@@ -5242,7 +5396,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = true\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = false\nallowed_validator_addresses = []\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup.\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -5265,6 +5419,9 @@ fn build_node_toml(
             .to_string_lossy(),
         runtime_public_address = runtime_public_address,
         auto_register_validator = auto_register_validator,
+        enable_discovery = enable_discovery,
+        strict_validator_allowlist = strict_validator_allowlist,
+        allowed_validator_addresses = allowed_validator_addresses,
         rpc_bind_address = rpc_bind_address,
         cors_enabled = cors_enabled,
         cors_origins = cors_origins,
@@ -5277,6 +5434,7 @@ fn build_node_toml(
         sponsored_stake_nwei = amount_to_nwei_string(MINIMUM_STAKE_SNRG),
         treasury_wallet = network_profile.treasury_wallet.address,
         stake_wallet = network_profile.stake_vault_wallet.address,
+        bootstrap_note = bootstrap_note,
     )
 }
 
@@ -5985,13 +6143,13 @@ public_address = "71.86.65.178:5622"
 
             let mut targets = vec![
                 "genesisval1.synergynode.xyz:5622".to_string(),
-                "genesisval5.synergynode.xyz:5626".to_string(),
+                "genesisval5.synergynode.xyz:5622".to_string(),
             ];
             filter_self_dial_targets_for_node(&mut targets, &node, &workspace);
 
             assert_eq!(
                 targets,
-                vec!["genesisval5.synergynode.xyz:5626".to_string()]
+                vec!["genesisval5.synergynode.xyz:5622".to_string()]
             );
         });
     }

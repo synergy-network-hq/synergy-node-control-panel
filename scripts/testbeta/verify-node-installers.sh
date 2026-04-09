@@ -35,8 +35,11 @@ syntax_fail_count=0
 fallback_linux_count=0
 fallback_windows_count=0
 
-while IFS=, read -r node_slot_id _ || [[ -n "${node_slot_id:-}" ]]; do
+while IFS=, read -r node_slot_id _ _ _ node_type _ || [[ -n "${node_slot_id:-}" ]]; do
   [[ "$node_slot_id" == "node_slot_id" ]] && continue
+  if [[ "$(printf '%s' "$node_type" | tr '[:upper:]' '[:lower:]')" == "bootnode" ]]; then
+    continue
+  fi
   node_dir="$INSTALLERS_DIR/$node_slot_id"
 
   if [[ ! -d "$node_dir" ]]; then

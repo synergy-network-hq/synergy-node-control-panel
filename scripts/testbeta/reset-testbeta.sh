@@ -150,7 +150,16 @@ inventory_node_slot_ids() {
 
 is_bootnode_slot() {
   local node_slot_id="$1"
-  [[ "$node_slot_id" == "node-01" || "$node_slot_id" == "node-02" ]]
+  awk -F, -v id="$node_slot_id" '
+    NR > 1 && tolower($1) == tolower(id) {
+      node_type = tolower($5)
+      role = tolower($4)
+      exit(!(node_type == "bootnode" || role == "bootnode"))
+    }
+    END {
+      exit(1)
+    }
+  ' "$INVENTORY_FILE"
 }
 
 bootstrap_validator_slots() {

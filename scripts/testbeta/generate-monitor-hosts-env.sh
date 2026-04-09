@@ -5,6 +5,14 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 OUTPUT_FILE="${1:-$ROOT_DIR/testbeta/runtime/hosts.env}"
 ORCHESTRATOR_SCRIPT="$ROOT_DIR/scripts/testbeta/remote-node-orchestrator.sh"
+KEYS_DIR="$ROOT_DIR/testbeta/runtime/keys"
+TESTBETA_ENV_DIR_DEFAULT="${TESTBETA_ENV_DIR_DEFAULT:-$ROOT_DIR/testbeta/runtime/env-files}"
+ENV_OVERRIDE_HELPER="${ENV_OVERRIDE_HELPER:-$ROOT_DIR/../scripts/testbeta/testbeta-env-overrides.sh}"
+
+if [[ -f "$ENV_OVERRIDE_HELPER" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_OVERRIDE_HELPER"
+fi
 
 if [[ ! -f "$INVENTORY_FILE" ]]; then
   echo "Inventory file missing: $INVENTORY_FILE" >&2
@@ -39,23 +47,41 @@ SYNERGY_EXPLORER_RESET_ENDPOINT=https://testbeta-atlas-api.synergy-network.io/v1
 
 HEADER
 
-while IFS=, read -r node_slot_id node_alias role_group role node_type _ _ _ _ _ _ host management_host _ _ _ || [[ -n "${node_slot_id:-}" ]]; do
+while IFS=, read -r node_slot_id node_alias role_group role node_type _ _ _ _ _ _ host management_host _ _ _ _ _ _ _ public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
   [[ "$node_slot_id" == "node_slot_id" ]] && continue
   [[ -z "${node_slot_id:-}" ]] && continue
 
-  node_slot_key="$(printf '%s' "$node_slot_id" | tr '[:lower:]-' '[:upper:]_')"
+  validator_address=""
+  if [[ -f "$KEYS_DIR/${node_slot_id}/address.txt" ]]; then
+    validator_address="$(cat "$KEYS_DIR/${node_slot_id}/address.txt")"
+  fi
 
-  control_host="${management_host:-${host:-}}"
+  resolved_host="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "HOSTNAME" "$host")"
+  resolved_public_ip="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$resolved_host" "PUBLIC_IP" "$public_ip")"
+  resolved_local_ip="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$resolved_host" "LOCAL_IP" "$local_ip")"
+  resolved_management_host="$(testbeta_first_nonempty \
+    "$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$resolved_host" "MANAGEMENT_HOST" "")" \
+    "$resolved_public_ip" \
+    "$resolved_local_ip" \
+    "$management_host" \
+    "$resolved_host" \
+  )"
+  resolved_ssh_user="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$resolved_host" "SSH_USER" "ops")"
+  resolved_ssh_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$resolved_host" "SSH_PORT" "22")"
+  resolved_ssh_key="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$resolved_host" "SSH_KEY" "")"
+  resolved_remote_dir="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$resolved_host" "REMOTE_DIR" "")"
+  node_slot_key="$(printf '%s' "$node_slot_id" | tr '[:lower:]-' '[:upper:]_')"
 
   cat >> "$OUTPUT_FILE" <<ENTRY
 # -----------------------------------------------------------------------------
 # $node_slot_id ($node_alias | $role_group | $role | $node_type)
-${node_slot_key}_HOST=$control_host
-${node_slot_key}_MANAGEMENT_HOST=$management_host
-${node_slot_key}_SSH_USER=ops
-${node_slot_key}_SSH_PORT=22
-# ${node_slot_key}_SSH_KEY=
-# ${node_slot_key}_REMOTE_DIR=/opt/synergy/$node_slot_id
+${node_slot_key}_HOST=$resolved_host
+${node_slot_key}_PUBLIC_IP=$resolved_public_ip
+${node_slot_key}_MANAGEMENT_HOST=$resolved_management_host
+${node_slot_key}_SSH_USER=$resolved_ssh_user
+${node_slot_key}_SSH_PORT=$resolved_ssh_port
+${node_slot_key}_SSH_KEY=$resolved_ssh_key
+${node_slot_key}_REMOTE_DIR=$resolved_remote_dir
 
 ${node_slot_key}_START_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id start"
 ${node_slot_key}_STOP_CMD="$ORCHESTRATOR_SCRIPT $node_slot_id stop"

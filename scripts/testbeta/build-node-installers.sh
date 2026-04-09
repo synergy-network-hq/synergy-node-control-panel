@@ -5,12 +5,21 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 CONFIG_DIR="$ROOT_DIR/testbeta/runtime/configs"
 GENESIS_FILE="$ROOT_DIR/../config/genesis.json"
+MANIFEST_FILE="$ROOT_DIR/../config/operational-manifest.json"
+NODE_ADDRESSES_FILE="$ROOT_DIR/testbeta/runtime/keys/node-addresses.csv"
 KEYS_DIR="$ROOT_DIR/testbeta/runtime/keys"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/testbeta/runtime/installers}"
 TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
 TESTBETA_NETWORK_ID="${TESTBETA_NETWORK_ID:-synergy-testnet-beta}"
 SOURCE_REPO_ROOT="${SYNERGY_TESTBETA_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/../.." && pwd)}"
 PREFER_BUNDLED_BINARIES="${PREFER_BUNDLED_BINARIES:-1}"
+TESTBETA_ENV_DIR_DEFAULT="${TESTBETA_ENV_DIR_DEFAULT:-$ROOT_DIR/testbeta/runtime/env-files}"
+ENV_OVERRIDE_HELPER="${ENV_OVERRIDE_HELPER:-$ROOT_DIR/../scripts/testbeta/testbeta-env-overrides.sh}"
+
+if [[ -f "$ENV_OVERRIDE_HELPER" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_OVERRIDE_HELPER"
+fi
 
 FRESH_HOST_BINARY="$ROOT_DIR/target/release/synergy-testbeta"
 FRESH_DARWIN_BINARY="$ROOT_DIR/target/aarch64-apple-darwin/release/synergy-testbeta"
@@ -63,40 +72,21 @@ normalize_bool() {
 }
 
 collect_allowlisted_validators_csv() {
-  local addresses=()
-  while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host management_host physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
-    [[ "$node_slot_id" == "node_slot_id" ]] && continue
-    local normalized_group normalized_role normalized_type
-    normalized_group="$(echo "${role_group:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    normalized_role="$(echo "${role:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    normalized_type="$(echo "${node_type:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-    if [[ "$(normalize_bool "$auto_register")" != "true" ]]; then
-      continue
-    fi
-    if [[ "$normalized_group" != "consensus" ]]; then
-      continue
-    fi
-    if [[ "$normalized_type" != "validator" && "$normalized_role" != "validator" ]]; then
-      continue
-    fi
-    local address_file="$KEYS_DIR/${node_slot_id}/address.txt"
-    if [[ -f "$address_file" ]]; then
-      local address
-      address="$(cat "$address_file")"
-      if [[ -n "$address" ]]; then
-        addresses+=("$address")
-      fi
-    fi
-  done < "$INVENTORY_FILE"
+  python3 - "$MANIFEST_FILE" <<'PY'
+import json
+import sys
 
-  if [[ "${#addresses[@]}" -eq 0 ]]; then
-    echo ""
-    return
-  fi
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
 
-  local joined
-  joined="$(IFS=,; echo "${addresses[*]}")"
-  echo "$joined"
+addresses = []
+for entry in manifest.get("validators", []):
+    address = str(entry.get("address") or "").strip()
+    if address:
+        addresses.append(address)
+
+print(",".join(addresses))
+PY
 }
 
 print_binary_requirements() {
@@ -226,6 +216,7 @@ if [[ -z "$DARWIN_BINARY" || -z "$LINUX_BINARY" || -z "$WINDOWS_BINARY" ]]; then
 fi
 
 mkdir -p "$OUT_DIR"
+find "$OUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
 
 write_install_script() {
   local node_dir="$1"
@@ -284,6 +275,105 @@ apply_staged_binaries() {
 cleanup_privileged_helper() {
   if [[ -n "$SUDO_KEEPALIVE_PID" ]]; then
     kill "$SUDO_KEEPALIVE_PID" >/dev/null 2>&1 || true
+  fi
+}
+
+build_runtime_env_args() {
+  local validator_address="$1"
+  local auto_register_validator="$2"
+  local strict_allowlist="$3"
+  local allowed_validators="$4"
+  local rpc_bind_address="$5"
+  local configured_network_id="$6"
+  local configured_chain_id="$7"
+  local config_path="$8"
+  local bind_ip="${BIND_IP:-}"
+  local public_host="${NODE_PUBLIC_HOST:-${HOSTNAME:-${HOST:-}}}"
+  local p2p_port_value="${P2P_PORT:-${SYNERGY_P2P_PORT:-}}"
+  local rpc_port_value="${RPC_PORT:-${SYNERGY_RPC_PORT:-}}"
+  local ws_port_value="${WS_PORT:-${SYNERGY_WS_PORT:-}}"
+  local grpc_port_value="${GRPC_PORT:-${SYNERGY_GRPC_PORT:-}}"
+  local public_p2p_port="${PUBLIC_P2P_PORT:-${P2P_PORT_EXTERNAL:-${p2p_port_value:-}}}"
+  local discovery_port_value="${DISCOVERY_PORT:-${SYNERGY_DISCOVERY_PORT:-}}"
+  local discovery_public_port="${DISCOVERY_PORT_EXTERNAL:-${discovery_port_value:-}}"
+  local p2p_listen_address=""
+  local p2p_external_address=""
+  local discovery_listen_address=""
+  local discovery_external_address=""
+
+  if [[ -z "$bind_ip" && -n "$rpc_bind_address" ]]; then
+    bind_ip="${rpc_bind_address%:*}"
+  fi
+  bind_ip="${bind_ip:-0.0.0.0}"
+
+  if [[ -n "$p2p_port_value" ]]; then
+    p2p_listen_address="${bind_ip}:${p2p_port_value}"
+  else
+    p2p_listen_address="${P2P_LISTEN_ADDRESS:-${SYNERGY_P2P_LISTEN_ADDRESS:-}}"
+  fi
+
+  if [[ -n "$public_host" && -n "$public_p2p_port" ]]; then
+    p2p_external_address="${public_host}:${public_p2p_port}"
+  else
+    p2p_external_address="${P2P_EXTERNAL_ADDRESS:-${P2P_PUBLIC_ADDRESS:-${SYNERGY_P2P_EXTERNAL_ADDRESS:-${SYNERGY_P2P_PUBLIC_ADDRESS:-}}}}"
+  fi
+
+  if [[ -n "$rpc_port_value" ]]; then
+    rpc_bind_address="${bind_ip}:${rpc_port_value}"
+  fi
+
+  if [[ -n "$discovery_port_value" ]]; then
+    discovery_listen_address="${bind_ip}:${discovery_port_value}"
+  else
+    discovery_listen_address="${DISCOVERY_LISTEN_ADDRESS:-${SYNERGY_DISCOVERY_LISTEN_ADDRESS:-}}"
+  fi
+
+  if [[ -n "$public_host" && -n "$discovery_public_port" ]]; then
+    discovery_external_address="${public_host}:${discovery_public_port}"
+  else
+    discovery_external_address="${DISCOVERY_EXTERNAL_ADDRESS:-${DISCOVERY_PUBLIC_ADDRESS:-${SYNERGY_DISCOVERY_EXTERNAL_ADDRESS:-${SYNERGY_DISCOVERY_PUBLIC_ADDRESS:-}}}}"
+  fi
+
+  RUNTIME_ENV_ARGS=(
+    SYNERGY_VALIDATOR_ADDRESS="$validator_address"
+    NODE_ADDRESS="$validator_address"
+    SYNERGY_AUTO_REGISTER_VALIDATOR="$auto_register_validator"
+    SYNERGY_STRICT_VALIDATOR_ALLOWLIST="$strict_allowlist"
+    SYNERGY_ALLOWED_VALIDATOR_ADDRESSES="$allowed_validators"
+    SYNERGY_RPC_BIND_ADDRESS="$rpc_bind_address"
+    SYNERGY_NETWORK_ID="$configured_network_id"
+    SYNERGY_CHAIN_ID="$configured_chain_id"
+    SYNERGY_CONFIG_PATH="$config_path"
+  )
+
+  if [[ -n "$p2p_port_value" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_P2P_PORT="$p2p_port_value")
+  fi
+  if [[ -n "$rpc_port_value" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_RPC_PORT="$rpc_port_value")
+  fi
+  if [[ -n "$ws_port_value" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_WS_PORT="$ws_port_value")
+  fi
+  if [[ -n "$grpc_port_value" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_GRPC_PORT="$grpc_port_value")
+  fi
+  if [[ -n "$p2p_listen_address" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_P2P_LISTEN_ADDRESS="$p2p_listen_address")
+  fi
+  if [[ -n "$p2p_external_address" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_P2P_EXTERNAL_ADDRESS="$p2p_external_address")
+    RUNTIME_ENV_ARGS+=(SYNERGY_P2P_PUBLIC_ADDRESS="$p2p_external_address")
+  fi
+  if [[ -n "$discovery_port_value" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_DISCOVERY_PORT="$discovery_port_value")
+  fi
+  if [[ -n "$discovery_listen_address" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_DISCOVERY_LISTEN_ADDRESS="$discovery_listen_address")
+  fi
+  if [[ -n "$discovery_external_address" ]]; then
+    RUNTIME_ENV_ARGS+=(SYNERGY_DISCOVERY_EXTERNAL_ADDRESS="$discovery_external_address")
+    RUNTIME_ENV_ARGS+=(SYNERGY_DISCOVERY_PUBLIC_ADDRESS="$discovery_external_address")
   fi
 }
 
@@ -443,6 +533,15 @@ run_prestart_sync() {
   configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
+  build_runtime_env_args \
+    "$validator_address" \
+    "$auto_register_validator" \
+    "$strict_allowlist" \
+    "$allowed_validators" \
+    "$rpc_bind_address" \
+    "$configured_network_id" \
+    "$configured_chain_id" \
+    "$config_path"
 
   # Use a wall-clock deadline instead of a fixed attempt count so that nodes
   # far behind the chain tip (e.g. late joiners) are given enough time to
@@ -460,15 +559,7 @@ run_prestart_sync() {
     # installer indefinitely.  Default: 120 s per attempt; override via
     # PRESTART_SYNC_ATTEMPT_TIMEOUT.  The outer deadline loop still applies.
     if timeout "${PRESTART_SYNC_ATTEMPT_TIMEOUT:-120}" env \
-      SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
-      NODE_ADDRESS="$validator_address" \
-      SYNERGY_AUTO_REGISTER_VALIDATOR="$auto_register_validator" \
-      SYNERGY_STRICT_VALIDATOR_ALLOWLIST="$strict_allowlist" \
-      SYNERGY_ALLOWED_VALIDATOR_ADDRESSES="$allowed_validators" \
-      SYNERGY_RPC_BIND_ADDRESS="$rpc_bind_address" \
-      SYNERGY_NETWORK_ID="$configured_network_id" \
-      SYNERGY_CHAIN_ID="$configured_chain_id" \
-      SYNERGY_CONFIG_PATH="$config_path" \
+      "${RUNTIME_ENV_ARGS[@]}" \
       "$BIN_SELECTED" sync --config "$config_path" >> "$OUT_FILE" 2>> "$ERR_FILE"; then
       return 0
     fi
@@ -517,6 +608,15 @@ start_node() {
   configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
+  build_runtime_env_args \
+    "$validator_address" \
+    "$auto_register_validator" \
+    "$strict_allowlist" \
+    "$allowed_validators" \
+    "$rpc_bind_address" \
+    "$configured_network_id" \
+    "$configured_chain_id" \
+    "$config_path"
   if [[ -z "$validator_address" ]]; then
     echo "Warning: NODE_ADDRESS is empty; validator identity will fallback to node_name."
   fi
@@ -535,15 +635,7 @@ start_node() {
   fi
 
   nohup env \
-    SYNERGY_VALIDATOR_ADDRESS="$validator_address" \
-    NODE_ADDRESS="$validator_address" \
-    SYNERGY_AUTO_REGISTER_VALIDATOR="$auto_register_validator" \
-    SYNERGY_STRICT_VALIDATOR_ALLOWLIST="$strict_allowlist" \
-    SYNERGY_ALLOWED_VALIDATOR_ADDRESSES="$allowed_validators" \
-    SYNERGY_RPC_BIND_ADDRESS="$rpc_bind_address" \
-    SYNERGY_NETWORK_ID="$configured_network_id" \
-    SYNERGY_CHAIN_ID="$configured_chain_id" \
-    SYNERGY_CONFIG_PATH="$config_path" \
+    "${RUNTIME_ENV_ARGS[@]}" \
     "$BIN_SELECTED" start --config "$config_path" > "$OUT_FILE" 2>&1 &
   echo $! > "$PID_FILE"
 
@@ -884,6 +976,150 @@ function Get-NodeEnvValue([string]$Name) {
   return ""
 }
 
+function Initialize-NodeRuntimeEnv {
+  $validatorAddress = Get-NodeEnvValue "NODE_ADDRESS"
+  if ([string]::IsNullOrWhiteSpace($validatorAddress)) {
+    $validatorAddress = $env:SYNERGY_VALIDATOR_ADDRESS
+  }
+  if (-not [string]::IsNullOrWhiteSpace($validatorAddress)) {
+    $env:SYNERGY_VALIDATOR_ADDRESS = $validatorAddress
+    $env:NODE_ADDRESS = $validatorAddress
+  } else {
+    Write-Warning "NODE_ADDRESS is empty; validator identity will fallback to node_name."
+  }
+
+  $autoRegister = Get-NodeEnvValue "SYNERGY_AUTO_REGISTER_VALIDATOR"
+  if ([string]::IsNullOrWhiteSpace($autoRegister)) { $autoRegister = Get-NodeEnvValue "AUTO_REGISTER_VALIDATOR" }
+  if ([string]::IsNullOrWhiteSpace($autoRegister)) { $autoRegister = "false" }
+  $env:SYNERGY_AUTO_REGISTER_VALIDATOR = $autoRegister
+
+  $strictAllowlist = Get-NodeEnvValue "SYNERGY_STRICT_VALIDATOR_ALLOWLIST"
+  if ([string]::IsNullOrWhiteSpace($strictAllowlist)) { $strictAllowlist = Get-NodeEnvValue "STRICT_VALIDATOR_ALLOWLIST" }
+  if ([string]::IsNullOrWhiteSpace($strictAllowlist)) { $strictAllowlist = "true" }
+  $env:SYNERGY_STRICT_VALIDATOR_ALLOWLIST = $strictAllowlist
+
+  $allowedValidators = Get-NodeEnvValue "SYNERGY_ALLOWED_VALIDATOR_ADDRESSES"
+  if ([string]::IsNullOrWhiteSpace($allowedValidators)) { $allowedValidators = Get-NodeEnvValue "ALLOWED_VALIDATOR_ADDRESSES" }
+  if (-not [string]::IsNullOrWhiteSpace($allowedValidators)) {
+    $env:SYNERGY_ALLOWED_VALIDATOR_ADDRESSES = $allowedValidators
+  }
+
+  $configuredChainId = Get-NodeEnvValue "SYNERGY_CHAIN_ID"
+  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = Get-NodeEnvValue "CHAIN_ID" }
+  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = "338639" }
+  $env:SYNERGY_CHAIN_ID = $configuredChainId
+
+  $configuredNetworkId = Get-NodeEnvValue "SYNERGY_NETWORK_ID"
+  if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = Get-NodeEnvValue "NETWORK_ID" }
+  if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = $configuredChainId }
+  $env:SYNERGY_NETWORK_ID = $configuredNetworkId
+
+  $bindIp = Get-NodeEnvValue "BIND_IP"
+  $rpcBindAddress = Get-NodeEnvValue "RPC_BIND_ADDRESS"
+  if ([string]::IsNullOrWhiteSpace($rpcBindAddress)) { $rpcBindAddress = Get-NodeEnvValue "SYNERGY_RPC_BIND_ADDRESS" }
+  if ([string]::IsNullOrWhiteSpace($bindIp) -and -not [string]::IsNullOrWhiteSpace($rpcBindAddress)) {
+    $bindIp = ($rpcBindAddress -split ':')[0]
+  }
+  if ([string]::IsNullOrWhiteSpace($bindIp)) { $bindIp = "0.0.0.0" }
+
+  $p2pPort = Get-NodeEnvValue "P2P_PORT"
+  if ([string]::IsNullOrWhiteSpace($p2pPort)) { $p2pPort = Get-NodeEnvValue "SYNERGY_P2P_PORT" }
+  if (-not [string]::IsNullOrWhiteSpace($p2pPort)) {
+    $env:SYNERGY_P2P_PORT = $p2pPort
+  }
+
+  $publicHost = Get-NodeEnvValue "NODE_PUBLIC_HOST"
+  if ([string]::IsNullOrWhiteSpace($publicHost)) { $publicHost = Get-NodeEnvValue "HOSTNAME" }
+  if ([string]::IsNullOrWhiteSpace($publicHost)) { $publicHost = Get-NodeEnvValue "HOST" }
+
+  $publicP2PPort = Get-NodeEnvValue "PUBLIC_P2P_PORT"
+  if ([string]::IsNullOrWhiteSpace($publicP2PPort)) { $publicP2PPort = Get-NodeEnvValue "P2P_PORT_EXTERNAL" }
+  if ([string]::IsNullOrWhiteSpace($publicP2PPort)) { $publicP2PPort = $p2pPort }
+
+  $p2pListenAddress = ""
+  if (-not [string]::IsNullOrWhiteSpace($p2pPort)) {
+    $p2pListenAddress = "${bindIp}:$p2pPort"
+  } else {
+    $p2pListenAddress = Get-NodeEnvValue "P2P_LISTEN_ADDRESS"
+    if ([string]::IsNullOrWhiteSpace($p2pListenAddress)) { $p2pListenAddress = Get-NodeEnvValue "SYNERGY_P2P_LISTEN_ADDRESS" }
+  }
+  if (-not [string]::IsNullOrWhiteSpace($p2pListenAddress)) {
+    $env:SYNERGY_P2P_LISTEN_ADDRESS = $p2pListenAddress
+  }
+
+  $p2pExternalAddress = ""
+  if (-not [string]::IsNullOrWhiteSpace($publicHost) -and -not [string]::IsNullOrWhiteSpace($publicP2PPort)) {
+    $p2pExternalAddress = "${publicHost}:$publicP2PPort"
+  } else {
+    $p2pExternalAddress = Get-NodeEnvValue "P2P_EXTERNAL_ADDRESS"
+    if ([string]::IsNullOrWhiteSpace($p2pExternalAddress)) { $p2pExternalAddress = Get-NodeEnvValue "P2P_PUBLIC_ADDRESS" }
+    if ([string]::IsNullOrWhiteSpace($p2pExternalAddress)) { $p2pExternalAddress = Get-NodeEnvValue "SYNERGY_P2P_EXTERNAL_ADDRESS" }
+    if ([string]::IsNullOrWhiteSpace($p2pExternalAddress)) { $p2pExternalAddress = Get-NodeEnvValue "SYNERGY_P2P_PUBLIC_ADDRESS" }
+  }
+  if (-not [string]::IsNullOrWhiteSpace($p2pExternalAddress)) {
+    $env:SYNERGY_P2P_EXTERNAL_ADDRESS = $p2pExternalAddress
+    $env:SYNERGY_P2P_PUBLIC_ADDRESS = $p2pExternalAddress
+  }
+
+  $rpcPort = Get-NodeEnvValue "RPC_PORT"
+  if ([string]::IsNullOrWhiteSpace($rpcPort)) { $rpcPort = Get-NodeEnvValue "SYNERGY_RPC_PORT" }
+  if (-not [string]::IsNullOrWhiteSpace($rpcPort)) {
+    $env:SYNERGY_RPC_PORT = $rpcPort
+    $rpcBindAddress = "${bindIp}:$rpcPort"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($rpcBindAddress)) {
+    $env:SYNERGY_RPC_BIND_ADDRESS = $rpcBindAddress
+  }
+
+  $wsPort = Get-NodeEnvValue "WS_PORT"
+  if ([string]::IsNullOrWhiteSpace($wsPort)) { $wsPort = Get-NodeEnvValue "SYNERGY_WS_PORT" }
+  if (-not [string]::IsNullOrWhiteSpace($wsPort)) {
+    $env:SYNERGY_WS_PORT = $wsPort
+  }
+
+  $grpcPort = Get-NodeEnvValue "GRPC_PORT"
+  if ([string]::IsNullOrWhiteSpace($grpcPort)) { $grpcPort = Get-NodeEnvValue "SYNERGY_GRPC_PORT" }
+  if (-not [string]::IsNullOrWhiteSpace($grpcPort)) {
+    $env:SYNERGY_GRPC_PORT = $grpcPort
+  }
+
+  $discoveryPort = Get-NodeEnvValue "DISCOVERY_PORT"
+  if ([string]::IsNullOrWhiteSpace($discoveryPort)) { $discoveryPort = Get-NodeEnvValue "SYNERGY_DISCOVERY_PORT" }
+  if (-not [string]::IsNullOrWhiteSpace($discoveryPort)) {
+    $env:SYNERGY_DISCOVERY_PORT = $discoveryPort
+  }
+
+  $discoveryListenAddress = ""
+  if (-not [string]::IsNullOrWhiteSpace($discoveryPort)) {
+    $discoveryListenAddress = "${bindIp}:$discoveryPort"
+  } else {
+    $discoveryListenAddress = Get-NodeEnvValue "DISCOVERY_LISTEN_ADDRESS"
+    if ([string]::IsNullOrWhiteSpace($discoveryListenAddress)) { $discoveryListenAddress = Get-NodeEnvValue "SYNERGY_DISCOVERY_LISTEN_ADDRESS" }
+  }
+  if (-not [string]::IsNullOrWhiteSpace($discoveryListenAddress)) {
+    $env:SYNERGY_DISCOVERY_LISTEN_ADDRESS = $discoveryListenAddress
+  }
+
+  $discoveryPublicPort = Get-NodeEnvValue "DISCOVERY_PORT_EXTERNAL"
+  if ([string]::IsNullOrWhiteSpace($discoveryPublicPort)) { $discoveryPublicPort = $discoveryPort }
+
+  $discoveryExternalAddress = ""
+  if (-not [string]::IsNullOrWhiteSpace($publicHost) -and -not [string]::IsNullOrWhiteSpace($discoveryPublicPort)) {
+    $discoveryExternalAddress = "${publicHost}:$discoveryPublicPort"
+  } else {
+    $discoveryExternalAddress = Get-NodeEnvValue "DISCOVERY_EXTERNAL_ADDRESS"
+    if ([string]::IsNullOrWhiteSpace($discoveryExternalAddress)) { $discoveryExternalAddress = Get-NodeEnvValue "DISCOVERY_PUBLIC_ADDRESS" }
+    if ([string]::IsNullOrWhiteSpace($discoveryExternalAddress)) { $discoveryExternalAddress = Get-NodeEnvValue "SYNERGY_DISCOVERY_EXTERNAL_ADDRESS" }
+    if ([string]::IsNullOrWhiteSpace($discoveryExternalAddress)) { $discoveryExternalAddress = Get-NodeEnvValue "SYNERGY_DISCOVERY_PUBLIC_ADDRESS" }
+  }
+  if (-not [string]::IsNullOrWhiteSpace($discoveryExternalAddress)) {
+    $env:SYNERGY_DISCOVERY_EXTERNAL_ADDRESS = $discoveryExternalAddress
+    $env:SYNERGY_DISCOVERY_PUBLIC_ADDRESS = $discoveryExternalAddress
+  }
+
+  $env:SYNERGY_CONFIG_PATH = $ConfigPath
+}
+
 function Test-Admin {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
   $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -991,6 +1227,7 @@ function Open-Ports {
 
 function Invoke-PreStartSync {
   if (Test-BootnodeSlot) { return $true }
+  Initialize-NodeRuntimeEnv
 
   # Use a wall-clock deadline instead of a fixed attempt count so that nodes
   # far behind the chain tip (e.g. late joiners) are given enough time to
@@ -1041,50 +1278,7 @@ function Start-Node {
   Apply-StagedBinary
 
   Initialize-InstallLayout
-
-  $validatorAddress = Get-NodeEnvValue "NODE_ADDRESS"
-  if ([string]::IsNullOrWhiteSpace($validatorAddress)) {
-    $validatorAddress = $env:SYNERGY_VALIDATOR_ADDRESS
-  }
-  if (-not [string]::IsNullOrWhiteSpace($validatorAddress)) {
-    $env:SYNERGY_VALIDATOR_ADDRESS = $validatorAddress
-    $env:NODE_ADDRESS = $validatorAddress
-  } else {
-    Write-Warning "NODE_ADDRESS is empty; validator identity will fallback to node_name."
-  }
-
-  $autoRegister = Get-NodeEnvValue "SYNERGY_AUTO_REGISTER_VALIDATOR"
-  if ([string]::IsNullOrWhiteSpace($autoRegister)) { $autoRegister = Get-NodeEnvValue "AUTO_REGISTER_VALIDATOR" }
-  if ([string]::IsNullOrWhiteSpace($autoRegister)) { $autoRegister = "false" }
-  $env:SYNERGY_AUTO_REGISTER_VALIDATOR = $autoRegister
-
-  $strictAllowlist = Get-NodeEnvValue "SYNERGY_STRICT_VALIDATOR_ALLOWLIST"
-  if ([string]::IsNullOrWhiteSpace($strictAllowlist)) { $strictAllowlist = Get-NodeEnvValue "STRICT_VALIDATOR_ALLOWLIST" }
-  if ([string]::IsNullOrWhiteSpace($strictAllowlist)) { $strictAllowlist = "true" }
-  $env:SYNERGY_STRICT_VALIDATOR_ALLOWLIST = $strictAllowlist
-
-  $allowedValidators = Get-NodeEnvValue "SYNERGY_ALLOWED_VALIDATOR_ADDRESSES"
-  if ([string]::IsNullOrWhiteSpace($allowedValidators)) { $allowedValidators = Get-NodeEnvValue "ALLOWED_VALIDATOR_ADDRESSES" }
-  if (-not [string]::IsNullOrWhiteSpace($allowedValidators)) {
-    $env:SYNERGY_ALLOWED_VALIDATOR_ADDRESSES = $allowedValidators
-  }
-
-  $rpcBindAddress = Get-NodeEnvValue "SYNERGY_RPC_BIND_ADDRESS"
-  if ([string]::IsNullOrWhiteSpace($rpcBindAddress)) { $rpcBindAddress = Get-NodeEnvValue "RPC_BIND_ADDRESS" }
-  if (-not [string]::IsNullOrWhiteSpace($rpcBindAddress)) {
-    $env:SYNERGY_RPC_BIND_ADDRESS = $rpcBindAddress
-  }
-
-  $configuredChainId = Get-NodeEnvValue "SYNERGY_CHAIN_ID"
-  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = Get-NodeEnvValue "CHAIN_ID" }
-  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = "338639" }
-  $env:SYNERGY_CHAIN_ID = $configuredChainId
-
-  $configuredNetworkId = Get-NodeEnvValue "SYNERGY_NETWORK_ID"
-  if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = Get-NodeEnvValue "NETWORK_ID" }
-  if ([string]::IsNullOrWhiteSpace($configuredNetworkId)) { $configuredNetworkId = $configuredChainId }
-  $env:SYNERGY_NETWORK_ID = $configuredNetworkId
-  $env:SYNERGY_CONFIG_PATH = $ConfigPath
+  Initialize-NodeRuntimeEnv
 
   $skipPrestartSync = $env:SKIP_PRESTART_SYNC -eq "true"
   if (-not $skipPrestartSync) {
@@ -1517,10 +1711,282 @@ Interpretation
 TXT
 }
 
+append_source_env_key_if_present() {
+  local node_dir="$1"
+  local env_file="$2"
+  local key="$3"
+
+  [[ -n "$env_file" && -f "$env_file" ]] || return 0
+  if ! testbeta_env_has_key "$env_file" "$key"; then
+    return 0
+  fi
+
+  local value
+  value="$(testbeta_env_value "$env_file" "$key" || true)"
+  printf '%s=%s\n' "$key" "$value" >> "$node_dir/node.env"
+}
+
+lookup_node_address() {
+  local node_slot_id="$1"
+  [[ -f "$NODE_ADDRESSES_FILE" ]] || return 1
+  awk -F, -v id="$node_slot_id" 'NR > 1 && $1 == id { print $6; exit }' "$NODE_ADDRESSES_FILE"
+}
+
+resolve_setup_package_file() {
+  local node_slot_id="$1"
+  local node_type="$2"
+  local role="$3"
+  local node_alias="${4:-}"
+
+  if declare -F testbeta_setup_package_file_for_inventory_node >/dev/null 2>&1; then
+    testbeta_setup_package_file_for_inventory_node "$node_slot_id" "$node_type" "$role" "$node_alias" || true
+  fi
+}
+
+lookup_address_from_setup_package() {
+  local package_file="$1"
+  [[ -n "$package_file" && -f "$package_file" ]] || return 1
+
+  python3 - "$package_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    package = json.load(handle)
+
+runtime_identity = package.get("runtime_identity") or {}
+validator_public = package.get("validator_public") or {}
+address = str(runtime_identity.get("address") or validator_public.get("address") or "").strip()
+if address:
+    print(address)
+PY
+}
+
+populate_validator_keys_from_setup_package() {
+  local package_file="$1"
+  local key_dir="$2"
+  local node_slot_id="$3"
+  local node_alias="$4"
+  local role="$5"
+  local node_type="$6"
+  local address_class="$7"
+
+  python3 - "$package_file" "$key_dir" "$node_slot_id" "$node_alias" "$role" "$node_type" "$address_class" <<'PY'
+import json
+import pathlib
+import sys
+
+package_file, key_dir, node_slot_id, node_alias, role, node_type, address_class = sys.argv[1:]
+
+with open(package_file, encoding="utf-8") as handle:
+    package = json.load(handle)
+
+runtime_identity = package.get("runtime_identity") or {}
+validator_public = package.get("validator_public") or {}
+node_identity = validator_public.get("node_identity_key") or {}
+consensus_key = validator_public.get("consensus_key") or {}
+account_key = validator_public.get("account_key") or {}
+entropy_key = validator_public.get("entropy_contribution_key") or {}
+
+address = str(runtime_identity.get("address") or validator_public.get("address") or "").strip()
+public_key = str(runtime_identity.get("public_key") or validator_public.get("public_key") or "").strip()
+private_key = str(runtime_identity.get("private_key") or "").strip()
+
+if not address:
+    raise SystemExit(f"Missing runtime address in setup package: {package_file}")
+if not public_key:
+    raise SystemExit(f"Missing runtime public key in setup package: {package_file}")
+if not private_key:
+    raise SystemExit(f"Missing runtime private key in setup package: {package_file}")
+
+out_dir = pathlib.Path(key_dir)
+out_dir.mkdir(parents=True, exist_ok=True)
+
+(out_dir / "address.txt").write_text(address + "\n", encoding="utf-8")
+(out_dir / "public.key").write_text(public_key + "\n", encoding="utf-8")
+(out_dir / "private.key").write_text(private_key + "\n", encoding="utf-8")
+
+node_env = "\n".join([
+    f"NODE_SLOT_ID={node_slot_id}",
+    f"NODE_ALIAS={node_alias}",
+    f"ROLE={role}",
+    f"NODE_TYPE={node_type}",
+    f"ADDRESS_CLASS={address_class}",
+    f"NODE_ADDRESS={address}",
+    "PUBLIC_KEY_FILE=public.key",
+    "PRIVATE_KEY_FILE=private.key",
+    "",
+])
+(out_dir / "node.env").write_text(node_env, encoding="utf-8")
+
+identity_payload = {
+    "node_slot_id": node_slot_id,
+    "node_alias": node_alias,
+    "role": role,
+    "node_type": node_type,
+    "address_class": int(address_class) if str(address_class).isdigit() else address_class,
+    "runtime_identity": runtime_identity,
+    "validator_public": validator_public,
+}
+(out_dir / "identity.json").write_text(json.dumps(identity_payload, indent=2) + "\n", encoding="utf-8")
+
+identity_toml = [
+    f'node_slot_id = "{node_slot_id}"',
+    f'node_alias = "{node_alias}"',
+    f'role = "{role}"',
+    f'node_type = "{node_type}"',
+    f'address_class = {address_class}',
+    "",
+    "[runtime_identity]",
+    f'label = "{runtime_identity.get("label", "")}"',
+    f'address = "{address}"',
+    f'address_type = "{runtime_identity.get("address_type", validator_public.get("address_type", ""))}"',
+    f'algorithm = "{runtime_identity.get("algorithm", validator_public.get("algorithm", ""))}"',
+    f'created_at = "{runtime_identity.get("created_at", validator_public.get("created_at", ""))}"',
+    f'public_key = "{public_key}"',
+    f'private_key = "{private_key}"',
+    "",
+    "[node_identity_key]",
+    f'algorithm = "{node_identity.get("algorithm", "")}"',
+    f'public_key = "{node_identity.get("public_key", "")}"',
+    f'peer_id = "{node_identity.get("peer_id", "")}"',
+    "",
+    "[consensus_key]",
+    f'algorithm = "{consensus_key.get("algorithm", "")}"',
+    f'public_key = "{consensus_key.get("public_key", "")}"',
+    "",
+    "[account_key]",
+    f'algorithm = "{account_key.get("algorithm", "")}"',
+    f'public_key = "{account_key.get("public_key", "")}"',
+    "",
+    "[entropy_contribution_key]",
+    f'algorithm = "{entropy_key.get("algorithm", "")}"',
+    f'public_key = "{entropy_key.get("public_key", "")}"',
+    "",
+]
+(out_dir / "identity.toml").write_text("\n".join(identity_toml), encoding="utf-8")
+(out_dir / "setup-package.json").write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+resolve_key_source_dir() {
+  local node_slot_id="$1"
+  local node_type="$2"
+  local candidate="$KEYS_DIR/$node_slot_id"
+  local legacy_key_dir=""
+
+  if [[ -d "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  if declare -F testbeta_legacy_key_dir_for_inventory_node >/dev/null 2>&1; then
+    legacy_key_dir="$(testbeta_legacy_key_dir_for_inventory_node "$node_slot_id" || true)"
+  fi
+  if [[ -n "$legacy_key_dir" && -d "$KEYS_DIR/$legacy_key_dir" ]]; then
+    printf '%s\n' "$KEYS_DIR/$legacy_key_dir"
+    return 0
+  fi
+
+  if [[ "$(printf '%s' "$node_type" | tr '[:upper:]' '[:lower:]')" == "bootnode" ]]; then
+    return 1
+  fi
+
+  echo "Missing key directory for $node_slot_id" >&2
+  return 1
+}
+
+write_key_metadata() {
+  local key_dir="$1"
+  local node_slot_id="$2"
+  local node_alias="$3"
+  local role="$4"
+  local node_type="$5"
+  local address_class="$6"
+  local address="$7"
+  local public_key private_key
+
+  public_key="$(tr -d '\r\n' < "$key_dir/public.key" 2>/dev/null || true)"
+  private_key="$(tr -d '\r\n' < "$key_dir/private.key" 2>/dev/null || true)"
+
+  printf '%s\n' "$address" > "$key_dir/address.txt"
+
+  cat > "$key_dir/node.env" <<EOF
+NODE_SLOT_ID=$node_slot_id
+NODE_ALIAS=$node_alias
+ROLE=$role
+NODE_TYPE=$node_type
+ADDRESS_CLASS=$address_class
+NODE_ADDRESS=$address
+PUBLIC_KEY_FILE=public.key
+PRIVATE_KEY_FILE=private.key
+EOF
+
+  cat > "$key_dir/identity.json" <<EOF
+{
+  "node_slot_id": "$node_slot_id",
+  "node_alias": "$node_alias",
+  "role": "$role",
+  "node_type": "$node_type",
+  "address_class": $address_class,
+  "address": "$address",
+  "public_key": "$public_key",
+  "private_key": "$private_key"
+}
+EOF
+
+  cat > "$key_dir/identity.toml" <<EOF
+node_slot_id = "$node_slot_id"
+node_alias = "$node_alias"
+role = "$role"
+node_type = "$node_type"
+address_class = $address_class
+
+[address]
+value = "$address"
+
+[keys]
+public_key = "$public_key"
+private_key = "$private_key"
+EOF
+}
+
 ALLOWED_VALIDATOR_ADDRESSES_CSV="$(collect_allowlisted_validators_csv)"
 
 while IFS=, read -r node_slot_id node_alias role_group role node_type address_class p2p_port rpc_port ws_port grpc_port discovery_port host management_host physical_machine_id auto_register enable_pruning vrf_enabled operator device operating_system public_ip local_ip || [[ -n "${node_slot_id:-}" ]]; do
   [[ "$node_slot_id" == "node_slot_id" ]] && continue
+  if [[ "$(printf '%s' "$node_type" | tr '[:upper:]' '[:lower:]')" == "bootnode" ]]; then
+    continue
+  fi
+
+  source_env_file="$(testbeta_env_file_for_inventory_node "$node_slot_id" "$node_type" "" "$host" || true)"
+  setup_package_file="$(resolve_setup_package_file "$node_slot_id" "$node_type" "$role" "$node_alias")"
+  key_source_dir=""
+  if [[ "$(printf '%s' "$node_type" | tr '[:upper:]' '[:lower:]')" != "validator" || -z "$setup_package_file" ]]; then
+    key_source_dir="$(resolve_key_source_dir "$node_slot_id" "$node_type")"
+  fi
+  validator_address="$(testbeta_first_nonempty \
+    "$(testbeta_env_value "$source_env_file" "NODE_WALLET" || true)" \
+    "$(lookup_node_address "$node_slot_id" || true)" \
+    "$(lookup_address_from_setup_package "$setup_package_file" || true)" \
+    "$( [[ -n "$key_source_dir" && -f "$key_source_dir/address.txt" ]] && cat "$key_source_dir/address.txt" || true )" \
+  )"
+  host="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "HOSTNAME" "$host")"
+  public_ip="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "PUBLIC_IP" "$public_ip")"
+  local_ip="$(testbeta_inventory_env_value_allow_empty "$node_slot_id" "$node_type" "$validator_address" "$host" "LOCAL_IP" "$local_ip")"
+  bind_ip="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "BIND_IP" "")"
+  p2p_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "P2P_PORT" "$p2p_port")"
+  rpc_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "RPC_PORT" "$rpc_port")"
+  ws_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "WS_PORT" "$ws_port")"
+  grpc_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "GRPC_PORT" "$grpc_port")"
+  discovery_port="$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "DISCOVERY_PORT" "$discovery_port")"
+  management_host="$(testbeta_first_nonempty \
+    "$(testbeta_inventory_env_value "$node_slot_id" "$node_type" "$validator_address" "$host" "MANAGEMENT_HOST" "")" \
+    "$public_ip" \
+    "$local_ip" \
+    "$management_host" \
+    "$host" \
+  )"
 
   auto_register="$(normalize_bool "$auto_register")"
   enable_pruning="$(normalize_bool "$enable_pruning")"
@@ -1537,14 +2003,43 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type address_cl
 
   cp "$CONFIG_DIR/${node_slot_id}.toml" "$node_dir/config/node.toml"
   cp "$GENESIS_FILE" "$node_dir/config/genesis.json"
-  cp "$KEYS_DIR/${node_slot_id}"/* "$node_dir/keys/"
+  if [[ "$(printf '%s' "$node_type" | tr '[:upper:]' '[:lower:]')" == "validator" && -n "$setup_package_file" ]]; then
+    populate_validator_keys_from_setup_package \
+      "$setup_package_file" \
+      "$node_dir/keys" \
+      "$node_slot_id" \
+      "$node_alias" \
+      "$role" \
+      "$node_type" \
+      "$address_class"
+  else
+    cp "$key_source_dir"/* "$node_dir/keys/"
+  fi
 
   public_address="$(awk -F'"' '/^[[:space:]]*public_address[[:space:]]*=/ { print $2; exit }' "$node_dir/config/node.toml")"
+  listen_address="$(awk -F'"' '/^[[:space:]]*listen_address[[:space:]]*=/ { print $2; exit }' "$node_dir/config/node.toml")"
+  discovery_listen_address="$(awk -F'"' '/^[[:space:]]*discovery_listen_address[[:space:]]*=/ { print $2; exit }' "$node_dir/config/node.toml")"
+  discovery_public_address="$(awk -F'"' '/^[[:space:]]*discovery_public_address[[:space:]]*=/ { print $2; exit }' "$node_dir/config/node.toml")"
+  rpc_bind_address="$(awk -F'"' '/^[[:space:]]*bind_address[[:space:]]*=/ { print $2; exit }' "$node_dir/config/node.toml")"
   public_host="${public_address%:*}"
   public_p2p_port="${public_address##*:}"
   if [[ -z "$public_address" || -z "$public_host" || -z "$public_p2p_port" ]]; then
     public_host="$host"
     public_p2p_port="$p2p_port"
+  fi
+  if [[ -z "$listen_address" ]]; then
+    listen_address="0.0.0.0:${p2p_port}"
+  fi
+  if [[ -z "$discovery_listen_address" ]]; then
+    discovery_listen_address="0.0.0.0:${discovery_port}"
+  fi
+  if [[ -z "$discovery_public_address" ]]; then
+    discovery_public_address="${public_host}:${discovery_port}"
+  fi
+  bind_host="${rpc_bind_address%:*}"
+  if [[ -z "$rpc_bind_address" || -z "$bind_host" ]]; then
+    bind_host="$(testbeta_first_nonempty "$bind_ip" "$local_ip" "$management_host" "$public_host")"
+    rpc_bind_address="${bind_host}:${rpc_port}"
   fi
 
   cat > "$node_dir/node.env" <<ENV
@@ -1554,14 +2049,25 @@ ROLE_GROUP=$role_group
 ROLE=$role
 NODE_TYPE=$node_type
 ADDRESS_CLASS=$address_class
-NODE_ADDRESS=$(cat "$KEYS_DIR/${node_slot_id}/address.txt")
-SYNERGY_VALIDATOR_ADDRESS=$(cat "$KEYS_DIR/${node_slot_id}/address.txt")
+NODE_ADDRESS=$validator_address
+SYNERGY_VALIDATOR_ADDRESS=$validator_address
+HOSTNAME=$public_host
+NODE_HOSTNAME=$public_host
+PUBLIC_IP=$public_ip
+LOCAL_IP=$local_ip
+BIND_IP=$bind_host
 P2P_PORT=$p2p_port
+P2P_LISTEN_ADDRESS=$listen_address
 PUBLIC_P2P_PORT=$public_p2p_port
+P2P_EXTERNAL_ADDRESS=$public_address
+P2P_PUBLIC_ADDRESS=$public_address
 RPC_PORT=$rpc_port
 WS_PORT=$ws_port
 GRPC_PORT=$grpc_port
 DISCOVERY_PORT=$discovery_port
+DISCOVERY_LISTEN_ADDRESS=$discovery_listen_address
+DISCOVERY_EXTERNAL_ADDRESS=$discovery_public_address
+DISCOVERY_PUBLIC_ADDRESS=$discovery_public_address
 HOST=$public_host
 NODE_PUBLIC_HOST=$public_host
 NODE_PUBLIC_IP=$public_ip
@@ -1575,15 +2081,60 @@ ENABLE_PRUNING=$enable_pruning
 VRF_ENABLED=$vrf_enabled
 STRICT_VALIDATOR_ALLOWLIST=true
 ALLOWED_VALIDATOR_ADDRESSES=$ALLOWED_VALIDATOR_ADDRESSES_CSV
-RPC_BIND_ADDRESS=${management_host}:${rpc_port}
+RPC_BIND_ADDRESS=$rpc_bind_address
 SYNERGY_CHAIN_ID=$TESTBETA_CHAIN_ID
 SYNERGY_NETWORK_ID=$TESTBETA_NETWORK_ID
+SYNERGY_P2P_LISTEN_ADDRESS=$listen_address
+SYNERGY_P2P_EXTERNAL_ADDRESS=$public_address
+SYNERGY_P2P_PUBLIC_ADDRESS=$public_address
+SYNERGY_DISCOVERY_PORT=$discovery_port
+SYNERGY_DISCOVERY_LISTEN_ADDRESS=$discovery_listen_address
+SYNERGY_DISCOVERY_EXTERNAL_ADDRESS=$discovery_public_address
+SYNERGY_DISCOVERY_PUBLIC_ADDRESS=$discovery_public_address
 SYNERGY_AUTO_REGISTER_VALIDATOR=$auto_register
 SYNERGY_STRICT_VALIDATOR_ALLOWLIST=true
 SYNERGY_ALLOWED_VALIDATOR_ADDRESSES=$ALLOWED_VALIDATOR_ADDRESSES_CSV
-SYNERGY_RPC_BIND_ADDRESS=${management_host}:${rpc_port}
+SYNERGY_RPC_BIND_ADDRESS=$rpc_bind_address
 SYNERGY_CONFIG_PATH=config/node.toml
 ENV
+
+  for extra_key in \
+    NETWORK_NAME \
+    NODE_ID \
+    NODE_ROLE \
+    ADVERTISE_IP \
+    P2P_PORT_EXTERNAL \
+    DISCOVERY_PORT_EXTERNAL \
+    METRICS_PORT \
+    INDEXER_INGEST_PORT \
+    INDEXER_API_PORT \
+    EXPLORER_API_PORT \
+    INDEXER_WS_PORT \
+    INDEXER_WS_HOSTNAME \
+    POSTGRES_HOST \
+    POSTGRES_PORT \
+    POSTGRES_DB \
+    POSTGRES_USER \
+    POSTGRES_PASSWORD \
+    POSTGRES_SSLMODE \
+    NGINX_HTTP_PORT \
+    NGINX_HTTPS_PORT \
+    DATA_DIR \
+    CONFIG_DIR \
+    LOG_DIR \
+    NODE_KEY_PATH \
+    RPC_FALLBACK_URL \
+    RPC_HOSTNAME \
+    BOOTNODES
+  do
+    append_source_env_key_if_present "$node_dir" "$source_env_file" "$extra_key"
+  done
+
+  if [[ "$(printf '%s' "$node_type" | tr '[:upper:]' '[:lower:]')" == "validator" && -n "$setup_package_file" ]]; then
+    printf '%s\n' "$validator_address" > "$node_dir/keys/address.txt"
+  else
+    write_key_metadata "$node_dir/keys" "$node_slot_id" "$node_alias" "$role" "$node_type" "$address_class" "$validator_address"
+  fi
 
   write_install_script "$node_dir"
   write_nodectl_script "$node_dir"

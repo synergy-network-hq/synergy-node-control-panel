@@ -6,8 +6,8 @@ INVENTORY_FILE="$ROOT_DIR/testbeta/runtime/node-inventory.csv"
 BOOTSTRAP_SCRIPT="$ROOT_DIR/scripts/testbeta/bootstrap-sxcp-testbeta.sh"
 SMOKE_SCRIPT="$ROOT_DIR/scripts/testbeta/sxcp-smoke-test.sh"
 
-default_rpc_port="$(awk -F, '$1=="node-06" {print $8}' "$INVENTORY_FILE" 2>/dev/null || true)"
-default_rpc_port="${default_rpc_port:-48643}"
+default_rpc_port="$(awk -F, 'NR > 1 && tolower($5)=="rpc-gateway" {print $8; exit}' "$INVENTORY_FILE" 2>/dev/null || true)"
+default_rpc_port="${default_rpc_port:-5646}"
 RPC_URL="${RPC_URL:-http://127.0.0.1:${default_rpc_port}}"
 
 usage() {

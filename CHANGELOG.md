@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v8.0.0 - 2026-04-09
+
+- Aligned the control-panel app version, bundled workspace manifest, and release tag so published installers report the same `v8.0.0` release line in-app and in release metadata.
+- Re-enabled Windows installer production in the release workflow and switched bundled Testnet-Beta source selection to the current release tag instead of a stale hard-coded ref.
+- Refreshed the Testnet-Beta dashboard and validator connectivity presentation around the current 5-validator topology, bootstrap-only infrastructure, and stricter peer identity requirements.
+
 ## v7.1.0 - 2026-04-08
 
 - Fixed the developer-mode local peer list so weak inbound socket entries are merged into the canonical validator peer card instead of rendering as duplicate peers when the same validator is visible by both its public endpoint and an ephemeral incoming connection.
