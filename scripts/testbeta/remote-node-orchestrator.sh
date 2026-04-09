@@ -74,23 +74,51 @@ else
 fi
 
 inventory_host() {
-  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $12; exit}' "$INVENTORY_FILE"
+  awk -F, -v machine="$CANONICAL_NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $12; exit}' "$INVENTORY_FILE"
 }
 
 inventory_management_host() {
-  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $13; exit}' "$INVENTORY_FILE"
+  awk -F, -v machine="$CANONICAL_NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $13; exit}' "$INVENTORY_FILE"
 }
 
 inventory_public_ip() {
-  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $21; exit}' "$INVENTORY_FILE"
+  awk -F, -v machine="$CANONICAL_NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $21; exit}' "$INVENTORY_FILE"
 }
 
 inventory_node_alias() {
-  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $2; exit}' "$INVENTORY_FILE"
+  awk -F, -v machine="$CANONICAL_NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print $2; exit}' "$INVENTORY_FILE"
 }
 
 inventory_node_type() {
-  awk -F, -v machine="$NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print tolower($5); exit}' "$INVENTORY_FILE"
+  awk -F, -v machine="$CANONICAL_NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print tolower($5); exit}' "$INVENTORY_FILE"
+}
+
+inventory_operating_system() {
+  awk -F, -v machine="$CANONICAL_NODE_SLOT_ID" 'NR>1 && tolower($1)==tolower(machine){print tolower($20); exit}' "$INVENTORY_FILE"
+}
+
+canonical_node_slot_id() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    node-01|genval-01|genesisval1) printf 'GenVal-01' ;;
+    node-02|genval-02|genesisval2) printf 'GenVal-02' ;;
+    node-04|genval-03|genesisval3) printf 'GenVal-03' ;;
+    node-06|genval-04|genesisval4) printf 'GenVal-04' ;;
+    node-16|genval-05|genesisval5) printf 'GenVal-05' ;;
+    node-rpc|node-13|genesisrpc) printf 'Node-RPC' ;;
+    node-exp|node-14|genesisindexer) printf 'Node-EXP' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+normalize_remote_platform() {
+  local raw
+  raw="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$raw" in
+    *windows*) printf 'windows' ;;
+    *macos*|*darwin*|*osx*) printf 'darwin' ;;
+    *linux*|*ubuntu*) printf 'linux' ;;
+    *) printf 'linux' ;;
+  esac
 }
 
 resolve_var() {
@@ -116,6 +144,7 @@ SSH_PORT_VAR="${MACHINE_KEY_UPPER}_SSH_PORT"
 SSH_KEY_VAR="${MACHINE_KEY_UPPER}_SSH_KEY"
 REMOTE_DIR_VAR="${MACHINE_KEY_UPPER}_REMOTE_DIR"
 PUBLIC_IP_VAR="${MACHINE_KEY_UPPER}_PUBLIC_IP"
+CANONICAL_NODE_SLOT_ID="$(canonical_node_slot_id "$NODE_SLOT_ID")"
 
 HOST="$(resolve_var "$HOST_VAR")"
 if [[ -z "$HOST" ]]; then
@@ -147,8 +176,18 @@ if [[ -z "$SSH_KEY" ]]; then
   SSH_KEY="${SYNERGY_TESTBETA_SSH_KEY:-}"
 fi
 REMOTE_NODE_DIR="$(resolve_var "$REMOTE_DIR_VAR")"
+REMOTE_PLATFORM="$(normalize_remote_platform "$(inventory_operating_system)")"
 if [[ -z "$REMOTE_NODE_DIR" ]]; then
-  REMOTE_NODE_DIR="$REMOTE_ROOT_DEFAULT/$NODE_SLOT_ID"
+  if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+    REMOTE_NODE_DIR="C:/Synergy/$CANONICAL_NODE_SLOT_ID"
+  else
+    REMOTE_NODE_DIR="$REMOTE_ROOT_DEFAULT/$CANONICAL_NODE_SLOT_ID"
+  fi
+fi
+if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+  REMOTE_TEMP_DIR="${SYNERGY_REMOTE_TEMP_DIR:-C:/Windows/Temp}"
+else
+  REMOTE_TEMP_DIR="${SYNERGY_REMOTE_TEMP_DIR:-/tmp}"
 fi
 
 if [[ -z "$HOST" ]]; then
@@ -246,7 +285,7 @@ REMOTE_TARGET="${SSH_USER}@${HOST}"
 ACTIVE_REMOTE_HOST="$HOST"
 NODE_ALIAS="$(inventory_node_alias)"
 NODE_TYPE="$(inventory_node_type)"
-INSTALLER_DIR="$INSTALLERS_DIR/$NODE_SLOT_ID"
+INSTALLER_DIR="$INSTALLERS_DIR/$CANONICAL_NODE_SLOT_ID"
 if [[ "$NODE_TYPE" == "bootnode" && -n "$NODE_ALIAS" && -d "$BOOTSTRAP_BUNDLES_DIR/$NODE_ALIAS" ]]; then
   INSTALLER_DIR="$BOOTSTRAP_BUNDLES_DIR/$NODE_ALIAS"
 fi
@@ -312,10 +351,18 @@ scp_from_remote() {
 
 remote_run_script() {
   local script="$1"
-  if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
-    bash -s <<<"$script"
+  if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+    if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
+      powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command - <<<"$script"
+    else
+      ssh_run "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command -" "$script"
+    fi
   else
-    ssh_run "bash -s" "$script"
+    if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
+      bash -s <<<"$script"
+    else
+      ssh_run "bash -s" "$script"
+    fi
   fi
 }
 
@@ -352,11 +399,21 @@ deploy_installer_bundle() {
   tar -C "$INSTALLER_DIR" -czf "$archive" .
 
   local remote_archive
-  remote_archive="/tmp/${NODE_SLOT_ID}-installer.tgz"
+  remote_archive="$REMOTE_TEMP_DIR/${CANONICAL_NODE_SLOT_ID}-installer.tgz"
   copy_to_remote "$archive" "$remote_archive"
   rm -f "$archive"
 
-  remote_run_script "
+  if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+    remote_run_script "
+\$remoteNodeDir = '$REMOTE_NODE_DIR'
+\$remoteArchive = '$remote_archive'
+New-Item -ItemType Directory -Force -Path \$remoteNodeDir | Out-Null
+tar -xzf \$remoteArchive -C \$remoteNodeDir
+Remove-Item -Path \$remoteArchive -Force -ErrorAction SilentlyContinue
+Write-Host 'Installer deployed to $REMOTE_NODE_DIR'
+"
+  else
+    remote_run_script "
 set -euo pipefail
 mkdir -p '$REMOTE_NODE_DIR'
 tar -xzf '$remote_archive' -C '$REMOTE_NODE_DIR'
@@ -364,11 +421,22 @@ rm -f '$remote_archive'
 chmod +x '$REMOTE_NODE_DIR/install_and_start.sh' '$REMOTE_NODE_DIR/nodectl.sh' || true
 echo 'Installer deployed to $REMOTE_NODE_DIR'
 "
+  fi
 }
 
 run_nodectl() {
   local command="$1"
-  remote_run_script "
+  if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+    remote_run_script "
+\$scriptPath = Join-Path '$REMOTE_NODE_DIR' 'nodectl.ps1'
+if (-not (Test-Path \$scriptPath)) {
+  throw 'nodectl.ps1 not found in $REMOTE_NODE_DIR. Run install_node or setup_node first.'
+}
+Set-Location '$REMOTE_NODE_DIR'
+& \$scriptPath '$command'
+"
+  else
+    remote_run_script "
 set -euo pipefail
 if [[ ! -x '$REMOTE_NODE_DIR/nodectl.sh' ]]; then
   echo 'nodectl.sh not found in $REMOTE_NODE_DIR. Run install_node or setup_node first.' >&2
@@ -377,11 +445,32 @@ fi
 cd '$REMOTE_NODE_DIR'
 ./nodectl.sh $command
 "
+  fi
 }
 
 kill_machine_processes() {
   local reason="${1:-cleanup}"
-  remote_run_script "
+  if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+    remote_run_script "
+\$pidFile = Join-Path '$REMOTE_NODE_DIR' 'data/node.pid'
+\$configPath = Join-Path '$REMOTE_NODE_DIR' 'config/node.toml'
+\$pidValue = \$null
+
+if (Test-Path \$pidFile) {
+  \$pidValue = Get-Content \$pidFile -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (\$pidValue) {
+    Write-Host \"Killing stale $CANONICAL_NODE_SLOT_ID process \$pidValue for $reason...\"
+    Stop-Process -Id \$pidValue -Force -ErrorAction SilentlyContinue
+  }
+  Remove-Item \$pidFile -Force -ErrorAction SilentlyContinue
+}
+
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object { \$_.CommandLine -and \$_.CommandLine.Contains(\$configPath) } |
+  ForEach-Object { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue }
+"
+  else
+    remote_run_script "
 set -euo pipefail
 config_path='$REMOTE_NODE_DIR/config/node.toml'
 if [[ ! -f \"\$config_path\" ]]; then
@@ -404,6 +493,7 @@ for pid in \$pids; do
   fi
 done
 "
+  fi
 }
 
 # ── Readiness & Connectivity Helpers ──────────────────────────────────────────
@@ -454,7 +544,29 @@ reset_chain() {
   run_nodectl "stop" || true
   kill_machine_processes "reset_chain"
 
-  remote_run_script "
+  if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+    remote_run_script "
+Set-Location '$REMOTE_NODE_DIR'
+foreach (\$target in @(
+  'data/chain',
+  'data/testbeta15/$CANONICAL_NODE_SLOT_ID/chain',
+  'data/testbeta15/$CANONICAL_NODE_SLOT_ID/logs',
+  'data/chain.json',
+  'data/token_state.json',
+  'data/validator_registry.json',
+  'data/synergy-testbeta.pid',
+  'data/.reset_flag',
+  'data/node.pid'
+)) {
+  if (Test-Path \$target) {
+    Remove-Item \$target -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+New-Item -ItemType Directory -Force -Path 'data/chain','data/testbeta15/$CANONICAL_NODE_SLOT_ID/chain','data/testbeta15/$CANONICAL_NODE_SLOT_ID/logs','data/logs' | Out-Null
+Write-Host 'Cleared all chain state for $CANONICAL_NODE_SLOT_ID in $REMOTE_NODE_DIR — node is stopped and ready for manual start.'
+"
+  else
+    remote_run_script "
 set -euo pipefail
 cd '$REMOTE_NODE_DIR'
 
@@ -491,6 +603,7 @@ fi
 mkdir -p data/chain data/testbeta15/'$NODE_SLOT_ID'/chain data/testbeta15/'$NODE_SLOT_ID'/logs data/logs
 echo 'Cleared all chain state for $NODE_SLOT_ID in $REMOTE_NODE_DIR — node is stopped and ready for manual start.'
 "
+  fi
 
   # Re-deploy the installer bundle so the node picks up the latest
   # configs and genesis parameters when it is started next.
@@ -960,9 +1073,11 @@ fi
 show_info() {
   cat <<INFO
 Machine:            $NODE_SLOT_ID
+Canonical Slot:     $CANONICAL_NODE_SLOT_ID
 Host:               $HOST
 Management Host:             ${MANAGEMENT_HOST:-unknown}
 SSH candidates:     ${HOST_CANDIDATES[*]}
+Remote platform:    $REMOTE_PLATFORM
 Execution mode:     $([[ "$IS_LOCAL_TARGET" -eq 1 ]] && echo "local" || echo "ssh")
 SSH user:           $SSH_USER
 SSH port:           $SSH_PORT
@@ -977,9 +1092,17 @@ case "$OPERATION" in
   # ── Core lifecycle ─────────────────────────────────────────────────────
   install_node)       deploy_installer_bundle ;;
   setup_node)         deploy_installer_bundle
-                      remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh" ;;
+                      if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+                        remote_run_script "\$scriptPath = Join-Path '$REMOTE_NODE_DIR' 'install_and_start.ps1'; Set-Location '$REMOTE_NODE_DIR'; & \$scriptPath"
+                      else
+                        remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh"
+                      fi ;;
   bootstrap_node)     deploy_installer_bundle
-                      remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh" ;;
+                      if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
+                        remote_run_script "\$scriptPath = Join-Path '$REMOTE_NODE_DIR' 'install_and_start.ps1'; Set-Location '$REMOTE_NODE_DIR'; & \$scriptPath"
+                      else
+                        remote_run_script "set -euo pipefail; cd '$REMOTE_NODE_DIR'; ./install_and_start.sh"
+                      fi ;;
   reset_chain)        reset_chain ;;
   explorer_reset)     explorer_reset ;;
   deploy_agent)       deploy_agent ;;

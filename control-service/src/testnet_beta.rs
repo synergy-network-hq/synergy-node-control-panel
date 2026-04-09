@@ -3958,9 +3958,7 @@ struct CanonicalValidatorPeer {
 
 fn canonical_public_p2p_port_for_validator_slot(slot: u64) -> u16 {
     match slot {
-        1 | 2 | 5 => 5622,
-        3 => 5623,
-        4 => 5624,
+        1..=5 => 5622,
         _ => TESTNET_BETA_P2P_PORT,
     }
 }
@@ -5312,9 +5310,13 @@ fn build_node_toml(
     port_slot: u16,
     assigned_ports: Option<&TestnetBetaCeremonyAssignedPorts>,
 ) -> String {
-    let runtime_ports = assigned_ports
+    let mut runtime_ports = assigned_ports
         .map(runtime_ports_for_assigned_ports)
         .unwrap_or_else(|| runtime_ports_for_slot(port_slot));
+    if role.id == "validator" {
+        runtime_ports.public_p2p_port = runtime_ports.p2p_port;
+        runtime_ports.public_discovery_port = runtime_ports.discovery_port;
+    }
     let p2p_port = runtime_ports.p2p_port;
     let rpc_port = runtime_ports.rpc_port;
     let ws_port = runtime_ports.ws_port;
@@ -6399,7 +6401,7 @@ public_address = "71.86.65.178:5622"
                     .get("p2p")
                     .and_then(|section| section.get("public_address"))
                     .and_then(toml::Value::as_str),
-                Some("validator4.example.net:5624")
+                Some("validator4.example.net:5622")
             );
 
             let registry = load_registry(&root).expect("registry should load");
@@ -6669,7 +6671,7 @@ public_address = "71.86.65.178:5622"
                     .get("p2p")
                     .and_then(|section| section.get("public_address"))
                     .and_then(toml::Value::as_str),
-                Some("validator4.example.net:5624")
+                Some("validator4.example.net:5622")
             );
         });
     }
