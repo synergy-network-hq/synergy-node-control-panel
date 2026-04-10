@@ -5882,6 +5882,11 @@ code {
   gap: 0.45rem;
 }
 
+.nodecp-peer-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .nodecp-peer-card-title {
   display: flex;
   flex-direction: column;

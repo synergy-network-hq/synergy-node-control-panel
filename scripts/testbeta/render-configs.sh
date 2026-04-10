@@ -14,7 +14,7 @@ TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
 TESTBETA_NETWORK_NAME="${TESTBETA_NETWORK_NAME:-synergy-testnet-beta}"
 TESTBETA_BLOCK_TIME_SECS="${TESTBETA_BLOCK_TIME_SECS:-2}"
 TESTBETA_EPOCH_LENGTH="${TESTBETA_EPOCH_LENGTH:-1000}"
-TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-4}"
+TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-3}"
 TESTBETA_VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-5}"
 TESTBETA_MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-100}"
 ALLOW_WILDCARD_LISTEN="${ALLOW_WILDCARD_LISTEN:-false}"
@@ -105,7 +105,14 @@ resolve_public_p2p_port() {
     return
   fi
 
-  echo "$default_port"
+  case "$validator_address" in
+    synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra) echo "5622" ;;
+    synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu) echo "5622" ;;
+    synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu) echo "5623" ;;
+    synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49) echo "5624" ;;
+    synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46) echo "5622" ;;
+    *) echo "$default_port" ;;
+  esac
 }
 
 is_assigned_synergy_host() {

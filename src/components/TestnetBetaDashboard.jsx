@@ -23,6 +23,7 @@ import {
 } from '../lib/testnetBetaPeerInfo';
 import { SNRGButton } from '../styles/SNRGButton';
 const MAX_NODE_SLOTS = 4;
+const BOOTSTRAP_VALIDATOR_QUORUM = 3;
 const DEFAULT_ATLAS_API_BASE = 'https://testbeta-atlas-api.synergy-network.io';
 const NWEI_PER_SNRG = 1000000000n;
 
@@ -656,6 +657,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [boostBusy, setBoostBusy] = useState(false);
   const [registerBusy, setRegisterBusy] = useState(false);
+  const [peerReconnectBusy, setPeerReconnectBusy] = useState('');
 
   const atlasAvailable = useRef(true);
 
@@ -1105,6 +1107,54 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     [chainSummary?.total_validator_clusters],
   );
 
+  const liveConnectedValidatorCount = useMemo(() => {
+    const preferredCount = syncedValidatorForNetworkStats
+      ? toFiniteNumber(nodeLiveById[syncedValidatorForNetworkStats.id]?.connected_validator_count)
+      : null;
+    if (preferredCount != null) {
+      return preferredCount;
+    }
+    const counts = (liveStatus?.nodes || [])
+      .map((entry) => toFiniteNumber(entry.connected_validator_count))
+      .filter((value) => value != null);
+    if (counts.length > 0) {
+      return Math.max(...counts);
+    }
+    return null;
+  }, [liveStatus?.nodes, nodeLiveById, syncedValidatorForNetworkStats]);
+
+  const readyValidatorCount = useMemo(() => {
+    const preferredCount = syncedValidatorForNetworkStats
+      ? toFiniteNumber(nodeLiveById[syncedValidatorForNetworkStats.id]?.status_ready_validator_count)
+      : null;
+    if (preferredCount != null) {
+      return preferredCount;
+    }
+    const counts = (liveStatus?.nodes || [])
+      .map((entry) => toFiniteNumber(entry.status_ready_validator_count))
+      .filter((value) => value != null);
+    if (counts.length > 0) {
+      return Math.max(...counts);
+    }
+    return null;
+  }, [liveStatus?.nodes, nodeLiveById, syncedValidatorForNetworkStats]);
+
+  const connectedPeerCount = useMemo(() => {
+    const preferredCount = syncedValidatorForNetworkStats
+      ? toFiniteNumber(nodeLiveById[syncedValidatorForNetworkStats.id]?.local_peer_count)
+      : null;
+    if (preferredCount != null) {
+      return preferredCount;
+    }
+    const counts = (liveStatus?.nodes || [])
+      .map((entry) => toFiniteNumber(entry.local_peer_count))
+      .filter((value) => value != null);
+    if (counts.length > 0) {
+      return Math.max(...counts);
+    }
+    return null;
+  }, [liveStatus?.nodes, nodeLiveById, syncedValidatorForNetworkStats]);
+
   const localActiveValidatorCount = useMemo(() => {
     if (localValidatorStats?.total_validators != null) {
       return toFiniteNumber(localValidatorStats.total_validators);
@@ -1178,20 +1228,14 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   }, [liveChainTip, liveStatus?.bootnodes, liveStatus?.chain_status]);
 
   const activeValidatorCount = useMemo(() => {
-    if (localActiveValidatorCount != null && localActiveValidatorCount > 0) {
-      return localActiveValidatorCount;
+    if (readyValidatorCount != null) {
+      return readyValidatorCount;
     }
-    if (atlasValidatorCount != null && (chainSummaryFresh || atlasValidatorCount > 0)) {
-      return atlasValidatorCount;
-    }
-    if (localActiveValidatorCount != null) {
-      return localActiveValidatorCount;
-    }
-    if (!syncedValidatorForNetworkStats && atlasValidatorCount != null && atlasValidatorCount > 0) {
-      return atlasValidatorCount;
+    if (liveConnectedValidatorCount != null) {
+      return liveConnectedValidatorCount;
     }
     return null;
-  }, [atlasValidatorCount, chainSummaryFresh, localActiveValidatorCount, syncedValidatorForNetworkStats]);
+  }, [liveConnectedValidatorCount, readyValidatorCount]);
 
   const validatorClusterCount = useMemo(() => {
     if (localValidatorClusterCount != null && localValidatorClusterCount > 0) {
@@ -1221,19 +1265,18 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   ]);
 
   const networkVisiblePeerCount = useMemo(() => {
-    if (liveStatus?.network_peer_count != null) return liveStatus.network_peer_count;
-    if (activeValidatorCount != null) return activeValidatorCount;
-    return liveStatus?.public_peer_count ?? null;
-  }, [activeValidatorCount, liveStatus?.network_peer_count, liveStatus?.public_peer_count]);
+    if (connectedPeerCount != null) return connectedPeerCount;
+    return null;
+  }, [connectedPeerCount]);
 
   const headerCopy = selectedNode
     ? `Live chain state, sync, and rewards for ${selectedNode.display_label || roleTypeLabel(selectedNode.role_display_name)}.`
     : 'Set up a node to begin tracking live chain state, peer connectivity, rewards, and service health.';
 
   const validatorQuorumCopy = selectedRole?.id === 'validator'
-    ? (validatorCount >= 3
-      ? 'Block production is configured to begin once three active validators are online.'
-      : 'This validator will remain idle until the network sees three active validators.')
+    ? (validatorCount >= BOOTSTRAP_VALIDATOR_QUORUM
+      ? `Block production is configured to begin once ${BOOTSTRAP_VALIDATOR_QUORUM} active validators are online.`
+      : `This validator will remain idle until the network sees ${BOOTSTRAP_VALIDATOR_QUORUM} active validators.`)
     : 'This role joins the network after bootstrap, sync, and role validation complete.';
 
   const nodeSlots = useMemo(() => {
@@ -1319,11 +1362,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       tone: liveStatus?.public_chain_height != null ? 'good' : 'warn',
     },
     {
-      label: 'Network Peers',
+      label: 'Connected Peers',
       value: formatNumber(networkVisiblePeerCount),
-      detail: activeValidatorCount != null
-        ? `${formatNumber(activeValidatorCount)} active validators visible`
-        : 'Validator visibility pending',
+      detail: networkVisiblePeerCount != null
+        ? 'Peers currently connected to live validator sessions'
+        : 'Waiting for live peer sessions',
       tone: networkVisiblePeerCount != null ? 'good' : 'warn',
     },
     {
@@ -1530,6 +1573,35 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     }
   };
 
+  const handleForcePeerConnect = async (peer) => {
+    if (!selectedNode) return;
+
+    const dialTarget = String(peer?.publicAddress || peer?.address || '').trim();
+    if (!dialTarget) {
+      setError('Selected peer does not expose a usable dial target.');
+      return;
+    }
+
+    const busyKey = String(peer?.id || dialTarget);
+    setPeerReconnectBusy(busyKey);
+    try {
+      const result = await invoke('testbeta_force_peer_connect', {
+        input: {
+          nodeId: selectedNode.id,
+          dialTarget,
+          publicAddress: peer?.publicAddress || null,
+          validatorAddress: peer?.validatorAddress || null,
+        },
+      });
+      setControlMessage(result?.message || `Reconnect queued for ${dialTarget}.`);
+      await Promise.all([fetchDashboard(true), fetchReadiness(false)]);
+    } catch (connectError) {
+      setError(`Peer reconnect failed: ${String(connectError)}`);
+    } finally {
+      setPeerReconnectBusy('');
+    }
+  };
+
   const metrics = selectedNode
     ? [
         {
@@ -1545,11 +1617,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
           icon: ICONS.chain,
         },
         {
-          label: 'Network Peers',
+          label: 'Connected Peers',
           value: formatNumber(networkVisiblePeerCount),
-          detail: liveStatus?.network_peer_count != null
-            ? 'Visible peer endpoints across the validator mesh.'
-            : 'Waiting for live validator-mesh visibility.',
+          detail: networkVisiblePeerCount != null
+            ? 'Peers actively connected to this live validator mesh.'
+            : 'Waiting for live peer sessions.',
           icon: ICONS.peers,
         },
         {
@@ -1671,14 +1743,16 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       detail: 'Observed public-chain cadence',
     },
     {
-      label: 'Active Validators',
+      label: 'Ready Validators',
       value: formatNumber(activeValidatorCount),
-      detail: `${formatNumber(validatorClusterCount)} validator clusters`,
+      detail: liveConnectedValidatorCount != null
+        ? `${formatNumber(liveConnectedValidatorCount)} validators live on the mesh`
+        : 'Status-synced validators ready for block production',
     },
     {
-      label: 'Network Peers',
+      label: 'Connected Peers',
       value: formatNumber(networkVisiblePeerCount),
-      detail: 'Observed validator-mesh peer visibility',
+      detail: 'Peers actively connected to live validator sessions',
     },
     {
       label: 'Total Transactions',
@@ -1866,7 +1940,7 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             <strong>{chainSummary?.avg_block_time != null ? `${chainSummary.avg_block_time}s` : '—'}</strong>
           </div>
           <div className={`nodecp-strip-item nodecp-strip-${networkVisiblePeerCount != null ? 'ok' : 'warn'}`}>
-            <span className="nodecp-strip-label">Network Peers</span>
+            <span className="nodecp-strip-label">Connected Peers</span>
             <strong>{networkVisiblePeerCount != null ? networkVisiblePeerCount : '—'}</strong>
           </div>
           <div className={`nodecp-strip-item nodecp-strip-${totalBootnodes > 0 ? (healthyBootnodes === totalBootnodes ? 'ok' : 'warn') : 'warn'}`}>
@@ -2071,6 +2145,8 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                     ? 'nodecp-health-pill nodecp-health-live'
                     : `nodecp-health-pill nodecp-health-${peerRuntimeStatus.tone}`)
                   : '';
+                const peerReconnectKey = String(peer.id || peer.publicAddress || peer.address || index);
+                const peerReconnectTarget = String(peer.publicAddress || peer.address || '').trim();
                 return (
                 <article key={`${peer.id}-${index}`} className="nodecp-peer-card">
                   <div className="nodecp-peer-card-header">
@@ -2084,6 +2160,16 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
                       ) : null}
                       <span className="nodecp-health-pill nodecp-health-good">Connected</span>
                     </div>
+                  </div>
+                  <div className="nodecp-peer-card-actions">
+                    <SNRGButton
+                      variant="blue"
+                      size="sm"
+                      disabled={!peerReconnectTarget || peerReconnectBusy === peerReconnectKey || !!controlBusy}
+                      onClick={() => handleForcePeerConnect(peer)}
+                    >
+                      {peerReconnectBusy === peerReconnectKey ? 'Reconnecting...' : 'Force Connect'}
+                    </SNRGButton>
                   </div>
                   <div className="nodecp-peer-card-grid">
                     <div className="nodecp-peer-metric">

@@ -42,7 +42,7 @@ const TOKEN_SCALE: u64 = 1_000_000_000;
 const MINIMUM_STAKE_SNRG: u64 = 5_000;
 const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
-const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 4;
+const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 3;
 const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 5;
 const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 3;
 const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
@@ -284,6 +284,14 @@ pub struct AcceleratedSyncResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestnetBetaForcePeerConnectResult {
+    pub node_id: String,
+    pub dial_target: String,
+    pub unique_dial_targets: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestnetBetaLiveStatus {
     pub generated_at_utc: String,
     pub public_rpc_endpoint: String,
@@ -316,6 +324,17 @@ pub struct TestnetBetaSetupInput {
     pub node_address_override: Option<String>,
     #[serde(default)]
     pub skip_canonical_manifests: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaForcePeerConnectInput {
+    pub node_id: String,
+    pub dial_target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1237,6 +1256,108 @@ pub async fn testbeta_boost_sync(
     })
 }
 
+pub async fn testbeta_force_peer_connect(
+    app_context: &AppContext,
+    input: TestnetBetaForcePeerConnectInput,
+) -> Result<TestnetBetaForcePeerConnectResult, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == input.node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
+
+    let workspace_directory = PathBuf::from(&node.workspace_directory);
+    let config_path = workspace_directory.join("config").join("node.toml");
+    if !config_path.is_file() {
+        return Err(format!(
+            "Configuration file not found for {} at {}",
+            node.display_label,
+            config_path.display()
+        ));
+    }
+
+    repair_workspace_config_if_needed(&node.role_id, &config_path)?;
+    let requested_dial_target = normalize_testnet_beta_dial_target(&input.dial_target)
+        .ok_or_else(|| format!("Peer dial target is invalid: {}", input.dial_target.trim()))?;
+
+    write_canonical_workspace_manifests(&workspace_directory).ok();
+
+    let mut preferred_targets = Vec::new();
+    if let Some(public_address) = input
+        .public_address
+        .as_deref()
+        .and_then(normalize_testnet_beta_dial_target)
+    {
+        preferred_targets.push(public_address);
+    }
+    if !preferred_targets.contains(&requested_dial_target) {
+        preferred_targets.push(requested_dial_target.clone());
+    }
+    if let Some(validator_address) = input
+        .validator_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(canonical_target) =
+            canonical_validator_dial_target_for_address(&workspace_directory, validator_address)
+        {
+            if !preferred_targets.contains(&canonical_target) {
+                preferred_targets.push(canonical_target);
+            }
+        }
+    }
+
+    let self_targets = self_dial_target_aliases_for_node(&node, &workspace_directory);
+    preferred_targets.retain(|target| !self_targets.contains(target));
+    if preferred_targets.is_empty() {
+        return Err(
+            "Selected peer resolves back to this node; refusing to inject a self-dial target."
+                .to_string(),
+        );
+    }
+
+    let unique_dial_targets = refresh_workspace_peer_targets_with_overrides(
+        &state.network_profile,
+        &state.nodes,
+        &node,
+        &workspace_directory,
+        &preferred_targets,
+    )
+    .await?;
+
+    let runner = resolve_testbeta_runner(app_context, &node.role_id)?;
+    let was_running = running_pid_for_workspace(&workspace_directory).is_some();
+    if was_running {
+        let _ = run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await;
+        force_kill_workspace_processes(&workspace_directory)?;
+    }
+
+    launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
+    wait_for_workspace_start(&config_path, &workspace_directory, Duration::from_secs(30)).await?;
+    register_node_with_seeds_best_effort(&state.network_profile, &node).await;
+
+    let peer_label = input
+        .validator_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(requested_dial_target.as_str());
+    let lifecycle_verb = if was_running { "restarted" } else { "started" };
+
+    Ok(TestnetBetaForcePeerConnectResult {
+        node_id: node.id.clone(),
+        dial_target: requested_dial_target.clone(),
+        unique_dial_targets,
+        message: format!(
+            "Queued reconnect to {peer_label} via {requested_dial_target} and {lifecycle_verb} '{}'. peers.toml now carries {unique_dial_targets} dial targets.",
+            node.display_label
+        ),
+    })
+}
+
 pub fn testbeta_get_node_logs(node_id: String, lines: Option<usize>) -> Result<String, String> {
     let root = ensure_testnet_beta_root()?;
     let registry = load_registry(&root)?;
@@ -1619,30 +1740,26 @@ fn build_state() -> Result<TestnetBetaState, String> {
 fn discovery_summary(
     healthy_bootnodes: usize,
     total_bootnodes: usize,
-    healthy_seed_servers: usize,
-    total_seed_servers: usize,
+    _healthy_seed_servers: usize,
+    _total_seed_servers: usize,
 ) -> (String, String) {
-    if healthy_bootnodes >= 2 && healthy_seed_servers >= 1 {
+    if total_bootnodes > 0 && healthy_bootnodes == total_bootnodes {
         return (
             "Online".to_string(),
-            format!(
-                "{healthy_bootnodes}/{total_bootnodes} bootnodes and {healthy_seed_servers}/{total_seed_servers} seed services are responding."
-            ),
+            format!("{healthy_bootnodes}/{total_bootnodes} bootnodes are responding."),
         );
     }
 
-    if healthy_bootnodes > 0 || healthy_seed_servers > 0 {
+    if healthy_bootnodes > 0 {
         return (
             "Degraded".to_string(),
-            format!(
-                "Only {healthy_bootnodes}/{total_bootnodes} bootnodes and {healthy_seed_servers}/{total_seed_servers} seed services are reachable."
-            ),
+            format!("Only {healthy_bootnodes}/{total_bootnodes} bootnodes are reachable."),
         );
     }
 
     (
         "Offline".to_string(),
-        "No bootnodes or seed services responded to the control panel health check.".to_string(),
+        "No bootnodes responded to the control panel health check.".to_string(),
     )
 }
 
@@ -1651,7 +1768,7 @@ fn chain_summary(
     public_chain_height: Option<u64>,
     public_peer_count: Option<usize>,
     healthy_bootnodes: usize,
-    healthy_seed_servers: usize,
+    _healthy_seed_servers: usize,
 ) -> (String, String) {
     if public_rpc_online {
         let height = public_chain_height
@@ -1666,7 +1783,7 @@ fn chain_summary(
         );
     }
 
-    if healthy_bootnodes > 0 || healthy_seed_servers > 0 {
+    if healthy_bootnodes > 0 {
         return (
             "Bootstrap Only".to_string(),
             "Bootstrap endpoints are reachable, but the public RPC is not answering yet."
@@ -2114,6 +2231,15 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         return Ok(());
     }
 
+    let contents = fs::read_to_string(config_path)
+        .map_err(|error| format!("Failed to read {}: {error}", config_path.display()))?;
+    let mut updated = contents.clone();
+    let mut changed = false;
+    if updated.contains("min_validators = 4") {
+        updated = updated.replacen("min_validators = 4", "min_validators = 3", 1);
+        changed = true;
+    }
+
     let workspace_directory = match config_path.parent().and_then(Path::parent) {
         Some(path) => path,
         None => return Ok(()),
@@ -2123,6 +2249,10 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         .join("ceremony-package.json");
 
     if ceremony_package_path.is_file() {
+        if changed {
+            fs::write(config_path, &updated)
+                .map_err(|error| format!("Failed to update {}: {error}", config_path.display()))?;
+        }
         if let Ok(package) = load_ceremony_package(&ceremony_package_path) {
             repair_imported_validator_ports_if_needed(workspace_directory, config_path, &package)?;
         }
@@ -2143,16 +2273,22 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         return Ok(());
     }
 
-    let contents = fs::read_to_string(config_path)
-        .map_err(|error| format!("Failed to read {}: {error}", config_path.display()))?;
-    if contents.contains("auto_register_validator = true") {
+    if updated.contains("auto_register_validator = true") {
+        if changed {
+            fs::write(config_path, &updated)
+                .map_err(|error| format!("Failed to update {}: {error}", config_path.display()))?;
+        }
         return Ok(());
     }
-    if !contents.contains("auto_register_validator = false") {
+    if !updated.contains("auto_register_validator = false") {
+        if changed {
+            fs::write(config_path, &updated)
+                .map_err(|error| format!("Failed to update {}: {error}", config_path.display()))?;
+        }
         return Ok(());
     }
 
-    let updated = contents.replacen(
+    updated = updated.replacen(
         "auto_register_validator = false",
         "auto_register_validator = true",
         1,
@@ -3029,6 +3165,23 @@ async fn refresh_workspace_peer_targets(
     node: &TestnetBetaProvisionedNode,
     workspace_directory: &Path,
 ) -> Result<usize, String> {
+    refresh_workspace_peer_targets_with_overrides(
+        network_profile,
+        all_nodes,
+        node,
+        workspace_directory,
+        &[],
+    )
+    .await
+}
+
+async fn refresh_workspace_peer_targets_with_overrides(
+    network_profile: &TestnetBetaNetworkProfile,
+    all_nodes: &[TestnetBetaProvisionedNode],
+    node: &TestnetBetaProvisionedNode,
+    workspace_directory: &Path,
+    extra_dial_targets: &[String],
+) -> Result<usize, String> {
     let peers_toml_path = workspace_directory.join("config").join("peers.toml");
     let client = Client::builder()
         .timeout(Duration::from_secs(8))
@@ -3055,6 +3208,15 @@ async fn refresh_workspace_peer_targets(
     }
     for peer in siblings {
         if !targets.contains(&peer) {
+            targets.push(peer);
+        }
+    }
+    for peer in extra_dial_targets
+        .iter()
+        .filter_map(|value| normalize_testnet_beta_dial_target(value))
+    {
+        let host = peer.split(':').next().unwrap_or("").to_string();
+        if !canonical_hosts.contains(&host) && !targets.contains(&peer) {
             targets.push(peer);
         }
     }
@@ -3972,7 +4134,9 @@ struct CanonicalValidatorPeer {
 
 fn canonical_public_p2p_port_for_validator_slot(slot: u64) -> u16 {
     match slot {
-        1..=5 => 5622,
+        3 => 5623,
+        4 => 5624,
+        1 | 2 | 5 => 5622,
         _ => TESTNET_BETA_P2P_PORT,
     }
 }
@@ -4011,7 +4175,9 @@ fn canonical_testnet_beta_validator_peers() -> Vec<CanonicalValidatorPeer> {
         .unwrap_or_default()
 }
 
-fn canonical_validator_peers_for_workspace(workspace_directory: &Path) -> Vec<CanonicalValidatorPeer> {
+fn canonical_validator_peers_for_workspace(
+    workspace_directory: &Path,
+) -> Vec<CanonicalValidatorPeer> {
     canonical_validator_peers_from_manifest_path(
         &workspace_directory
             .join("config")
@@ -4031,8 +4197,13 @@ fn canonical_validator_bootnodes(
     peers: &[CanonicalValidatorPeer],
     current_node_address: &str,
 ) -> String {
-    peers.iter()
-        .filter(|entry| !entry.address.eq_ignore_ascii_case(current_node_address.trim()))
+    peers
+        .iter()
+        .filter(|entry| {
+            !entry
+                .address
+                .eq_ignore_ascii_case(current_node_address.trim())
+        })
         .map(|entry| {
             format!(
                 "\"snr://{}@{}\"",
@@ -4047,7 +4218,8 @@ fn canonical_validator_bootnodes(
 fn canonical_validator_allowlist(peers: &[CanonicalValidatorPeer]) -> String {
     format!(
         "[{}]",
-        peers.iter()
+        peers
+            .iter()
             .map(|entry| format!("\"{}\"", entry.address))
             .collect::<Vec<_>>()
             .join(", ")
@@ -4060,9 +4232,23 @@ fn canonical_validator_dial_targets_for_workspace(
 ) -> Vec<String> {
     canonical_validator_peers_for_workspace(workspace_directory)
         .into_iter()
-        .filter(|entry| !entry.address.eq_ignore_ascii_case(current_node_address.trim()))
+        .filter(|entry| {
+            !entry
+                .address
+                .eq_ignore_ascii_case(current_node_address.trim())
+        })
         .map(|entry| canonical_validator_dial_target(&entry))
         .collect()
+}
+
+fn canonical_validator_dial_target_for_address(
+    workspace_directory: &Path,
+    validator_address: &str,
+) -> Option<String> {
+    canonical_validator_peers_for_workspace(workspace_directory)
+        .into_iter()
+        .find(|entry| entry.address.eq_ignore_ascii_case(validator_address.trim()))
+        .map(|entry| canonical_validator_dial_target(&entry))
 }
 
 fn load_or_create_network_profile(root: &Path) -> Result<TestnetBetaNetworkProfile, String> {
@@ -6046,12 +6232,7 @@ mod tests {
             .map(|(_, dial)| dial)
             .collect::<Vec<_>>();
         dials.sort();
-        assert_eq!(
-            dials,
-            vec![
-                "73.79.66.255:5622".to_string(),
-            ]
-        );
+        assert_eq!(dials, vec!["73.79.66.255:5622".to_string(),]);
     }
 
     #[test]
