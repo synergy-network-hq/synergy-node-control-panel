@@ -3040,8 +3040,16 @@ async fn refresh_workspace_peer_targets(
         canonical_validator_dial_targets_for_workspace(workspace_directory, &node.node_address);
     let siblings = local_sibling_dial_targets(all_nodes, &node.id);
     let mut targets = canonical_targets;
+    // Canonical entries are the authority for known validator hostnames.
+    // Build a set of hostnames already covered so stale ports from other
+    // sources (seed servers, old peers.toml) don't shadow the correct entry.
+    let canonical_hosts: std::collections::HashSet<String> = targets
+        .iter()
+        .filter_map(|t| t.split(':').next().map(str::to_string))
+        .collect();
     for peer in seed_peers {
-        if !targets.contains(&peer) {
+        let host = peer.split(':').next().unwrap_or("").to_string();
+        if !canonical_hosts.contains(&host) && !targets.contains(&peer) {
             targets.push(peer);
         }
     }
@@ -3050,8 +3058,14 @@ async fn refresh_workspace_peer_targets(
             targets.push(peer);
         }
     }
-    if targets.is_empty() {
-        targets = read_peers_toml_additional_targets(&peers_toml_path);
+    // Always merge hardcoded entries from the existing peers.toml so manually
+    // configured dial targets survive restarts. Canonical hostnames take
+    // precedence — skip any preserved entry whose host is already covered.
+    for peer in read_peers_toml_additional_targets(&peers_toml_path) {
+        let host = peer.split(':').next().unwrap_or("").to_string();
+        if !canonical_hosts.contains(&host) && !targets.contains(&peer) {
+            targets.push(peer);
+        }
     }
     filter_self_dial_targets_for_node(&mut targets, node, workspace_directory);
     targets.sort();
@@ -6284,12 +6298,12 @@ public_address = "71.86.65.178:5622"
                 assigned_ports: Some(TestnetBetaCeremonyAssignedPorts {
                     port_slot: Some(3),
                     p2p_port: 5622,
-                    public_p2p_port: Some(5624),
+                    public_p2p_port: None,
                     rpc_port: 5640,
                     ws_port: 5660,
                     grpc_port: 5640,
                     discovery_port: 5680,
-                    public_discovery_port: Some(5682),
+                    public_discovery_port: None,
                     metrics_port: 6030,
                 }),
                 artifacts: TestnetBetaCeremonyPackageArtifacts {
@@ -6577,12 +6591,10 @@ public_address = "71.86.65.178:5622"
                 "assigned_ports": {
                     "port_slot": 3,
                     "p2p_port": 5622,
-                    "public_p2p_port": 5624,
                     "rpc_port": 5640,
                     "ws_port": 5660,
                     "grpc_port": 5640,
                     "discovery_port": 5680,
-                    "public_discovery_port": 5682,
                     "metrics_port": 6030
                 },
                 "artifacts": {

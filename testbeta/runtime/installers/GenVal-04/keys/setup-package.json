@@ -14,8 +14,6 @@
     "grpc_port": 5640,
     "discovery_port": 5680,
     "metrics_port": 6030,
-    "public_p2p_port": 5624,
-    "public_discovery_port": 5682,
     "port_slot": 0
   },
   "artifacts": {
