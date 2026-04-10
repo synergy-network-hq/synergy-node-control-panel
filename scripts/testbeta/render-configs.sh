@@ -108,8 +108,8 @@ resolve_public_p2p_port() {
   case "$validator_address" in
     synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra) echo "5622" ;;
     synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu) echo "5622" ;;
-    synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu) echo "5623" ;;
-    synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49) echo "5624" ;;
+    synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu) echo "5622" ;;
+    synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49) echo "5622" ;;
     synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46) echo "5622" ;;
     *) echo "$default_port" ;;
   esac

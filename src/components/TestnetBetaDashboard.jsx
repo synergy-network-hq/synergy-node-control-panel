@@ -201,6 +201,74 @@ function formatScore(value) {
   return Number(value).toFixed(1);
 }
 
+function formatLogTimestamp(value) {
+  if (!value) return 'No timestamp';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return date.toLocaleString();
+}
+
+function logEntryMatchesFilter(entry, filter) {
+  if (!entry) return false;
+  const level = String(entry.level || '').toUpperCase();
+  const moduleText = String(entry.module || '').toLowerCase();
+  const sourceKind = String(entry.kind || '').toLowerCase();
+  const text = `${entry.message || ''} ${entry.raw || ''}`.toLowerCase();
+
+  switch (filter) {
+    case 'error':
+      return level === 'ERROR';
+    case 'warn':
+      return level === 'WARN';
+    case 'debug':
+      return level === 'DEBUG' || level === 'TRACE';
+    case 'consensus':
+      return moduleText.includes('consensus') || /(block|leader|quorum|height|commit)/.test(text);
+    case 'p2p':
+      return moduleText.includes('p2p') || moduleText.includes('network') || /(peer|dial|bootstrap|mesh)/.test(text);
+    case 'control':
+      return sourceKind === 'control' || sourceKind === 'action' || moduleText.includes('control');
+    case 'rpc':
+      return sourceKind === 'rpc' || moduleText.includes('rpc');
+    case 'all':
+    default:
+      return true;
+  }
+}
+
+function logEntrySearchText(entry) {
+  const metadata = entry?.metadata ? JSON.stringify(entry.metadata) : '';
+  return [
+    entry?.source_label,
+    entry?.source_id,
+    entry?.level,
+    entry?.module,
+    entry?.message,
+    entry?.raw,
+    metadata,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function logEntryColor(level) {
+  switch (String(level || '').toUpperCase()) {
+    case 'ERROR':
+      return 'var(--snrg-status-error, #f87171)';
+    case 'WARN':
+      return 'var(--snrg-status-warning, #fbbf24)';
+    case 'DEBUG':
+      return 'var(--snrg-accent, #60a5fa)';
+    case 'TRACE':
+      return 'var(--snrg-text-secondary, #94a3b8)';
+    default:
+      return 'var(--snrg-status-success, #4ade80)';
+  }
+}
+
 function formatScoreOutOfHundred(value) {
   if (value == null || Number.isNaN(Number(value))) {
     return 'N/A';
@@ -662,9 +730,11 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const atlasAvailable = useRef(true);
 
   // Logs tab state
-  const [nodeLogs, setNodeLogs] = useState('');
+  const [nodeLogBundle, setNodeLogBundle] = useState(null);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState('');
   const [logFilter, setLogFilter] = useState('all');
+  const [logSourceFilter, setLogSourceFilter] = useState('all');
   const [logSearch, setLogSearch] = useState('');
   const [logsAutoScroll, setLogsAutoScroll] = useState(true);
 
@@ -810,6 +880,26 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   const selectedNodeLive = useMemo(
     () => (liveStatus?.nodes || []).find((entry) => entry.node_id === selectedNode?.id) || null,
     [liveStatus?.nodes, selectedNode?.id],
+  );
+
+  const logSources = nodeLogBundle?.sources || [];
+  const logEntries = nodeLogBundle?.entries || [];
+  const logSummary = nodeLogBundle?.summary || null;
+  const filteredLogEntries = useMemo(() => logEntries.filter((entry) => {
+    if (logSourceFilter !== 'all' && entry.source_id !== logSourceFilter) {
+      return false;
+    }
+    if (!logEntryMatchesFilter(entry, logFilter)) {
+      return false;
+    }
+    if (logSearch && !logEntrySearchText(entry).includes(logSearch.toLowerCase())) {
+      return false;
+    }
+    return true;
+  }), [logEntries, logFilter, logSearch, logSourceFilter]);
+  const developerPreviewEntries = useMemo(
+    () => logEntries.slice(Math.max(0, logEntries.length - 10)),
+    [logEntries],
   );
 
   const selectedRole = useMemo(
@@ -959,29 +1049,48 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
     };
   }, [activeTab, selectedNode?.id]);
 
-  // Fetch logs when the logs tab is active
+  // Fetch logs when the logs tab is active or developer mode is inspecting connectivity.
   useEffect(() => {
-    if (activeTab !== 'logs' || !selectedNode) return undefined;
+    const shouldFetchLogs = selectedNode
+      && (activeTab === 'logs' || (activeTab === 'connectivity' && developerModeEnabled));
+    if (!shouldFetchLogs) {
+      setLogsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
 
     const fetchLogs = async () => {
-      setLogsLoading(true);
+      if (!cancelled) {
+        setLogsLoading(true);
+      }
       try {
-        const content = await invoke('testbeta_get_node_logs', {
+        const bundle = await invoke('testbeta_get_node_logs', {
           nodeId: selectedNode.id,
-          lines: 500,
+          lines: activeTab === 'logs' ? 900 : 250,
         });
-        setNodeLogs(content || '');
+        if (!cancelled) {
+          setNodeLogBundle(bundle || null);
+          setLogsError('');
+        }
       } catch (err) {
-        setNodeLogs(`Error loading logs: ${err}`);
+        if (!cancelled) {
+          setLogsError(String(err));
+        }
       } finally {
-        setLogsLoading(false);
+        if (!cancelled) {
+          setLogsLoading(false);
+        }
       }
     };
 
     fetchLogs();
-    const logsInterval = window.setInterval(fetchLogs, 2000);
-    return () => window.clearInterval(logsInterval);
-  }, [activeTab, selectedNode?.id]);
+    const logsInterval = window.setInterval(fetchLogs, activeTab === 'logs' ? 2000 : 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(logsInterval);
+    };
+  }, [activeTab, developerModeEnabled, selectedNode?.id]);
 
   // Fetch canonical chain blocks when chain tab is active
   useEffect(() => {
@@ -2090,123 +2199,209 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
       </section>
 
       {developerModeEnabled && (
-        <section className="nodecp-panel">
-          <div className="nodecp-panel-header">
-            <div>
-              <p className="nodecp-panel-kicker">Developer mode</p>
-              <h3>Local node peers</h3>
+        <>
+          <section className="nodecp-panel">
+            <div className="nodecp-panel-header">
+              <div>
+                <p className="nodecp-panel-kicker">Developer mode</p>
+                <h3>Local node peers</h3>
+              </div>
+              <span className={`nodecp-health-pill nodecp-health-${
+                localPeerInfoError
+                  ? 'bad'
+                  : selectedNodeLive?.is_running && selectedNodeLive?.local_rpc_ready === true
+                    ? 'good'
+                    : 'warn'
+              }`}>
+                {localPeerInfoError
+                  ? 'Unavailable'
+                  : selectedNodeLive?.is_running && selectedNodeLive?.local_rpc_ready === true
+                    ? `${formatNumber(localPeerInfo?.peerCount ?? selectedNodeLive?.local_peer_count ?? 0)} connected`
+                    : 'Waiting for local RPC'}
+              </span>
             </div>
-            <span className={`nodecp-health-pill nodecp-health-${
-              localPeerInfoError
-                ? 'bad'
-                : selectedNodeLive?.is_running && selectedNodeLive?.local_rpc_ready === true
-                  ? 'good'
-                  : 'warn'
-            }`}>
-              {localPeerInfoError
-                ? 'Unavailable'
-                : selectedNodeLive?.is_running && selectedNodeLive?.local_rpc_ready === true
-                  ? `${formatNumber(localPeerInfo?.peerCount ?? selectedNodeLive?.local_peer_count ?? 0)} connected`
-                  : 'Waiting for local RPC'}
-            </span>
-          </div>
 
-          {!selectedNode ? (
-            <div className="nodecp-empty-inline">
-              Select a node to inspect its live peer set.
+            {!selectedNode ? (
+              <div className="nodecp-empty-inline">
+                Select a node to inspect its live peer set.
+              </div>
+            ) : !selectedNodeLive?.is_running ? (
+              <div className="nodecp-empty-inline">
+                Start the selected node to inspect its live peer set.
+              </div>
+            ) : selectedNodeLive?.local_rpc_ready !== true ? (
+              <div className="nodecp-empty-inline">
+                {selectedNodeLive?.local_rpc_status || 'Local RPC is not responding yet.'}
+              </div>
+            ) : localPeerInfoLoading && !localPeerInfo ? (
+              <div className="nodecp-peer-loading">
+                <div className="spinner" style={{ width: '18px', height: '18px' }}></div>
+                <span>Loading live peer connections…</span>
+              </div>
+            ) : localPeerInfoError ? (
+              <div className="nodecp-inline-alert nodecp-inline-alert-bad">
+                Could not load live peer connections: {localPeerInfoError}
+              </div>
+            ) : (localPeerInfo?.peers?.length || 0) === 0 ? (
+              <div className="nodecp-empty-inline">
+                The selected node is running but currently has no active peer connections.
+              </div>
+            ) : (
+              <div className="nodecp-peer-list">
+                {localPeerInfo.peers.map((peer, index) => {
+                  const peerRuntimeStatus = peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById);
+                  const peerRuntimeStatusClassName = peerRuntimeStatus
+                    ? (peerRuntimeStatus.label === 'Live'
+                      ? 'nodecp-health-pill nodecp-health-live'
+                      : `nodecp-health-pill nodecp-health-${peerRuntimeStatus.tone}`)
+                    : '';
+                  const peerReconnectKey = String(peer.id || peer.publicAddress || peer.address || index);
+                  const peerReconnectTarget = String(peer.publicAddress || peer.address || '').trim();
+                  return (
+                    <article key={`${peer.id}-${index}`} className="nodecp-peer-card">
+                      <div className="nodecp-peer-card-header">
+                        <div className="nodecp-peer-card-title">
+                          <strong>{peer.nodeId || peer.validatorAddress || `Peer ${index + 1}`}</strong>
+                          <span>{peer.publicAddress || peer.address || 'Public address unavailable'}</span>
+                        </div>
+                        <div className="nodecp-peer-card-badges">
+                          {peerRuntimeStatus ? (
+                            <span className={peerRuntimeStatusClassName}>{peerRuntimeStatus.label}</span>
+                          ) : null}
+                          <span className="nodecp-health-pill nodecp-health-good">Connected</span>
+                        </div>
+                      </div>
+                      <div className="nodecp-peer-card-actions">
+                        <SNRGButton
+                          variant="blue"
+                          size="sm"
+                          disabled={!peerReconnectTarget || peerReconnectBusy === peerReconnectKey || !!controlBusy}
+                          onClick={() => handleForcePeerConnect(peer)}
+                        >
+                          {peerReconnectBusy === peerReconnectKey ? 'Reconnecting...' : 'Force Connect'}
+                        </SNRGButton>
+                      </div>
+                      <div className="nodecp-peer-card-grid">
+                        <div className="nodecp-peer-metric">
+                          <span>Address</span>
+                          <code>{peer.address || 'Unknown'}</code>
+                        </div>
+                        <div className="nodecp-peer-metric">
+                          <span>Validator</span>
+                          <code>{peer.validatorAddress || 'Unknown'}</code>
+                        </div>
+                        <div className="nodecp-peer-metric">
+                          <span>Last seen</span>
+                          <strong>{formatPeerLastSeen(peer.lastSeen)}</strong>
+                        </div>
+                        <div className="nodecp-peer-metric">
+                          <span>Version</span>
+                          <strong>{peer.version || 'Unknown'}</strong>
+                        </div>
+                        <div className="nodecp-peer-metric">
+                          <span>Blocks</span>
+                          <strong>{formatNumber(peer.blocksReceived)} in / {formatNumber(peer.blocksSent)} out</strong>
+                        </div>
+                        <div className="nodecp-peer-metric">
+                          <span>Transactions</span>
+                          <strong>{formatNumber(peer.txsReceived)} in / {formatNumber(peer.txsSent)} out</strong>
+                        </div>
+                        <div className="nodecp-peer-metric nodecp-peer-metric-wide">
+                          <span>Capabilities</span>
+                          <strong>{peer.capabilities.length ? peer.capabilities.join(', ') : 'Not advertised'}</strong>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="nodecp-panel">
+            <div className="nodecp-panel-header">
+              <div>
+                <p className="nodecp-panel-kicker">Developer mode</p>
+                <h3>Runtime event stream</h3>
+              </div>
+              <span className={`nodecp-health-pill nodecp-health-${logsError ? 'bad' : 'good'}`}>
+                {logsLoading
+                  ? 'Refreshing'
+                  : logSummary
+                    ? `${formatNumber(logSummary.total_entries)} events`
+                    : 'Waiting for logs'}
+              </span>
             </div>
-          ) : !selectedNodeLive?.is_running ? (
-            <div className="nodecp-empty-inline">
-              Start the selected node to inspect its live peer set.
-            </div>
-          ) : selectedNodeLive?.local_rpc_ready !== true ? (
-            <div className="nodecp-empty-inline">
-              {selectedNodeLive?.local_rpc_status || 'Local RPC is not responding yet.'}
-            </div>
-          ) : localPeerInfoLoading && !localPeerInfo ? (
-            <div className="nodecp-peer-loading">
-              <div className="spinner" style={{ width: '18px', height: '18px' }}></div>
-              <span>Loading live peer connections…</span>
-            </div>
-          ) : localPeerInfoError ? (
-            <div className="nodecp-inline-alert nodecp-inline-alert-bad">
-              Could not load live peer connections: {localPeerInfoError}
-            </div>
-          ) : (localPeerInfo?.peers?.length || 0) === 0 ? (
-            <div className="nodecp-empty-inline">
-              The selected node is running but currently has no active peer connections.
-            </div>
-          ) : (
-            <div className="nodecp-peer-list">
-              {localPeerInfo.peers.map((peer, index) => {
-                const peerRuntimeStatus = peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById);
-                const peerRuntimeStatusClassName = peerRuntimeStatus
-                  ? (peerRuntimeStatus.label === 'Live'
-                    ? 'nodecp-health-pill nodecp-health-live'
-                    : `nodecp-health-pill nodecp-health-${peerRuntimeStatus.tone}`)
-                  : '';
-                const peerReconnectKey = String(peer.id || peer.publicAddress || peer.address || index);
-                const peerReconnectTarget = String(peer.publicAddress || peer.address || '').trim();
-                return (
-                <article key={`${peer.id}-${index}`} className="nodecp-peer-card">
-                  <div className="nodecp-peer-card-header">
-                    <div className="nodecp-peer-card-title">
-                      <strong>{peer.nodeId || peer.validatorAddress || `Peer ${index + 1}`}</strong>
-                      <span>{peer.publicAddress || peer.address || 'Public address unavailable'}</span>
-                    </div>
-                    <div className="nodecp-peer-card-badges">
-                      {peerRuntimeStatus ? (
-                        <span className={peerRuntimeStatusClassName}>{peerRuntimeStatus.label}</span>
-                      ) : null}
-                      <span className="nodecp-health-pill nodecp-health-good">Connected</span>
-                    </div>
-                  </div>
-                  <div className="nodecp-peer-card-actions">
-                    <SNRGButton
-                      variant="blue"
-                      size="sm"
-                      disabled={!peerReconnectTarget || peerReconnectBusy === peerReconnectKey || !!controlBusy}
-                      onClick={() => handleForcePeerConnect(peer)}
+
+            {logsError ? (
+              <div className="nodecp-inline-alert nodecp-inline-alert-bad">
+                Could not load the developer log stream: {logsError}
+              </div>
+            ) : logsLoading && !nodeLogBundle ? (
+              <div className="nodecp-peer-loading">
+                <div className="spinner" style={{ width: '18px', height: '18px' }}></div>
+                <span>Collecting runtime, control, and reconnect events…</span>
+              </div>
+            ) : developerPreviewEntries.length === 0 ? (
+              <div className="nodecp-empty-inline">
+                No developer events yet. Start the node or trigger a control action to populate the stream.
+              </div>
+            ) : (
+              <>
+                <div className="nodecp-service-compact-grid" style={{ marginBottom: '0.75rem' }}>
+                  <article className="nodecp-service-card nodecp-service-good">
+                    <span className="nodecp-summary-label">Recent events</span>
+                    <strong className="nodecp-service-value">{formatNumber(logSummary?.total_entries ?? developerPreviewEntries.length)}</strong>
+                    <span className="nodecp-service-detail">Combined across runtime and control sources.</span>
+                  </article>
+                  <article className={`nodecp-service-card ${(logSummary?.error_count || 0) > 0 ? 'nodecp-service-bad' : 'nodecp-service-good'}`}>
+                    <span className="nodecp-summary-label">Errors</span>
+                    <strong className="nodecp-service-value">{formatNumber(logSummary?.error_count ?? 0)}</strong>
+                    <span className="nodecp-service-detail">Immediate failures and rejected operations.</span>
+                  </article>
+                  <article className={`nodecp-service-card ${(logSummary?.warn_count || 0) > 0 ? 'nodecp-service-warn' : 'nodecp-service-good'}`}>
+                    <span className="nodecp-summary-label">Warnings</span>
+                    <strong className="nodecp-service-value">{formatNumber(logSummary?.warn_count ?? 0)}</strong>
+                    <span className="nodecp-service-detail">Timeouts, mesh drift, and degraded paths.</span>
+                  </article>
+                  <article className="nodecp-service-card nodecp-service-good">
+                    <span className="nodecp-summary-label">Sources</span>
+                    <strong className="nodecp-service-value">{formatNumber(logSummary?.active_source_count ?? logSources.filter((source) => source.available).length)}</strong>
+                    <span className="nodecp-service-detail">Runtime, control actions, and RPC self-test logs.</span>
+                  </article>
+                </div>
+
+                <div style={{ display: 'grid', gap: '0.45rem' }}>
+                  {developerPreviewEntries.map((entry, index) => (
+                    <article
+                      key={`${entry.source_id}-${entry.timestamp_utc || 'untimed'}-${index}`}
+                      style={{
+                        border: '1px solid rgba(255,255,255,0.06)',
+                        borderLeft: `3px solid ${logEntryColor(entry.level)}`,
+                        borderRadius: '6px',
+                        padding: '0.55rem 0.65rem',
+                        background: 'rgba(255,255,255,0.02)',
+                      }}
                     >
-                      {peerReconnectBusy === peerReconnectKey ? 'Reconnecting...' : 'Force Connect'}
-                    </SNRGButton>
-                  </div>
-                  <div className="nodecp-peer-card-grid">
-                    <div className="nodecp-peer-metric">
-                      <span>Address</span>
-                      <code>{peer.address || 'Unknown'}</code>
-                    </div>
-                    <div className="nodecp-peer-metric">
-                      <span>Validator</span>
-                      <code>{peer.validatorAddress || 'Unknown'}</code>
-                    </div>
-                    <div className="nodecp-peer-metric">
-                      <span>Last seen</span>
-                      <strong>{formatPeerLastSeen(peer.lastSeen)}</strong>
-                    </div>
-                    <div className="nodecp-peer-metric">
-                      <span>Version</span>
-                      <strong>{peer.version || 'Unknown'}</strong>
-                    </div>
-                    <div className="nodecp-peer-metric">
-                      <span>Blocks</span>
-                      <strong>{formatNumber(peer.blocksReceived)} in / {formatNumber(peer.blocksSent)} out</strong>
-                    </div>
-                    <div className="nodecp-peer-metric">
-                      <span>Transactions</span>
-                      <strong>{formatNumber(peer.txsReceived)} in / {formatNumber(peer.txsSent)} out</strong>
-                    </div>
-                    <div className="nodecp-peer-metric nodecp-peer-metric-wide">
-                      <span>Capabilities</span>
-                      <strong>{peer.capabilities.length ? peer.capabilities.join(', ') : 'Not advertised'}</strong>
-                    </div>
-                  </div>
-                </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.2rem' }}>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ color: 'var(--snrg-text-secondary)', fontSize: '0.72rem' }}>{formatLogTimestamp(entry.timestamp_utc)}</span>
+                          <span style={{ fontSize: '0.7rem', padding: '0.12rem 0.35rem', borderRadius: '999px', background: 'rgba(255,255,255,0.07)', color: 'var(--snrg-text-secondary)' }}>{entry.source_label}</span>
+                          <span style={{ fontSize: '0.7rem', padding: '0.12rem 0.35rem', borderRadius: '999px', background: 'rgba(255,255,255,0.07)', color: logEntryColor(entry.level) }}>{entry.level}</span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--snrg-text)' }}>{entry.message}</div>
+                    </article>
+                  ))}
+                </div>
+
+                <div style={{ marginTop: '0.55rem', fontSize: '0.75rem', color: 'var(--snrg-text-secondary)' }}>
+                  Open the Logs tab for full source filters, metadata, and the longer trace window.
+                </div>
+              </>
+            )}
+          </section>
+        </>
       )}
     </div>
   );
@@ -2544,27 +2739,25 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
   };
 
   const renderLogs = () => {
-    const logPath = selectedNode
-      ? `${selectedNode.workspace_directory}/logs/synergy-testbeta.log`
+    const logsDirectory = selectedNode
+      ? `${selectedNode.workspace_directory}/logs`
       : null;
-
-    const filteredLines = (() => {
-      const lines = nodeLogs.split('\n');
-      return lines
-        .filter((line) => {
-          if (!line.trim()) return false;
-          if (logFilter !== 'all') {
-            const lc = line.toLowerCase();
-            if (logFilter === 'error' && !lc.includes('error') && !lc.includes('failed')) return false;
-            if (logFilter === 'warn' && !lc.includes('warn')) return false;
-            if (logFilter === 'info' && !lc.includes('info')) return false;
-            if (logFilter === 'block' && !lc.includes('block') && !lc.includes('commit') && !lc.includes('height')) return false;
-          }
-          if (logSearch && !line.toLowerCase().includes(logSearch.toLowerCase())) return false;
-          return true;
+    const refreshLogs = () => {
+      if (!selectedNode) return;
+      setLogsLoading(true);
+      invoke('testbeta_get_node_logs', {
+        nodeId: selectedNode.id,
+        lines: 900,
+      })
+        .then((bundle) => {
+          setNodeLogBundle(bundle || null);
+          setLogsError('');
         })
-        .join('\n');
-    })();
+        .catch((err) => {
+          setLogsError(String(err));
+        })
+        .finally(() => setLogsLoading(false));
+    };
 
     return (
       <div className="nodecp-tab-stack">
@@ -2575,15 +2768,31 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             onChange={(e) => setLogFilter(e.target.value)}
             style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--snrg-border)', background: 'var(--snrg-surface)', color: 'var(--snrg-text)', fontSize: '0.85rem' }}
           >
-            <option value="all">All Lines</option>
-            <option value="block">Block / Commit</option>
+            <option value="all">All Events</option>
+            <option value="consensus">Consensus / Blocks</option>
+            <option value="p2p">P2P / Peers</option>
+            <option value="control">Control Actions</option>
+            <option value="rpc">RPC</option>
             <option value="error">Errors</option>
             <option value="warn">Warnings</option>
-            <option value="info">Info</option>
+            <option value="debug">Debug / Trace</option>
+          </select>
+          <select
+            className="log-filter-select"
+            value={logSourceFilter}
+            onChange={(e) => setLogSourceFilter(e.target.value)}
+            style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--snrg-border)', background: 'var(--snrg-surface)', color: 'var(--snrg-text)', fontSize: '0.85rem' }}
+          >
+            <option value="all">All Sources</option>
+            {logSources.map((source) => (
+              <option key={source.id} value={source.id}>
+                {source.label}
+              </option>
+            ))}
           </select>
           <input
             type="text"
-            placeholder="Search logs…"
+            placeholder="Search events, modules, metadata…"
             value={logSearch}
             onChange={(e) => setLogSearch(e.target.value)}
             style={{ padding: '0.3rem 0.5rem', borderRadius: '4px', border: '1px solid var(--snrg-border)', background: 'var(--snrg-surface)', color: 'var(--snrg-text)', fontSize: '0.85rem', flex: '1', minWidth: '160px' }}
@@ -2600,25 +2809,51 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             variant="blue"
             size="sm"
             disabled={logsLoading}
-            onClick={() => selectedNode && invoke('testbeta_get_node_logs', { nodeId: selectedNode.id, lines: 500 }).then(setNodeLogs).catch(() => {})}
+            onClick={refreshLogs}
           >
             {logsLoading ? 'Loading…' : 'Refresh'}
           </SNRGButton>
-          {logPath && (
+          {logsDirectory && (
             <SNRGButton
               variant="blue"
               size="sm"
-              onClick={() => openPath(`${selectedNode.workspace_directory}/logs`)}
+              onClick={() => openPath(logsDirectory)}
             >
               Open Folder
             </SNRGButton>
           )}
         </div>
 
-        {logPath && (
-          <p style={{ fontSize: '0.75rem', color: 'var(--snrg-text-secondary)', marginBottom: '0.5rem', wordBreak: 'break-all' }}>
-            {logPath}
-          </p>
+        {logsDirectory && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--snrg-text-secondary)', margin: 0, wordBreak: 'break-all' }}>
+              {logsDirectory}
+            </p>
+            <span style={{ fontSize: '0.75rem', color: 'var(--snrg-text-secondary)' }}>
+              {logSummary
+                ? `${formatNumber(logSummary.active_source_count)} active sources · ${formatNumber(logSummary.total_entries)} events`
+                : 'Waiting for log sources'}
+            </span>
+          </div>
+        )}
+
+        {logSources.length > 0 && (
+          <div className="nodecp-service-compact-grid" style={{ marginBottom: '0.75rem' }}>
+            {logSources.map((source) => (
+              <article
+                key={source.id}
+                className={`nodecp-service-card ${source.available ? 'nodecp-service-good' : 'nodecp-service-neutral'}`}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setLogSourceFilter((current) => (current === source.id ? 'all' : source.id))}
+              >
+                <span className="nodecp-summary-label">{source.label}</span>
+                <strong className="nodecp-service-value">{source.available ? `${formatNumber(source.line_count)} events` : 'Unavailable'}</strong>
+                <span className="nodecp-service-detail">
+                  {source.modified_at_utc ? `Updated ${formatLogTimestamp(source.modified_at_utc)}` : source.path}
+                </span>
+              </article>
+            ))}
+          </div>
         )}
 
         <div
@@ -2640,37 +2875,57 @@ function TestnetBetaDashboard({ onLaunchSetup }) {
             }
           }}
         >
-          {logsLoading && !nodeLogs ? (
+          {logsLoading && !nodeLogBundle ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--snrg-text-secondary)' }}>
               <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
-              <span>Loading logs…</span>
+              <span>Loading developer logs…</span>
             </div>
-          ) : filteredLines ? (
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {filteredLines.split('\n').map((line, i) => {
-                const lc = line.toLowerCase();
-                let color = 'inherit';
-                if (lc.includes('error') || lc.includes('failed')) color = 'var(--snrg-status-error, #f87171)';
-                else if (lc.includes('warn')) color = 'var(--snrg-status-warning, #fbbf24)';
-                else if (lc.includes('✅') || lc.includes('committed') || lc.includes('block #') || lc.includes('produced block')) color = 'var(--snrg-status-success, #4ade80)';
-                else if (lc.includes('🔧') || lc.includes('info')) color = 'var(--snrg-text-secondary, #94a3b8)';
-                return (
-                  <span key={i} style={{ display: 'block', color }}>
-                    {line}
-                  </span>
-                );
-              })}
-            </pre>
+          ) : logsError ? (
+            <div style={{ color: 'var(--snrg-status-error, #f87171)', fontSize: '0.82rem' }}>
+              Could not load node logs: {logsError}
+            </div>
+          ) : filteredLogEntries.length > 0 ? (
+            <div style={{ display: 'grid', gap: '0.55rem' }}>
+              {filteredLogEntries.map((entry, index) => (
+                <article
+                  key={`${entry.source_id}-${entry.timestamp_utc || 'untimed'}-${index}`}
+                  style={{
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    borderLeft: `3px solid ${logEntryColor(entry.level)}`,
+                    borderRadius: '6px',
+                    padding: '0.55rem 0.65rem',
+                    background: 'rgba(255,255,255,0.02)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ color: 'var(--snrg-text-secondary)', fontSize: '0.72rem' }}>{formatLogTimestamp(entry.timestamp_utc)}</span>
+                      <span style={{ fontSize: '0.7rem', padding: '0.12rem 0.35rem', borderRadius: '999px', background: 'rgba(255,255,255,0.07)', color: 'var(--snrg-text-secondary)' }}>{entry.source_label}</span>
+                      <span style={{ fontSize: '0.7rem', padding: '0.12rem 0.35rem', borderRadius: '999px', background: 'rgba(255,255,255,0.07)', color: logEntryColor(entry.level) }}>{entry.level}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--snrg-text-secondary)' }}>{entry.module}</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--snrg-text)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {entry.message}
+                  </div>
+                  {entry.metadata && (
+                    <pre style={{ margin: '0.45rem 0 0', padding: '0.45rem 0.5rem', borderRadius: '4px', background: 'rgba(15,23,42,0.7)', color: 'var(--snrg-text-secondary)', fontSize: '0.72rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {JSON.stringify(entry.metadata, null, 2)}
+                    </pre>
+                  )}
+                </article>
+              ))}
+            </div>
           ) : (
             <span style={{ color: 'var(--snrg-text-secondary)' }}>
-              {selectedNode ? 'No log output yet. Start the node to see logs.' : 'Select a node to view logs.'}
+              {selectedNode ? 'No developer log events matched the current filters.' : 'Select a node to view logs.'}
             </span>
           )}
         </div>
 
         <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--snrg-text-secondary)' }}>
-          {filteredLines ? `${filteredLines.split('\n').filter(Boolean).length} lines` : '0 lines'}
-          {logFilter !== 'all' || logSearch ? ' (filtered)' : ''}
+          {filteredLogEntries.length ? `${filteredLogEntries.length} events` : '0 events'}
+          {logSourceFilter !== 'all' || logFilter !== 'all' || logSearch ? ' (filtered)' : ''}
           {' · '}refreshes every 2s
         </div>
       </div>

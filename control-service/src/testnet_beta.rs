@@ -1,5 +1,5 @@
 use crate::app_context::AppContext;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use flate2::read::GzDecoder;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
-use std::io;
+use std::io::{self, Write};
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
@@ -65,6 +65,62 @@ struct RpcPeerSummary {
     peer_count: usize,
     connected_validator_count: usize,
     status_ready_validator_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestnetBetaNodeLogSource {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub path: String,
+    pub available: bool,
+    pub line_count: usize,
+    pub modified_at_utc: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestnetBetaNodeLogEntry {
+    pub source_id: String,
+    pub source_label: String,
+    pub kind: String,
+    pub timestamp_utc: Option<String>,
+    pub level: String,
+    pub module: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+    pub raw: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestnetBetaNodeLogSummary {
+    pub total_entries: usize,
+    pub error_count: usize,
+    pub warn_count: usize,
+    pub info_count: usize,
+    pub debug_count: usize,
+    pub trace_count: usize,
+    pub active_source_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_timestamp_utc: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TestnetBetaNodeLogBundle {
+    pub node_id: String,
+    pub workspace_directory: String,
+    pub sources: Vec<TestnetBetaNodeLogSource>,
+    pub entries: Vec<TestnetBetaNodeLogEntry>,
+    pub summary: TestnetBetaNodeLogSummary,
+    pub combined_text: String,
+}
+
+#[derive(Debug, Clone)]
+struct WorkspaceLogSource {
+    id: &'static str,
+    label: &'static str,
+    kind: &'static str,
+    path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -797,6 +853,18 @@ pub async fn testbeta_node_control(
     } else {
         false
     };
+    append_workspace_control_log(
+        &workspace_directory,
+        "INFO",
+        "Control panel action requested",
+        Some(json!({
+            "action": action.clone(),
+            "node_id": node.id.clone(),
+            "display_label": node.display_label.clone(),
+            "is_running": is_running,
+            "local_rpc_ready": local_rpc_ready,
+        })),
+    );
 
     match action.as_str() {
         "start" => {
@@ -850,6 +918,15 @@ pub async fn testbeta_node_control(
             {
                 eprintln!("Warning: {error}");
             }
+            append_workspace_control_log(
+                &workspace_directory,
+                "INFO",
+                "Node start completed",
+                Some(json!({
+                    "action": "start",
+                    "node_id": node.id.clone(),
+                })),
+            );
             Ok(TestnetBetaNodeControlResult {
                 node_id: node.id,
                 action: "start".to_string(),
@@ -872,6 +949,16 @@ pub async fn testbeta_node_control(
             let lingering = force_kill_workspace_processes(&workspace_directory)?;
 
             if lingering > 0 {
+                append_workspace_control_log(
+                    &workspace_directory,
+                    "WARN",
+                    "Node stop required lingering process cleanup",
+                    Some(json!({
+                        "action": "stop",
+                        "node_id": node.id.clone(),
+                        "cleared_processes": lingering,
+                    })),
+                );
                 return Ok(TestnetBetaNodeControlResult {
                     node_id: node.id,
                     action: "stop".to_string(),
@@ -883,6 +970,15 @@ pub async fn testbeta_node_control(
             }
 
             stop_result?;
+            append_workspace_control_log(
+                &workspace_directory,
+                "INFO",
+                "Node stop completed",
+                Some(json!({
+                    "action": "stop",
+                    "node_id": node.id.clone(),
+                })),
+            );
             Ok(TestnetBetaNodeControlResult {
                 node_id: node.id,
                 action: "stop".to_string(),
@@ -933,6 +1029,16 @@ pub async fn testbeta_node_control(
                 {
                     eprintln!("Warning: {error}");
                 }
+                append_workspace_control_log(
+                    &workspace_directory,
+                    "INFO",
+                    "Validator restart-based rejoin completed",
+                    Some(json!({
+                        "action": "sync",
+                        "mode": "validator-rejoin",
+                        "node_id": node.id.clone(),
+                    })),
+                );
 
                 return Ok(TestnetBetaNodeControlResult {
                     node_id: node.id,
@@ -978,6 +1084,16 @@ pub async fn testbeta_node_control(
             {
                 eprintln!("Warning: {error}");
             }
+            append_workspace_control_log(
+                &workspace_directory,
+                "INFO",
+                "Node fast-sync completed",
+                Some(json!({
+                    "action": "sync",
+                    "mode": "fast-sync",
+                    "node_id": node.id.clone(),
+                })),
+            );
 
             Ok(TestnetBetaNodeControlResult {
                 node_id: node.id,
@@ -1346,6 +1462,19 @@ pub async fn testbeta_force_peer_connect(
         .filter(|value| !value.is_empty())
         .unwrap_or(requested_dial_target.as_str());
     let lifecycle_verb = if was_running { "restarted" } else { "started" };
+    append_workspace_control_log(
+        &workspace_directory,
+        "INFO",
+        "Peer reconnect requested from developer mode",
+        Some(json!({
+            "node_id": node.id.clone(),
+            "peer_label": peer_label,
+            "requested_dial_target": requested_dial_target.clone(),
+            "preferred_targets": preferred_targets.clone(),
+            "unique_dial_targets": unique_dial_targets,
+            "was_running": was_running,
+        })),
+    );
 
     Ok(TestnetBetaForcePeerConnectResult {
         node_id: node.id.clone(),
@@ -1358,7 +1487,10 @@ pub async fn testbeta_force_peer_connect(
     })
 }
 
-pub fn testbeta_get_node_logs(node_id: String, lines: Option<usize>) -> Result<String, String> {
+pub fn testbeta_get_node_logs(
+    node_id: String,
+    lines: Option<usize>,
+) -> Result<TestnetBetaNodeLogBundle, String> {
     let root = ensure_testnet_beta_root()?;
     let registry = load_registry(&root)?;
     let node = registry
@@ -1366,16 +1498,8 @@ pub fn testbeta_get_node_logs(node_id: String, lines: Option<usize>) -> Result<S
         .iter()
         .find(|n| n.id == node_id)
         .ok_or_else(|| format!("Node not found: {}", node_id))?;
-
-    let workspace = PathBuf::from(&node.workspace_directory);
-    let log_path = workspace.join("logs").join("synergy-testbeta.log");
-
-    if !log_path.exists() {
-        return Ok(String::new());
-    }
-
-    let max_lines = lines.unwrap_or(500);
-    Ok(log_tail_excerpt(&log_path, max_lines).unwrap_or_default())
+    let max_lines = lines.unwrap_or(700).max(100);
+    Ok(build_node_log_bundle(node, max_lines))
 }
 
 pub async fn testbeta_setup_node(
@@ -2323,6 +2447,30 @@ fn runtime_ports_for_slot(slot: u16) -> TestnetBetaRuntimePorts {
     }
 }
 
+fn validator_runtime_ports() -> TestnetBetaRuntimePorts {
+    TestnetBetaRuntimePorts {
+        p2p_port: TESTNET_BETA_P2P_PORT,
+        public_p2p_port: TESTNET_BETA_P2P_PORT,
+        rpc_port: TESTNET_BETA_RPC_PORT,
+        ws_port: TESTNET_BETA_WS_PORT,
+        discovery_port: TESTNET_BETA_DISCOVERY_PORT,
+        public_discovery_port: TESTNET_BETA_DISCOVERY_PORT,
+        metrics_port: TESTNET_BETA_METRICS_PORT,
+    }
+}
+
+fn default_runtime_ports_for_role(role_id: &str, slot: u16) -> TestnetBetaRuntimePorts {
+    if role_id.eq_ignore_ascii_case("validator") {
+        validator_runtime_ports()
+    } else {
+        runtime_ports_for_slot(slot)
+    }
+}
+
+fn default_runtime_ports_for_node(node: &TestnetBetaProvisionedNode) -> TestnetBetaRuntimePorts {
+    default_runtime_ports_for_role(&node.role_id, node.port_slot.unwrap_or(0))
+}
+
 fn runtime_ports_for_assigned_ports(
     assigned_ports: &TestnetBetaCeremonyAssignedPorts,
 ) -> TestnetBetaRuntimePorts {
@@ -2406,12 +2554,7 @@ fn repair_imported_validator_ports_if_needed(
         Some(ports) => ports,
         None => return Ok(()),
     };
-    let expected_ports = package
-        .assigned_ports
-        .as_ref()
-        .map(runtime_ports_for_assigned_ports)
-        .unwrap_or_else(|| runtime_ports_for_slot(expected_slot));
-    let base_ports = runtime_ports_for_slot(0);
+    let expected_ports = validator_runtime_ports();
 
     let root = ensure_testnet_beta_root()?;
     let mut registry = load_registry(&root)?;
@@ -2430,16 +2573,6 @@ fn repair_imported_validator_ports_if_needed(
     }
 
     if current_ports == expected_ports {
-        if registry_changed {
-            save_registry(&root, &registry)?;
-        }
-        return Ok(());
-    }
-
-    // Only auto-repair validator runtimes that have clearly fallen all the way
-    // back to the slot-0 defaults. This avoids clobbering deliberate manual
-    // edits while still fixing stale imports for validators 2/3/4.
-    if current_ports != base_ports {
         if registry_changed {
             save_registry(&root, &registry)?;
         }
@@ -2626,9 +2759,30 @@ async fn launch_runner_detached(
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
 
-        command
+        append_workspace_control_log(
+            &workspace_directory,
+            "INFO",
+            "Launching detached node runner",
+            Some(json!({
+                "subcommand": subcommand.clone(),
+                "config_path": config_path.display().to_string(),
+                "stdout_log": stdout_path.display().to_string(),
+                "stderr_log": stderr_path.display().to_string(),
+            })),
+        );
+
+        let child = command
             .spawn()
             .map_err(|error| format!("Failed to launch {}: {}", subcommand, error))?;
+        append_workspace_control_log(
+            &workspace_directory,
+            "INFO",
+            "Detached node runner launched",
+            Some(json!({
+                "subcommand": subcommand.clone(),
+                "pid": child.id(),
+            })),
+        );
         Ok(())
     })
     .await
@@ -2639,6 +2793,343 @@ fn control_action_log_path(workspace_directory: &Path, subcommand: &str, stream:
     workspace_directory
         .join("logs")
         .join(format!("control-{subcommand}.{stream}.log"))
+}
+
+fn control_service_log_path(workspace_directory: &Path) -> PathBuf {
+    workspace_directory.join("logs").join("control-service.log")
+}
+
+fn append_control_action_output(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create {}: {error}", parent.display()))?;
+    }
+
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| format!("Failed to open {}: {error}", path.display()))?;
+    file.write_all(bytes)
+        .map_err(|error| format!("Failed to write {}: {error}", path.display()))?;
+    if !bytes.ends_with(b"\n") {
+        file.write_all(b"\n")
+            .map_err(|error| format!("Failed to finalize {}: {error}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn append_workspace_control_log(
+    workspace_directory: &Path,
+    level: &str,
+    message: &str,
+    metadata: Option<Value>,
+) {
+    let log_path = control_service_log_path(workspace_directory);
+    if let Some(parent) = log_path.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+
+    let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
+    let mut contents = format!(
+        "[{}] [{}] [control-service] {}\n",
+        timestamp,
+        level.trim().to_ascii_uppercase(),
+        message
+    );
+    if let Some(metadata) = metadata {
+        contents.push_str(&format!("  Metadata: {}\n", metadata));
+    }
+
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        let _ = file.write_all(contents.as_bytes());
+    }
+}
+
+fn normalize_log_timestamp(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    DateTime::parse_from_rfc3339(raw)
+        .map(|value| value.with_timezone(&Utc).to_rfc3339())
+        .ok()
+        .or_else(|| {
+            NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S UTC")
+                .ok()
+                .map(|value| DateTime::<Utc>::from_naive_utc_and_offset(value, Utc).to_rfc3339())
+        })
+}
+
+fn source_modified_at_utc(path: &Path) -> Option<String> {
+    let modified = fs::metadata(path).ok()?.modified().ok()?;
+    Some(DateTime::<Utc>::from(modified).to_rfc3339())
+}
+
+fn workspace_log_sources(workspace_directory: &Path) -> Vec<WorkspaceLogSource> {
+    vec![
+        WorkspaceLogSource {
+            id: "control-service",
+            label: "Control Service",
+            kind: "control",
+            path: control_service_log_path(workspace_directory),
+        },
+        WorkspaceLogSource {
+            id: "control-start-stderr",
+            label: "Start STDERR",
+            kind: "action",
+            path: control_action_log_path(workspace_directory, "start", "stderr"),
+        },
+        WorkspaceLogSource {
+            id: "control-start-stdout",
+            label: "Start STDOUT",
+            kind: "action",
+            path: control_action_log_path(workspace_directory, "start", "stdout"),
+        },
+        WorkspaceLogSource {
+            id: "control-stop-stderr",
+            label: "Stop STDERR",
+            kind: "action",
+            path: control_action_log_path(workspace_directory, "stop", "stderr"),
+        },
+        WorkspaceLogSource {
+            id: "control-stop-stdout",
+            label: "Stop STDOUT",
+            kind: "action",
+            path: control_action_log_path(workspace_directory, "stop", "stdout"),
+        },
+        WorkspaceLogSource {
+            id: "node-runtime",
+            label: "Node Runtime",
+            kind: "runtime",
+            path: workspace_directory.join("logs").join("synergy-testbeta.log"),
+        },
+        WorkspaceLogSource {
+            id: "rpc-selftest-out",
+            label: "RPC Self-Test STDOUT",
+            kind: "rpc",
+            path: workspace_directory.join("logs").join("rpc-test.out"),
+        },
+        WorkspaceLogSource {
+            id: "rpc-selftest-err",
+            label: "RPC Self-Test STDERR",
+            kind: "rpc",
+            path: workspace_directory.join("logs").join("rpc-test.err"),
+        },
+    ]
+}
+
+fn parse_structured_log_line(line: &str) -> Option<(Option<String>, String, String, String)> {
+    let raw = line.trim_end();
+    let rest = raw.strip_prefix('[')?;
+    let (timestamp, rest) = rest.split_once("] [")?;
+    let (level, rest) = rest.split_once("] [")?;
+    let (module, message) = rest.split_once("] ")?;
+    Some((
+        normalize_log_timestamp(timestamp),
+        level.trim().to_ascii_uppercase(),
+        module.trim().to_string(),
+        message.trim().to_string(),
+    ))
+}
+
+fn guess_log_level(line: &str, source_kind: &str) -> String {
+    let lowered = line.to_ascii_lowercase();
+    if lowered.contains("panic")
+        || lowered.contains("fatal")
+        || lowered.contains(" error")
+        || lowered.contains("error:")
+        || lowered.contains("failed")
+        || lowered.contains(" refused")
+    {
+        return "ERROR".to_string();
+    }
+    if lowered.contains("warn") || lowered.contains("timeout") {
+        return "WARN".to_string();
+    }
+    if lowered.contains("trace") {
+        return "TRACE".to_string();
+    }
+    if lowered.contains("debug") {
+        return "DEBUG".to_string();
+    }
+    if source_kind == "action" && lowered.contains("starting") {
+        return "DEBUG".to_string();
+    }
+    "INFO".to_string()
+}
+
+fn parse_log_source_entries(
+    source: &WorkspaceLogSource,
+    excerpt: &str,
+    fallback_timestamp_utc: Option<&str>,
+) -> Vec<TestnetBetaNodeLogEntry> {
+    let mut entries: Vec<TestnetBetaNodeLogEntry> = Vec::new();
+    let mut last_entry_index: Option<usize> = None;
+
+    for raw_line in excerpt.lines() {
+        let raw_line = raw_line.trim_end();
+        if raw_line.trim().is_empty() {
+            continue;
+        }
+
+        if let Some(metadata_text) = raw_line.strip_prefix("  Metadata:") {
+            if let Some(index) = last_entry_index {
+                let parsed = serde_json::from_str::<Value>(metadata_text.trim())
+                    .ok()
+                    .or_else(|| Some(json!({ "raw": metadata_text.trim() })));
+                entries[index].metadata = parsed;
+                continue;
+            }
+        }
+
+        if let Some((timestamp_utc, level, module, message)) = parse_structured_log_line(raw_line) {
+            entries.push(TestnetBetaNodeLogEntry {
+                source_id: source.id.to_string(),
+                source_label: source.label.to_string(),
+                kind: source.kind.to_string(),
+                timestamp_utc,
+                level,
+                module,
+                message,
+                metadata: None,
+                raw: raw_line.to_string(),
+            });
+            last_entry_index = Some(entries.len().saturating_sub(1));
+            continue;
+        }
+
+        entries.push(TestnetBetaNodeLogEntry {
+            source_id: source.id.to_string(),
+            source_label: source.label.to_string(),
+            kind: source.kind.to_string(),
+            timestamp_utc: fallback_timestamp_utc.map(str::to_string),
+            level: guess_log_level(raw_line, source.kind),
+            module: source.kind.to_string(),
+            message: raw_line.trim().to_string(),
+            metadata: None,
+            raw: raw_line.to_string(),
+        });
+        last_entry_index = Some(entries.len().saturating_sub(1));
+    }
+
+    entries
+}
+
+fn combined_log_text(entries: &[TestnetBetaNodeLogEntry]) -> String {
+    let mut lines = Vec::new();
+    for entry in entries {
+        lines.push(format!("[{}] {}", entry.source_label, entry.raw));
+        if let Some(metadata) = &entry.metadata {
+            lines.push(format!("    Metadata: {}", metadata));
+        }
+    }
+    lines.join("\n")
+}
+
+fn summarize_log_bundle(
+    sources: &[TestnetBetaNodeLogSource],
+    entries: &[TestnetBetaNodeLogEntry],
+) -> TestnetBetaNodeLogSummary {
+    let mut summary = TestnetBetaNodeLogSummary {
+        total_entries: entries.len(),
+        error_count: 0,
+        warn_count: 0,
+        info_count: 0,
+        debug_count: 0,
+        trace_count: 0,
+        active_source_count: sources.iter().filter(|source| source.available).count(),
+        latest_timestamp_utc: None,
+    };
+
+    for entry in entries {
+        match entry.level.as_str() {
+            "ERROR" => summary.error_count += 1,
+            "WARN" => summary.warn_count += 1,
+            "DEBUG" => summary.debug_count += 1,
+            "TRACE" => summary.trace_count += 1,
+            _ => summary.info_count += 1,
+        }
+        if let Some(timestamp) = &entry.timestamp_utc {
+            let should_update = match summary.latest_timestamp_utc.as_deref() {
+                Some(current) => current < timestamp.as_str(),
+                None => true,
+            };
+            if should_update {
+                summary.latest_timestamp_utc = Some(timestamp.clone());
+            }
+        }
+    }
+
+    summary
+}
+
+fn build_node_log_bundle(
+    node: &TestnetBetaProvisionedNode,
+    max_lines: usize,
+) -> TestnetBetaNodeLogBundle {
+    let workspace_directory = PathBuf::from(&node.workspace_directory);
+    let source_specs = workspace_log_sources(&workspace_directory);
+    let source_count = source_specs.len().max(1);
+    let per_source_lines = (max_lines / source_count).max(40).min(max_lines.max(40));
+
+    let mut sources = Vec::with_capacity(source_specs.len());
+    let mut entries = Vec::new();
+
+    for source in source_specs {
+        let modified_at_utc = source_modified_at_utc(&source.path);
+        let excerpt = log_tail_excerpt(&source.path, per_source_lines);
+        let mut source_entries =
+            excerpt
+                .as_deref()
+                .map(|contents| parse_log_source_entries(&source, contents, modified_at_utc.as_deref()))
+                .unwrap_or_default();
+
+        sources.push(TestnetBetaNodeLogSource {
+            id: source.id.to_string(),
+            label: source.label.to_string(),
+            kind: source.kind.to_string(),
+            path: source.path.display().to_string(),
+            available: source.path.is_file(),
+            line_count: source_entries.len(),
+            modified_at_utc,
+        });
+        entries.append(&mut source_entries);
+    }
+
+    entries.sort_by(|left, right| {
+        left.timestamp_utc
+            .cmp(&right.timestamp_utc)
+            .then(left.source_id.cmp(&right.source_id))
+            .then(left.raw.cmp(&right.raw))
+    });
+    if entries.len() > max_lines {
+        let drain_count = entries.len() - max_lines;
+        entries.drain(0..drain_count);
+    }
+
+    let summary = summarize_log_bundle(&sources, &entries);
+    let combined_text = combined_log_text(&entries);
+
+    TestnetBetaNodeLogBundle {
+        node_id: node.id.clone(),
+        workspace_directory: node.workspace_directory.clone(),
+        sources,
+        entries,
+        summary,
+        combined_text,
+    }
 }
 
 fn log_tail_excerpt(path: &Path, max_lines: usize) -> Option<String> {
@@ -2793,6 +3284,16 @@ async fn run_runner_and_wait(
     let subcommand = subcommand.to_string();
 
     tokio::task::spawn_blocking(move || -> Result<(), String> {
+        append_workspace_control_log(
+            &workspace_directory,
+            "INFO",
+            "Running node command",
+            Some(json!({
+                "subcommand": subcommand.clone(),
+                "config_path": config_path.display().to_string(),
+            })),
+        );
+
         let mut command = command_for_runner(&runner);
         command.arg(&subcommand).arg("--config").arg(&config_path);
         apply_workspace_runtime_env(&mut command, &config_path, &workspace_directory)
@@ -2801,8 +3302,25 @@ async fn run_runner_and_wait(
         let output = command
             .output()
             .map_err(|error| format!("Failed to execute {}: {}", subcommand, error))?;
+        append_control_action_output(
+            &control_action_log_path(&workspace_directory, &subcommand, "stdout"),
+            &output.stdout,
+        )?;
+        append_control_action_output(
+            &control_action_log_path(&workspace_directory, &subcommand, "stderr"),
+            &output.stderr,
+        )?;
 
         if output.status.success() {
+            append_workspace_control_log(
+                &workspace_directory,
+                "INFO",
+                "Node command completed",
+                Some(json!({
+                    "subcommand": subcommand.clone(),
+                    "exit_code": output.status.code(),
+                })),
+            );
             return Ok(());
         }
 
@@ -2813,6 +3331,16 @@ async fn run_runner_and_wait(
         } else {
             stderr.trim().to_string()
         };
+        append_workspace_control_log(
+            &workspace_directory,
+            "ERROR",
+            "Node command failed",
+            Some(json!({
+                "subcommand": subcommand.clone(),
+                "exit_code": output.status.code(),
+                "detail": detail.clone(),
+            })),
+        );
         Err(format!("{} failed: {}", subcommand, detail))
     })
     .await
@@ -3263,7 +3791,7 @@ fn self_dial_target_aliases_for_node(
     let mut aliases = HashSet::new();
     let public_p2p_port = read_runtime_ports_for_node(node)
         .map(|ports| ports.public_p2p_port)
-        .unwrap_or_else(|| TESTNET_BETA_P2P_PORT.saturating_add(node.port_slot.unwrap_or(0)));
+        .unwrap_or_else(|| default_runtime_ports_for_node(node).public_p2p_port);
 
     let mut record = |candidate: String| {
         if let Some(normalized) = normalize_testnet_beta_dial_target(&candidate) {
@@ -3381,7 +3909,7 @@ async fn build_node_readiness_report(
     let mut checks = Vec::new();
     let p2p_port = read_runtime_ports_for_node(node)
         .map(|ports| ports.p2p_port)
-        .unwrap_or_else(|| TESTNET_BETA_P2P_PORT + node.port_slot.unwrap_or(0));
+        .unwrap_or_else(|| default_runtime_ports_for_node(node).p2p_port);
 
     // 1. Workspace Ready
     checks.push(NodeReadinessCheck {
@@ -4133,12 +4661,8 @@ struct CanonicalValidatorPeer {
 }
 
 fn canonical_public_p2p_port_for_validator_slot(slot: u64) -> u16 {
-    match slot {
-        3 => 5623,
-        4 => 5624,
-        1 | 2 | 5 => 5622,
-        _ => TESTNET_BETA_P2P_PORT,
-    }
+    let _ = slot;
+    TESTNET_BETA_P2P_PORT
 }
 
 fn canonical_validator_peers_from_manifest_path(path: &Path) -> Vec<CanonicalValidatorPeer> {
@@ -4506,7 +5030,7 @@ fn build_seed_registration(
 ) -> SeedPeerRegistration {
     let p2p_port = read_runtime_ports_for_node(node)
         .map(|ports| ports.public_p2p_port)
-        .unwrap_or_else(|| TESTNET_BETA_P2P_PORT.saturating_add(node.port_slot.unwrap_or(0)));
+        .unwrap_or_else(|| default_runtime_ports_for_node(node).public_p2p_port);
     let dial = format!("snr://{}@{}:{}", node.node_address, public_host, p2p_port);
     SeedPeerRegistration {
         node_id: if node.role_id == "validator" {
@@ -5510,13 +6034,13 @@ fn build_node_toml(
     port_slot: u16,
     assigned_ports: Option<&TestnetBetaCeremonyAssignedPorts>,
 ) -> String {
-    let mut runtime_ports = assigned_ports
-        .map(runtime_ports_for_assigned_ports)
-        .unwrap_or_else(|| runtime_ports_for_slot(port_slot));
-    if role.id == "validator" {
-        runtime_ports.public_p2p_port = runtime_ports.p2p_port;
-        runtime_ports.public_discovery_port = runtime_ports.discovery_port;
-    }
+    let runtime_ports = if role.id == "validator" {
+        validator_runtime_ports()
+    } else {
+        assigned_ports
+            .map(runtime_ports_for_assigned_ports)
+            .unwrap_or_else(|| runtime_ports_for_slot(port_slot))
+    };
     let p2p_port = runtime_ports.p2p_port;
     let rpc_port = runtime_ports.rpc_port;
     let ws_port = runtime_ports.ws_port;
@@ -5598,7 +6122,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"info\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"info\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,

@@ -22,7 +22,7 @@ p2p_port = 5622
 rpc_port = 5640
 ws_port = 5660
 max_peers = 100
-bootnodes = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@genesisval2.synergynode.xyz:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5624","snr://synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46@genesisval5.synergynode.xyz:5622"]
+bootnodes = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@genesisval2.synergynode.xyz:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5622","snr://synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46@genesisval5.synergynode.xyz:5622"]
 seed_servers = []
 bootstrap_dns_records = []
 additional_dial_targets = []
@@ -70,7 +70,7 @@ cors_origins = []
 
 [p2p]
 listen_address = "0.0.0.0:5622"
-public_address = "genesisval3.synergynode.xyz:5623"
+public_address = "genesisval3.synergynode.xyz:5622"
 node_name = "genesisval3"
 enable_discovery = false
 discovery_port = 5680
