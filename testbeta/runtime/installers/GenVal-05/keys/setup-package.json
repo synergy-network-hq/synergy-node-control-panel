@@ -984,13 +984,13 @@
       },
       "public_endpoints": {
         "core_rpc": {
-          "url": "https://testbeta-core-rpc.synergy-network.io",
-          "host": "testbeta-core-rpc.synergy-network.io",
+          "url": "https://testbeta-core-rpc.synergynode.xyz",
+          "host": "testbeta-core-rpc.synergynode.xyz",
           "ip_address": "74.208.227.23"
         },
         "core_ws": {
-          "url": "wss://testbeta-core-ws.synergy-network.io",
-          "host": "testbeta-core-ws.synergy-network.io",
+          "url": "wss://testbeta-core-ws.synergynode.xyz",
+          "host": "testbeta-core-ws.synergynode.xyz",
           "ip_address": "74.208.227.23"
         },
         "api": {

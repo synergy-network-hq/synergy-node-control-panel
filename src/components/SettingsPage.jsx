@@ -24,6 +24,26 @@ import {
 import { SNRGButton } from '../styles/SNRGButton';
 
 const TERMINAL_GREETING = 'Operator console ready. Use a guided action or run your own command below.';
+const ERASE_NODE_DATA_TARGETS = [
+  {
+    id: 'macos',
+    platformLabel: 'macOS',
+    buttonLabel: 'Erase macOS Node Data',
+    detail: 'Enabled only when this Control Panel install is running on macOS.',
+  },
+  {
+    id: 'linux',
+    platformLabel: 'Linux',
+    buttonLabel: 'Erase Linux Node Data',
+    detail: 'Enabled only when this Control Panel install is running on Linux.',
+  },
+  {
+    id: 'windows',
+    platformLabel: 'Windows',
+    buttonLabel: 'Erase Windows Node Data',
+    detail: 'Enabled only when this Control Panel install is running on Windows.',
+  },
+];
 
 function formatPath(path) {
   return String(path || '').trim() || 'Not available';
@@ -74,8 +94,22 @@ function shellQuote(value) {
 function detectPlatformKind(operatingSystem) {
   const text = String(operatingSystem || '').toLowerCase();
   if (text.includes('windows')) return 'windows';
+  if (text.includes('mac') || text.includes('darwin') || text.includes('os x')) return 'macos';
   if (text.includes('linux')) return 'linux';
-  return 'unix';
+  return 'unknown';
+}
+
+function formatPlatformLabel(platformKind) {
+  switch (platformKind) {
+    case 'macos':
+      return 'macOS';
+    case 'linux':
+      return 'Linux';
+    case 'windows':
+      return 'Windows';
+    default:
+      return 'Unknown';
+  }
 }
 
 function buildProcessAuditCommand() {
@@ -141,8 +175,9 @@ function buildPortListenerCommand() {
 
 function buildLocalRpcCheckCommand(nodes, nodePortProfiles) {
   const rows = (Array.isArray(nodes) ? nodes : []).map((node) => {
+    const usesFixedValidatorPort = String(node?.role_id || '').trim().toLowerCase() === 'validator';
     const port = nodePortProfiles?.[node.id]?.portSettings?.rpcPort
-      ?? (5640 + Number(node?.port_slot || 0));
+      ?? (usesFixedValidatorPort ? 5640 : (5640 + Number(node?.port_slot || 0)));
     const label = node.display_label || node.role_display_name || node.id;
     return `${label}|${port}`;
   });
@@ -181,7 +216,7 @@ function buildBootstrapCheckCommand(networkProfile, publicRpcEndpoint) {
   ];
 
   const payload = JSON.stringify({
-    publicRpcEndpoint: publicRpcEndpoint || 'https://testbeta-core-rpc.synergy-network.io',
+    publicRpcEndpoint: publicRpcEndpoint || 'https://testbeta-core-rpc.synergynode.xyz',
     endpoints,
   }).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
@@ -517,6 +552,37 @@ function DefinitionRow({ label, value, detail }) {
   );
 }
 
+function EraseNodeDataModal({ target, busy, onConfirm, onCancel }) {
+  if (!target) {
+    return null;
+  }
+
+  return (
+    <div className="nodedetail-modal-backdrop" onClick={busy ? undefined : onCancel}>
+      <div className="nodedetail-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>Erase Local Node Data</h3>
+        <p className="nodedetail-modal-body">
+          Confirm that you want to completely wipe this machine&apos;s <strong>{target.platformLabel}</strong> Testnet-Beta
+          node data.
+        </p>
+        <ul className="nodedetail-modal-list">
+          <li>All local `synergy-testbeta` processes will be stopped.</li>
+          <li>The local `~/.synergy/testnet-beta` workspace and control-panel monitor caches will be deleted.</li>
+          <li>The local node registry will be reset so this machine returns to a clean-install state.</li>
+          <li>Remote validators and remote chain state will not be changed by this action.</li>
+        </ul>
+        <p className="nodedetail-modal-warning">This action cannot be undone.</p>
+        <div className="nodedetail-modal-actions">
+          <SNRGButton variant="blue" size="sm" onClick={onCancel} disabled={busy}>Cancel</SNRGButton>
+          <SNRGButton variant="red" size="sm" onClick={onConfirm} disabled={busy}>
+            {busy ? 'Erasing...' : `Yes, erase ${target.platformLabel} data`}
+          </SNRGButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const [state, setState] = useState(() => peekTestnetBetaState());
   const [liveStatus, setLiveStatus] = useState(() => peekTestnetBetaLiveStatus());
@@ -542,6 +608,10 @@ function SettingsPage() {
   const [updateDownloadedVersion, setUpdateDownloadedVersion] = useState('');
   const [bootstrapRefreshBusy, setBootstrapRefreshBusy] = useState(false);
   const [bootstrapRefreshStatus, setBootstrapRefreshStatus] = useState('');
+  const [eraseBusy, setEraseBusy] = useState(false);
+  const [eraseStatus, setEraseStatus] = useState('');
+  const [eraseStatusTone, setEraseStatusTone] = useState('warn');
+  const [pendingEraseTarget, setPendingEraseTarget] = useState(null);
 
   const terminalScrollRef = useRef(null);
   const hasLoadedState = useRef(Boolean(peekTestnetBetaState()));
@@ -705,6 +775,10 @@ function SettingsPage() {
   const platformKind = useMemo(
     () => detectPlatformKind(state?.device_profile?.operating_system),
     [state?.device_profile?.operating_system],
+  );
+  const platformLabel = useMemo(
+    () => formatPlatformLabel(platformKind),
+    [platformKind],
   );
 
   const setPortNotice = useCallback((tone, message) => {
@@ -960,6 +1034,55 @@ function SettingsPage() {
       setBootstrapRefreshBusy(false);
     }
   }, [provisionedNodes, state?.network_profile]);
+
+  const openEraseModal = useCallback((target) => {
+    setPendingEraseTarget(target);
+  }, []);
+
+  const closeEraseModal = useCallback(() => {
+    if (eraseBusy) {
+      return;
+    }
+    setPendingEraseTarget(null);
+  }, [eraseBusy]);
+
+  const handleConfirmEraseLocalData = useCallback(async () => {
+    if (!pendingEraseTarget || eraseBusy) {
+      return;
+    }
+
+    setEraseBusy(true);
+    setEraseStatusTone('warn');
+    setEraseStatus(`Erasing local ${pendingEraseTarget.platformLabel} Testnet-Beta node data...`);
+
+    try {
+      const result = await invoke('testbeta_erase_local_machine_data', {
+        targetOs: pendingEraseTarget.id,
+      });
+
+      const defaults = resetStoredTestnetBetaPortSettings();
+      setSavedPortSettings(defaults);
+      setPortForm(formatPortSettingsForForm(defaults));
+      setPortErrors({});
+      setNodePortProfiles({});
+      setBootstrapRefreshStatus('');
+      setPendingEraseTarget(null);
+      setTerminalInput('');
+      setTerminalCwd('');
+      setTerminalLines([
+        createTerminalLine('info', TERMINAL_GREETING),
+        createTerminalLine('success', result?.message || `Erased local ${pendingEraseTarget.platformLabel} node data.`),
+      ]);
+      setEraseStatusTone('good');
+      setEraseStatus(result?.message || `Erased local ${pendingEraseTarget.platformLabel} node data.`);
+      await loadPage(true);
+    } catch (eraseError) {
+      setEraseStatusTone('bad');
+      setEraseStatus(String(eraseError));
+    } finally {
+      setEraseBusy(false);
+    }
+  }, [eraseBusy, loadPage, pendingEraseTarget]);
 
   const summaryCards = useMemo(
     () => [
@@ -1251,6 +1374,58 @@ function SettingsPage() {
               </div>
             )}
           </section>
+
+          <section className="settings-shell-panel">
+            <div className="settings-shell-panel-header">
+              <div>
+                <p className="settings-shell-panel-kicker">Destructive Actions</p>
+                <h3>Wipe all local node data</h3>
+              </div>
+              <span className={`settings-shell-badge ${platformKind === 'unknown' ? 'warn' : 'good'}`}>
+                {platformLabel}
+              </span>
+            </div>
+            <div className="settings-shell-feature-card">
+              <div className="settings-shell-feature-copy">
+                <span className="settings-shell-feature-kicker">Clean Install Reset</span>
+                <strong>Erase this machine&apos;s full Testnet-Beta footprint</strong>
+                <p>
+                  Use the button for the operating system that this Control Panel is installed on. The other platform
+                  buttons stay disabled so you do not accidentally request the wrong cleanup path.
+                </p>
+              </div>
+            </div>
+            <div className="settings-shell-action-row">
+              {ERASE_NODE_DATA_TARGETS.map((target) => {
+                const enabled = platformKind === target.id;
+                return (
+                  <SNRGButton
+                    key={target.id}
+                    variant="red"
+                    size="sm"
+                    disabled={!enabled || eraseBusy}
+                    title={target.detail}
+                    onClick={() => openEraseModal(target)}
+                  >
+                    {target.buttonLabel}
+                  </SNRGButton>
+                );
+              })}
+            </div>
+            <div className="settings-shell-meta-row">
+              {ERASE_NODE_DATA_TARGETS.map((target) => (
+                <span key={target.id}>
+                  {target.platformLabel}: {target.detail}
+                </span>
+              ))}
+            </div>
+            {eraseStatus ? (
+              <div className={`settings-shell-status settings-shell-status-${eraseStatusTone}`}>
+                <strong>{eraseStatusTone === 'bad' ? 'Erase Failed' : (eraseStatusTone === 'good' ? 'Erase Complete' : 'Erasing')}</strong>
+                <span>{eraseStatus}</span>
+              </div>
+            ) : null}
+          </section>
         </div>
 
         <div className="settings-shell-column settings-shell-column-console">
@@ -1384,6 +1559,12 @@ function SettingsPage() {
           </section>
         </div>
       </div>
+      <EraseNodeDataModal
+        target={pendingEraseTarget}
+        busy={eraseBusy}
+        onCancel={closeEraseModal}
+        onConfirm={handleConfirmEraseLocalData}
+      />
     </section>
   );
 }

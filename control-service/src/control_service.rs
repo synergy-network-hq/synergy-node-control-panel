@@ -20,8 +20,10 @@ use crate::testnet_beta::{
     testbeta_boost_sync, testbeta_force_peer_connect, testbeta_get_catalog,
     testbeta_get_chain_blocks, testbeta_get_device_profile, testbeta_get_live_status,
     testbeta_get_node_logs, testbeta_get_node_readiness, testbeta_get_state,
+    testbeta_erase_local_machine_data,
     testbeta_import_ceremony_package, testbeta_inspect_ceremony_package, testbeta_node_control,
     testbeta_remove_node, testbeta_run_register_with_seeds, testbeta_setup_node,
+    TestnetBetaEraseNodeDataInput,
     TestnetBetaForcePeerConnectInput, TestnetBetaImportCeremonyPackageInput,
     TestnetBetaInspectCeremonyPackageInput, TestnetBetaNodeControlInput,
     TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
@@ -98,6 +100,12 @@ struct NodeActionArgs {
 struct BulkActionArgs {
     action: String,
     scope: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaEraseNodeDataArgs {
+    target_os: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -401,6 +409,18 @@ async fn dispatch_command(
         "testbeta_get_live_status" => to_value(testbeta_get_live_status().await?),
         "testbeta_get_device_profile" => to_value(testbeta_get_device_profile()?),
         "testbeta_get_catalog" => to_value(testbeta_get_catalog()?),
+        "testbeta_erase_local_machine_data" => {
+            let args: TestnetBetaEraseNodeDataArgs = parse_args(request.args)?;
+            to_value(
+                testbeta_erase_local_machine_data(
+                    &state.app_context,
+                    TestnetBetaEraseNodeDataInput {
+                        target_os: args.target_os,
+                    },
+                )
+                .await?,
+            )
+        }
         "testbeta_setup_node" => {
             let args: TestnetBetaSetupArgs = parse_args(request.args)?;
             to_value(testbeta_setup_node(args.input).await?)

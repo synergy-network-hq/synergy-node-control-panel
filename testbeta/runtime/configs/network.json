@@ -8,8 +8,8 @@
     "discoveryInterval": 15000,
     "heartbeatInterval": 10000,
     "heartbeatTimeout": 30000,
-    "rpcBaseUrl": "https://testbeta-core-rpc.synergy-network.io",
-    "wsBaseUrl": "wss://testbeta-core-ws.synergy-network.io"
+    "rpcBaseUrl": "https://testbeta-core-rpc.synergynode.xyz",
+    "wsBaseUrl": "wss://testbeta-core-ws.synergynode.xyz"
   },
   "nodeClasses": {
     "Class I": {

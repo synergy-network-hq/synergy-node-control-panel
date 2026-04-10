@@ -24,6 +24,7 @@ import {
   buildValidatorNodeMap,
   formatPeerLastSeen,
   normalizePeerInfoPayload,
+  peerMeshStatus,
   peerValidatorRuntimeStatus,
 } from '../lib/testnetBetaPeerInfo';
 import { SNRGButton } from '../styles/SNRGButton';
@@ -297,8 +298,9 @@ function totalReservedNweiForNetwork(networkProfile, fallbackValue) {
 
 function localRpcEndpointForNode(node, nodeLive) {
   if (nodeLive?.rpc_endpoint) return nodeLive.rpc_endpoint;
+  const usesFixedValidatorPort = String(node?.role_id || '').trim().toLowerCase() === 'validator';
   const slot = Number(node?.port_slot || 0);
-  return `http://127.0.0.1:${5640 + slot}`;
+  return `http://127.0.0.1:${usesFixedValidatorPort ? 5640 : (5640 + slot)}`;
 }
 
 async function queryLocalRpc(endpoint, method, params = []) {
@@ -1094,11 +1096,15 @@ function TestnetBetaNodeDetail() {
             <div className="nodecp-peer-list">
               {localPeerInfo.peers.map((peer, index) => {
                 const peerRuntimeStatus = peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById);
+                const peerMesh = peerMeshStatus(peer);
                 const peerRuntimeStatusClassName = peerRuntimeStatus
-                  ? (peerRuntimeStatus.label === 'Live'
+                  ? (peerRuntimeStatus.tone === 'good'
                     ? 'nodecp-health-pill nodecp-health-live'
                     : `nodecp-health-pill nodecp-health-${peerRuntimeStatus.tone}`)
                   : '';
+                const peerMeshStatusClassName = peerMesh.tone === 'good'
+                  ? 'nodecp-health-pill nodecp-health-live'
+                  : `nodecp-health-pill nodecp-health-${peerMesh.tone}`;
                 return (
                 <article key={`${peer.id}-${index}`} className="nodecp-peer-card">
                   <div className="nodecp-peer-card-header">
@@ -1110,7 +1116,7 @@ function TestnetBetaNodeDetail() {
                       {peerRuntimeStatus ? (
                         <span className={peerRuntimeStatusClassName}>{peerRuntimeStatus.label}</span>
                       ) : null}
-                      <span className="nodecp-health-pill nodecp-health-good">Connected</span>
+                      <span className={peerMeshStatusClassName}>{peerMesh.label}</span>
                     </div>
                   </div>
                   <div className="nodecp-peer-card-grid">
@@ -1127,8 +1133,16 @@ function TestnetBetaNodeDetail() {
                       <strong>{formatPeerLastSeen(peer.lastSeen)}</strong>
                     </div>
                     <div className="nodecp-peer-metric">
+                      <span>Consensus</span>
+                      <strong>{peerMesh.detail}</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
                       <span>Version</span>
                       <strong>{peer.version || 'Unknown'}</strong>
+                    </div>
+                    <div className="nodecp-peer-metric">
+                      <span>Height</span>
+                      <strong>{formatNumber(peer.lastKnownHeight)}</strong>
                     </div>
                     <div className="nodecp-peer-metric">
                       <span>Blocks</span>

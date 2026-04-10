@@ -107,6 +107,11 @@ const CEREMONY_FORWARD_PORT_FIELDS = Object.freeze([
   },
 ]);
 
+function usesFixedValidatorPorts(node) {
+  const roleId = String(node?.role_id ?? node?.roleId ?? '').trim().toLowerCase();
+  return roleId === 'validator';
+}
+
 function resolvePortSlot(node) {
   const parsed = Number.parseInt(String(node?.port_slot ?? node?.portSlot ?? 0).trim(), 10);
   if (!Number.isInteger(parsed) || parsed < 0) {
@@ -116,10 +121,19 @@ function resolvePortSlot(node) {
 }
 
 function resolveCeremonyPortSettings(node, portSettings) {
-  const slot = resolvePortSlot(node);
   const base = portSettings && typeof portSettings === 'object'
     ? portSettings
     : DEFAULT_CEREMONY_PORT_SETTINGS;
+  if (usesFixedValidatorPorts(node)) {
+    return {
+      p2p: Number.parseInt(String(base.p2p ?? DEFAULT_CEREMONY_PORT_SETTINGS.p2p), 10) || DEFAULT_CEREMONY_PORT_SETTINGS.p2p,
+      rpc: Number.parseInt(String(base.rpc ?? DEFAULT_CEREMONY_PORT_SETTINGS.rpc), 10) || DEFAULT_CEREMONY_PORT_SETTINGS.rpc,
+      ws: Number.parseInt(String(base.ws ?? DEFAULT_CEREMONY_PORT_SETTINGS.ws), 10) || DEFAULT_CEREMONY_PORT_SETTINGS.ws,
+      discovery: Number.parseInt(String(base.discovery ?? DEFAULT_CEREMONY_PORT_SETTINGS.discovery), 10) || DEFAULT_CEREMONY_PORT_SETTINGS.discovery,
+      metrics: Number.parseInt(String(base.metrics ?? DEFAULT_CEREMONY_PORT_SETTINGS.metrics), 10) || DEFAULT_CEREMONY_PORT_SETTINGS.metrics,
+    };
+  }
+  const slot = resolvePortSlot(node);
   return {
     p2p: Number.parseInt(String(base.p2p ?? DEFAULT_CEREMONY_PORT_SETTINGS.p2p), 10) || (DEFAULT_CEREMONY_PORT_SETTINGS.p2p + slot),
     rpc: Number.parseInt(String(base.rpc ?? DEFAULT_CEREMONY_PORT_SETTINGS.rpc), 10) || (DEFAULT_CEREMONY_PORT_SETTINGS.rpc + slot),

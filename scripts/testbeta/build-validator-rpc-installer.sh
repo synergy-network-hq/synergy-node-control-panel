@@ -245,8 +245,8 @@ seed_servers = $(json_array "${SEEDS[@]}")
 bootstrap_dns_records = ["_dnsaddr.bootstrap.synergynode.xyz"]
 
 [testbeta]
-core_rpc = "https://testbeta-core-rpc.synergy-network.io"
-core_ws = "wss://testbeta-core-ws.synergy-network.io"
+core_rpc = "https://testbeta-core-rpc.synergynode.xyz"
+core_ws = "wss://testbeta-core-ws.synergynode.xyz"
 wallet_api = "https://testbeta-wallet-api.synergy-network.io"
 sxcp_api = "https://testbeta-sxcp-api.synergy-network.io"
 

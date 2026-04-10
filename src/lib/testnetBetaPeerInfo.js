@@ -37,6 +37,8 @@ const CANONICAL_VALIDATOR_HOSTS = new Map([
   ['genesisval4.synergynode.xyz', 'synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49'],
   ['genesisval5.synergynode.xyz', 'synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46'],
 ]);
+const PEER_READY_GRACE_SECONDS = 25;
+const PEER_STALE_SECONDS = 45;
 
 function buildKnownValidatorAddressMap(nodes) {
   // Keys by publicHost → validatorAddress.
@@ -144,6 +146,9 @@ function mergePeerEntries(current, next) {
     validatorAddress: current.validatorAddress || next.validatorAddress,
     version: current.version || next.version,
     capabilities: Array.from(new Set([...current.capabilities, ...next.capabilities])),
+    genesisHash: current.genesisHash || next.genesisHash,
+    bestBlockHash: current.bestBlockHash || next.bestBlockHash,
+    lastKnownHeight: Math.max(current.lastKnownHeight ?? 0, next.lastKnownHeight ?? 0) || null,
     lastSeen: Math.max(current.lastSeen ?? 0, next.lastSeen ?? 0) || null,
     blocksSent: Math.max(current.blocksSent, next.blocksSent),
     blocksReceived: Math.max(current.blocksReceived, next.blocksReceived),
@@ -232,6 +237,9 @@ function normalizePeerInfoPayload(raw, knownValidatorsByHost) {
       capabilities: Array.isArray(peer?.capabilities)
         ? peer.capabilities.map((entry) => String(entry || '').trim()).filter(Boolean)
         : [],
+      genesisHash: String(peer?.genesis_hash || '').trim(),
+      bestBlockHash: String(peer?.best_block_hash || '').trim(),
+      lastKnownHeight: toFiniteNumber(peer?.last_known_height),
       lastSeen: toFiniteNumber(peer?.last_seen),
       blocksSent: toFiniteNumber(peer?.blocks_sent) ?? 0,
       blocksReceived: toFiniteNumber(peer?.blocks_received) ?? 0,
@@ -267,12 +275,52 @@ function normalizePeerInfoPayload(raw, knownValidatorsByHost) {
   };
 }
 
+function peerMeshStatus(peer) {
+  const ageSeconds = peerSeenAgeSeconds(peer);
+  const hasStatusSync = Boolean(String(peer?.genesisHash || '').trim());
+
+  if (ageSeconds != null && ageSeconds > PEER_STALE_SECONDS) {
+    return {
+      status: 'stale',
+      label: 'Stale',
+      tone: 'warn',
+      detail: 'No recent heartbeat or status exchange.',
+    };
+  }
+
+  if (hasStatusSync && (ageSeconds == null || ageSeconds <= PEER_READY_GRACE_SECONDS)) {
+    return {
+      status: 'ready',
+      label: 'Status Synced',
+      tone: 'good',
+      detail: 'Recent status exchange completed and consensus metadata is present.',
+    };
+  }
+
+  if (hasStatusSync) {
+    return {
+      status: 'connected',
+      label: 'Aging',
+      tone: 'warn',
+      detail: 'Status sync exists, but the heartbeat is getting old.',
+    };
+  }
+
+  return {
+    status: 'handshake',
+    label: 'Handshake Only',
+    tone: 'warn',
+    detail: 'Socket is connected, but this peer has not completed status sync yet.',
+  };
+}
+
 function peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById) {
   const validatorAddress = String(peer?.validatorAddress || '').trim();
   if (!validatorAddress) {
     return null;
   }
 
+  const meshStatus = peerMeshStatus(peer);
   const node = validatorNodesByAddress instanceof Map
     ? validatorNodesByAddress.get(validatorAddress)
     : null;
@@ -287,15 +335,22 @@ function peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById)
     if ((Number(live.sync_gap) || 0) > 0) {
       return { label: 'Syncing', tone: 'warn' };
     }
-    return { label: 'Live', tone: 'good' };
+    if (meshStatus.status === 'ready') {
+      return { label: 'Ready', tone: 'good' };
+    }
+    if (meshStatus.status === 'connected') {
+      return { label: 'Live', tone: 'good' };
+    }
+    return { label: 'Connected', tone: 'warn' };
   }
 
-  const ageSeconds = peerSeenAgeSeconds(peer);
-  if (ageSeconds != null && ageSeconds > 120) {
-    return { label: 'Stale', tone: 'warn' };
+  if (meshStatus.status === 'ready') {
+    return { label: 'Ready', tone: 'good' };
   }
-
-  return { label: 'Live', tone: 'good' };
+  if (meshStatus.status === 'connected') {
+    return { label: 'Connected', tone: 'warn' };
+  }
+  return { label: meshStatus.label, tone: meshStatus.tone };
 }
 
 function peerSeenAgeSeconds(peer) {
@@ -314,5 +369,6 @@ export {
   buildValidatorNodeMap,
   formatPeerLastSeen,
   normalizePeerInfoPayload,
+  peerMeshStatus,
   peerValidatorRuntimeStatus,
 };

@@ -35,7 +35,8 @@ const TESTNET_BETA_RPC_PORT: u16 = 5640;
 const TESTNET_BETA_WS_PORT: u16 = 5660;
 const TESTNET_BETA_DISCOVERY_PORT: u16 = 5680;
 const TESTNET_BETA_METRICS_PORT: u16 = 6030;
-const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergy-network.io";
+const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergynode.xyz";
+const TESTNET_BETA_PUBLIC_WS_ENDPOINT: &str = "wss://testbeta-core-ws.synergynode.xyz";
 const TOKEN_SYMBOL: &str = "SNRG";
 const TOKEN_DECIMALS: u32 = 9;
 const TOKEN_SCALE: u64 = 1_000_000_000;
@@ -538,12 +539,90 @@ pub struct TestnetBetaRemoveNodeResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestnetBetaEraseNodeDataInput {
+    pub target_os: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestnetBetaEraseNodeDataResult {
+    pub target_os: String,
+    pub status: String,
+    pub message: String,
+    pub erased_root: String,
+    pub removed_workspace_count: usize,
+    pub killed_process_count: usize,
+    pub removed_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct GeneratedWalletFiles {
     wallet: TestnetBetaWalletRecord,
 }
 
 pub fn testbeta_get_state() -> Result<TestnetBetaState, String> {
     build_state()
+}
+
+pub async fn testbeta_erase_local_machine_data(
+    app_context: &AppContext,
+    input: TestnetBetaEraseNodeDataInput,
+) -> Result<TestnetBetaEraseNodeDataResult, String> {
+    let requested_platform = normalize_testbeta_cleanup_platform(&input.target_os)?;
+    let current_platform = current_testbeta_cleanup_platform();
+    if requested_platform != current_platform {
+        return Err(format!(
+            "This Control Panel install is running on {}. Use the {} erase button on this machine.",
+            current_platform, current_platform
+        ));
+    }
+
+    let root = testnet_beta_root_path()?;
+    let registry = if root.exists() {
+        load_registry(&root).unwrap_or_default()
+    } else {
+        TestnetBetaRegistryFile::default()
+    };
+
+    let mut killed_process_count = 0usize;
+    for node in &registry.nodes {
+        killed_process_count = killed_process_count.saturating_add(
+            force_kill_workspace_processes(Path::new(&node.workspace_directory)).unwrap_or(0),
+        );
+    }
+    killed_process_count = killed_process_count
+        .saturating_add(force_kill_testbeta_processes_under_root(&root)?);
+
+    let mut removed_paths = Vec::new();
+    remove_path_if_exists(&root, &mut removed_paths)?;
+    for path in candidate_local_testbeta_cleanup_paths(app_context) {
+        remove_path_if_exists(&path, &mut removed_paths)?;
+    }
+
+    let recreated_root = ensure_testnet_beta_root()?;
+    let _ = load_or_create_network_profile(&recreated_root)?;
+    save_registry(
+        &recreated_root,
+        &TestnetBetaRegistryFile {
+            version: STATE_VERSION,
+            nodes: Vec::new(),
+        },
+    )?;
+
+    Ok(TestnetBetaEraseNodeDataResult {
+        target_os: requested_platform.to_string(),
+        status: "erased".to_string(),
+        message: format!(
+            "Erased local Testnet-Beta node data for {}. Removed {} path(s), stopped {} process(es), and reset {} workspace record(s).",
+            requested_platform,
+            removed_paths.len(),
+            killed_process_count,
+            registry.nodes.len()
+        ),
+        erased_root: recreated_root.to_string_lossy().to_string(),
+        removed_workspace_count: registry.nodes.len(),
+        killed_process_count,
+        removed_paths,
+    })
 }
 
 pub async fn testbeta_import_ceremony_package(
@@ -1637,12 +1716,12 @@ pub async fn testbeta_setup_node(
         let ws_port_val = TESTNET_BETA_WS_PORT.saturating_add(port_slot);
         let public_host_val = detected_public_host.as_deref().unwrap_or("YOUR_SERVER_IP");
         let rpc_subdomain = if role.id == "rpc_gateway" {
-            "testbeta-core-rpc.synergy-network.io"
+            "testbeta-core-rpc.synergynode.xyz"
         } else {
             "testbeta-indexer.synergy-network.io"
         };
         let ws_subdomain = if role.id == "rpc_gateway" {
-            "testbeta-core-ws.synergy-network.io"
+            "testbeta-core-ws.synergynode.xyz"
         } else {
             "testbeta-indexer.synergy-network.io"
         };
@@ -2545,11 +2624,6 @@ fn repair_imported_validator_ports_if_needed(
     config_path: &Path,
     package: &TestnetBetaCeremonyPackage,
 ) -> Result<(), String> {
-    let expected_slot = match derive_ceremony_port_slot(package) {
-        Some(slot) if slot > 0 => slot,
-        _ => return Ok(()),
-    };
-
     let current_ports = match parse_runtime_ports_from_config(config_path) {
         Some(ports) => ports,
         None => return Ok(()),
@@ -2567,8 +2641,8 @@ fn repair_imported_validator_ports_if_needed(
     };
 
     let mut registry_changed = false;
-    if registry.nodes[node_index].port_slot != Some(expected_slot) {
-        registry.nodes[node_index].port_slot = Some(expected_slot);
+    if registry.nodes[node_index].port_slot != Some(0) {
+        registry.nodes[node_index].port_slot = Some(0);
         registry_changed = true;
     }
 
@@ -2594,7 +2668,7 @@ fn repair_imported_validator_ports_if_needed(
         public_host.as_deref(),
         &network_profile,
         role_overlay.as_str(),
-        expected_slot,
+        0,
         package.assigned_ports.as_ref(),
     );
     if role.id == "validator" {
@@ -4585,10 +4659,14 @@ fn parse_rpc_peer_count(value: Value) -> Result<usize, String> {
     parse_rpc_peer_summary(&value, None).map(|summary| summary.peer_count)
 }
 
-fn ensure_testnet_beta_root() -> Result<PathBuf, String> {
+fn testnet_beta_root_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir()
         .ok_or_else(|| "Unable to resolve the current user home directory.".to_string())?;
-    let root = home.join(".synergy").join("testnet-beta");
+    Ok(home.join(".synergy").join("testnet-beta"))
+}
+
+fn ensure_testnet_beta_root() -> Result<PathBuf, String> {
+    let root = testnet_beta_root_path()?;
     for path in [
         &root,
         &root.join("nodes"),
@@ -4599,6 +4677,153 @@ fn ensure_testnet_beta_root() -> Result<PathBuf, String> {
             .map_err(|error| format!("Failed to create {}: {error}", path.display()))?;
     }
     Ok(root)
+}
+
+fn current_testbeta_cleanup_platform() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "macos",
+        "linux" => "linux",
+        "windows" => "windows",
+        _ => "unknown",
+    }
+}
+
+fn normalize_testbeta_cleanup_platform(value: &str) -> Result<&'static str, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "macos" | "darwin" | "mac" | "osx" => Ok("macos"),
+        "linux" => Ok("linux"),
+        "windows" | "win32" | "win" => Ok("windows"),
+        other => Err(format!("Unsupported cleanup platform target: {other}")),
+    }
+}
+
+fn candidate_local_testbeta_cleanup_paths(app_context: &AppContext) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
+        paths.push(home_dir.join(".synergy").join("node"));
+        paths.push(
+            home_dir
+                .join(".synergy-node-control-panel")
+                .join("monitor-workspace")
+                .join("testbeta"),
+        );
+        paths.push(
+            home_dir
+                .join(".synergy-testbeta-control-panel")
+                .join("monitor-workspace")
+                .join("testbeta"),
+        );
+        paths.push(
+            home_dir
+                .join(".synergy-node-monitor")
+                .join("monitor-workspace")
+                .join("testbeta"),
+        );
+    }
+
+    if let Some(app_data_dir) = app_context.app_data_dir() {
+        paths.push(app_data_dir.join("monitor-workspace").join("testbeta"));
+    }
+
+    let mut deduped = Vec::new();
+    for path in paths {
+        if deduped.iter().any(|existing| existing == &path) {
+            continue;
+        }
+        deduped.push(path);
+    }
+    deduped
+}
+
+fn remove_path_if_exists(path: &Path, removed_paths: &mut Vec<String>) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let metadata = fs::metadata(path)
+        .map_err(|error| format!("Failed to inspect {}: {error}", path.display()))?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(path)
+            .map_err(|error| format!("Failed to remove {}: {error}", path.display()))?;
+    } else {
+        fs::remove_file(path)
+            .map_err(|error| format!("Failed to remove {}: {error}", path.display()))?;
+    }
+
+    removed_paths.push(path.to_string_lossy().to_string());
+    Ok(())
+}
+
+fn process_matches_local_testbeta_root(process: &sysinfo::Process, root: &Path) -> bool {
+    let command_line = process
+        .cmd()
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    let process_name = process.name().to_string_lossy().to_ascii_lowercase();
+    let executable = process
+        .exe()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let root_text = root.to_string_lossy().to_string().to_ascii_lowercase();
+
+    process_name.contains("synergy-testbeta")
+        || executable.contains("synergy-testbeta")
+        || command_line.contains("synergy-testbeta")
+        || (!root_text.is_empty() && command_line.contains(&root_text))
+}
+
+fn force_kill_testbeta_processes_under_root(root: &Path) -> Result<usize, String> {
+    let mut system = System::new_all();
+    system.refresh_all();
+
+    let pids = system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            if process_matches_local_testbeta_root(process, root) {
+                Some(pid.as_u32())
+            } else {
+                None
+            }
+        })
+        .collect::<HashSet<_>>();
+
+    if pids.is_empty() {
+        return Ok(0);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        for pid in &pids {
+            let _ = ProcessCommand::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        for pid in &pids {
+            let _ = ProcessCommand::new("kill")
+                .args(["-KILL", &pid.to_string()])
+                .status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        for pid in &pids {
+            let _ = ProcessCommand::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/F", "/T"])
+                .status();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    Ok(pids.len())
 }
 
 fn canonical_testnet_beta_repo_root() -> Result<PathBuf, String> {
@@ -5603,8 +5828,12 @@ fn apply_imported_runtime_identity(
         .and_then(normalize_public_host_candidate)
         .or_else(|| registry.nodes[node_index].public_host.clone());
     let role_overlay = role_overlay_for(&role.id);
-    let port_slot = derive_ceremony_port_slot(package)
-        .unwrap_or_else(|| registry.nodes[node_index].port_slot.unwrap_or(0));
+    let port_slot = if role.id == "validator" {
+        0
+    } else {
+        derive_ceremony_port_slot(package)
+            .unwrap_or_else(|| registry.nodes[node_index].port_slot.unwrap_or(0))
+    };
 
     {
         let node_record = &mut registry.nodes[node_index];
@@ -6122,7 +6351,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 30\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -6196,7 +6425,9 @@ fn build_peers_toml_with_additional(
         .join(", ");
 
     format!(
-        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\nadditional_dial_targets = [{additional}]\n\n[testbeta]\ncore_rpc = \"https://testbeta-core-rpc.synergy-network.io\"\ncore_ws = \"wss://testbeta-core-ws.synergy-network.io\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
+        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\nadditional_dial_targets = [{additional}]\n\n[testbeta]\ncore_rpc = \"{core_rpc}\"\ncore_ws = \"{core_ws}\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
+        core_rpc = TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
+        core_ws = TESTNET_BETA_PUBLIC_WS_ENDPOINT,
     )
 }
 
@@ -6658,7 +6889,7 @@ mod tests {
                     .get("testbeta")
                     .and_then(|section| section.get("core_rpc"))
                     .and_then(toml::Value::as_str),
-                Some("https://testbeta-core-rpc.synergy-network.io")
+                Some("https://testbeta-core-rpc.synergynode.xyz")
             );
             assert_eq!(
                 peers_value
@@ -6768,7 +6999,7 @@ mod tests {
             &json!({
                 "node_id": "rpc-gateway-01",
                 "role_id": "rpc_gateway",
-                "public_host": "testbeta-core-rpc.synergy-network.io",
+                "public_host": "testbeta-core-rpc.synergynode.xyz",
                 "p2p_port": 5635,
                 "registered_at_utc": "2026-04-07T03:05:00Z"
             }),

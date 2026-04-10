@@ -3,8 +3,8 @@ import { fetchSeedPeerTargets, readTextFile, writeTextFile } from './desktopClie
 const BOOTSTRAP_DNS_RECORD = '_dnsaddr.bootstrap.synergynode.xyz';
 const PORT_SETTINGS_STORAGE_KEY = 'synergy:testbeta:port-settings:v1';
 const TESTNET_ENDPOINTS = {
-  coreRpc: 'https://testbeta-core-rpc.synergy-network.io',
-  coreWs: 'wss://testbeta-core-ws.synergy-network.io',
+  coreRpc: 'https://testbeta-core-rpc.synergynode.xyz',
+  coreWs: 'wss://testbeta-core-ws.synergynode.xyz',
   walletApi: 'https://testbeta-wallet-api.synergy-network.io',
   sxcpApi: 'https://testbeta-sxcp-api.synergy-network.io',
 };
@@ -61,6 +61,11 @@ function cloneDefaultPortSettings() {
   return { ...TESTNET_BETA_DEFAULT_PORT_SETTINGS };
 }
 
+function usesFixedValidatorPorts(node) {
+  const roleId = String(node?.role_id ?? node?.roleId ?? '').trim().toLowerCase();
+  return roleId === 'validator';
+}
+
 function normalizeStoredPortSettings(value) {
   const normalized = cloneDefaultPortSettings();
   const source = value && typeof value === 'object' ? value : {};
@@ -94,6 +99,9 @@ function offsetPort(port, offset) {
 
 function resolveNodePortSettings(settings, node) {
   const baseSettings = normalizeStoredPortSettings(settings);
+  if (usesFixedValidatorPorts(node)) {
+    return baseSettings;
+  }
   const portSlot = resolveNodePortSlot(node);
   return normalizeStoredPortSettings({
     p2p: offsetPort(baseSettings.p2p, portSlot),
@@ -467,7 +475,11 @@ function resolveCeremonyPackagePath(node) {
   );
 }
 
-function normalizeCeremonyAssignedPorts(value) {
+function normalizeCeremonyAssignedPorts(value, node) {
+  if (usesFixedValidatorPorts(node)) {
+    return cloneDefaultPortSettings();
+  }
+
   const source = value && typeof value === 'object' ? value : null;
   if (!source) {
     return null;
@@ -490,12 +502,6 @@ function normalizeCeremonyAssignedPorts(value) {
     discovery,
     metrics,
   });
-
-  // Preserve the external (public) P2P port if the ceremony package specifies one.
-  // Validators that share a NAT IP use a unique external port (e.g. validator 3
-  // uses external 5622, validator 4 uses 5622) while their internal listen port
-  // stays at 5622.  Without this the public_address in node.toml would be
-  // overwritten with the internal port, breaking peer identification.
   const publicP2pPort = parsePortValue(
     source.public_p2p_port ?? source.publicP2pPort,
   );
@@ -517,6 +523,7 @@ async function readCeremonyAssignedPortSettings(node) {
     const payload = JSON.parse(contents);
     const portSettings = normalizeCeremonyAssignedPorts(
       payload?.assigned_ports ?? payload?.assignedPorts,
+      node,
     );
     if (!portSettings) {
       return null;
@@ -648,10 +655,9 @@ export async function applyTestnetBetaPortSettings(node, settings) {
   const publicHost = currentPublicAddress?.host
     || String(node?.public_host || '').trim()
     || '127.0.0.1';
-  // Use the ceremony-assigned external P2P port when available so that validators
-  // with a unique external port (e.g. validator 3 → 5622, validator 4 → 5622)
-  // announce the correct reachable address rather than the internal listen port.
-  const publicP2pPort = portSettings.publicP2p ?? portSettings.p2p;
+  const publicP2pPort = usesFixedValidatorPorts(node)
+    ? portSettings.p2p
+    : (portSettings.publicP2p ?? portSettings.p2p);
   const publicAddress = formatHostPort(publicHost, publicP2pPort);
   const metricsBind = updateAddressPort(
     readSectionValue(contents, 'telemetry', 'metrics_bind'),
