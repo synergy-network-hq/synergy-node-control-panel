@@ -1103,7 +1103,7 @@
   "notes": [
     "Import this package through Jarvis genesis setup on the assigned validator machine.",
     "Start the validator only after the canonical beta manifests are present and verified.",
-    "This validator must advertise genesisval3.synergynode.xyz:5623 and use validator address synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu as its canonical identity."
+    "This validator must advertise genesisval3.synergynode.xyz:5622 and use validator address synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu as its canonical identity."
   ],
   "public_host": "genesisval3.synergynode.xyz"
 }

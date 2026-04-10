@@ -74,7 +74,7 @@
         {
           "nodeClass": "Class V",
           "nodeType": "Indexer",
-          "p2pPort": 5623,
+          "p2pPort": 5622,
           "rpcPort": 5641,
           "wsPort": 5661
         }
@@ -91,7 +91,7 @@
         {
           "nodeClass": "Class I",
           "nodeType": "Validator",
-          "p2pPort": 5624,
+          "p2pPort": 5622,
           "rpcPort": 5642,
           "wsPort": 5662
         },
@@ -326,7 +326,7 @@
           "nodeType": "Ai Inference",
           "p2pPort": 5643,
           "rpcPort": 5661,
-          "wsPort": 5681
+          "wsPort": 5660
         }
       ]
     },
@@ -343,7 +343,7 @@
           "nodeType": "Compute",
           "p2pPort": 5644,
           "rpcPort": 5662,
-          "wsPort": 5682
+          "wsPort": 5660
         }
       ]
     }

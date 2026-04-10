@@ -6008,7 +6008,7 @@ mod tests {
             &mut unique,
             &json!({
                 "wallet_address": "synv1validator",
-                "dial": "snr://synv1validator@73.79.66.255:5623",
+                "dial": "snr://synv1validator@73.79.66.255:5622",
                 "registered_at_utc": "2026-04-06T17:05:00Z"
             }),
         );
@@ -6018,7 +6018,7 @@ mod tests {
             .map(|(_, dial)| dial)
             .collect::<Vec<_>>();
         dials.sort();
-        assert_eq!(dials, vec!["73.79.66.255:5623".to_string()]);
+        assert_eq!(dials, vec!["73.79.66.255:5622".to_string()]);
     }
 
     #[test]
@@ -6026,9 +6026,9 @@ mod tests {
         let mut unique = HashMap::new();
 
         for (wallet, port) in [
-            ("synv1validator2", 5623_u16),
-            ("synv1validator3", 5624_u16),
-            ("synv1validator4", 5625_u16),
+            ("synv1validator2", 5622_u16),
+            ("synv1validator3", 5622_u16),
+            ("synv1validator4", 5622_u16),
         ] {
             record_seed_peer_dial_target(
                 &mut unique,
@@ -6049,9 +6049,7 @@ mod tests {
         assert_eq!(
             dials,
             vec![
-                "73.79.66.255:5623".to_string(),
-                "73.79.66.255:5624".to_string(),
-                "73.79.66.255:5625".to_string(),
+                "73.79.66.255:5622".to_string(),
             ]
         );
     }

@@ -493,7 +493,7 @@ function normalizeCeremonyAssignedPorts(value) {
 
   // Preserve the external (public) P2P port if the ceremony package specifies one.
   // Validators that share a NAT IP use a unique external port (e.g. validator 3
-  // uses external 5623, validator 4 uses 5624) while their internal listen port
+  // uses external 5622, validator 4 uses 5622) while their internal listen port
   // stays at 5622.  Without this the public_address in node.toml would be
   // overwritten with the internal port, breaking peer identification.
   const publicP2pPort = parsePortValue(
@@ -649,7 +649,7 @@ export async function applyTestnetBetaPortSettings(node, settings) {
     || String(node?.public_host || '').trim()
     || '127.0.0.1';
   // Use the ceremony-assigned external P2P port when available so that validators
-  // with a unique external port (e.g. validator 3 → 5623, validator 4 → 5624)
+  // with a unique external port (e.g. validator 3 → 5622, validator 4 → 5622)
   // announce the correct reachable address rather than the internal listen port.
   const publicP2pPort = portSettings.publicP2p ?? portSettings.p2p;
   const publicAddress = formatHostPort(publicHost, publicP2pPort);
@@ -727,7 +727,7 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
   // Build the set of self-addresses to exclude from dial targets.  We need to
   // cover both the internal listen address (public_host:p2p) and the announced
   // public_address from node.toml (which may use a different external port for
-  // validators behind NAT with unique external ports, e.g. validator 3 → 5623).
+  // validators behind NAT with unique external ports, e.g. validator 3 → 5622).
   const selfAddressCandidates = [];
   if (node?.public_host) {
     selfAddressCandidates.push(`${node.public_host}:${activePorts.p2p}`);

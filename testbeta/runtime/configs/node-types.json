@@ -482,7 +482,7 @@
       "defaultPorts": {
         "p2p": 5643,
         "rpc": 5661,
-        "ws": 5681
+        "ws": 5660
       },
       "hardwareRequirements": {
         "cpu": "8 core",
@@ -601,7 +601,7 @@
       "defaultPorts": {
         "p2p": 5644,
         "rpc": 5662,
-        "ws": 5682
+        "ws": 5660
       },
       "hardwareRequirements": {
         "cpu": "16 core",
@@ -1147,7 +1147,7 @@
         "getAddress"
       ],
       "defaultPorts": {
-        "p2p": 5624,
+        "p2p": 5622,
         "rpc": 5642,
         "ws": 5662
       },
