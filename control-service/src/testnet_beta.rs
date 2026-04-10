@@ -5414,11 +5414,12 @@ fn build_node_toml(
         bootnodes = bootnodes,
         seeds = seeds,
         bootstrap_dns_records = bootstrap_dns_records,
-        data_path = workspace_directory.join("data").to_string_lossy(),
+        data_path = workspace_directory.join("data").to_string_lossy().replace('\\', "/"),
         log_path = workspace_directory
             .join("logs")
             .join("synergy-testbeta.log")
-            .to_string_lossy(),
+            .to_string_lossy()
+            .replace('\\', "/"),
         runtime_public_address = runtime_public_address,
         auto_register_validator = auto_register_validator,
         enable_discovery = enable_discovery,
