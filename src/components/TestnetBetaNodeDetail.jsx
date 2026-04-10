@@ -475,10 +475,7 @@ function TestnetBetaNodeDetail() {
   const nginxConfPath = node ? resolveNginxConfPath(node) : null;
   const publicHeight = liveStatus?.public_chain_height ?? null;
   const networkHeight = nodeLive?.best_network_height ?? publicHeight;
-  const networkVisiblePeerCount = liveStatus?.network_peer_count
-    ?? explorerData?.total_validators
-    ?? liveStatus?.public_peer_count
-    ?? null;
+  const networkVisiblePeerCount = nodeLive?.local_peer_count ?? null;
 
   const loadConfigArtifacts = useCallback(async (targetNode) => {
     if (!targetNode) {
@@ -855,9 +852,9 @@ function TestnetBetaNodeDetail() {
             <span className="nodecp-stat-label">Network Peers</span>
             <strong className="nodecp-stat-value">{formatNumber(networkVisiblePeerCount)}</strong>
             <span className="nodecp-stat-detail">
-              {liveStatus?.network_peer_count != null
-                ? 'Unique peer dial targets currently published by the seed registry.'
-                : 'Waiting for a live seed-registry peer count.'}
+              {networkVisiblePeerCount != null
+                ? 'Peers actively connected to this node right now.'
+                : 'Waiting for live peer sessions.'}
             </span>
           </div>
         </article>

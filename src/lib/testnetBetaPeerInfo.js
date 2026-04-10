@@ -339,9 +339,9 @@ function peerValidatorRuntimeStatus(peer, validatorNodesByAddress, nodeLiveById)
       return { label: 'Ready', tone: 'good' };
     }
     if (meshStatus.status === 'connected') {
-      return { label: 'Live', tone: 'good' };
+      return { label: 'Connected', tone: 'warn' };
     }
-    return { label: 'Connected', tone: 'warn' };
+    return { label: meshStatus.label, tone: meshStatus.tone };
   }
 
   if (meshStatus.status === 'ready') {

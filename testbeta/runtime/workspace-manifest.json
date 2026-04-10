@@ -1,15 +1,15 @@
 {
-  "workspace_resource_version": "8.0.0+00f2d1c50c9b",
-  "app_version": "8.0.0",
-  "bundle_digest": "00f2d1c50c9b58df8f92b5f00bade85151ca8fa159869afbe231b7e8d4fe179b",
+  "workspace_resource_version": "8.0.8+fb7f1a1dae5d",
+  "app_version": "8.0.8",
+  "bundle_digest": "fb7f1a1dae5d2d3f95f993d35fb056e8e9e87707d9626f4118c8f8b939f66eeb",
   "platform_binaries": [
     "binaries/synergy-testbeta-darwin-arm64",
     "binaries/synergy-testbeta-linux-amd64",
     "binaries/synergy-testbeta-windows-amd64.exe"
   ],
   "checksums": {
-    "binaries/synergy-testbeta-darwin-arm64": "c06bfdb0aaff34555ad7f379582514a95f944f108219c2851ab885d3839625a5",
-    "binaries/synergy-testbeta-linux-amd64": "42ded18858d0089a643a9cbfe9d921303e42fcf457a1deb0a4c6d4c1de3af334",
-    "binaries/synergy-testbeta-windows-amd64.exe": "a49f86aea704e58d83c159c83da59e8e16f4bd10923c0f970498419563731473"
+    "binaries/synergy-testbeta-darwin-arm64": "2f3c4b09d9b7bb3f894d40acbb878b20fe84621c6d7be73fd7d1a611800289c5",
+    "binaries/synergy-testbeta-linux-amd64": "55619e04eb04a243d25e74e005d2f234a2b18926e0e70f5ab6da499af0b47d31",
+    "binaries/synergy-testbeta-windows-amd64.exe": "0a92901a38c4d21c6bd14c7f0d4e0541d353e56f8aa2972a654182c6e6247015"
   }
 }

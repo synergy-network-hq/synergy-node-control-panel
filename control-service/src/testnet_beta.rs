@@ -37,6 +37,7 @@ const TESTNET_BETA_DISCOVERY_PORT: u16 = 5680;
 const TESTNET_BETA_METRICS_PORT: u16 = 6030;
 const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergynode.xyz";
 const TESTNET_BETA_PUBLIC_WS_ENDPOINT: &str = "wss://testbeta-core-ws.synergynode.xyz";
+const TESTNET_BETA_MAX_CLOCK_SKEW_MS: i64 = 500;
 const TOKEN_SYMBOL: &str = "SNRG";
 const TOKEN_DECIMALS: u32 = 9;
 const TOKEN_SCALE: u64 = 1_000_000_000;
@@ -970,6 +971,17 @@ pub async fn testbeta_node_control(
                     node.display_label
                 );
             }
+            if let Err(error) = ensure_workspace_bootstrap_topology(
+                &config_path,
+                &workspace_directory,
+                &state.network_profile,
+                &node,
+            ) {
+                eprintln!(
+                    "Warning: could not rewrite workspace bootstrap topology for {}: {error}",
+                    node.display_label
+                );
+            }
 
             // Inject localhost dial targets for every other node provisioned on
             // this machine so same-machine validators can peer directly without
@@ -989,6 +1001,7 @@ pub async fn testbeta_node_control(
                     node.display_label
                 );
             }
+            validate_workspace_launch_preflight(&config_path, &workspace_directory).await?;
 
             launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
             wait_for_workspace_start(&config_path, &workspace_directory, Duration::from_secs(30))
@@ -1080,6 +1093,17 @@ pub async fn testbeta_node_control(
                         node.display_label
                     );
                 }
+                if let Err(error) = ensure_workspace_bootstrap_topology(
+                    &config_path,
+                    &workspace_directory,
+                    &state.network_profile,
+                    &node,
+                ) {
+                    eprintln!(
+                        "Warning: could not rewrite workspace bootstrap topology for {}: {error}",
+                        node.display_label
+                    );
+                }
 
                 if let Err(error) = refresh_workspace_peer_targets(
                     &state.network_profile,
@@ -1094,6 +1118,7 @@ pub async fn testbeta_node_control(
                         node.display_label
                     );
                 }
+                validate_workspace_launch_preflight(&config_path, &workspace_directory).await?;
 
                 launch_runner_detached(&runner, "start", &config_path, &workspace_directory)
                     .await?;
@@ -1139,6 +1164,17 @@ pub async fn testbeta_node_control(
                     node.display_label
                 );
             }
+            if let Err(error) = ensure_workspace_bootstrap_topology(
+                &config_path,
+                &workspace_directory,
+                &state.network_profile,
+                &node,
+            ) {
+                eprintln!(
+                    "Warning: could not rewrite workspace bootstrap topology for {}: {error}",
+                    node.display_label
+                );
+            }
 
             // Same local-sibling injection as the start path.
             if let Err(error) = refresh_workspace_peer_targets(
@@ -1154,6 +1190,7 @@ pub async fn testbeta_node_control(
                     node.display_label
                 );
             }
+            validate_workspace_launch_preflight(&config_path, &workspace_directory).await?;
 
             run_runner_and_wait(&runner, "sync", &config_path, &workspace_directory).await?;
             launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
@@ -3495,6 +3532,281 @@ fn parse_testbeta_validator_address(config_path: &Path) -> Option<String> {
         .map(|value| value.to_string())
 }
 
+fn read_toml_value(path: &Path) -> Result<toml::Value, String> {
+    let contents = fs::read_to_string(path)
+        .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+    toml::from_str(&contents).map_err(|error| format!("Failed to parse {}: {error}", path.display()))
+}
+
+fn extract_toml_string_array(value: &toml::Value, section: &str, key: &str) -> Vec<String> {
+    value.get(section)
+        .and_then(|section| section.get(key))
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+fn workspace_genesis_hash(workspace_directory: &Path) -> Result<String, String> {
+    read_json_value(&workspace_directory.join("config").join("genesis.json"))?
+        .pointer("/integrity/genesis_hash")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "Workspace genesis is missing integrity.genesis_hash.".to_string())
+}
+
+fn workspace_manifest_chain_id(workspace_directory: &Path) -> Result<u64, String> {
+    read_json_value(&workspace_directory.join("config").join("operational-manifest.json"))?
+        .get("chain_id")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "Workspace operational manifest is missing chain_id.".to_string())
+}
+
+async fn measure_clock_skew_ms(client: &Client) -> Option<i64> {
+    for endpoint in [
+        TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
+        "https://testbeta-wallet-api.synergy-network.io",
+    ] {
+        let Ok(response) = client.get(endpoint).send().await else {
+            continue;
+        };
+        let Some(date_header) = response.headers().get(reqwest::header::DATE) else {
+            continue;
+        };
+        let Some(date_header) = date_header.to_str().ok() else {
+            continue;
+        };
+        let Some(remote_time) = DateTime::parse_from_rfc2822(date_header)
+            .ok()
+            .map(|value| value.with_timezone(&Utc))
+        else {
+            continue;
+        };
+        let local_time = Utc::now();
+        return Some((local_time - remote_time).num_milliseconds().abs());
+    }
+    None
+}
+
+async fn validate_workspace_launch_preflight(
+    config_path: &Path,
+    workspace_directory: &Path,
+) -> Result<(), String> {
+    let config_value = read_toml_value(config_path)?;
+    let role_id = config_value
+        .get("identity")
+        .and_then(|section| section.get("role"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let validator_address = parse_testbeta_validator_address(config_path).unwrap_or_default();
+    let mut failures = Vec::new();
+
+    match workspace_genesis_hash(workspace_directory) {
+        Ok(actual) => match canonical_testnet_beta_genesis_hash() {
+            Ok(expected) if actual.eq_ignore_ascii_case(&expected) => {}
+            Ok(expected) => failures.push(format!(
+                "Workspace genesis hash mismatch. Expected {}, got {}.",
+                expected, actual
+            )),
+            Err(error) => failures.push(error),
+        },
+        Err(error) => failures.push(error),
+    }
+
+    match workspace_manifest_chain_id(workspace_directory) {
+        Ok(chain_id) if chain_id == TESTNET_BETA_CHAIN_ID => {}
+        Ok(chain_id) => failures.push(format!(
+            "Workspace operational manifest chain_id mismatch. Expected {}, got {}.",
+            TESTNET_BETA_CHAIN_ID, chain_id
+        )),
+        Err(error) => failures.push(error),
+    }
+
+    if role_supports_validator_registration(&role_id) {
+        let expected_targets = canonical_validator_dial_targets(&validator_address);
+        let configured_targets = extract_toml_string_array(
+            &config_value,
+            "network",
+            "additional_dial_targets",
+        )
+        .into_iter()
+        .filter_map(|value| normalize_testnet_beta_dial_target(&value))
+        .collect::<Vec<_>>();
+        let missing_targets = expected_targets
+            .iter()
+            .filter(|target| !configured_targets.contains(*target))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing_targets.is_empty() {
+            failures.push(format!(
+                "Workspace is missing canonical validator dial targets: {}.",
+                missing_targets.join(", ")
+            ));
+        }
+
+        let bootnodes = extract_toml_string_array(&config_value, "network", "bootnodes");
+        if bootnodes.len() < 3 {
+            failures.push(format!(
+                "Workspace bootnodes are incomplete. Expected 3 canonical bootnodes, found {}.",
+                bootnodes.len()
+            ));
+        }
+
+        match read_json_value(&workspace_directory.join("config").join("operational-manifest.json"))
+        {
+            Ok(manifest_value) => {
+                let actual_validator_addresses =
+                    extract_validator_addresses_from_manifest_value(&manifest_value);
+                match canonical_testnet_beta_validator_addresses() {
+                    Ok(expected_validator_addresses)
+                        if actual_validator_addresses == expected_validator_addresses => {}
+                    Ok(_) => failures.push(
+                        "Workspace validator registry does not match the canonical release bundle."
+                            .to_string(),
+                    ),
+                    Err(error) => failures.push(error),
+                }
+            }
+            Err(error) => failures.push(error),
+        }
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    if let Some(skew_ms) = measure_clock_skew_ms(&client).await {
+        if skew_ms > TESTNET_BETA_MAX_CLOCK_SKEW_MS {
+            failures.push(format!(
+                "System clock skew is {} ms, which exceeds the {} ms launch threshold.",
+                skew_ms, TESTNET_BETA_MAX_CLOCK_SKEW_MS
+            ));
+        }
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Launch preflight failed:\n- {}",
+            failures.join("\n- ")
+        ))
+    }
+}
+
+fn ensure_workspace_bootstrap_topology(
+    config_path: &Path,
+    workspace_directory: &Path,
+    network_profile: &TestnetBetaNetworkProfile,
+    node: &TestnetBetaProvisionedNode,
+) -> Result<(), String> {
+    let mut value = read_toml_value(config_path)?;
+    let existing_additional_targets = extract_toml_string_array(
+        &value,
+        "network",
+        "additional_dial_targets",
+    );
+    let root = value
+        .as_table_mut()
+        .ok_or_else(|| format!("{} must parse into a TOML table.", config_path.display()))?;
+
+    let network = root
+        .entry("network")
+        .or_insert_with(|| toml::Value::Table(Default::default()))
+        .as_table_mut()
+        .ok_or_else(|| "[network] must be a TOML table.".to_string())?;
+    network.insert(
+        "bootnodes".to_string(),
+        toml::Value::Array(
+            network_profile
+                .bootnodes
+                .iter()
+                .map(|entry| toml::Value::String(format!("{}:{}", entry.host, entry.port)))
+                .collect(),
+        ),
+    );
+
+    let is_validator = role_supports_validator_registration(&node.role_id);
+    network.insert(
+        "seed_servers".to_string(),
+        toml::Value::Array(if is_validator {
+            Vec::new()
+        } else {
+            network_profile
+                .seed_servers
+                .iter()
+                .map(|entry| toml::Value::String(format!("http://{}:{}", entry.host, entry.port)))
+                .collect()
+        }),
+    );
+    network.insert(
+        "bootstrap_dns_records".to_string(),
+        toml::Value::Array(if is_validator {
+            Vec::new()
+        } else {
+            vec![toml::Value::String(
+                "_dnsaddr.bootstrap.synergynode.xyz".to_string(),
+            )]
+        }),
+    );
+    network.insert(
+        "additional_dial_targets".to_string(),
+        toml::Value::Array(if is_validator {
+            canonical_validator_dial_targets(&node.node_address)
+                .into_iter()
+                .map(toml::Value::String)
+                .collect()
+        } else {
+            existing_additional_targets
+                .into_iter()
+                .map(toml::Value::String)
+                .collect()
+        }),
+    );
+
+    if is_validator {
+        if let Some(p2p) = root.get_mut("p2p").and_then(toml::Value::as_table_mut) {
+            p2p.insert("enable_discovery".to_string(), toml::Value::Boolean(false));
+            p2p.insert("heartbeat_interval".to_string(), toml::Value::Integer(10));
+        }
+
+        if let Some(node_table) = root.get_mut("node").and_then(toml::Value::as_table_mut) {
+            node_table.insert(
+                "strict_validator_allowlist".to_string(),
+                toml::Value::Boolean(true),
+            );
+            node_table.insert(
+                "allowed_validator_addresses".to_string(),
+                toml::Value::Array(
+                    canonical_testnet_beta_validator_addresses()?
+                        .into_iter()
+                        .map(toml::Value::String)
+                        .collect(),
+                ),
+            );
+        }
+    }
+
+    let rendered = toml::to_string_pretty(&value)
+        .map_err(|error| format!("Failed to serialize {}: {error}", config_path.display()))?;
+    write_file(config_path, &rendered)?;
+
+    if is_validator {
+        let peers_contents = build_peers_toml_with_additional(
+            network_profile,
+            &canonical_validator_dial_targets(&node.node_address),
+        );
+        write_file(&workspace_directory.join("config").join("peers.toml"), &peers_contents)?;
+    }
+
+    Ok(())
+}
+
 async fn query_public_chain_height(client: &Client) -> Result<u64, String> {
     query_local_chain_height(client, TESTNET_BETA_PUBLIC_RPC_ENDPOINT).await
 }
@@ -3785,6 +4097,7 @@ async fn refresh_workspace_peer_targets_with_overrides(
     extra_dial_targets: &[String],
 ) -> Result<usize, String> {
     let peers_toml_path = workspace_directory.join("config").join("peers.toml");
+    let validator_mesh_only = role_supports_validator_registration(&node.role_id);
     let client = Client::builder()
         .timeout(Duration::from_secs(8))
         .build()
@@ -3802,15 +4115,17 @@ async fn refresh_workspace_peer_targets_with_overrides(
         .iter()
         .filter_map(|t| t.split(':').next().map(str::to_string))
         .collect();
-    for peer in seed_peers {
-        let host = peer.split(':').next().unwrap_or("").to_string();
-        if !canonical_hosts.contains(&host) && !targets.contains(&peer) {
-            targets.push(peer);
+    if !validator_mesh_only {
+        for peer in seed_peers {
+            let host = peer.split(':').next().unwrap_or("").to_string();
+            if !canonical_hosts.contains(&host) && !targets.contains(&peer) {
+                targets.push(peer);
+            }
         }
-    }
-    for peer in siblings {
-        if !targets.contains(&peer) {
-            targets.push(peer);
+        for peer in siblings {
+            if !targets.contains(&peer) {
+                targets.push(peer);
+            }
         }
     }
     for peer in extra_dial_targets
@@ -3822,13 +4137,15 @@ async fn refresh_workspace_peer_targets_with_overrides(
             targets.push(peer);
         }
     }
-    // Always merge hardcoded entries from the existing peers.toml so manually
-    // configured dial targets survive restarts. Canonical hostnames take
-    // precedence — skip any preserved entry whose host is already covered.
-    for peer in read_peers_toml_additional_targets(&peers_toml_path) {
-        let host = peer.split(':').next().unwrap_or("").to_string();
-        if !canonical_hosts.contains(&host) && !targets.contains(&peer) {
-            targets.push(peer);
+    if !validator_mesh_only {
+        // Always merge hardcoded entries from the existing peers.toml so manually
+        // configured dial targets survive restarts. Canonical hostnames take
+        // precedence — skip any preserved entry whose host is already covered.
+        for peer in read_peers_toml_additional_targets(&peers_toml_path) {
+            let host = peer.split(':').next().unwrap_or("").to_string();
+            if !canonical_hosts.contains(&host) && !targets.contains(&peer) {
+                targets.push(peer);
+            }
         }
     }
     filter_self_dial_targets_for_node(&mut targets, node, workspace_directory);
@@ -4599,19 +4916,26 @@ fn rpc_peer_entries(value: &Value) -> Option<&Vec<Value>> {
         .or_else(|| value.as_array())
 }
 
+fn rpc_peer_identity(peer: &Value) -> Option<String> {
+    for field in ["validator_address", "public_address", "address", "node_id"] {
+        let value = peer
+            .get(field)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(value) = value {
+            return Some(value.to_string());
+        }
+    }
+
+    None
+}
+
 fn parse_rpc_peer_summary(
     value: &Value,
     local_validator_address: Option<&str>,
 ) -> Result<RpcPeerSummary, String> {
-    let peer_count = if let Some(number) = value.get("peer_count").and_then(Value::as_u64) {
-        usize::try_from(number)
-            .map_err(|error| format!("Failed to convert peer count to usize: {error}"))?
-    } else if let Some(peers) = rpc_peer_entries(value) {
-        peers.len()
-    } else {
-        return Err("Peer RPC returned neither peer_count nor peers.".to_string());
-    };
-
+    let mut unique_peers = HashSet::new();
     let mut connected_validators = HashSet::new();
     let mut status_ready_validators = HashSet::new();
 
@@ -4625,6 +4949,10 @@ fn parse_rpc_peer_summary(
 
     if let Some(peers) = rpc_peer_entries(value) {
         for peer in peers {
+            if let Some(identity) = rpc_peer_identity(peer) {
+                unique_peers.insert(identity);
+            }
+
             let Some(validator_address) = peer
                 .get("validator_address")
                 .and_then(Value::as_str)
@@ -4646,10 +4974,12 @@ fn parse_rpc_peer_summary(
                 status_ready_validators.insert(validator_address.to_string());
             }
         }
+    } else if value.get("peer_count").and_then(Value::as_u64).is_none() {
+        return Err("Peer RPC returned neither peer_count nor peers.".to_string());
     }
 
     Ok(RpcPeerSummary {
-        peer_count,
+        peer_count: unique_peers.len(),
         connected_validator_count: connected_validators.len(),
         status_ready_validator_count: status_ready_validators.len(),
     })
@@ -4845,6 +5175,140 @@ fn canonical_testnet_beta_operational_manifest_path() -> Result<PathBuf, String>
         .join("operational-manifest.json"))
 }
 
+fn read_json_value(path: &Path) -> Result<Value, String> {
+    let contents = fs::read_to_string(path)
+        .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+    serde_json::from_str(&contents)
+        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))
+}
+
+fn normalize_address_list(addresses: Vec<String>) -> Vec<String> {
+    let mut normalized = addresses
+        .into_iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized
+}
+
+fn extract_validator_addresses_from_manifest_value(value: &Value) -> Vec<String> {
+    normalize_address_list(
+        value.get("validators")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.get("address").and_then(Value::as_str))
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+fn canonical_testnet_beta_genesis_hash() -> Result<String, String> {
+    read_json_value(&canonical_testnet_beta_genesis_path()?)?
+        .pointer("/integrity/genesis_hash")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "Canonical genesis is missing integrity.genesis_hash.".to_string())
+}
+
+fn canonical_testnet_beta_validator_addresses() -> Result<Vec<String>, String> {
+    Ok(extract_validator_addresses_from_manifest_value(
+        &read_json_value(&canonical_testnet_beta_operational_manifest_path()?)?,
+    ))
+}
+
+fn canonical_validator_dial_targets(current_node_address: &str) -> Vec<String> {
+    canonical_testnet_beta_validator_peers()
+        .into_iter()
+        .filter(|entry| {
+            !entry
+                .address
+                .eq_ignore_ascii_case(current_node_address.trim())
+        })
+        .map(|entry| canonical_validator_dial_target(&entry))
+        .collect()
+}
+
+fn validate_validator_assigned_ports(
+    assigned_ports: &TestnetBetaCeremonyAssignedPorts,
+) -> Result<(), String> {
+    let expected = validator_runtime_ports();
+    let mut failures = Vec::new();
+
+    if assigned_ports.p2p_port != expected.p2p_port {
+        failures.push(format!(
+            "p2p_port must be {}, got {}",
+            expected.p2p_port, assigned_ports.p2p_port
+        ));
+    }
+    if assigned_ports.public_p2p_port.unwrap_or(assigned_ports.p2p_port) != expected.public_p2p_port
+    {
+        failures.push(format!(
+            "public_p2p_port must be {}, got {}",
+            expected.public_p2p_port,
+            assigned_ports
+                .public_p2p_port
+                .unwrap_or(assigned_ports.p2p_port)
+        ));
+    }
+    if assigned_ports.rpc_port != expected.rpc_port {
+        failures.push(format!(
+            "rpc_port must be {}, got {}",
+            expected.rpc_port, assigned_ports.rpc_port
+        ));
+    }
+    if assigned_ports.ws_port != expected.ws_port {
+        failures.push(format!(
+            "ws_port must be {}, got {}",
+            expected.ws_port, assigned_ports.ws_port
+        ));
+    }
+    if assigned_ports.grpc_port != expected.rpc_port {
+        failures.push(format!(
+            "grpc_port must be {}, got {}",
+            expected.rpc_port, assigned_ports.grpc_port
+        ));
+    }
+    if assigned_ports.discovery_port != expected.discovery_port {
+        failures.push(format!(
+            "discovery_port must be {}, got {}",
+            expected.discovery_port, assigned_ports.discovery_port
+        ));
+    }
+    if assigned_ports
+        .public_discovery_port
+        .unwrap_or(assigned_ports.discovery_port)
+        != expected.public_discovery_port
+    {
+        failures.push(format!(
+            "public_discovery_port must be {}, got {}",
+            expected.public_discovery_port,
+            assigned_ports
+                .public_discovery_port
+                .unwrap_or(assigned_ports.discovery_port)
+        ));
+    }
+    if assigned_ports.metrics_port != expected.metrics_port {
+        failures.push(format!(
+            "metrics_port must be {}, got {}",
+            expected.metrics_port, assigned_ports.metrics_port
+        ));
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Validator package ports do not match the frozen runtime ports:\n- {}",
+            failures.join("\n- ")
+        ))
+    }
+}
+
 fn network_profile_path(root: &Path) -> PathBuf {
     root.join("network").join("profile.json")
 }
@@ -4942,7 +5406,7 @@ fn canonical_validator_dial_target(entry: &CanonicalValidatorPeer) -> String {
     )
 }
 
-fn canonical_validator_bootnodes(
+fn canonical_validator_dial_targets_toml(
     peers: &[CanonicalValidatorPeer],
     current_node_address: &str,
 ) -> String {
@@ -5573,6 +6037,72 @@ fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> R
             "Ceremony package token mismatch. Expected {}, got {}.",
             TOKEN_SYMBOL, package.token_symbol
         ));
+    }
+    let expected_genesis_hash = canonical_testnet_beta_genesis_hash()?;
+    let package_genesis_hash = package
+        .artifacts
+        .genesis
+        .pointer("/integrity/genesis_hash")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Ceremony package genesis is missing integrity.genesis_hash.".to_string())?;
+    if !package_genesis_hash.eq_ignore_ascii_case(&expected_genesis_hash) {
+        return Err(format!(
+            "Ceremony package genesis hash mismatch. Expected {}, got {}.",
+            expected_genesis_hash, package_genesis_hash
+        ));
+    }
+
+    let manifest_chain_id = package
+        .artifacts
+        .operational_manifest
+        .get("chain_id")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "Ceremony package operational manifest is missing chain_id.".to_string())?;
+    if manifest_chain_id != TESTNET_BETA_CHAIN_ID {
+        return Err(format!(
+            "Ceremony package operational manifest chain_id mismatch. Expected {}, got {}.",
+            TESTNET_BETA_CHAIN_ID, manifest_chain_id
+        ));
+    }
+
+    let manifest_network_id = package
+        .artifacts
+        .operational_manifest
+        .get("network_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Ceremony package operational manifest is missing network_id.".to_string())?;
+    if manifest_network_id != TESTNET_BETA_CHAIN_NAME {
+        return Err(format!(
+            "Ceremony package operational manifest network_id mismatch. Expected {}, got {}.",
+            TESTNET_BETA_CHAIN_NAME, manifest_network_id
+        ));
+    }
+
+    let expected_validator_addresses = canonical_testnet_beta_validator_addresses()?;
+    let manifest_validator_addresses =
+        extract_validator_addresses_from_manifest_value(&package.artifacts.operational_manifest);
+    if !manifest_validator_addresses.is_empty()
+        && manifest_validator_addresses != expected_validator_addresses
+    {
+        return Err("Ceremony package validator registry does not match the canonical release bundle.".to_string());
+    }
+
+    let genesis_validator_addresses =
+        normalize_address_list(extract_ceremony_validator_allowlist(&package.artifacts));
+    if !genesis_validator_addresses.is_empty()
+        && genesis_validator_addresses != expected_validator_addresses
+    {
+        return Err("Ceremony package genesis validator set does not match the canonical release bundle.".to_string());
+    }
+
+    if package.role_id.eq_ignore_ascii_case("validator") {
+        if let Some(assigned_ports) = package.assigned_ports.as_ref() {
+            validate_validator_assigned_ports(assigned_ports)?;
+        }
     }
     Ok(())
 }
@@ -6288,16 +6818,12 @@ fn build_node_toml(
         .unwrap_or_else(|| format!("127.0.0.1:{p2p_port}"));
     let canonical_validator_peers = canonical_testnet_beta_validator_peers();
     let use_static_validator_mesh = role.id == "validator" && !canonical_validator_peers.is_empty();
-    let bootnodes = if use_static_validator_mesh {
-        canonical_validator_bootnodes(&canonical_validator_peers, node_address)
-    } else {
-        network_profile
-            .bootnodes
-            .iter()
-            .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
+    let bootnodes = network_profile
+        .bootnodes
+        .iter()
+        .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
+        .collect::<Vec<_>>()
+        .join(", ");
     let seeds = if use_static_validator_mesh {
         String::new()
     } else {
@@ -6312,6 +6838,11 @@ fn build_node_toml(
         String::new()
     } else {
         "\"_dnsaddr.bootstrap.synergynode.xyz\"".to_string()
+    };
+    let additional_dial_targets = if use_static_validator_mesh {
+        canonical_validator_dial_targets_toml(&canonical_validator_peers, node_address)
+    } else {
+        String::new()
     };
     let auto_register_validator = if role_supports_validator_registration(&role.id) {
         "true"
@@ -6334,7 +6865,7 @@ fn build_node_toml(
         "[]".to_string()
     };
     let bootstrap_note = if use_static_validator_mesh {
-        "Validator nodes are pinned to the canonical five-validator mesh with assigned genesisval*.synergynode.xyz endpoints."
+        "Validator nodes use bootnodes for bootstrap only and dial the canonical five-validator mesh through additional_dial_targets."
     } else {
         "Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup."
     };
@@ -6351,7 +6882,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -6367,6 +6898,7 @@ fn build_node_toml(
         bootnodes = bootnodes,
         seeds = seeds,
         bootstrap_dns_records = bootstrap_dns_records,
+        additional_dial_targets = additional_dial_targets,
         data_path = workspace_directory.join("data").to_string_lossy().replace('\\', "/"),
         log_path = workspace_directory
             .join("logs")
@@ -6822,20 +7354,29 @@ mod tests {
                 .and_then(|section| section.get("seed_servers"))
                 .and_then(toml::Value::as_array)
                 .expect("seed_servers array should exist");
-            assert_eq!(seeds.len(), 3);
-            assert_eq!(seeds[0].as_str(), Some("http://seed1.synergynode.xyz:5621"));
-            assert_eq!(seeds[1].as_str(), Some("http://seed2.synergynode.xyz:5621"));
-            assert_eq!(seeds[2].as_str(), Some("http://seed3.synergynode.xyz:5621"));
+            assert!(seeds.is_empty(), "validator node.toml should not use seed servers");
 
             let dns_records = node_value
                 .get("network")
                 .and_then(|section| section.get("bootstrap_dns_records"))
                 .and_then(toml::Value::as_array)
                 .expect("bootstrap_dns_records array should exist");
-            assert_eq!(dns_records.len(), 1);
-            assert_eq!(
-                dns_records[0].as_str(),
-                Some("_dnsaddr.bootstrap.synergynode.xyz")
+            assert!(
+                dns_records.is_empty(),
+                "validator node.toml should not use DNS bootstrap records"
+            );
+
+            let additional_dial_targets = node_value
+                .get("network")
+                .and_then(|section| section.get("additional_dial_targets"))
+                .and_then(toml::Value::as_array)
+                .expect("additional_dial_targets array should exist");
+            assert_eq!(additional_dial_targets.len(), 5);
+            assert!(
+                additional_dial_targets
+                    .iter()
+                    .all(|entry| entry.as_str().is_some_and(|value| value.ends_with(":5622"))),
+                "validator node.toml should include canonical validator dial targets"
             );
 
             assert_eq!(

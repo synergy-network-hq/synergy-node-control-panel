@@ -17,6 +17,9 @@ fi
 
 is_private_host() {
   local host="$1"
+  if [[ "$host" == "0.0.0.0" ]]; then
+    return 0
+  fi
   if [[ "$host" == "localhost" ]]; then
     return 0
   fi
@@ -36,6 +39,12 @@ is_private_host() {
     return 0
   fi
   return 1
+}
+
+is_assigned_synergy_host() {
+  local host
+  host="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  [[ -n "$host" && "$host" == *.synergynode.xyz ]]
 }
 
 extract_toml_string() {
@@ -82,7 +91,7 @@ for config in "$CONFIG_DIR"/node-*.toml; do
     failures=$((failures + 1))
   fi
 
-  for key in bind_address listen_address public_address; do
+  for key in bind_address listen_address; do
     value="$(extract_toml_string "$key" "$config")"
     if [[ -z "$value" ]]; then
       echo "[$name] missing ${key}" >&2
@@ -96,13 +105,38 @@ for config in "$CONFIG_DIR"/node-*.toml; do
     fi
   done
 
+  value="$(extract_toml_string "public_address" "$config")"
+  if [[ -z "$value" ]]; then
+    echo "[$name] missing public_address" >&2
+    failures=$((failures + 1))
+  else
+    host="${value%:*}"
+    if ! is_private_host "$host" && ! is_assigned_synergy_host "$host"; then
+      echo "[$name] public_address host must be private/internal or *.synergynode.xyz: ${host}" >&2
+      failures=$((failures + 1))
+    fi
+  fi
+
   while IFS= read -r boot_host; do
     [[ -z "$boot_host" ]] && continue
-    if ! is_private_host "$boot_host"; then
-      echo "[$name] bootnode host is not private/internal: ${boot_host}" >&2
+    if ! is_assigned_synergy_host "$boot_host"; then
+      echo "[$name] bootnode host must resolve to *.synergynode.xyz: ${boot_host}" >&2
       failures=$((failures + 1))
     fi
   done < <(extract_bootnode_hosts "$config")
+
+  if ! rg -q '^seed_servers = \[\]$' "$config"; then
+    echo "[$name] validator configs must keep seed_servers empty" >&2
+    failures=$((failures + 1))
+  fi
+  if ! rg -q '^bootstrap_dns_records = \[\]$' "$config"; then
+    echo "[$name] validator configs must keep bootstrap_dns_records empty" >&2
+    failures=$((failures + 1))
+  fi
+  if ! rg -q '^additional_dial_targets = \[' "$config"; then
+    echo "[$name] validator configs must define additional_dial_targets" >&2
+    failures=$((failures + 1))
+  fi
 done
 
 validator_count="$(

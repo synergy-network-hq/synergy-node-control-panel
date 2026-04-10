@@ -1765,21 +1765,67 @@ PY
 populate_validator_keys_from_setup_package() {
   local package_file="$1"
   local key_dir="$2"
-  local node_slot_id="$3"
-  local node_alias="$4"
-  local role="$5"
-  local node_type="$6"
-  local address_class="$7"
+  local manifest_file="$3"
+  local node_slot_id="$4"
+  local node_alias="$5"
+  local role="$6"
+  local node_type="$7"
+  local address_class="$8"
 
-  python3 - "$package_file" "$key_dir" "$node_slot_id" "$node_alias" "$role" "$node_type" "$address_class" <<'PY'
+  python3 - "$package_file" "$GENESIS_FILE" "$manifest_file" "$key_dir" "$node_slot_id" "$node_alias" "$role" "$node_type" "$address_class" <<'PY'
 import json
 import pathlib
 import sys
 
-package_file, key_dir, node_slot_id, node_alias, role, node_type, address_class = sys.argv[1:]
+package_file, canonical_genesis_file, canonical_manifest_file, key_dir, node_slot_id, node_alias, role, node_type, address_class = sys.argv[1:]
 
 with open(package_file, encoding="utf-8") as handle:
     package = json.load(handle)
+
+with open(canonical_genesis_file, encoding="utf-8") as handle:
+    canonical_genesis = json.load(handle)
+
+with open(canonical_manifest_file, encoding="utf-8") as handle:
+    canonical_manifest = json.load(handle)
+
+def replace_strings(value):
+    if isinstance(value, dict):
+        return {key: replace_strings(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [replace_strings(item) for item in value]
+    if isinstance(value, str):
+        return (
+            value
+            .replace("testbeta-core-rpc.synergy-network.io", "testbeta-core-rpc.synergynode.xyz")
+            .replace("testbeta-core-ws.synergy-network.io", "testbeta-core-ws.synergynode.xyz")
+            .replace("synergynode.xyz:5623", "synergynode.xyz:5622")
+            .replace("synergynode.xyz:5624", "synergynode.xyz:5622")
+        )
+    return value
+
+artifacts = package.get("artifacts")
+if not isinstance(artifacts, dict):
+    artifacts = {}
+    package["artifacts"] = artifacts
+artifacts["genesis"] = canonical_genesis
+artifacts["operational_manifest"] = canonical_manifest
+
+package["network_id"] = canonical_manifest.get("network_id", package.get("network_id"))
+package["chain_id"] = canonical_manifest.get("chain_id", package.get("chain_id"))
+
+canonical_ports = canonical_manifest.get("ports") or {}
+assigned_ports = package.get("assigned_ports")
+if not isinstance(assigned_ports, dict):
+    assigned_ports = {}
+    package["assigned_ports"] = assigned_ports
+assigned_ports["p2p_port"] = canonical_ports.get("node_listener_base", assigned_ports.get("p2p_port"))
+assigned_ports["rpc_port"] = canonical_ports.get("rpc_base", assigned_ports.get("rpc_port"))
+assigned_ports["ws_port"] = canonical_ports.get("ws_base", assigned_ports.get("ws_port"))
+assigned_ports["grpc_port"] = canonical_ports.get("rpc_base", assigned_ports.get("grpc_port"))
+assigned_ports["discovery_port"] = canonical_ports.get("discovery_base", assigned_ports.get("discovery_port"))
+assigned_ports["metrics_port"] = canonical_ports.get("metrics_base", assigned_ports.get("metrics_port"))
+
+package = replace_strings(package)
 
 runtime_identity = package.get("runtime_identity") or {}
 validator_public = package.get("validator_public") or {}
@@ -2007,6 +2053,7 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type address_cl
     populate_validator_keys_from_setup_package \
       "$setup_package_file" \
       "$node_dir/keys" \
+      "$MANIFEST_FILE" \
       "$node_slot_id" \
       "$node_alias" \
       "$role" \

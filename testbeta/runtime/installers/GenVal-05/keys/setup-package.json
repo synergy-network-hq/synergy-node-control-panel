@@ -938,7 +938,7 @@
           {
             "label": "bootnode2",
             "host": "bootnode2.synergynode.xyz",
-            "ip_address": "73.79.66.255",
+            "ip_address": "146.190.210.121",
             "port": 5620
           },
           {
@@ -948,34 +948,13 @@
             "port": 5620
           }
         ],
-        "seed_servers": [
-          {
-            "label": "seed1",
-            "host": "seed1.synergynode.xyz",
-            "ip_address": "74.208.227.23",
-            "port": 5621
-          },
-          {
-            "label": "seed2",
-            "host": "seed2.synergynode.xyz",
-            "ip_address": "73.79.66.255",
-            "port": 5621
-          },
-          {
-            "label": "seed3",
-            "host": "seed3.synergynode.xyz",
-            "ip_address": "157.245.226.240",
-            "port": 5621
-          }
-        ],
+        "seed_servers": [],
         "dns": {
-          "bootstrap_txt": "_dnsaddr.bootstrap.synergynode.xyz",
-          "seed_srv": "_synergy-seed._tcp.synergynode.xyz"
+          "bootstrap_txt": "_dnsaddr.bootstrap.synergynode.xyz"
         }
       },
       "ports": {
         "bootnode": 5620,
-        "seed": 5621,
         "node_listener_base": 5622,
         "rpc_base": 5640,
         "ws_base": 5660,

@@ -22,10 +22,10 @@ p2p_port = 5622
 rpc_port = 5640
 ws_port = 5660
 max_peers = 100
-bootnodes = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@genesisval2.synergynode.xyz:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@genesisval3.synergynode.xyz:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5622"]
+bootnodes = ["snr://bootstrap@bootnode1.synergynode.xyz:5620","snr://bootstrap@bootnode2.synergynode.xyz:5620","snr://bootstrap@bootnode3.synergynode.xyz:5620"]
 seed_servers = []
 bootstrap_dns_records = []
-additional_dial_targets = []
+additional_dial_targets = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@genesisval2.synergynode.xyz:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@genesisval3.synergynode.xyz:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5622"]
 
 [blockchain]
 block_time = 2
@@ -76,7 +76,7 @@ enable_discovery = false
 discovery_port = 5680
 discovery_listen_address = "0.0.0.0:5680"
 discovery_public_address = "genesisval5.synergynode.xyz:5680"
-heartbeat_interval = 30
+heartbeat_interval = 10
 
 [storage]
 database = "rocksdb"

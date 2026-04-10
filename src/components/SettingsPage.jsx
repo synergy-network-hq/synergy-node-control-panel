@@ -1084,6 +1084,13 @@ function SettingsPage() {
     }
   }, [eraseBusy, loadPage, pendingEraseTarget]);
 
+  const activeConnectedPeerCount = useMemo(() => {
+    const connectedPeerCounts = (liveStatus?.nodes || [])
+      .map((entry) => Number(entry?.local_peer_count))
+      .filter((value) => Number.isFinite(value));
+    return connectedPeerCounts.length ? Math.max(...connectedPeerCounts) : null;
+  }, [liveStatus?.nodes]);
+
   const summaryCards = useMemo(
     () => [
       {
@@ -1125,18 +1132,17 @@ function SettingsPage() {
       },
       {
         label: 'Peers',
-        value: formatWholeNumber(liveStatus?.network_peer_count ?? liveStatus?.public_peer_count),
-        detail: liveStatus?.network_peer_count != null
-          ? 'Unique peer dial targets published by the seed registry'
-          : 'Visible peers from the public RPC view',
+        value: formatWholeNumber(activeConnectedPeerCount),
+        detail: activeConnectedPeerCount != null
+          ? 'Peers actively connected to the local validator mesh'
+          : 'Waiting for local peer sessions',
       },
     ],
     [
+      activeConnectedPeerCount,
       liveStatus?.bootnodes,
       developerModeEnabled,
-      liveStatus?.network_peer_count,
       liveStatus?.public_chain_height,
-      liveStatus?.public_peer_count,
       liveStatus?.seed_servers,
       provisionedNodes.length,
       state?.device_profile?.hostname,
@@ -1454,10 +1460,10 @@ function SettingsPage() {
               />
               <DefinitionRow
                 label="Peers"
-                value={formatWholeNumber(liveStatus?.network_peer_count ?? liveStatus?.public_peer_count)}
-                detail={liveStatus?.network_peer_count != null
-                  ? 'Unique peer dial targets published by the seed registry'
-                  : 'Visible peers from the public RPC view'}
+                value={formatWholeNumber(activeConnectedPeerCount)}
+                detail={activeConnectedPeerCount != null
+                  ? 'Peers actively connected to the local validator mesh'
+                  : 'Waiting for local peer sessions'}
               />
             </div>
             <div className="settings-shell-endpoint-list">

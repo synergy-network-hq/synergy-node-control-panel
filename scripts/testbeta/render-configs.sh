@@ -373,6 +373,12 @@ collect_static_validator_mesh_peers() {
   joined="$(IFS=,; echo "${peers[*]}")"
   echo "[$joined]"
 }
+
+render_bootnode_list() {
+  local joined
+  joined="$(IFS=,; echo "$*")"
+  echo "[${joined}]"
+}
 ALLOWED_VALIDATOR_ADDRESSES="$(collect_allowed_validator_addresses)"
 
 generated_count=0
@@ -423,7 +429,12 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port
   role_id="$(normalize_role_id "$role")"
   compiled_profile="$(compiled_profile_for_role "$role_id")"
 
-  bootnodes="$(collect_static_validator_mesh_peers "$node_slot_id" "$validator_address")"
+  bootnodes="$(render_bootnode_list \
+    "\"snr://bootstrap@bootnode1.synergynode.xyz:5620\"" \
+    "\"snr://bootstrap@bootnode2.synergynode.xyz:5620\"" \
+    "\"snr://bootstrap@bootnode3.synergynode.xyz:5620\"" \
+  )"
+  additional_dial_targets="$(collect_static_validator_mesh_peers "$node_slot_id" "$validator_address")"
 
   auto_register="$(normalize_bool "$auto_register")"
   enable_pruning="$(normalize_bool "$enable_pruning")"
@@ -457,7 +468,7 @@ max_peers = 100
 bootnodes = ${bootnodes}
 seed_servers = []
 bootstrap_dns_records = []
-additional_dial_targets = []
+additional_dial_targets = ${additional_dial_targets}
 
 [blockchain]
 block_time = ${TESTBETA_BLOCK_TIME_SECS}
@@ -508,7 +519,7 @@ enable_discovery = false
 discovery_port = ${discovery_port}
 discovery_listen_address = "${discovery_listen_address}"
 discovery_public_address = "${discovery_public_address}"
-heartbeat_interval = 30
+heartbeat_interval = 10
 
 [storage]
 database = "rocksdb"
