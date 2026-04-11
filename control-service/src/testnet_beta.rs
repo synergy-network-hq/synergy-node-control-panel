@@ -5156,23 +5156,110 @@ fn force_kill_testbeta_processes_under_root(root: &Path) -> Result<usize, String
     Ok(pids.len())
 }
 
-fn canonical_testnet_beta_repo_root() -> Result<PathBuf, String> {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .map_err(|error| format!("Failed to resolve canonical Testnet-Beta repo root: {error}"))
+fn canonical_testnet_beta_resource_roots() -> Vec<PathBuf> {
+    let mut roots = AppContext::from_env().resource_roots().to_vec();
+    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+
+    let mut deduped = Vec::new();
+    for root in roots {
+        if deduped.iter().any(|existing| existing == &root) {
+            continue;
+        }
+        deduped.push(root);
+    }
+    deduped
+}
+
+fn resolve_canonical_testnet_beta_resource(relatives: &[&str]) -> Option<PathBuf> {
+    for root in canonical_testnet_beta_resource_roots() {
+        for relative in relatives {
+            let candidate = root.join(relative);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 fn canonical_testnet_beta_genesis_path() -> Result<PathBuf, String> {
-    Ok(canonical_testnet_beta_repo_root()?
-        .join("config")
-        .join("genesis.json"))
+    resolve_canonical_testnet_beta_resource(&[
+        "config/genesis.json",
+        "testbeta/runtime/configs/genesis/genesis.json",
+        "testbeta/runtime/installers/GenVal-01/config/genesis.json",
+        "testbeta/runtime/installers/GenVal-02/config/genesis.json",
+        "testbeta/runtime/installers/GenVal-03/config/genesis.json",
+        "testbeta/runtime/installers/GenVal-04/config/genesis.json",
+        "testbeta/runtime/installers/GenVal-05/config/genesis.json",
+    ])
+    .ok_or_else(|| {
+        "Failed to resolve canonical Testnet-Beta genesis from bundled resources or source checkout."
+            .to_string()
+    })
 }
 
 fn canonical_testnet_beta_operational_manifest_path() -> Result<PathBuf, String> {
-    Ok(canonical_testnet_beta_repo_root()?
-        .join("config")
-        .join("operational-manifest.json"))
+    resolve_canonical_testnet_beta_resource(&["config/operational-manifest.json"]).ok_or_else(
+        || {
+            "Failed to resolve canonical Testnet-Beta operational manifest from bundled resources or source checkout."
+                .to_string()
+        },
+    )
+}
+
+fn canonical_setup_package_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    for root in canonical_testnet_beta_resource_roots() {
+        for slot in 1..=TESTNET_BETA_VALIDATOR_CLUSTER_SIZE {
+            candidates.push(
+                root.join(format!(
+                    "testbeta/runtime/installers/GenVal-{slot:02}/keys/setup-package.json"
+                )),
+            );
+        }
+    }
+    candidates
+}
+
+fn load_canonical_setup_package() -> Result<TestnetBetaCeremonyPackage, String> {
+    canonical_setup_package_candidates()
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            "Failed to resolve a canonical validator setup package from bundled resources."
+                .to_string()
+        })
+        .and_then(|path| load_ceremony_package(&path))
+}
+
+fn canonical_testnet_beta_genesis_value() -> Result<Value, String> {
+    if let Ok(path) = canonical_testnet_beta_genesis_path() {
+        return read_json_value(&path);
+    }
+
+    let package = load_canonical_setup_package()?;
+    if package.artifacts.genesis.is_null() {
+        return Err(
+            "Canonical validator setup package is missing an embedded genesis artifact."
+                .to_string(),
+        );
+    }
+    Ok(package.artifacts.genesis)
+}
+
+fn canonical_testnet_beta_operational_manifest_value() -> Result<Value, String> {
+    if let Ok(path) = canonical_testnet_beta_operational_manifest_path() {
+        return read_json_value(&path);
+    }
+
+    let package = load_canonical_setup_package()?;
+    if package.artifacts.operational_manifest.is_null() {
+        return Err(
+            "Canonical validator setup package is missing an embedded operational manifest."
+                .to_string(),
+        );
+    }
+    Ok(package.artifacts.operational_manifest)
 }
 
 fn read_json_value(path: &Path) -> Result<Value, String> {
@@ -5206,7 +5293,7 @@ fn extract_validator_addresses_from_manifest_value(value: &Value) -> Vec<String>
 }
 
 fn canonical_testnet_beta_genesis_hash() -> Result<String, String> {
-    read_json_value(&canonical_testnet_beta_genesis_path()?)?
+    canonical_testnet_beta_genesis_value()?
         .pointer("/integrity/genesis_hash")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -5216,9 +5303,16 @@ fn canonical_testnet_beta_genesis_hash() -> Result<String, String> {
 }
 
 fn canonical_testnet_beta_validator_addresses() -> Result<Vec<String>, String> {
-    Ok(extract_validator_addresses_from_manifest_value(
-        &read_json_value(&canonical_testnet_beta_operational_manifest_path()?)?,
-    ))
+    let manifest = canonical_testnet_beta_operational_manifest_value()?;
+    let addresses = extract_validator_addresses_from_manifest_value(&manifest);
+    if !addresses.is_empty() {
+        return Ok(addresses);
+    }
+
+    let package = load_canonical_setup_package()?;
+    Ok(normalize_address_list(extract_ceremony_validator_allowlist(
+        &package.artifacts,
+    )))
 }
 
 fn canonical_validator_dial_targets(current_node_address: &str) -> Vec<String> {
@@ -5323,18 +5417,18 @@ fn write_genesis_json_for_workspace(
 ) -> Result<(), String> {
     let config_dir = workspace_directory.join("config");
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
-    copy_file(
-        &canonical_testnet_beta_genesis_path()?,
+    write_json_file(
         &config_dir.join("genesis.json"),
+        &canonical_testnet_beta_genesis_value()?,
     )
 }
 
 fn write_operational_manifest_for_workspace(workspace_directory: &Path) -> Result<(), String> {
     let config_dir = workspace_directory.join("config");
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
-    copy_file(
-        &canonical_testnet_beta_operational_manifest_path()?,
+    write_json_file(
         &config_dir.join("operational-manifest.json"),
+        &canonical_testnet_beta_operational_manifest_value()?,
     )
 }
 
@@ -5381,10 +5475,36 @@ fn canonical_validator_peers_from_manifest_path(path: &Path) -> Vec<CanonicalVal
         .collect()
 }
 
+fn canonical_validator_peers_from_manifest_value(value: &Value) -> Vec<CanonicalValidatorPeer> {
+    value
+        .get("validators")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let slot = entry.get("slot").and_then(Value::as_u64)?;
+            let address = entry
+                .get("address")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            Some(CanonicalValidatorPeer { slot, address })
+        })
+        .collect()
+}
+
 fn canonical_testnet_beta_validator_peers() -> Vec<CanonicalValidatorPeer> {
-    canonical_testnet_beta_operational_manifest_path()
+    if let Ok(path) = canonical_testnet_beta_operational_manifest_path() {
+        let peers = canonical_validator_peers_from_manifest_path(&path);
+        if !peers.is_empty() {
+            return peers;
+        }
+    }
+
+    canonical_testnet_beta_operational_manifest_value()
         .ok()
-        .map(|path| canonical_validator_peers_from_manifest_path(&path))
+        .map(|value| canonical_validator_peers_from_manifest_value(&value))
         .unwrap_or_default()
 }
 
