@@ -15,6 +15,16 @@ extraResources:
     to: control-service
   - from: binaries
     to: binaries
+  - from: testbeta/runtime
+    to: testbeta/runtime
+  - from: scripts/testbeta
+    to: scripts/testbeta
+  - from: scripts/cleanup
+    to: scripts/cleanup
+  - from: scripts/reset-testbeta.sh
+    to: scripts/reset-testbeta.sh
+  - from: guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md
+    to: guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md
 
 publish:
   provider: github
