@@ -51,6 +51,7 @@ manifest = {
         "testbeta/runtime/workspace-manifest.json",
         "testbeta/runtime/configs/genesis/genesis.json",
         "testbeta/runtime/installers/GenVal-01/config/genesis.json",
+        "testbeta/runtime/installers/GenVal-01/config/peers.toml",
         "testbeta/runtime/installers/GenVal-01/keys/setup-package.json",
         "scripts/testbeta/remote-node-orchestrator.sh",
         "scripts/reset-testbeta.sh",

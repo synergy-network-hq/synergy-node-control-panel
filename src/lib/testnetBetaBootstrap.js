@@ -571,6 +571,7 @@ bootnodes = ${tomlArray(bootnodes)}
 seed_servers = ${tomlArray(seeds)}
 bootstrap_dns_records = ${tomlArray([BOOTSTRAP_DNS_RECORD])}
 additional_dial_targets = ${tomlArray(dialTargets)}
+persistent_peers = ${tomlArray(dialTargets)}
 
 [testbeta]
 core_rpc = ${tomlString(TESTNET_ENDPOINTS.coreRpc)}

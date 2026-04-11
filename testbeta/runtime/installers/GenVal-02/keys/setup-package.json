@@ -1084,5 +1084,34 @@
     "Start the validator only after the canonical beta manifests are present and verified.",
     "This validator must advertise genesisval2.synergynode.xyz:5622 and use validator address synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu as its canonical identity."
   ],
-  "public_host": "genesisval2.synergynode.xyz"
+  "public_host": "genesisval2.synergynode.xyz",
+  "runtime_config": {
+    "network": {
+      "additional_dial_targets": [
+        "snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622",
+        "snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@genesisval3.synergynode.xyz:5622",
+        "snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5622",
+        "snr://synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46@genesisval5.synergynode.xyz:5622"
+      ],
+      "persistent_peers": [
+        "snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622",
+        "snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@genesisval3.synergynode.xyz:5622",
+        "snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5622",
+        "snr://synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46@genesisval5.synergynode.xyz:5622"
+      ]
+    },
+    "consensus": {
+      "min_validators": 4,
+      "validator_vote_threshold": 3,
+      "max_validators": 5,
+      "status_ready_gate_enabled": true,
+      "status_ready_min_validators": 3,
+      "status_ready_genesis_grace_secs": 15,
+      "allow_genesis_status_bypass": true,
+      "mesh_settle_secs": 3,
+      "leader_timeout_secs": 15,
+      "vote_timeout_secs": 12,
+      "block_timeout_secs": 10
+    }
+  }
 }

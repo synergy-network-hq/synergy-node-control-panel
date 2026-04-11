@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CANONICAL_GENESIS_FILE="$ROOT_DIR/../config/genesis.json"
+CANONICAL_GENESIS_FILE="${SYNERGY_TESTBETA_CANONICAL_GENESIS_FILE:-$ROOT_DIR/../config/genesis.json}"
 OUTPUT_FILE="${1:-$ROOT_DIR/testbeta/runtime/configs/genesis/genesis.json}"
 
 if [[ ! -f "$CANONICAL_GENESIS_FILE" ]]; then

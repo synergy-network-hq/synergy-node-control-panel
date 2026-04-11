@@ -88,5 +88,6 @@ $env:SYNERGY_MONITOR_INVENTORY="C:\absolute\path\to\synergy-testbeta\tools\testb
 ## Docs
 
 - Project docs index: `docs/README.md`
+- Validator update workflow: `docs/developer/testnet-beta-validator-update-workflow.md`
 - Bundled operator manual: `guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md`
 - Bundled quick ops sheet: `guides/SYNERGY_TESTBETA_CONTROL_PANEL_QUICK_OPS_CHEAT_SHEET.md`

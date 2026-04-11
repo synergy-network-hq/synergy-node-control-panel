@@ -167,6 +167,7 @@ function Initialize-NodeRuntimeEnv {
   }
 
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
+  $env:SYNERGY_PROJECT_ROOT = $BaseDir
 }
 
 function Test-Admin {

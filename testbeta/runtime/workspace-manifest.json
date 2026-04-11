@@ -1,6 +1,6 @@
 {
-  "workspace_resource_version": "8.0.11+fb7f1a1dae5d",
-  "app_version": "8.0.11",
+  "workspace_resource_version": "8.0.12+fb7f1a1dae5d",
+  "app_version": "8.0.12",
   "bundle_digest": "fb7f1a1dae5d2d3f95f993d35fb056e8e9e87707d9626f4118c8f8b939f66eeb",
   "platform_binaries": [
     "binaries/synergy-testbeta-darwin-arm64",
@@ -11,6 +11,7 @@
     "testbeta/runtime/workspace-manifest.json",
     "testbeta/runtime/configs/genesis/genesis.json",
     "testbeta/runtime/installers/GenVal-01/config/genesis.json",
+    "testbeta/runtime/installers/GenVal-01/config/peers.toml",
     "testbeta/runtime/installers/GenVal-01/keys/setup-package.json",
     "scripts/testbeta/remote-node-orchestrator.sh",
     "scripts/reset-testbeta.sh",

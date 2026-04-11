@@ -121,6 +121,7 @@ build_runtime_env_args() {
     SYNERGY_NETWORK_ID="$configured_network_id"
     SYNERGY_CHAIN_ID="$configured_chain_id"
     SYNERGY_CONFIG_PATH="$config_path"
+    SYNERGY_PROJECT_ROOT="$BASE_DIR"
   )
 
   if [[ -n "$p2p_port_value" ]]; then

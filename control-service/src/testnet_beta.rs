@@ -44,10 +44,17 @@ const TOKEN_SCALE: u64 = 1_000_000_000;
 const MINIMUM_STAKE_SNRG: u64 = 5_000;
 const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
-const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 3;
+const TESTNET_BETA_BLOCK_TIME_SECS: usize = 2;
+const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 4;
+const TESTNET_BETA_STATUS_READY_MIN_VALIDATORS: usize = 3;
+const TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS: usize = 15;
+const TESTNET_BETA_MESH_SETTLE_SECS: usize = 3;
+const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 15;
+const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 12;
+const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 10;
 const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 5;
 const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 3;
-const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
+const TESTNET_BETA_MAX_VALIDATORS: usize = 5;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
 
 static NODE_LIVE_CACHE: Lazy<Mutex<HashMap<String, CachedNodeLiveSnapshot>>> =
@@ -590,8 +597,8 @@ pub async fn testbeta_erase_local_machine_data(
             force_kill_workspace_processes(Path::new(&node.workspace_directory)).unwrap_or(0),
         );
     }
-    killed_process_count = killed_process_count
-        .saturating_add(force_kill_testbeta_processes_under_root(&root)?);
+    killed_process_count =
+        killed_process_count.saturating_add(force_kill_testbeta_processes_under_root(&root)?);
 
     let mut removed_paths = Vec::new();
     remove_path_if_exists(&root, &mut removed_paths)?;
@@ -1698,7 +1705,14 @@ pub async fn testbeta_setup_node(
 
     let role_overlay = role_overlay_for(&role.id);
     let port_slot = next_available_port_slot(&registry.nodes);
-    let peers_contents = build_peers_toml(&network_profile);
+    let peers_contents = if role.id == "validator" {
+        build_peers_toml_with_additional(
+            &network_profile,
+            &canonical_validator_dial_targets(&effective_node_address),
+        )
+    } else {
+        build_peers_toml(&network_profile)
+    };
     let aegis_contents = build_aegis_toml();
     let node_contents = build_node_toml(
         &node_id,
@@ -3024,7 +3038,9 @@ fn workspace_log_sources(workspace_directory: &Path) -> Vec<WorkspaceLogSource> 
             id: "node-runtime",
             label: "Node Runtime",
             kind: "runtime",
-            path: workspace_directory.join("logs").join("synergy-testbeta.log"),
+            path: workspace_directory
+                .join("logs")
+                .join("synergy-testbeta.log"),
         },
         WorkspaceLogSource {
             id: "rpc-selftest-out",
@@ -3201,11 +3217,10 @@ fn build_node_log_bundle(
     for source in source_specs {
         let modified_at_utc = source_modified_at_utc(&source.path);
         let excerpt = log_tail_excerpt(&source.path, per_source_lines);
-        let mut source_entries =
-            excerpt
-                .as_deref()
-                .map(|contents| parse_log_source_entries(&source, contents, modified_at_utc.as_deref()))
-                .unwrap_or_default();
+        let mut source_entries = excerpt
+            .as_deref()
+            .map(|contents| parse_log_source_entries(&source, contents, modified_at_utc.as_deref()))
+            .unwrap_or_default();
 
         sources.push(TestnetBetaNodeLogSource {
             id: source.id.to_string(),
@@ -3535,11 +3550,13 @@ fn parse_testbeta_validator_address(config_path: &Path) -> Option<String> {
 fn read_toml_value(path: &Path) -> Result<toml::Value, String> {
     let contents = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
-    toml::from_str(&contents).map_err(|error| format!("Failed to parse {}: {error}", path.display()))
+    toml::from_str(&contents)
+        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))
 }
 
 fn extract_toml_string_array(value: &toml::Value, section: &str, key: &str) -> Vec<String> {
-    value.get(section)
+    value
+        .get(section)
         .and_then(|section| section.get(key))
         .and_then(toml::Value::as_array)
         .into_iter()
@@ -3560,10 +3577,14 @@ fn workspace_genesis_hash(workspace_directory: &Path) -> Result<String, String> 
 }
 
 fn workspace_manifest_chain_id(workspace_directory: &Path) -> Result<u64, String> {
-    read_json_value(&workspace_directory.join("config").join("operational-manifest.json"))?
-        .get("chain_id")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| "Workspace operational manifest is missing chain_id.".to_string())
+    read_json_value(
+        &workspace_directory
+            .join("config")
+            .join("operational-manifest.json"),
+    )?
+    .get("chain_id")
+    .and_then(Value::as_u64)
+    .ok_or_else(|| "Workspace operational manifest is missing chain_id.".to_string())
 }
 
 async fn measure_clock_skew_ms(client: &Client) -> Option<i64> {
@@ -3629,14 +3650,11 @@ async fn validate_workspace_launch_preflight(
 
     if role_supports_validator_registration(&role_id) {
         let expected_targets = canonical_validator_dial_targets(&validator_address);
-        let configured_targets = extract_toml_string_array(
-            &config_value,
-            "network",
-            "additional_dial_targets",
-        )
-        .into_iter()
-        .filter_map(|value| normalize_testnet_beta_dial_target(&value))
-        .collect::<Vec<_>>();
+        let configured_targets =
+            extract_toml_string_array(&config_value, "network", "additional_dial_targets")
+                .into_iter()
+                .filter_map(|value| normalize_testnet_beta_dial_target(&value))
+                .collect::<Vec<_>>();
         let missing_targets = expected_targets
             .iter()
             .filter(|target| !configured_targets.contains(*target))
@@ -3657,8 +3675,11 @@ async fn validate_workspace_launch_preflight(
             ));
         }
 
-        match read_json_value(&workspace_directory.join("config").join("operational-manifest.json"))
-        {
+        match read_json_value(
+            &workspace_directory
+                .join("config")
+                .join("operational-manifest.json"),
+        ) {
             Ok(manifest_value) => {
                 let actual_validator_addresses =
                     extract_validator_addresses_from_manifest_value(&manifest_value);
@@ -3706,11 +3727,8 @@ fn ensure_workspace_bootstrap_topology(
     node: &TestnetBetaProvisionedNode,
 ) -> Result<(), String> {
     let mut value = read_toml_value(config_path)?;
-    let existing_additional_targets = extract_toml_string_array(
-        &value,
-        "network",
-        "additional_dial_targets",
-    );
+    let existing_additional_targets =
+        extract_toml_string_array(&value, "network", "additional_dial_targets");
     let root = value
         .as_table_mut()
         .ok_or_else(|| format!("{} must parse into a TOML table.", config_path.display()))?;
@@ -3801,7 +3819,10 @@ fn ensure_workspace_bootstrap_topology(
             network_profile,
             &canonical_validator_dial_targets(&node.node_address),
         );
-        write_file(&workspace_directory.join("config").join("peers.toml"), &peers_contents)?;
+        write_file(
+            &workspace_directory.join("config").join("peers.toml"),
+            &peers_contents,
+        )?;
     }
 
     Ok(())
@@ -4463,6 +4484,7 @@ async fn build_node_readiness_report(
     let is_validator = role_supports_validator_registration(&node.role_id);
     if is_validator {
         let required_validators = TESTNET_BETA_MIN_GENESIS_VALIDATORS;
+        let mesh_required_validators = TESTNET_BETA_STATUS_READY_MIN_VALIDATORS;
         let connected_validators = live.connected_validator_count.unwrap_or(0);
         let status_ready_validators = live.status_ready_validator_count.unwrap_or(0);
         let uptime_secs = live.process_uptime_secs.unwrap_or(0);
@@ -4502,7 +4524,7 @@ async fn build_node_readiness_report(
 
         let mesh_status = if !live.is_running {
             "skip"
-        } else if status_ready_validators >= required_validators {
+        } else if status_ready_validators >= mesh_required_validators {
             "pass"
         } else if status_ready_validators > 0 && uptime_secs < 20 {
             "in_progress"
@@ -4515,7 +4537,7 @@ async fn build_node_readiness_report(
             status: mesh_status.to_string(),
             detail: if live.is_running {
                 format!(
-                    "{status_ready_validators}/{required_validators} validators have completed handshake/status sync. Consensus will not start until all required validators are status-ready."
+                    "{status_ready_validators}/{mesh_required_validators} validators have completed handshake/status sync. Consensus will wait for the reduced status-ready gate before starting block production."
                 )
             } else {
                 "Node is offline.".to_string()
@@ -5211,11 +5233,9 @@ fn canonical_setup_package_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for root in canonical_testnet_beta_resource_roots() {
         for slot in 1..=TESTNET_BETA_VALIDATOR_CLUSTER_SIZE {
-            candidates.push(
-                root.join(format!(
-                    "testbeta/runtime/installers/GenVal-{slot:02}/keys/setup-package.json"
-                )),
-            );
+            candidates.push(root.join(format!(
+                "testbeta/runtime/installers/GenVal-{slot:02}/keys/setup-package.json"
+            )));
         }
     }
     candidates
@@ -5282,7 +5302,8 @@ fn normalize_address_list(addresses: Vec<String>) -> Vec<String> {
 
 fn extract_validator_addresses_from_manifest_value(value: &Value) -> Vec<String> {
     normalize_address_list(
-        value.get("validators")
+        value
+            .get("validators")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
@@ -5310,9 +5331,9 @@ fn canonical_testnet_beta_validator_addresses() -> Result<Vec<String>, String> {
     }
 
     let package = load_canonical_setup_package()?;
-    Ok(normalize_address_list(extract_ceremony_validator_allowlist(
-        &package.artifacts,
-    )))
+    Ok(normalize_address_list(
+        extract_ceremony_validator_allowlist(&package.artifacts),
+    ))
 }
 
 fn canonical_validator_dial_targets(current_node_address: &str) -> Vec<String> {
@@ -5339,7 +5360,10 @@ fn validate_validator_assigned_ports(
             expected.p2p_port, assigned_ports.p2p_port
         ));
     }
-    if assigned_ports.public_p2p_port.unwrap_or(assigned_ports.p2p_port) != expected.public_p2p_port
+    if assigned_ports
+        .public_p2p_port
+        .unwrap_or(assigned_ports.p2p_port)
+        != expected.public_p2p_port
     {
         failures.push(format!(
             "public_p2p_port must be {}, got {}",
@@ -6194,7 +6218,9 @@ fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> R
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "Ceremony package operational manifest is missing network_id.".to_string())?;
+        .ok_or_else(|| {
+            "Ceremony package operational manifest is missing network_id.".to_string()
+        })?;
     if manifest_network_id != TESTNET_BETA_CHAIN_NAME {
         return Err(format!(
             "Ceremony package operational manifest network_id mismatch. Expected {}, got {}.",
@@ -6208,7 +6234,10 @@ fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> R
     if !manifest_validator_addresses.is_empty()
         && manifest_validator_addresses != expected_validator_addresses
     {
-        return Err("Ceremony package validator registry does not match the canonical release bundle.".to_string());
+        return Err(
+            "Ceremony package validator registry does not match the canonical release bundle."
+                .to_string(),
+        );
     }
 
     let genesis_validator_addresses =
@@ -6216,7 +6245,10 @@ fn validate_ceremony_package_identity(package: &TestnetBetaCeremonyPackage) -> R
     if !genesis_validator_addresses.is_empty()
         && genesis_validator_addresses != expected_validator_addresses
     {
-        return Err("Ceremony package genesis validator set does not match the canonical release bundle.".to_string());
+        return Err(
+            "Ceremony package genesis validator set does not match the canonical release bundle."
+                .to_string(),
+        );
     }
 
     if package.role_id.eq_ignore_ascii_case("validator") {
@@ -6964,6 +6996,11 @@ fn build_node_toml(
     } else {
         String::new()
     };
+    let persistent_peers = if use_static_validator_mesh {
+        additional_dial_targets.clone()
+    } else {
+        String::new()
+    };
     let auto_register_validator = if role_supports_validator_registration(&role.id) {
         "true"
     } else {
@@ -7002,7 +7039,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = 5\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = 5\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\npersistent_peers = [{persistent_peers}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = {block_time_secs}\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = {block_time_secs}\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nstatus_ready_gate_enabled = true\nstatus_ready_min_validators = {status_ready_min_validators}\nstatus_ready_genesis_grace_secs = {status_ready_genesis_grace_secs}\nallow_genesis_status_bypass = true\nmesh_settle_secs = {mesh_settle_secs}\nleader_timeout_secs = {leader_timeout_secs}\nvote_timeout_secs = {vote_timeout_secs}\nblock_timeout_secs = {block_timeout_secs}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -7019,6 +7056,7 @@ fn build_node_toml(
         seeds = seeds,
         bootstrap_dns_records = bootstrap_dns_records,
         additional_dial_targets = additional_dial_targets,
+        persistent_peers = persistent_peers,
         data_path = workspace_directory.join("data").to_string_lossy().replace('\\', "/"),
         log_path = workspace_directory
             .join("logs")
@@ -7033,11 +7071,18 @@ fn build_node_toml(
         rpc_bind_address = rpc_bind_address,
         cors_enabled = cors_enabled,
         cors_origins = cors_origins,
+        block_time_secs = TESTNET_BETA_BLOCK_TIME_SECS,
         epoch_length = TESTNET_BETA_EPOCH_LENGTH,
         min_validators = TESTNET_BETA_MIN_GENESIS_VALIDATORS,
         validator_cluster_size = TESTNET_BETA_VALIDATOR_CLUSTER_SIZE,
         validator_vote_threshold = TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD,
         max_validators = TESTNET_BETA_MAX_VALIDATORS,
+        status_ready_min_validators = TESTNET_BETA_STATUS_READY_MIN_VALIDATORS,
+        status_ready_genesis_grace_secs = TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS,
+        mesh_settle_secs = TESTNET_BETA_MESH_SETTLE_SECS,
+        leader_timeout_secs = TESTNET_BETA_LEADER_TIMEOUT_SECS,
+        vote_timeout_secs = TESTNET_BETA_VOTE_TIMEOUT_SECS,
+        block_timeout_secs = TESTNET_BETA_BLOCK_TIMEOUT_SECS,
         sponsored_stake_snrg = format_amount(MINIMUM_STAKE_SNRG),
         sponsored_stake_nwei = amount_to_nwei_string(MINIMUM_STAKE_SNRG),
         treasury_wallet = network_profile.treasury_wallet.address,
@@ -7077,7 +7122,7 @@ fn build_peers_toml_with_additional(
         .join(", ");
 
     format!(
-        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\nadditional_dial_targets = [{additional}]\n\n[testbeta]\ncore_rpc = \"{core_rpc}\"\ncore_ws = \"{core_ws}\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
+        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\nadditional_dial_targets = [{additional}]\npersistent_peers = [{additional}]\n\n[testbeta]\ncore_rpc = \"{core_rpc}\"\ncore_ws = \"{core_ws}\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
         core_rpc = TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
         core_ws = TESTNET_BETA_PUBLIC_WS_ENDPOINT,
     )
@@ -7474,7 +7519,10 @@ mod tests {
                 .and_then(|section| section.get("seed_servers"))
                 .and_then(toml::Value::as_array)
                 .expect("seed_servers array should exist");
-            assert!(seeds.is_empty(), "validator node.toml should not use seed servers");
+            assert!(
+                seeds.is_empty(),
+                "validator node.toml should not use seed servers"
+            );
 
             let dns_records = node_value
                 .get("network")
@@ -7497,6 +7545,33 @@ mod tests {
                     .iter()
                     .all(|entry| entry.as_str().is_some_and(|value| value.ends_with(":5622"))),
                 "validator node.toml should include canonical validator dial targets"
+            );
+            let persistent_peers = node_value
+                .get("network")
+                .and_then(|section| section.get("persistent_peers"))
+                .and_then(toml::Value::as_array)
+                .expect("persistent_peers array should exist");
+            assert_eq!(persistent_peers, additional_dial_targets);
+            assert_eq!(
+                node_value
+                    .get("consensus")
+                    .and_then(|section| section.get("min_validators"))
+                    .and_then(toml::Value::as_integer),
+                Some(4)
+            );
+            assert_eq!(
+                node_value
+                    .get("consensus")
+                    .and_then(|section| section.get("status_ready_min_validators"))
+                    .and_then(toml::Value::as_integer),
+                Some(3)
+            );
+            assert_eq!(
+                node_value
+                    .get("consensus")
+                    .and_then(|section| section.get("leader_timeout_secs"))
+                    .and_then(toml::Value::as_integer),
+                Some(15)
             );
 
             assert_eq!(
@@ -7544,6 +7619,13 @@ mod tests {
                 peer_seeds[0].as_str(),
                 Some("http://seed1.synergynode.xyz:5621")
             );
+
+            let peer_persistent_peers = peers_value
+                .get("global")
+                .and_then(|section| section.get("persistent_peers"))
+                .and_then(toml::Value::as_array)
+                .expect("global.persistent_peers should exist");
+            assert_eq!(peer_persistent_peers.len(), 5);
 
             assert_eq!(
                 peers_value
@@ -7902,7 +7984,11 @@ public_address = "71.86.65.178:5622"
                     metrics_port: 6030,
                 }),
                 artifacts: TestnetBetaCeremonyPackageArtifacts {
-                    genesis: json!({}),
+                    genesis: json!({
+                        "integrity": {
+                            "genesis_hash": "fixture-genesis-hash"
+                        }
+                    }),
                     operational_manifest: json!({}),
                 },
                 runtime_identity: None,
@@ -8015,7 +8101,7 @@ public_address = "71.86.65.178:5622"
             );
 
             let registry = load_registry(&root).expect("registry should load");
-            assert_eq!(registry.nodes[0].port_slot, Some(3));
+            assert_eq!(registry.nodes[0].port_slot, Some(0));
         });
     }
 
@@ -8054,7 +8140,11 @@ public_address = "71.86.65.178:5622"
             validator_slot: Some(1),
             assigned_ports: None,
             artifacts: TestnetBetaCeremonyPackageArtifacts {
-                genesis: json!({}),
+                genesis: json!({
+                    "integrity": {
+                        "genesis_hash": "fixture-genesis-hash"
+                    }
+                }),
                 operational_manifest: json!({}),
             },
             runtime_identity: Some(TestnetBetaCeremonyRuntimeIdentity {
@@ -8093,7 +8183,11 @@ public_address = "71.86.65.178:5622"
                 "token_symbol": TOKEN_SYMBOL,
                 "validator_slot": 1,
                 "artifacts": {
-                    "genesis": {},
+                    "genesis": {
+                        "integrity": {
+                            "genesis_hash": "fixture-genesis-hash"
+                        }
+                    },
                     "operational_manifest": {}
                 },
                 "public_host_required": false
@@ -8116,6 +8210,10 @@ public_address = "71.86.65.178:5622"
     fn ceremony_import_infers_role_from_package_when_setup_role_is_missing() {
         with_temp_home(|home| {
             let package_path = home.join("validator-setup-package.json");
+            let canonical_genesis =
+                canonical_testnet_beta_genesis_value().expect("canonical genesis should load");
+            let canonical_manifest = canonical_testnet_beta_operational_manifest_value()
+                .expect("canonical manifest should load");
             let package = json!({
                 "format": "synergy-testbeta-ceremony-package/v1",
                 "package_type": "validator-runtime",
@@ -8126,18 +8224,8 @@ public_address = "71.86.65.178:5622"
                 "token_symbol": TOKEN_SYMBOL,
                 "validator_slot": 1,
                 "artifacts": {
-                    "genesis": {
-                        "contracts": {
-                            "validator_registry": {
-                                "init_params": {
-                                    "validators": [
-                                        {"validator_address": "synv1alpha"}
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "operational_manifest": {}
+                    "genesis": canonical_genesis,
+                    "operational_manifest": canonical_manifest
                 },
                 "public_host_required": false
             });
@@ -8174,6 +8262,10 @@ public_address = "71.86.65.178:5622"
     fn ceremony_import_applies_assigned_validator_ports() {
         with_temp_home(|home| {
             let package_path = home.join("validator-4-setup-package.json");
+            let canonical_genesis =
+                canonical_testnet_beta_genesis_value().expect("canonical genesis should load");
+            let canonical_manifest = canonical_testnet_beta_operational_manifest_value()
+                .expect("canonical manifest should load");
             let package = json!({
                 "format": "synergy-testbeta-ceremony-package/v1",
                 "package_type": "validator-runtime",
@@ -8193,18 +8285,8 @@ public_address = "71.86.65.178:5622"
                     "metrics_port": 6030
                 },
                 "artifacts": {
-                    "genesis": {
-                        "contracts": {
-                            "validator_registry": {
-                                "init_params": {
-                                    "validators": [
-                                        {"validator_address": "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49"}
-                                    ]
-                                }
-                            }
-                        }
-                    },
-                    "operational_manifest": {}
+                    "genesis": canonical_genesis,
+                    "operational_manifest": canonical_manifest
                 },
                 "runtime_identity": {
                     "label": "Genesis Validator 4",
@@ -8232,7 +8314,7 @@ public_address = "71.86.65.178:5622"
                 .expect("package import should succeed");
 
             let node = result.node.expect("validator node should be returned");
-            assert_eq!(node.port_slot, Some(3));
+            assert_eq!(node.port_slot, Some(0));
 
             let node_toml = fs::read_to_string(config_path_for(&node, "node.toml"))
                 .expect("node.toml should exist");

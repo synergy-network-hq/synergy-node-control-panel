@@ -17,16 +17,14 @@ use crate::monitor::{
     MonitorOperatorInput, MonitorSshBindingInput, MonitorSshProfileInput,
 };
 use crate::testnet_beta::{
-    testbeta_boost_sync, testbeta_force_peer_connect, testbeta_get_catalog,
-    testbeta_get_chain_blocks, testbeta_get_device_profile, testbeta_get_live_status,
-    testbeta_get_node_logs, testbeta_get_node_readiness, testbeta_get_state,
-    testbeta_erase_local_machine_data,
-    testbeta_import_ceremony_package, testbeta_inspect_ceremony_package, testbeta_node_control,
-    testbeta_remove_node, testbeta_run_register_with_seeds, testbeta_setup_node,
-    TestnetBetaEraseNodeDataInput,
-    TestnetBetaForcePeerConnectInput, TestnetBetaImportCeremonyPackageInput,
-    TestnetBetaInspectCeremonyPackageInput, TestnetBetaNodeControlInput,
-    TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
+    testbeta_boost_sync, testbeta_erase_local_machine_data, testbeta_force_peer_connect,
+    testbeta_get_catalog, testbeta_get_chain_blocks, testbeta_get_device_profile,
+    testbeta_get_live_status, testbeta_get_node_logs, testbeta_get_node_readiness,
+    testbeta_get_state, testbeta_import_ceremony_package, testbeta_inspect_ceremony_package,
+    testbeta_node_control, testbeta_remove_node, testbeta_run_register_with_seeds,
+    testbeta_setup_node, TestnetBetaEraseNodeDataInput, TestnetBetaForcePeerConnectInput,
+    TestnetBetaImportCeremonyPackageInput, TestnetBetaInspectCeremonyPackageInput,
+    TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};

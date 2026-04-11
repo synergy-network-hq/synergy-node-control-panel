@@ -26,6 +26,10 @@ scripts/testbeta/render-configs.sh
 scripts/testbeta/generate-testbeta-genesis.sh
 ```
 
+For the authoritative validator update path, including which files are the real control-panel source of truth and which generated files should not be edited directly, see:
+
+- `docs/developer/testnet-beta-validator-update-workflow.md`
+
 ## One-Command Cluster Reset
 
 ```bash

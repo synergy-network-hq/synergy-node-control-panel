@@ -65,12 +65,14 @@ fi
 canonical_genesis_path="../config/genesis.json"
 runtime_genesis_path="testbeta/runtime/configs/genesis/genesis.json"
 installer_genesis_path="testbeta/runtime/installers/GenVal-01/config/genesis.json"
+installer_peers_path="testbeta/runtime/installers/GenVal-01/config/peers.toml"
 setup_package_path="testbeta/runtime/installers/GenVal-01/keys/setup-package.json"
 
 for required_path in \
   "$canonical_genesis_path" \
   "$runtime_genesis_path" \
   "$installer_genesis_path" \
+  "$installer_peers_path" \
   "$setup_package_path"
 do
   if [[ ! -f "$required_path" ]]; then
@@ -121,5 +123,25 @@ EOF
     exit 1
   fi
 done
+
+if ! rg -q '^[[:space:]]*persistent_peers[[:space:]]*=' "$installer_peers_path"; then
+  echo "Bundled peers.toml is missing global.persistent_peers" >&2
+  exit 1
+fi
+
+if ! rg -q '^[[:space:]]*persistent_peers[[:space:]]*=' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing network.persistent_peers" >&2
+  exit 1
+fi
+
+if ! rg -q '^[[:space:]]*status_ready_gate_enabled[[:space:]]*=[[:space:]]*true' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing status_ready_gate_enabled" >&2
+  exit 1
+fi
+
+if ! rg -q '^[[:space:]]*leader_timeout_secs[[:space:]]*=[[:space:]]*15' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing leader_timeout_secs = 15" >&2
+  exit 1
+fi
 
 echo "Bundled assets validated."

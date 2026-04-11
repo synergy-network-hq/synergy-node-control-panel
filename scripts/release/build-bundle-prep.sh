@@ -86,9 +86,31 @@ sync_platform_binaries() {
   done
 }
 
+refresh_platform_binary_checksums() {
+  local binary_path
+
+  for binary_path in \
+    "$ROOT_DIR/binaries/synergy-testbeta-macos-arm64" \
+    "$ROOT_DIR/binaries/synergy-testbeta-linux-amd64" \
+    "$ROOT_DIR/binaries/synergy-testbeta-windows-amd64.exe"
+  do
+    if [[ -f "$binary_path" ]]; then
+      if command -v shasum >/dev/null 2>&1; then
+        printf "%s  %s\n" "$(shasum -a 256 "$binary_path" | awk '{print $1}')" "$(basename "$binary_path")" > "${binary_path}.sha256"
+      elif command -v sha256sum >/dev/null 2>&1; then
+        printf "%s  %s\n" "$(sha256sum "$binary_path" | awk '{print $1}')" "$(basename "$binary_path")" > "${binary_path}.sha256"
+      fi
+    fi
+  done
+}
+
 sync_canonical_runtime_assets() {
   echo "Syncing canonical runtime genesis"
   ./scripts/testbeta/generate-testbeta-genesis.sh
+  echo "Rendering canonical Testnet-Beta configs"
+  ./scripts/testbeta/render-configs.sh
+  echo "Building canonical Testnet-Beta installers"
+  ./scripts/testbeta/build-node-installers.sh
 }
 
 # Ensure Unix platform binaries are executable
@@ -103,6 +125,7 @@ done
 
 ensure_version_alignment
 sync_platform_binaries
+refresh_platform_binary_checksums
 sync_canonical_runtime_assets
 ./scripts/release/generate-workspace-manifest.sh
 ./scripts/release/validate-bundled-assets.sh
