@@ -72,7 +72,7 @@ echo "Version bumped to $VERSION in all files."
 echo ""
 
 echo "Regenerating bundled release assets for $VERSION..."
-ALLOW_DIRTY_BUNDLE_PREP=1 npm run build:bundle-prep
+SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 echo ""
 echo "Bundled release assets refreshed."
 echo ""

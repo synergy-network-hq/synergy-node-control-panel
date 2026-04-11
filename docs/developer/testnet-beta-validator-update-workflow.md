@@ -96,13 +96,14 @@ Run from `node-control-panel/`:
 ```bash
 bash scripts/testbeta/render-configs.sh
 bash scripts/testbeta/build-node-installers.sh
-ALLOW_DIRTY_BUNDLE_PREP=1 npm run build:bundle-prep
+SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 ```
 
 For a release build:
 
 ```bash
-ALLOW_DIRTY_BUNDLE_PREP=1 npm run dist:electron
+SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
+npm run dist:electron
 ```
 
 ## Release Order Across Repos
@@ -165,7 +166,7 @@ After the runtime repo is pushed and tagged, sync the refreshed node binaries in
 Then regenerate the bundled runtime assets:
 
 ```bash
-ALLOW_DIRTY_BUNDLE_PREP=1 npm run build:bundle-prep
+SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 ```
 
 That step must happen after the runtime binaries are refreshed because it now performs the release prep in this order:
@@ -178,6 +179,14 @@ That step must happen after the runtime binaries are refreshed because it now pe
 6. Validates the bundled validator mesh settings.
 7. Rebuilds the renderer bundle.
 
+The release workflow passes these env vars into `npm run build:bundle-prep` and the scripts in `scripts/testbeta/` must continue to honor them:
+
+- `SYNERGY_TESTBETA_BINARY_SOURCE_DIR`
+- `SYNERGY_TESTBETA_SOURCE_REPO_ROOT`
+- `SYNERGY_TESTBETA_CANONICAL_GENESIS_FILE`
+- `SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE`
+- `SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK`
+
 Before tagging, inspect the actual shipped outputs:
 
 - `binaries/synergy-testbeta-*.sha256`
@@ -189,7 +198,8 @@ Before tagging, inspect the actual shipped outputs:
 If you want a local installer build before pushing the release tag:
 
 ```bash
-ALLOW_DIRTY_BUNDLE_PREP=1 npm run dist:electron
+SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
+npm run dist:electron
 ```
 
 Then commit the control-panel repo on `main`, push it, create the matching tag, and push the tag:
@@ -215,6 +225,12 @@ The intended CI order is:
 7. Publish the generated installers to the releases repo.
 
 If CI rebuilds only the top-level node binaries but does not regenerate `testbeta/runtime/installers/`, the desktop app can still ship stale validator setup bundles.
+
+If CI fails with `Missing operational manifest`, verify that:
+
+1. `scripts/testbeta/render-configs.sh` and `scripts/testbeta/build-node-installers.sh` both honor `SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE`.
+2. The release workflow passes `SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE` pointing at `testnet-beta-source/config/operational-manifest.json`.
+3. The release workflow passes `SYNERGY_TESTBETA_BINARY_SOURCE_DIR=${{ github.workspace }}/binaries` so bundle prep uses the just-downloaded release binaries instead of whatever was committed in the repo checkout.
 
 ## Verification
 

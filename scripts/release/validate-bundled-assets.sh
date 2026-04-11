@@ -45,9 +45,11 @@ if [[ ! -f "testbeta/runtime/workspace-manifest.json" ]]; then
 fi
 
 # Detect stale manifest (manifest content differs from what the binaries produce).
-# This is expected on the very first run after binaries change — commit the
-# updated manifest and re-run to clear this check.
-if [[ "${ALLOW_DIRTY_BUNDLE_PREP:-0}" != "1" ]]; then
+# This is expected on the very first run after binaries change. CI and release
+# prep can skip this git-clean guard because they intentionally regenerate the
+# manifest before committing the result.
+skip_git_clean_guard="${SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK:-${ALLOW_DIRTY_BUNDLE_PREP:-0}}"
+if [[ "$skip_git_clean_guard" != "1" ]]; then
   BUNDLE_PATHS=(testbeta/runtime/workspace-manifest.json)
 
   untracked="$(git status --short --untracked-files=all -- "${BUNDLE_PATHS[@]}" | grep '^??' || true)"

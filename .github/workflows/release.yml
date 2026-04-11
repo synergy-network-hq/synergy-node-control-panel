@@ -165,7 +165,8 @@ jobs:
       - name: Regenerate bundled runtime assets from fresh node binaries
         shell: bash
         env:
-          ALLOW_DIRTY_BUNDLE_PREP: "1"
+          SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK: "1"
+          SYNERGY_TESTBETA_BINARY_SOURCE_DIR: ${{ github.workspace }}/binaries
           SYNERGY_TESTBETA_SOURCE_REPO_ROOT: ${{ github.workspace }}/testnet-beta-source
           SYNERGY_TESTBETA_CANONICAL_GENESIS_FILE: ${{ github.workspace }}/testnet-beta-source/config/genesis.json
           SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE: ${{ github.workspace }}/testnet-beta-source/config/operational-manifest.json
