@@ -11,70 +11,7 @@ env:
   TESTNET_BETA_REF: ${{ github.ref_name }}
 
 jobs:
-  build-node-binaries:
-    name: Build Testnet-Beta node binaries (${{ matrix.artifact_name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            artifact_name: macos
-          - os: ubuntu-22.04
-            artifact_name: linux
-          - os: windows-latest
-            artifact_name: windows
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - name: Checkout Testnet-Beta node source
-        uses: actions/checkout@v4
-        with:
-          repository: synergy-network-hq/testnet-beta
-          path: testnet-beta-source
-          ref: ${{ env.TESTNET_BETA_REF }}
-          token: ${{ secrets.RELEASES_REPO_TOKEN }}
-          persist-credentials: false
-          submodules: false
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build fresh Testnet-Beta node binary
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cargo build --manifest-path testnet-beta-source/src/Cargo.toml --release --bin synergy-testbeta
-
-          mkdir -p bundled-node-binaries
-          case "${{ matrix.artifact_name }}" in
-            macos)
-              cp testnet-beta-source/target/release/synergy-testbeta bundled-node-binaries/synergy-testbeta-darwin-arm64
-              cp testnet-beta-source/target/release/synergy-testbeta bundled-node-binaries/synergy-testbeta-macos-arm64
-              chmod +x bundled-node-binaries/synergy-testbeta-darwin-arm64 bundled-node-binaries/synergy-testbeta-macos-arm64
-              ;;
-            linux)
-              cp testnet-beta-source/target/release/synergy-testbeta bundled-node-binaries/synergy-testbeta-linux-amd64
-              chmod +x bundled-node-binaries/synergy-testbeta-linux-amd64
-              ;;
-            windows)
-              cp testnet-beta-source/target/release/synergy-testbeta.exe bundled-node-binaries/synergy-testbeta-windows-amd64.exe
-              ;;
-            *)
-              echo "Unsupported release target: ${{ matrix.artifact_name }}" >&2
-              exit 1
-              ;;
-          esac
-
-      - name: Upload Testnet-Beta node binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: testnet-beta-node-binaries-${{ matrix.artifact_name }}
-          path: bundled-node-binaries/*
-
   build:
-    needs: build-node-binaries
     strategy:
       fail-fast: false
       matrix:
@@ -144,33 +81,36 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Download macOS Testnet-Beta binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: testnet-beta-node-binaries-macos
-          path: binaries
-
-      - name: Download Linux Testnet-Beta binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: testnet-beta-node-binaries-linux
-          path: binaries
-
-      - name: Download Windows Testnet-Beta binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: testnet-beta-node-binaries-windows
-          path: binaries
-
-      - name: Regenerate bundled runtime assets from fresh node binaries
+      - name: Build fresh Testnet-Beta node binary
         shell: bash
-        env:
-          SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK: "1"
-          SYNERGY_TESTBETA_BINARY_SOURCE_DIR: ${{ github.workspace }}/binaries
-          SYNERGY_TESTBETA_SOURCE_REPO_ROOT: ${{ github.workspace }}/testnet-beta-source
-          SYNERGY_TESTBETA_CANONICAL_GENESIS_FILE: ${{ github.workspace }}/testnet-beta-source/config/genesis.json
-          SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE: ${{ github.workspace }}/testnet-beta-source/config/operational-manifest.json
-        run: npm run build:bundle-prep
+        run: |
+          set -euo pipefail
+
+          cargo build --manifest-path testnet-beta-source/src/Cargo.toml --release --bin synergy-testbeta
+
+          mkdir -p binaries
+          case "${{ matrix.artifact_name }}" in
+            macos)
+              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-darwin-arm64
+              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-macos-arm64
+              chmod +x binaries/synergy-testbeta-darwin-arm64 binaries/synergy-testbeta-macos-arm64
+              ;;
+            linux)
+              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-linux-amd64
+              chmod +x binaries/synergy-testbeta-linux-amd64
+              ;;
+            windows)
+              cp testnet-beta-source/target/release/synergy-testbeta.exe binaries/synergy-testbeta-windows-amd64.exe
+              ;;
+            *)
+              echo "Unsupported release target: ${{ matrix.artifact_name }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Regenerate workspace manifest for bundled binaries
+        shell: bash
+        run: bash scripts/release/generate-workspace-manifest.sh
 
       - name: Create .env from testbeta example if missing
         shell: bash
@@ -199,6 +139,9 @@ jobs:
             librsvg2-dev \
             patchelf \
             libfuse2
+
+      - name: Build renderer assets
+        run: npm run build
 
       - name: Build headless control-service runtime
         run: cargo build --manifest-path control-service/Cargo.toml --bin control-service --release --no-default-features

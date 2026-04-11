@@ -106,88 +106,249 @@ SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 npm run dist:electron
 ```
 
-## Release Order Across Repos
+## Full Release Procedure
 
-The Testnet-Beta release is coordinated across two repos:
+This release path is coordinated across two repos:
 
-1. `testnet-beta/` contains the node runtime source and the canonical `config/` inputs.
-2. `node-control-panel/` contains the desktop app, the bundled `binaries/`, and the shipped `testbeta/runtime/` installer assets.
+1. `testnet-beta/`
+2. `node-control-panel/`
 
-The control-panel release workflow expects the same tag to exist in both repos.
+The rule is:
 
-If you push `node-control-panel` tag `vX.Y.Z` without first pushing `testnet-beta` tag `vX.Y.Z`, GitHub Actions will fail when it tries to check out the runtime repo at that same ref.
+- All validator/runtime bundle generation is **manual** and must be completed locally before tagging `node-control-panel`.
+- GitHub Actions is **automatic packaging only**. It must not be treated as the place where `testbeta/runtime/installers/` gets regenerated.
+- The same tag `vX.Y.Z` must exist in both repos before the control-panel release workflow can succeed.
 
-Release in this order:
+## Manual Vs Automatic
 
-1. Finish and verify the runtime changes in `testnet-beta/`.
-2. Refresh the shipped runtime binaries for every supported platform.
-3. Sync those binaries into `node-control-panel/binaries/`.
-4. Regenerate `node-control-panel/testbeta/runtime/` from those fresh binaries.
-5. Commit and push `testnet-beta/`.
-6. Create and push the runtime tag.
-7. Commit and push `node-control-panel/`.
-8. Create and push the matching control-panel tag.
-9. Let the control-panel release workflow build and publish the desktop installers.
+### Manual steps
 
-## Exact Release Sequence
+These steps are run by a maintainer on a workstation:
 
-### 1. Runtime repo: `testnet-beta/`
+1. Update runtime code in `testnet-beta/` if the node binary needs new config keys or behavior.
+2. Update control-panel generators in `node-control-panel/`.
+3. Build or collect the fresh multi-platform `synergy-testbeta` binaries.
+4. Copy those fresh binaries into both repos' `binaries/` folders as needed.
+5. Regenerate `testbeta/runtime/configs/`, `testbeta/runtime/installers/`, and `testbeta/runtime/workspace-manifest.json` locally.
+6. Verify the generated assets locally.
+7. Commit and push both repos.
+8. Create and push the matching tags.
+9. Watch the GitHub Actions release run until every installer finishes.
 
-Run from the runtime repo root:
+### Automatic steps
+
+These steps are performed by GitHub Actions after the control-panel tag is pushed:
+
+1. Check out `node-control-panel` at `vX.Y.Z`.
+2. Check out `testnet-beta` at `vX.Y.Z`.
+3. Build the current-platform `synergy-testbeta` binary for the installer job that is running.
+4. Refresh `testbeta/runtime/workspace-manifest.json` inside the temporary CI workspace.
+5. Build the Electron installer for the current matrix OS.
+6. Upload the generated installer files to the releases repo.
+
+### How to trigger the automatic steps
+
+Trigger the release workflow with either of these actions:
 
 ```bash
+git push origin vX.Y.Z
+```
+
+or manually from GitHub:
+
+1. Open `synergy-network-hq/synergy-node-control-panel`.
+2. Go to `Actions`.
+3. Open `Electron Release Build`.
+4. Click `Run workflow`.
+
+## Exact Step-By-Step Release Sequence
+
+### Step 1: Update and verify the runtime repo
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta`:
+
+```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta
+
 cargo fmt --manifest-path Cargo.toml --all
+
+# Run the focused runtime tests for the code you changed.
+# Example tests that were used for the validator mesh stabilization work:
+cargo test --manifest-path src/Cargo.toml apply_env_overrides_accepts_mesh_stability_controls -- --exact
+cargo test --manifest-path src/Cargo.toml resolve_bootstrap_dial_targets_includes_persistent_peers -- --exact
+cargo test --manifest-path src/Cargo.toml test_dual_quorum_consensus -- --exact
+cargo test --manifest-path src/Cargo.toml test_dual_quorum_enforces_minimum_validator_count -- --exact
 ```
 
-Run the focused runtime tests that cover the mesh/bootstrap/consensus changes you touched.
+If the runtime code did not change for this release, do not create a new runtime commit. Reuse the existing runtime commit and only create the new matching tag later.
 
-Then refresh the shipped runtime binaries so the control panel can package the same code that you just verified:
+### Step 2: Build or collect the runtime binaries
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta`:
 
 ```bash
-# Expected release artifacts used by node-control-panel/binaries:
-# binaries/synergy-testbeta-darwin-arm64
-# binaries/synergy-testbeta-macos-arm64
-# binaries/synergy-testbeta-linux-amd64
-# binaries/synergy-testbeta-windows-amd64.exe
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta
+
+# Native macOS arm64 build
+cargo build --manifest-path src/Cargo.toml --release --bin synergy-testbeta
+cp target/release/synergy-testbeta binaries/synergy-testbeta-darwin-arm64
+cp target/release/synergy-testbeta binaries/synergy-testbeta-macos-arm64
+chmod +x binaries/synergy-testbeta-darwin-arm64 binaries/synergy-testbeta-macos-arm64
+
+# Optional cross-builds if the toolchains are available on the current machine
+cargo build --manifest-path src/Cargo.toml --release --target x86_64-unknown-linux-gnu --bin synergy-testbeta || true
+cargo build --manifest-path src/Cargo.toml --release --target x86_64-pc-windows-gnu --bin synergy-testbeta || true
+
+# If those cross-builds succeed, refresh the shipped binary files
+cp target/x86_64-unknown-linux-gnu/release/synergy-testbeta binaries/synergy-testbeta-linux-amd64 2>/dev/null || true
+cp target/x86_64-pc-windows-gnu/release/synergy-testbeta.exe binaries/synergy-testbeta-windows-amd64.exe 2>/dev/null || true
+chmod +x binaries/synergy-testbeta-linux-amd64 2>/dev/null || true
 ```
 
-Commit the runtime repo on `main`, push it, then create and push the matching tag:
+If Linux or Windows cross-builds are not available on the workstation, obtain the fresh Linux and Windows binaries from the release builders and copy them into these exact paths:
+
+- `binaries/synergy-testbeta-linux-amd64`
+- `binaries/synergy-testbeta-windows-amd64.exe`
+
+### Step 3: Commit and push the runtime repo if it changed
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta`:
 
 ```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta
+git status --short
 git push origin main
+```
+
+If there are runtime file changes for the release, commit them before the push:
+
+```bash
+git add <runtime files>
+git commit -m "describe the runtime change"
+git push origin main
+```
+
+### Step 4: Create and push the runtime tag
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta`:
+
+```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-### 2. Control-panel repo: `node-control-panel/`
+### Step 5: Update the control-panel source and release version
 
-After the runtime repo is pushed and tagged, sync the refreshed node binaries into `node-control-panel/binaries/`.
+Type: `Manual`
 
-Then regenerate the bundled runtime assets:
+Update the control-panel generator code first:
+
+- `control-service/src/testnet_beta.rs`
+- `scripts/testbeta/build-node-installers.sh`
+- `scripts/testbeta/render-configs.sh`
+- `src/lib/testnetBetaBootstrap.js` when `peers.toml` generation changes
+- `.github/workflows/release.yml` only when the packaging workflow itself changes
+
+Then bump the release version in the control-panel repo.
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel`:
 
 ```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
+
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+path = Path("package.json")
+data = json.loads(path.read_text(encoding="utf-8"))
+data["version"] = "X.Y.Z"
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PY
+
+python3 - <<'PY'
+from pathlib import Path
+import re
+
+path = Path("control-service/Cargo.toml")
+text = path.read_text(encoding="utf-8")
+text = re.sub(r'^version = "[^"]+"', 'version = "X.Y.Z"', text, count=1, flags=re.MULTILINE)
+path.write_text(text, encoding="utf-8")
+PY
+```
+
+### Step 6: Sync the fresh runtime binaries into the control panel
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel`:
+
+```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
+
+cp ../binaries/synergy-testbeta-darwin-arm64 binaries/synergy-testbeta-darwin-arm64
+cp ../binaries/synergy-testbeta-macos-arm64 binaries/synergy-testbeta-macos-arm64
+cp ../binaries/synergy-testbeta-linux-amd64 binaries/synergy-testbeta-linux-amd64
+cp ../binaries/synergy-testbeta-windows-amd64.exe binaries/synergy-testbeta-windows-amd64.exe
+
+chmod +x binaries/synergy-testbeta-darwin-arm64 binaries/synergy-testbeta-macos-arm64 binaries/synergy-testbeta-linux-amd64
+```
+
+### Step 7: Regenerate the committed bundled validator/runtime assets locally
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel`:
+
+```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
+
+bash scripts/testbeta/render-configs.sh
+bash scripts/testbeta/build-node-installers.sh
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 ```
 
-That step must happen after the runtime binaries are refreshed because it now performs the release prep in this order:
+What that manual bundle-prep command does:
 
-1. Refreshes `binaries/*.sha256` for the shipped node binaries.
+1. Refreshes `binaries/*.sha256`.
 2. Syncs canonical genesis into `testbeta/runtime/configs/genesis/genesis.json`.
 3. Re-renders `testbeta/runtime/configs/*.toml`.
 4. Rebuilds `testbeta/runtime/installers/*`.
 5. Rewrites `testbeta/runtime/workspace-manifest.json`.
 6. Validates the bundled validator mesh settings.
-7. Rebuilds the renderer bundle.
+7. Rebuilds the renderer assets under `dist/`.
 
-The release workflow passes these env vars into `npm run build:bundle-prep` and the scripts in `scripts/testbeta/` must continue to honor them:
+### Step 8: Verify the bundled assets locally
 
-- `SYNERGY_TESTBETA_BINARY_SOURCE_DIR`
-- `SYNERGY_TESTBETA_SOURCE_REPO_ROOT`
-- `SYNERGY_TESTBETA_CANONICAL_GENESIS_FILE`
-- `SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE`
-- `SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK`
+Type: `Manual`
 
-Before tagging, inspect the actual shipped outputs:
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel`:
+
+```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
+
+bash -n scripts/testbeta/render-configs.sh
+bash -n scripts/testbeta/build-node-installers.sh
+bash -n scripts/release/validate-bundled-assets.sh
+bash -n scripts/release.sh
+
+ruby -e 'require "yaml"; YAML.load_file(".github/workflows/release.yml"); puts "yaml-ok"'
+
+cargo test --manifest-path control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --exact
+cargo test --manifest-path control-service/Cargo.toml ceremony_import_applies_assigned_validator_ports -- --exact
+cargo test --manifest-path control-service/Cargo.toml repair_workspace_config_restores_ceremony_validator_ports_from_base_slot -- --exact
+```
+
+Then inspect these generated files directly:
 
 - `binaries/synergy-testbeta-*.sha256`
 - `testbeta/runtime/installers/GenVal-01/config/node.toml`
@@ -195,60 +356,100 @@ Before tagging, inspect the actual shipped outputs:
 - `testbeta/runtime/installers/GenVal-01/keys/setup-package.json`
 - `testbeta/runtime/workspace-manifest.json`
 
-If you want a local installer build before pushing the release tag:
+### Step 9: Optional local macOS installer smoke build
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel`:
 
 ```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 npm run dist:electron
 ```
 
-Then commit the control-panel repo on `main`, push it, create the matching tag, and push the tag:
+This is optional, but useful before tagging when you want a local macOS packaging sanity check.
+
+### Step 10: Commit and push the control-panel repo
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel`:
 
 ```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
+
+git status --short
+git add .github/workflows/release.yml
+git add control-service/Cargo.toml
+git add docs/developer/testnet-beta-validator-update-workflow.md
+git add package.json
+git add scripts/testbeta/render-configs.sh
+git add scripts/testbeta/build-node-installers.sh
+git add scripts/release/validate-bundled-assets.sh
+git add testbeta/runtime/configs
+git add testbeta/runtime/installers
+git add testbeta/runtime/workspace-manifest.json
+git commit -m "describe the control-panel release change"
 git push origin main
+```
+
+### Step 11: Create and push the control-panel tag
+
+Type: `Manual`
+
+Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel`:
+
+```bash
+cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-## GitHub Actions Release Behavior
+That push is the normal trigger for the automatic installer build workflow.
 
-The control-panel release workflow is the final packaging step. It should not be treated as the primary place where validator installer state is authored.
+### Step 12: GitHub Actions packages and publishes the installers
 
-The intended CI order is:
+Type: `Automatic`
 
-1. Check out `node-control-panel` at `vX.Y.Z`.
-2. Check out `testnet-beta` at the same `vX.Y.Z`.
-3. Build fresh Testnet-Beta node binaries for macOS, Linux, and Windows.
-4. Download those fresh binaries into `node-control-panel/binaries/`.
-5. Run bundle prep so `testbeta/runtime/installers/` is regenerated from the fresh binaries and canonical config inputs.
-6. Build the desktop app for each supported OS.
-7. Publish the generated installers to the releases repo.
-
-If CI rebuilds only the top-level node binaries but does not regenerate `testbeta/runtime/installers/`, the desktop app can still ship stale validator setup bundles.
-
-If CI fails with `Missing operational manifest`, verify that:
-
-1. `scripts/testbeta/render-configs.sh` and `scripts/testbeta/build-node-installers.sh` both honor `SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE`.
-2. The release workflow passes `SYNERGY_TESTBETA_CANONICAL_MANIFEST_FILE` pointing at `testnet-beta-source/config/operational-manifest.json`.
-3. The release workflow passes `SYNERGY_TESTBETA_BINARY_SOURCE_DIR=${{ github.workspace }}/binaries` so bundle prep uses the just-downloaded release binaries instead of whatever was committed in the repo checkout.
-
-## Verification
-
-Minimum verification after a validator config change:
+Trigger:
 
 ```bash
-bash -n scripts/testbeta/render-configs.sh
-bash -n scripts/testbeta/build-node-installers.sh
-cargo test --manifest-path control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --exact
+git push origin vX.Y.Z
 ```
 
-Then inspect the generated outputs:
+Automatic behavior:
 
-- `testbeta/runtime/installers/GenVal-01/config/node.toml`
-- `testbeta/runtime/installers/GenVal-01/config/peers.toml`
-- `testbeta/runtime/installers/GenVal-01/keys/setup-package.json`
+1. GitHub Actions starts `Electron Release Build`.
+2. The workflow checks out `node-control-panel`.
+3. The workflow checks out `testnet-beta` at the same tag.
+4. Each matrix job builds the current-platform runtime binary.
+5. Each matrix job refreshes `testbeta/runtime/workspace-manifest.json` inside the temporary CI workspace.
+6. Each matrix job builds the Electron installer for its OS.
+7. Each matrix job uploads the installer files to `synergy-network-hq/synergy-node-control-panel-releases`.
 
-If the change affects ceremony import or workspace repair, also run the targeted tests that cover those flows.
+CI does **not** regenerate `testbeta/runtime/installers/`.
+
+### Step 13: Watch the release run until all installers finish
+
+Type: `Manual`
+
+From any authenticated shell:
+
+```bash
+gh run list --repo synergy-network-hq/synergy-node-control-panel --limit 5
+gh run view <run-id> --repo synergy-network-hq/synergy-node-control-panel
+gh run watch <run-id> --repo synergy-network-hq/synergy-node-control-panel
+```
+
+To inspect job logs for a failing run:
+
+```bash
+gh run view <run-id> --repo synergy-network-hq/synergy-node-control-panel --log
+gh run view <run-id> --repo synergy-network-hq/synergy-node-control-panel --job <job-id> --log
+```
+
+Do not consider the release complete until the macOS, Linux, and Windows installer jobs all show `success`.
 
 ## Single-Source Rule
 
