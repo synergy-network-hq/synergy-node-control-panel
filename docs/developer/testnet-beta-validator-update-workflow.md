@@ -96,6 +96,7 @@ Run from `node-control-panel/`:
 ```bash
 bash scripts/testbeta/render-configs.sh
 bash scripts/testbeta/build-node-installers.sh
+bash scripts/testbeta/sync-legacy-setup-packages.sh
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 ```
 
@@ -130,10 +131,11 @@ These steps are run by a maintainer on a workstation:
 3. Build or collect the fresh multi-platform `synergy-testbeta` binaries.
 4. Copy those fresh binaries into both repos' `binaries/` folders as needed.
 5. Regenerate `testbeta/runtime/configs/`, `testbeta/runtime/installers/`, and `testbeta/runtime/workspace-manifest.json` locally.
-6. Verify the generated assets locally.
-7. Commit and push both repos.
-8. Create and push the matching tags.
-9. Watch the GitHub Actions release run until every installer finishes.
+6. Sync all validator setup packages into the legacy `setup-packages` export folders.
+7. Verify the generated assets locally.
+8. Commit and push both repos.
+9. Create and push the matching tags.
+10. Watch the GitHub Actions release run until every installer finishes.
 
 ### Automatic steps
 
@@ -314,6 +316,7 @@ cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
 
 bash scripts/testbeta/render-configs.sh
 bash scripts/testbeta/build-node-installers.sh
+bash scripts/testbeta/sync-legacy-setup-packages.sh
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 ```
 
@@ -326,6 +329,28 @@ What that manual bundle-prep command does:
 5. Rewrites `testbeta/runtime/workspace-manifest.json`.
 6. Validates the bundled validator mesh settings.
 7. Rebuilds the renderer assets under `dist/`.
+
+The legacy sync command copies:
+
+- `testbeta/runtime/installers/GenVal-01/keys/setup-package.json`
+- `testbeta/runtime/installers/GenVal-02/keys/setup-package.json`
+- `testbeta/runtime/installers/GenVal-03/keys/setup-package.json`
+- `testbeta/runtime/installers/GenVal-04/keys/setup-package.json`
+- `testbeta/runtime/installers/GenVal-05/keys/setup-package.json`
+
+into:
+
+- `$HOME/Desktop/setup-packages`
+- `../../genesis-nodes/machine6-macmini-validator1/setup-packages`
+- `../../genesis-nodes/machine6-macmini-validator1/setup-packages 2`
+
+with these filenames:
+
+- `validator-1-setup-package.json`
+- `validator-2-setup-package.json`
+- `validator-3-setup-package.json`
+- `validator-4-setup-package.json`
+- `validator-5-setup-package.json`
 
 ### Step 8: Verify the bundled assets locally
 
@@ -355,6 +380,10 @@ Then inspect these generated files directly:
 - `testbeta/runtime/installers/GenVal-01/config/peers.toml`
 - `testbeta/runtime/installers/GenVal-01/keys/setup-package.json`
 - `testbeta/runtime/workspace-manifest.json`
+- `$HOME/Desktop/setup-packages/validator-1-setup-package.json`
+- `$HOME/Desktop/setup-packages/validator-5-setup-package.json`
+- `../../genesis-nodes/machine6-macmini-validator1/setup-packages/validator-1-setup-package.json`
+- `../../genesis-nodes/machine6-macmini-validator1/setup-packages/validator-5-setup-package.json`
 
 ### Step 9: Optional local macOS installer smoke build
 
@@ -384,6 +413,7 @@ git add .github/workflows/release.yml
 git add control-service/Cargo.toml
 git add docs/developer/testnet-beta-validator-update-workflow.md
 git add package.json
+git add scripts/testbeta/sync-legacy-setup-packages.sh
 git add scripts/testbeta/render-configs.sh
 git add scripts/testbeta/build-node-installers.sh
 git add scripts/release/validate-bundled-assets.sh
