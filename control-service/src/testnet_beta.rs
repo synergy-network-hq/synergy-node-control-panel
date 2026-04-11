@@ -5184,13 +5184,13 @@ fn resolve_canonical_testnet_beta_resource(relatives: &[&str]) -> Option<PathBuf
 
 fn canonical_testnet_beta_genesis_path() -> Result<PathBuf, String> {
     resolve_canonical_testnet_beta_resource(&[
-        "config/genesis.json",
-        "testbeta/runtime/configs/genesis/genesis.json",
         "testbeta/runtime/installers/GenVal-01/config/genesis.json",
         "testbeta/runtime/installers/GenVal-02/config/genesis.json",
         "testbeta/runtime/installers/GenVal-03/config/genesis.json",
         "testbeta/runtime/installers/GenVal-04/config/genesis.json",
         "testbeta/runtime/installers/GenVal-05/config/genesis.json",
+        "config/genesis.json",
+        "testbeta/runtime/configs/genesis/genesis.json",
     ])
     .ok_or_else(|| {
         "Failed to resolve canonical Testnet-Beta genesis from bundled resources or source checkout."

@@ -86,6 +86,11 @@ sync_platform_binaries() {
   done
 }
 
+sync_canonical_runtime_assets() {
+  echo "Syncing canonical runtime genesis"
+  ./scripts/testbeta/generate-testbeta-genesis.sh
+}
+
 # Ensure Unix platform binaries are executable
 for binary_path in \
   "$ROOT_DIR/binaries/synergy-testbeta-darwin-arm64" \
@@ -98,6 +103,7 @@ done
 
 ensure_version_alignment
 sync_platform_binaries
+sync_canonical_runtime_assets
 ./scripts/release/generate-workspace-manifest.sh
 ./scripts/release/validate-bundled-assets.sh
 

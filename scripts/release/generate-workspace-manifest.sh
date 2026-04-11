@@ -47,6 +47,15 @@ manifest = {
     "app_version": app_version,
     "bundle_digest": bundle_digest,
     "platform_binaries": platform_binaries,
+    "required_paths": [
+        "testbeta/runtime/workspace-manifest.json",
+        "testbeta/runtime/configs/genesis/genesis.json",
+        "testbeta/runtime/installers/GenVal-01/config/genesis.json",
+        "testbeta/runtime/installers/GenVal-01/keys/setup-package.json",
+        "scripts/testbeta/remote-node-orchestrator.sh",
+        "scripts/reset-testbeta.sh",
+        "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md",
+    ],
     "checksums": checksums,
 }
 

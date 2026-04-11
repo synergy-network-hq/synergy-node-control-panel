@@ -61,4 +61,65 @@ if [[ "${ALLOW_DIRTY_BUNDLE_PREP:-0}" != "1" ]]; then
   fi
 fi
 
+# --- Canonical genesis consistency ---------------------------------------------
+canonical_genesis_path="../config/genesis.json"
+runtime_genesis_path="testbeta/runtime/configs/genesis/genesis.json"
+installer_genesis_path="testbeta/runtime/installers/GenVal-01/config/genesis.json"
+setup_package_path="testbeta/runtime/installers/GenVal-01/keys/setup-package.json"
+
+for required_path in \
+  "$canonical_genesis_path" \
+  "$runtime_genesis_path" \
+  "$installer_genesis_path" \
+  "$setup_package_path"
+do
+  if [[ ! -f "$required_path" ]]; then
+    echo "Missing genesis consistency input: $required_path" >&2
+    exit 1
+  fi
+done
+
+read_json_hash() {
+  python3 - <<'PY' "$1" "$2"
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+mode = sys.argv[2]
+data = json.loads(path.read_text(encoding="utf-8"))
+if mode == "package":
+    data = data["artifacts"]["genesis"]
+value = data.get("integrity", {}).get("genesis_hash", "")
+print(value, end="")
+PY
+}
+
+canonical_genesis_hash="$(read_json_hash "$canonical_genesis_path" plain)"
+runtime_genesis_hash="$(read_json_hash "$runtime_genesis_path" plain)"
+installer_genesis_hash="$(read_json_hash "$installer_genesis_path" plain)"
+setup_package_genesis_hash="$(read_json_hash "$setup_package_path" package)"
+
+if [[ -z "$canonical_genesis_hash" ]]; then
+  echo "Canonical genesis hash missing from $canonical_genesis_path" >&2
+  exit 1
+fi
+
+for candidate in \
+  "$runtime_genesis_hash" \
+  "$installer_genesis_hash" \
+  "$setup_package_genesis_hash"
+do
+  if [[ "$candidate" != "$canonical_genesis_hash" ]]; then
+    cat >&2 <<EOF
+Bundled genesis drift detected.
+  canonical:      $canonical_genesis_hash
+  runtime:        $runtime_genesis_hash
+  installer:      $installer_genesis_hash
+  setup-package:  $setup_package_genesis_hash
+EOF
+    exit 1
+  fi
+done
+
 echo "Bundled assets validated."
