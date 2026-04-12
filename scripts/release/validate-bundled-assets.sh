@@ -141,8 +141,8 @@ if ! rg -q '^[[:space:]]*status_ready_gate_enabled[[:space:]]*=[[:space:]]*true'
   exit 1
 fi
 
-if ! rg -q '^[[:space:]]*leader_timeout_secs[[:space:]]*=[[:space:]]*15' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
-  echo "Bundled validator node.toml is missing leader_timeout_secs = 15" >&2
+if ! rg -q '^[[:space:]]*leader_timeout_secs[[:space:]]*=[[:space:]]*120' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing leader_timeout_secs = 120" >&2
   exit 1
 fi
 

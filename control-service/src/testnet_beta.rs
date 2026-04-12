@@ -45,17 +45,19 @@ const MINIMUM_STAKE_SNRG: u64 = 5_000;
 const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
 const TESTNET_BETA_BLOCK_TIME_SECS: usize = 2;
-const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 4;
-const TESTNET_BETA_STATUS_READY_MIN_VALIDATORS: usize = 3;
-const TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS: usize = 15;
+const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 2;
+const TESTNET_BETA_STATUS_READY_MIN_VALIDATORS: usize = 2;
+const TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS: usize = 60;
 const TESTNET_BETA_MESH_SETTLE_SECS: usize = 3;
-const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 15;
+const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 120;
 const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 12;
-const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 10;
+const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 30;
 const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 5;
-const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 3;
+const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 2;
 const TESTNET_BETA_MAX_VALIDATORS: usize = 5;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
+const TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED: bool = false;
+const TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS: usize = 60;
 
 static NODE_LIVE_CACHE: Lazy<Mutex<HashMap<String, CachedNodeLiveSnapshot>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -2490,7 +2492,7 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
     let mut updated = contents.clone();
     let mut changed = false;
     if updated.contains("min_validators = 4") {
-        updated = updated.replacen("min_validators = 4", "min_validators = 3", 1);
+        updated = updated.replacen("min_validators = 4", "min_validators = 2", 1);
         changed = true;
     }
 
@@ -7039,7 +7041,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\npersistent_peers = [{persistent_peers}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = {block_time_secs}\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = {block_time_secs}\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nstatus_ready_gate_enabled = true\nstatus_ready_min_validators = {status_ready_min_validators}\nstatus_ready_genesis_grace_secs = {status_ready_genesis_grace_secs}\nallow_genesis_status_bypass = true\nmesh_settle_secs = {mesh_settle_secs}\nleader_timeout_secs = {leader_timeout_secs}\nvote_timeout_secs = {vote_timeout_secs}\nblock_timeout_secs = {block_timeout_secs}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\npersistent_peers = [{persistent_peers}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = {block_time_secs}\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = {block_time_secs}\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nstatus_ready_gate_enabled = true\nstatus_ready_min_validators = {status_ready_min_validators}\nstatus_ready_genesis_grace_secs = {status_ready_genesis_grace_secs}\nallow_genesis_status_bypass = true\nmesh_settle_secs = {mesh_settle_secs}\nleader_timeout_secs = {leader_timeout_secs}\nvote_timeout_secs = {vote_timeout_secs}\nblock_timeout_secs = {block_timeout_secs}\npenalization_enabled = {penalization_enabled}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\nbootstrap_refresh_secs = {bootstrap_refresh_secs}\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -7083,6 +7085,8 @@ fn build_node_toml(
         leader_timeout_secs = TESTNET_BETA_LEADER_TIMEOUT_SECS,
         vote_timeout_secs = TESTNET_BETA_VOTE_TIMEOUT_SECS,
         block_timeout_secs = TESTNET_BETA_BLOCK_TIMEOUT_SECS,
+        penalization_enabled = TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED,
+        bootstrap_refresh_secs = TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS,
         sponsored_stake_snrg = format_amount(MINIMUM_STAKE_SNRG),
         sponsored_stake_nwei = amount_to_nwei_string(MINIMUM_STAKE_SNRG),
         treasury_wallet = network_profile.treasury_wallet.address,
@@ -7557,21 +7561,35 @@ mod tests {
                     .get("consensus")
                     .and_then(|section| section.get("min_validators"))
                     .and_then(toml::Value::as_integer),
-                Some(4)
+                Some(TESTNET_BETA_MIN_GENESIS_VALIDATORS as i64)
             );
             assert_eq!(
                 node_value
                     .get("consensus")
                     .and_then(|section| section.get("status_ready_min_validators"))
                     .and_then(toml::Value::as_integer),
-                Some(3)
+                Some(TESTNET_BETA_STATUS_READY_MIN_VALIDATORS as i64)
             );
             assert_eq!(
                 node_value
                     .get("consensus")
                     .and_then(|section| section.get("leader_timeout_secs"))
                     .and_then(toml::Value::as_integer),
-                Some(15)
+                Some(TESTNET_BETA_LEADER_TIMEOUT_SECS as i64)
+            );
+            assert_eq!(
+                node_value
+                    .get("consensus")
+                    .and_then(|section| section.get("penalization_enabled"))
+                    .and_then(toml::Value::as_bool),
+                Some(TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED)
+            );
+            assert_eq!(
+                node_value
+                    .get("p2p")
+                    .and_then(|section| section.get("bootstrap_refresh_secs"))
+                    .and_then(toml::Value::as_integer),
+                Some(TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS as i64)
             );
 
             assert_eq!(

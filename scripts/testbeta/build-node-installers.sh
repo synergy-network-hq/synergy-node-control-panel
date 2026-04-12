@@ -1936,17 +1936,18 @@ if not isinstance(consensus_config, dict):
     consensus_config = {}
     runtime_config["consensus"] = consensus_config
 consensus_config.update({
-    "min_validators": 4,
-    "validator_vote_threshold": 3,
+    "min_validators": 2,
+    "validator_vote_threshold": 2,
     "max_validators": 5,
     "status_ready_gate_enabled": True,
-    "status_ready_min_validators": 3,
-    "status_ready_genesis_grace_secs": 15,
+    "status_ready_min_validators": 2,
+    "status_ready_genesis_grace_secs": 60,
     "allow_genesis_status_bypass": True,
     "mesh_settle_secs": 3,
-    "leader_timeout_secs": 15,
+    "leader_timeout_secs": 120,
     "vote_timeout_secs": 12,
-    "block_timeout_secs": 10,
+    "block_timeout_secs": 30,
+    "penalization_enabled": False,
 })
 
 out_dir = pathlib.Path(key_dir)

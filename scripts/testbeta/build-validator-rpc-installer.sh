@@ -19,9 +19,20 @@ RPC_PORT="${RPC_PORT:-5640}"
 WS_PORT="${WS_PORT:-5660}"
 METRICS_PORT="${METRICS_PORT:-6030}"
 DISCOVERY_PORT="${DISCOVERY_PORT:-5680}"
-MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-3}"
+BLOCK_TIME_SECS="${TESTBETA_BLOCK_TIME_SECS:-2}"
+EPOCH_LENGTH="${TESTBETA_EPOCH_LENGTH:-1000}"
+MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-2}"
 VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-5}"
-MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-100}"
+VALIDATOR_VOTE_THRESHOLD="${TESTBETA_VALIDATOR_VOTE_THRESHOLD:-2}"
+MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-5}"
+STATUS_READY_MIN_VALIDATORS="${TESTBETA_STATUS_READY_MIN_VALIDATORS:-2}"
+STATUS_READY_GENESIS_GRACE_SECS="${TESTBETA_STATUS_READY_GENESIS_GRACE_SECS:-60}"
+MESH_SETTLE_SECS="${TESTBETA_MESH_SETTLE_SECS:-3}"
+LEADER_TIMEOUT_SECS="${TESTBETA_LEADER_TIMEOUT_SECS:-120}"
+VOTE_TIMEOUT_SECS="${TESTBETA_VOTE_TIMEOUT_SECS:-12}"
+BLOCK_TIMEOUT_SECS="${TESTBETA_BLOCK_TIMEOUT_SECS:-30}"
+PENALIZATION_ENABLED="${TESTBETA_CONSENSUS_PENALIZATION_ENABLED:-false}"
+BOOTSTRAP_REFRESH_SECS="${TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS:-60}"
 
 BINARY_SOURCE="$ROOT_DIR/binaries/synergy-testbeta-linux-amd64"
 ADDRESS_ENGINE_MANIFEST="$ROOT_DIR/synergy-address-engine/Cargo.toml"
@@ -142,17 +153,27 @@ bootstrap_mode = "multi-source-signed"
 public_host = "$PUBLIC_HOST"
 
 [blockchain]
-block_time = 5
+block_time = $BLOCK_TIME_SECS
 max_gas_limit = "0x2fefd8"
 chain_id = $CHAIN_ID
 
 [consensus]
 algorithm = "Proof of Synergy"
-block_time_secs = 5
-epoch_length = 1000
+block_time_secs = $BLOCK_TIME_SECS
+epoch_length = $EPOCH_LENGTH
 min_validators = $MIN_VALIDATORS
 validator_cluster_size = $VALIDATOR_CLUSTER_SIZE
+validator_vote_threshold = $VALIDATOR_VOTE_THRESHOLD
 max_validators = $MAX_VALIDATORS
+status_ready_gate_enabled = true
+status_ready_min_validators = $STATUS_READY_MIN_VALIDATORS
+status_ready_genesis_grace_secs = $STATUS_READY_GENESIS_GRACE_SECS
+allow_genesis_status_bypass = true
+mesh_settle_secs = $MESH_SETTLE_SECS
+leader_timeout_secs = $LEADER_TIMEOUT_SECS
+vote_timeout_secs = $VOTE_TIMEOUT_SECS
+block_timeout_secs = $BLOCK_TIMEOUT_SECS
+penalization_enabled = $PENALIZATION_ENABLED
 synergy_score_decay_rate = 0.05
 vrf_enabled = true
 vrf_seed_epoch_interval = 1000
@@ -189,6 +210,7 @@ node_name = "$NODE_ID"
 enable_discovery = true
 discovery_port = $DISCOVERY_PORT
 heartbeat_interval = 30
+bootstrap_refresh_secs = $BOOTSTRAP_REFRESH_SECS
 
 [storage]
 database = "rocksdb"

@@ -12,9 +12,14 @@
 #   1. Validate the version string
 #   2. Bump the version in package.json and control-service/Cargo.toml
 #   3. Run local release preflight checks, including an Electron runtime build
-#   4. Commit the version bump
+#   4. Commit the version bump and bundled runtime asset updates
 #   5. Create a git tag (v2.0.2)
 #   6. Push the tag to origin, which triggers the GitHub Actions release build
+#
+# Important:
+#   The GitHub Actions release workflow also checks out the testnet-beta repo at
+#   the same tag name. Publish the matching tag in that repo before pushing the
+#   control-panel release tag, or the installer build will fail.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -87,8 +92,12 @@ echo ""
 # ── Commit and tag ──
 git add package.json control-service/Cargo.toml
 git add control-service/Cargo.lock 2>/dev/null || true
+git add control-service/src/testnet_beta.rs
+git add templates/validator.toml
+git add scripts/release.sh scripts/release/build-bundle-prep.sh scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/release/validate-bundled-assets.sh
+git add scripts/testbeta/build-node-installers.sh scripts/testbeta/build-validator-rpc-installer.sh scripts/testbeta/render-configs.sh
 git add testbeta/runtime/configs testbeta/runtime/installers testbeta/runtime/workspace-manifest.json
-git add scripts/release/preflight.sh scripts/release/generate-latest-json.sh .github/workflows/release.yml 2>/dev/null || true
+git add .github/workflows/release.yml electron-builder.yml 2>/dev/null || true
 git commit -m "chore: bump version to $VERSION"
 git tag -a "$TAG" -m "Release $TAG"
 
@@ -103,7 +112,7 @@ if [[ "$confirm" =~ ^[Yy]$ ]]; then
   git push origin "$TAG"
   echo ""
   echo "Pushed! The GitHub Actions release build is now running."
-  echo "Monitor progress at: https://github.com/synergy-network-hq/testbeta-control-panel/actions"
+  echo "Monitor progress at: https://github.com/synergy-network-hq/synergy-node-control-panel/actions"
   echo ""
   echo "Once complete, download the generated installers from the workflow artifacts"
   echo "or publish them to the releases repo for distribution."
