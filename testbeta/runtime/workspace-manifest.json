@@ -1,6 +1,6 @@
 {
-  "workspace_resource_version": "8.0.15+fb7f1a1dae5d",
-  "app_version": "8.0.15",
+  "workspace_resource_version": "8.0.17+fb7f1a1dae5d",
+  "app_version": "8.0.17",
   "bundle_digest": "fb7f1a1dae5d2d3f95f993d35fb056e8e9e87707d9626f4118c8f8b939f66eeb",
   "platform_binaries": [
     "binaries/synergy-testbeta-darwin-arm64",
