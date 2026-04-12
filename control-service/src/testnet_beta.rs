@@ -7426,11 +7426,11 @@ mod tests {
         assert_eq!(
             seed_registry_peer_key(&json!({
                 "node_id": "node-b",
-                "public_host": "73.79.66.255",
+                "public_host": "62.146.182.208",
                 "p2p_port": 5622
             }))
             .expect("public host should resolve"),
-            "73.79.66.255:5622"
+            "62.146.182.208:5622"
         );
     }
 
@@ -7683,16 +7683,18 @@ mod tests {
         record_seed_peer_dial_target(
             &mut unique,
             &json!({
+                "role_id": "validator",
                 "wallet_address": "synv1validator",
-                "dial": "snr://synv1validator@73.79.66.255:5622",
+                "dial": "snr://synv1validator@genesisval2.synergynode.xyz:5622",
                 "registered_at_utc": "2026-04-06T17:00:00Z"
             }),
         );
         record_seed_peer_dial_target(
             &mut unique,
             &json!({
+                "role_id": "validator",
                 "wallet_address": "synv1validator",
-                "dial": "snr://synv1validator@73.79.66.255:5622",
+                "dial": "snr://synv1validator@genesisval2.synergynode.xyz:5622",
                 "registered_at_utc": "2026-04-06T17:05:00Z"
             }),
         );
@@ -7702,7 +7704,7 @@ mod tests {
             .map(|(_, dial)| dial)
             .collect::<Vec<_>>();
         dials.sort();
-        assert_eq!(dials, vec!["73.79.66.255:5622".to_string()]);
+        assert_eq!(dials, vec!["genesisval2.synergynode.xyz:5622".to_string()]);
     }
 
     #[test]
@@ -7717,8 +7719,9 @@ mod tests {
             record_seed_peer_dial_target(
                 &mut unique,
                 &json!({
+                    "role_id": "validator",
                     "wallet_address": wallet,
-                    "public_host": "73.79.66.255",
+                    "public_host": "genesisval2.synergynode.xyz",
                     "p2p_port": port,
                     "registered_at_utc": "2026-04-06T17:05:00Z"
                 }),
@@ -7730,7 +7733,14 @@ mod tests {
             .map(|(_, dial)| dial)
             .collect::<Vec<_>>();
         dials.sort();
-        assert_eq!(dials, vec!["73.79.66.255:5622".to_string(),]);
+        assert_eq!(
+            dials,
+            vec![
+                "genesisval2.synergynode.xyz:5622".to_string(),
+                "genesisval2.synergynode.xyz:5622".to_string(),
+                "genesisval2.synergynode.xyz:5622".to_string(),
+            ]
+        );
     }
 
     #[test]
@@ -7764,7 +7774,7 @@ mod tests {
             private_key_path: String::new(),
             workspace_directory: String::new(),
             config_paths: Vec::new(),
-            public_host: Some("71.86.65.178".to_string()),
+            public_host: Some("62.146.182.207".to_string()),
             reward_payout_address: None,
             connectivity_status: String::new(),
             role_certificate_status: String::new(),
@@ -7794,11 +7804,11 @@ mod tests {
             write_file(
                 &config_dir.join("node.toml"),
                 r#"[network]
-public_host = "71.86.65.178"
+public_host = "62.146.182.207"
 p2p_port = 5622
 
 [p2p]
-public_address = "71.86.65.178:5622"
+public_address = "62.146.182.207:5622"
 "#,
             )
             .expect("node.toml should write");
@@ -7826,7 +7836,7 @@ public_address = "71.86.65.178:5622"
                 private_key_path: String::new(),
                 workspace_directory: workspace.to_string_lossy().to_string(),
                 config_paths: vec![config_dir.join("node.toml").to_string_lossy().to_string()],
-                public_host: Some("71.86.65.178".to_string()),
+                public_host: Some("62.146.182.207".to_string()),
                 reward_payout_address: None,
                 connectivity_status: String::new(),
                 role_certificate_status: String::new(),
