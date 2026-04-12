@@ -2,6 +2,12 @@
 
 This file is the maintainer guide for validator config changes in the Testnet-Beta control panel.
 
+For live node debugging commands, also keep these cheat sheets handy:
+
+- `docs/developer/testnet-beta-validator-debug-cheatsheet-macos.md`
+- `docs/developer/testnet-beta-validator-debug-cheatsheet-linux.md`
+- `docs/developer/testnet-beta-validator-debug-cheatsheet-windows.md`
+
 The short version:
 
 - Edit the control-panel generators and workspace builders first.

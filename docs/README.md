@@ -9,6 +9,9 @@ Superseded or one-off material lives in `archive/`.
 
 - `developer/github-ssh-key.md`: GitHub SSH key setup for contributors/operators
 - `developer/git-remote.md`: repo remote/push setup for this project
+- `developer/testnet-beta-validator-debug-cheatsheet-macos.md`: live validator debug commands for macOS
+- `developer/testnet-beta-validator-debug-cheatsheet-linux.md`: live validator debug commands for Linux
+- `developer/testnet-beta-validator-debug-cheatsheet-windows.md`: live validator debug commands for Windows PowerShell
 - `developer/testnet-beta-validator-update-workflow.md`: source-of-truth and regeneration workflow for validator config changes
 - `operator/firewall-privilege-escalation.md`: sudo / `pkexec` notes for installer-driven firewall changes
 - `operator/public-testing-readiness-checklist.md`: production-readiness checklist before outside testers use the control panel
