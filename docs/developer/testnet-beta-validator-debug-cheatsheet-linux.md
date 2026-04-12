@@ -14,6 +14,8 @@ Important:
 
 ## Set Common Variables
 
+Run this block first if you want to use the `$WORKSPACE`, `$RPC`, and `$LOG` shortcuts shown below.
+
 ```bash
 WORKSPACE="$HOME/.synergy/testnet-beta/nodes/validator-workspace"
 RPC="http://127.0.0.1:5640"
@@ -64,8 +66,16 @@ curl -s "$RPC" \
 
 ## Watch Validator Peer State Live
 
+This version uses the `$RPC` variable from the block above.
+
 ```bash
 watch -n 2 "curl -s $RPC -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"synergy_getPeerInfo\",\"params\":[]}' | jq '[.result.peers[] | select((.validator_address // \"\") != \"\") | {public_address, validator_address, genesis_hash}]'"
+```
+
+Copy-paste version without shell variables:
+
+```bash
+watch -n 2 "curl -s http://127.0.0.1:5640 -H 'Content-Type: application/json' --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"synergy_getPeerInfo\",\"params\":[]}' | jq '[.result.peers[] | select((.validator_address // \"\") != \"\") | {public_address, validator_address, genesis_hash}]'"
 ```
 
 ## Show Advertised Addresses And Consensus Thresholds

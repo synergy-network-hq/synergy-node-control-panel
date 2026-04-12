@@ -15,6 +15,8 @@ Important:
 
 ## Set Common Variables
 
+Run this block first if you want to use the `$Workspace`, `$Rpc`, `$Log`, `$PeerInfoBody`, and `$LatestBlockBody` shortcuts shown below.
+
 ```powershell
 $Workspace = "$env:USERPROFILE\.synergy\testnet-beta\nodes\validator-workspace"
 $Rpc = 'http://127.0.0.1:5640'
@@ -83,10 +85,28 @@ $statusReady = @(
 
 ## Watch Validator Peer State Live
 
+This version uses the variables from the block above.
+
 ```powershell
 while ($true) {
   Get-Date
   Invoke-RestMethod -Uri $Rpc -Method Post -ContentType 'application/json' -Body $PeerInfoBody |
+    Select-Object -ExpandProperty result |
+    Select-Object -ExpandProperty peers |
+    Where-Object { $_.validator_address -and $_.validator_address.Trim() -ne '' } |
+    Select-Object public_address, validator_address, genesis_hash
+  ''
+  Start-Sleep -Seconds 2
+}
+```
+
+Copy-paste version without variables:
+
+```powershell
+while ($true) {
+  Get-Date
+  $body = @{ jsonrpc = '2.0'; id = 1; method = 'synergy_getPeerInfo'; params = @() } | ConvertTo-Json -Compress
+  Invoke-RestMethod -Uri 'http://127.0.0.1:5640' -Method Post -ContentType 'application/json' -Body $body |
     Select-Object -ExpandProperty result |
     Select-Object -ExpandProperty peers |
     Where-Object { $_.validator_address -and $_.validator_address.Trim() -ne '' } |
