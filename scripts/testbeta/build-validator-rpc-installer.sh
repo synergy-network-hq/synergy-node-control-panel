@@ -26,28 +26,18 @@ VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-5}"
 VALIDATOR_VOTE_THRESHOLD="${TESTBETA_VALIDATOR_VOTE_THRESHOLD:-2}"
 MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-5}"
 STATUS_READY_MIN_VALIDATORS="${TESTBETA_STATUS_READY_MIN_VALIDATORS:-2}"
-STATUS_READY_GENESIS_GRACE_SECS="${TESTBETA_STATUS_READY_GENESIS_GRACE_SECS:-60}"
-MESH_SETTLE_SECS="${TESTBETA_MESH_SETTLE_SECS:-3}"
-LEADER_TIMEOUT_SECS="${TESTBETA_LEADER_TIMEOUT_SECS:-120}"
-VOTE_TIMEOUT_SECS="${TESTBETA_VOTE_TIMEOUT_SECS:-12}"
+STATUS_READY_GENESIS_GRACE_SECS="${TESTBETA_STATUS_READY_GENESIS_GRACE_SECS:-0}"
+MESH_SETTLE_SECS="${TESTBETA_MESH_SETTLE_SECS:-15}"
+LEADER_TIMEOUT_SECS="${TESTBETA_LEADER_TIMEOUT_SECS:-15}"
+VOTE_TIMEOUT_SECS="${TESTBETA_VOTE_TIMEOUT_SECS:-30}"
 BLOCK_TIMEOUT_SECS="${TESTBETA_BLOCK_TIMEOUT_SECS:-30}"
 PENALIZATION_ENABLED="${TESTBETA_CONSENSUS_PENALIZATION_ENABLED:-false}"
-BOOTSTRAP_REFRESH_SECS="${TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS:-60}"
+BOOTSTRAP_REFRESH_SECS="${TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS:-3600}"
+VALIDATOR_MESH_PEERS_JSON="${VALIDATOR_MESH_PEERS_JSON:-[]}"
+VALIDATOR_ALLOWLIST_JSON="${VALIDATOR_ALLOWLIST_JSON:-[]}"
 
 BINARY_SOURCE="$ROOT_DIR/binaries/synergy-testbeta-linux-amd64"
 ADDRESS_ENGINE_MANIFEST="$ROOT_DIR/synergy-address-engine/Cargo.toml"
-
-BOOTNODES=(
-  "bootnode1.synergynode.xyz:5620"
-  "bootnode2.synergynode.xyz:5620"
-  "bootnode3.synergynode.xyz:5620"
-)
-
-SEEDS=(
-  "http://seed1.synergynode.xyz:5621"
-  "http://seed2.synergynode.xyz:5621"
-  "http://seed3.synergynode.xyz:5621"
-)
 
 require_file() {
   local path="$1"
@@ -143,9 +133,11 @@ p2p_port = $P2P_PORT
 rpc_port = $RPC_PORT
 ws_port = $WS_PORT
 p2p_listen = "0.0.0.0:$P2P_PORT"
-bootnodes = $(json_array "${BOOTNODES[@]}")
-seed_servers = $(json_array "${SEEDS[@]}")
-bootstrap_dns_records = ["_dnsaddr.bootstrap.synergynode.xyz"]
+bootnodes = []
+seed_servers = []
+bootstrap_dns_records = []
+additional_dial_targets = $VALIDATOR_MESH_PEERS_JSON
+persistent_peers = $VALIDATOR_MESH_PEERS_JSON
 quic = true
 max_peers = 128
 bootstrap_connectivity_required = false
@@ -165,7 +157,7 @@ min_validators = $MIN_VALIDATORS
 validator_cluster_size = $VALIDATOR_CLUSTER_SIZE
 validator_vote_threshold = $VALIDATOR_VOTE_THRESHOLD
 max_validators = $MAX_VALIDATORS
-status_ready_gate_enabled = true
+status_ready_gate_enabled = false
 status_ready_min_validators = $STATUS_READY_MIN_VALIDATORS
 status_ready_genesis_grace_secs = $STATUS_READY_GENESIS_GRACE_SECS
 allow_genesis_status_bypass = true
@@ -207,9 +199,9 @@ cors_origins = []
 listen_address = "0.0.0.0:$P2P_PORT"
 public_address = "$PUBLIC_HOST:$P2P_PORT"
 node_name = "$NODE_ID"
-enable_discovery = true
+enable_discovery = false
 discovery_port = $DISCOVERY_PORT
-heartbeat_interval = 30
+heartbeat_interval = 10
 bootstrap_refresh_secs = $BOOTSTRAP_REFRESH_SECS
 
 [storage]
@@ -222,10 +214,10 @@ pruning_interval = 86400
 
 [node]
 bootstrap_only = false
-auto_register_validator = true
+auto_register_validator = false
 validator_address = "$VALIDATOR_ADDRESS"
-strict_validator_allowlist = false
-allowed_validator_addresses = []
+strict_validator_allowlist = true
+allowed_validator_addresses = $VALIDATOR_ALLOWLIST_JSON
 
 [telemetry]
 metrics_bind = "127.0.0.1:$METRICS_PORT"
@@ -255,16 +247,17 @@ services = ["p2p", "consensus", "mempool", "state", "aegis-verifier", "telemetry
 [validator]
 participation = "active"
 verify_quorum_certificates = true
-state_sync_before_join = true
+state_sync_before_join = false
 EOF
 
 cat >"$OUT_DIR/config/peers.toml" <<EOF
-# Testnet-Beta multi-source bootstrap inputs.
-# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.
+# Testnet-Beta validator peer inputs.
 [global]
-bootnodes = $(json_array "${BOOTNODES[@]}")
-seed_servers = $(json_array "${SEEDS[@]}")
-bootstrap_dns_records = ["_dnsaddr.bootstrap.synergynode.xyz"]
+bootnodes = []
+seed_servers = []
+bootstrap_dns_records = []
+additional_dial_targets = $VALIDATOR_MESH_PEERS_JSON
+persistent_peers = $VALIDATOR_MESH_PEERS_JSON
 
 [testbeta]
 core_rpc = "https://testbeta-core-rpc.synergynode.xyz"

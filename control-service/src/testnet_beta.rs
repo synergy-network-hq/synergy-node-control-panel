@@ -46,18 +46,21 @@ const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
 const TESTNET_BETA_BLOCK_TIME_SECS: usize = 2;
 const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 2;
+const TESTNET_BETA_STATUS_READY_GATE_ENABLED: bool = false;
 const TESTNET_BETA_STATUS_READY_MIN_VALIDATORS: usize = 2;
-const TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS: usize = 60;
-const TESTNET_BETA_MESH_SETTLE_SECS: usize = 3;
-const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 120;
-const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 12;
+const TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS: usize = 0;
+const TESTNET_BETA_ALLOW_GENESIS_STATUS_BYPASS: bool = true;
+const TESTNET_BETA_MESH_SETTLE_SECS: usize = 15;
+const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 15;
+const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 30;
 const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 30;
 const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 5;
 const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 2;
 const TESTNET_BETA_MAX_VALIDATORS: usize = 5;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
 const TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED: bool = false;
-const TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS: usize = 60;
+const TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS: usize = 3600;
+const TESTNET_BETA_VALIDATOR_STATE_SYNC_BEFORE_JOIN: bool = false;
 
 static NODE_LIVE_CACHE: Lazy<Mutex<HashMap<String, CachedNodeLiveSnapshot>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -1697,7 +1700,11 @@ pub async fn testbeta_setup_node(
         amount_nwei: amount_to_nwei_string(MINIMUM_STAKE_SNRG),
         stake_vault_wallet: network_profile.stake_vault_wallet.address.clone(),
         status: "planned".to_string(),
-        note: "Provisioning does not block on bootstrap reachability. Generated workspaces are still configured to use bootnodes, dnsaddr, and seed services immediately.".to_string(),
+        note: if role.id == "validator" {
+            "Provisioning does not block on bootstrap reachability. Generated validator workspaces are wired for the private WireGuard validator mesh immediately.".to_string()
+        } else {
+            "Provisioning does not block on bootstrap reachability. Generated workspaces are still configured to use bootnodes, dnsaddr, and seed services immediately.".to_string()
+        },
         created_at_utc: Utc::now().to_rfc3339(),
     };
     network_profile
@@ -1892,7 +1899,11 @@ pub async fn testbeta_setup_node(
         },
         public_host: detected_public_host.clone(),
         reward_payout_address: None,
-        connectivity_status: "Bootstrap configured. Node will use hardcoded bootnodes, dnsaddr bootstrap records, and seed services on startup.".to_string(),
+        connectivity_status: if role.id == "validator" {
+            "Private validator mesh configured. Node will dial the canonical WireGuard validator peers on startup.".to_string()
+        } else {
+            "Bootstrap configured. Node will use hardcoded bootnodes, dnsaddr bootstrap records, and seed services on startup.".to_string()
+        },
         role_certificate_status: "Pending Aegis role certificate binding.".to_string(),
         funding_manifest_id: funding_manifest.id.clone(),
         created_at_utc: Utc::now().to_rfc3339(),
@@ -1940,7 +1951,11 @@ pub async fn testbeta_setup_node(
                         .as_deref()
                         .unwrap_or("not available from automatic detection")
                 ),
-                "Start the node with the generated workspace; multi-source peer discovery is configured from bootnodes, dnsaddr, and seed services.".to_string(),
+                if role.id == "validator" {
+                    "Start the node with the generated workspace; it will dial the private WireGuard validator mesh immediately.".to_string()
+                } else {
+                    "Start the node with the generated workspace; multi-source peer discovery is configured from bootnodes, dnsaddr, and seed services.".to_string()
+                },
             ];
             if matches!(role.id.as_str(), "rpc_gateway" | "indexer") {
                 steps.push(
@@ -2529,14 +2544,14 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         return Ok(());
     }
 
-    if updated.contains("auto_register_validator = true") {
+    if updated.contains("auto_register_validator = false") {
         if changed {
             fs::write(config_path, &updated)
                 .map_err(|error| format!("Failed to update {}: {error}", config_path.display()))?;
         }
         return Ok(());
     }
-    if !updated.contains("auto_register_validator = false") {
+    if !updated.contains("auto_register_validator = true") {
         if changed {
             fs::write(config_path, &updated)
                 .map_err(|error| format!("Failed to update {}: {error}", config_path.display()))?;
@@ -2545,8 +2560,8 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
     }
 
     updated = updated.replacen(
-        "auto_register_validator = false",
         "auto_register_validator = true",
+        "auto_register_validator = false",
         1,
     );
     fs::write(config_path, updated)
@@ -3670,10 +3685,25 @@ async fn validate_workspace_launch_preflight(
         }
 
         let bootnodes = extract_toml_string_array(&config_value, "network", "bootnodes");
-        if bootnodes.len() < 3 {
+        if !bootnodes.is_empty() {
             failures.push(format!(
-                "Workspace bootnodes are incomplete. Expected 3 canonical bootnodes, found {}.",
+                "Validator workspace must not use public bootnodes. Found {} bootstrap entries.",
                 bootnodes.len()
+            ));
+        }
+        let seed_servers = extract_toml_string_array(&config_value, "network", "seed_servers");
+        if !seed_servers.is_empty() {
+            failures.push(format!(
+                "Validator workspace must not use seed_servers. Found {} entries.",
+                seed_servers.len()
+            ));
+        }
+        let bootstrap_dns_records =
+            extract_toml_string_array(&config_value, "network", "bootstrap_dns_records");
+        if !bootstrap_dns_records.is_empty() {
+            failures.push(format!(
+                "Validator workspace must not use DNS bootstrap records. Found {} entries.",
+                bootstrap_dns_records.len()
             ));
         }
 
@@ -3740,18 +3770,20 @@ fn ensure_workspace_bootstrap_topology(
         .or_insert_with(|| toml::Value::Table(Default::default()))
         .as_table_mut()
         .ok_or_else(|| "[network] must be a TOML table.".to_string())?;
+    let is_validator = role_supports_validator_registration(&node.role_id);
     network.insert(
         "bootnodes".to_string(),
-        toml::Value::Array(
+        toml::Value::Array(if is_validator {
+            Vec::new()
+        } else {
             network_profile
                 .bootnodes
                 .iter()
                 .map(|entry| toml::Value::String(format!("{}:{}", entry.host, entry.port)))
-                .collect(),
-        ),
+                .collect()
+        }),
     );
 
-    let is_validator = role_supports_validator_registration(&node.role_id);
     network.insert(
         "seed_servers".to_string(),
         toml::Value::Array(if is_validator {
@@ -3796,6 +3828,10 @@ fn ensure_workspace_bootstrap_topology(
         }
 
         if let Some(node_table) = root.get_mut("node").and_then(toml::Value::as_table_mut) {
+            node_table.insert(
+                "auto_register_validator".to_string(),
+                toml::Value::Boolean(false),
+            );
             node_table.insert(
                 "strict_validator_allowlist".to_string(),
                 toml::Value::Boolean(true),
@@ -5474,6 +5510,19 @@ fn canonical_public_p2p_port_for_validator_slot(slot: u64) -> u16 {
     TESTNET_BETA_P2P_PORT
 }
 
+fn canonical_validator_private_host_for_slot(slot: u64) -> Option<&'static str> {
+    match slot {
+        1 => Some("10.69.0.1"),
+        2 => Some("10.69.0.2"),
+        3 => Some("10.69.0.3"),
+        4 => Some("10.69.0.4"),
+        5 => Some("10.69.0.5"),
+        6 => Some("10.69.0.6"),
+        7 => Some("10.69.0.7"),
+        _ => None,
+    }
+}
+
 fn canonical_validator_peers_from_manifest_path(path: &Path) -> Vec<CanonicalValidatorPeer> {
     let contents = match fs::read_to_string(path) {
         Ok(contents) => contents,
@@ -5546,8 +5595,8 @@ fn canonical_validator_peers_for_workspace(
 
 fn canonical_validator_dial_target(entry: &CanonicalValidatorPeer) -> String {
     format!(
-        "genesisval{}.synergynode.xyz:{}",
-        entry.slot,
+        "{}:{}",
+        canonical_validator_private_host_for_slot(entry.slot).unwrap_or("127.0.0.1"),
         canonical_public_p2p_port_for_validator_slot(entry.slot)
     )
 }
@@ -6964,20 +7013,36 @@ fn build_node_toml(
     } else {
         node_id.to_string()
     };
-    let public_host_line = normalize_optional(public_host)
-        .map(|value| format!("public_host = \"{value}\"\n"))
-        .unwrap_or_default();
-    let runtime_public_address = normalize_optional(public_host)
-        .map(|value| format!("{value}:{}", runtime_ports.public_p2p_port))
-        .unwrap_or_else(|| format!("127.0.0.1:{p2p_port}"));
     let canonical_validator_peers = canonical_testnet_beta_validator_peers();
     let use_static_validator_mesh = role.id == "validator" && !canonical_validator_peers.is_empty();
-    let bootnodes = network_profile
-        .bootnodes
-        .iter()
-        .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let runtime_public_host = if use_static_validator_mesh {
+        canonical_validator_peers
+            .iter()
+            .find(|entry| entry.address.eq_ignore_ascii_case(node_address.trim()))
+            .and_then(|entry| canonical_validator_private_host_for_slot(entry.slot))
+            .map(str::to_string)
+            .or_else(|| normalize_optional(public_host))
+    } else {
+        normalize_optional(public_host)
+    };
+    let public_host_line = runtime_public_host
+        .as_deref()
+        .map(|value| format!("public_host = \"{value}\"\n"))
+        .unwrap_or_default();
+    let runtime_public_address = runtime_public_host
+        .as_deref()
+        .map(|value| format!("{value}:{}", runtime_ports.public_p2p_port))
+        .unwrap_or_else(|| format!("127.0.0.1:{p2p_port}"));
+    let bootnodes = if use_static_validator_mesh {
+        String::new()
+    } else {
+        network_profile
+            .bootnodes
+            .iter()
+            .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let seeds = if use_static_validator_mesh {
         String::new()
     } else {
@@ -7003,11 +7068,7 @@ fn build_node_toml(
     } else {
         String::new()
     };
-    let auto_register_validator = if role_supports_validator_registration(&role.id) {
-        "true"
-    } else {
-        "false"
-    };
+    let auto_register_validator = "false";
     let enable_discovery = if use_static_validator_mesh {
         "false"
     } else {
@@ -7024,7 +7085,7 @@ fn build_node_toml(
         "[]".to_string()
     };
     let bootstrap_note = if use_static_validator_mesh {
-        "Validator nodes use bootnodes for bootstrap only and dial the canonical five-validator mesh through additional_dial_targets."
+        "Validator nodes dial the private WireGuard validator mesh immediately through additional_dial_targets and persistent_peers."
     } else {
         "Node will resolve peers from bootnodes, dnsaddr records, and seed services at startup."
     };
@@ -7041,7 +7102,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\npersistent_peers = [{persistent_peers}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = {block_time_secs}\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = {block_time_secs}\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nstatus_ready_gate_enabled = true\nstatus_ready_min_validators = {status_ready_min_validators}\nstatus_ready_genesis_grace_secs = {status_ready_genesis_grace_secs}\nallow_genesis_status_bypass = true\nmesh_settle_secs = {mesh_settle_secs}\nleader_timeout_secs = {leader_timeout_secs}\nvote_timeout_secs = {vote_timeout_secs}\nblock_timeout_secs = {block_timeout_secs}\npenalization_enabled = {penalization_enabled}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\nbootstrap_refresh_secs = {bootstrap_refresh_secs}\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\npersistent_peers = [{persistent_peers}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = {block_time_secs}\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = {block_time_secs}\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nstatus_ready_gate_enabled = {status_ready_gate_enabled}\nstatus_ready_min_validators = {status_ready_min_validators}\nstatus_ready_genesis_grace_secs = {status_ready_genesis_grace_secs}\nallow_genesis_status_bypass = {allow_genesis_status_bypass}\nmesh_settle_secs = {mesh_settle_secs}\nleader_timeout_secs = {leader_timeout_secs}\nvote_timeout_secs = {vote_timeout_secs}\nblock_timeout_secs = {block_timeout_secs}\npenalization_enabled = {penalization_enabled}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\nbootstrap_refresh_secs = {bootstrap_refresh_secs}\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"127.0.0.1:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -7079,8 +7140,10 @@ fn build_node_toml(
         validator_cluster_size = TESTNET_BETA_VALIDATOR_CLUSTER_SIZE,
         validator_vote_threshold = TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD,
         max_validators = TESTNET_BETA_MAX_VALIDATORS,
+        status_ready_gate_enabled = TESTNET_BETA_STATUS_READY_GATE_ENABLED,
         status_ready_min_validators = TESTNET_BETA_STATUS_READY_MIN_VALIDATORS,
         status_ready_genesis_grace_secs = TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS,
+        allow_genesis_status_bypass = TESTNET_BETA_ALLOW_GENESIS_STATUS_BYPASS,
         mesh_settle_secs = TESTNET_BETA_MESH_SETTLE_SECS,
         leader_timeout_secs = TESTNET_BETA_LEADER_TIMEOUT_SECS,
         vote_timeout_secs = TESTNET_BETA_VOTE_TIMEOUT_SECS,
@@ -7107,18 +7170,32 @@ fn build_peers_toml_with_additional(
     network_profile: &TestnetBetaNetworkProfile,
     additional_dial_targets: &[String],
 ) -> String {
-    let bootnodes = network_profile
-        .bootnodes
-        .iter()
-        .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let seeds = network_profile
-        .seed_servers
-        .iter()
-        .map(|entry| format!("\"http://{}:{}\"", entry.host, entry.port))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let use_static_validator_mesh = !additional_dial_targets.is_empty();
+    let bootnodes = if use_static_validator_mesh {
+        String::new()
+    } else {
+        network_profile
+            .bootnodes
+            .iter()
+            .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let seeds = if use_static_validator_mesh {
+        String::new()
+    } else {
+        network_profile
+            .seed_servers
+            .iter()
+            .map(|entry| format!("\"http://{}:{}\"", entry.host, entry.port))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let bootstrap_dns_records = if use_static_validator_mesh {
+        String::new()
+    } else {
+        "\"_dnsaddr.bootstrap.synergynode.xyz\"".to_string()
+    };
     let additional = additional_dial_targets
         .iter()
         .map(|t| format!("\"{}\"", t.replace('"', "\\\"")))
@@ -7126,9 +7203,10 @@ fn build_peers_toml_with_additional(
         .join(", ");
 
     format!(
-        "# Testnet-Beta multi-source bootstrap inputs.\n# Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [\"_dnsaddr.bootstrap.synergynode.xyz\"]\nadditional_dial_targets = [{additional}]\npersistent_peers = [{additional}]\n\n[testbeta]\ncore_rpc = \"{core_rpc}\"\ncore_ws = \"{core_ws}\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
+        "# Testnet-Beta peer inputs.\n# Validator workspaces use the private WireGuard mesh directly.\n[global]\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional}]\npersistent_peers = [{additional}]\n\n[testbeta]\ncore_rpc = \"{core_rpc}\"\ncore_ws = \"{core_ws}\"\nwallet_api = \"https://testbeta-wallet-api.synergy-network.io\"\nsxcp_api = \"https://testbeta-sxcp-api.synergy-network.io\"\n\n[security]\nstrict_tls = true\nallow_unpinned_dev_endpoints = false\nbootstrap_connectivity_required = false\n",
         core_rpc = TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
         core_ws = TESTNET_BETA_PUBLIC_WS_ENDPOINT,
+        bootstrap_dns_records = bootstrap_dns_records,
     )
 }
 
@@ -7158,8 +7236,42 @@ fn build_node_readme(
         .map(|entry| format!("- {entry}\n"))
         .collect::<String>();
 
+    let validator_mesh = canonical_testnet_beta_validator_peers()
+        .into_iter()
+        .filter_map(|entry| {
+            canonical_validator_private_host_for_slot(entry.slot).map(|host| {
+                format!(
+                    "{host}:{}",
+                    canonical_public_p2p_port_for_validator_slot(entry.slot)
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let bootstrap_section = if role.id == "validator" {
+        format!(
+            "## Validator mesh\n- Private validator peers: {validator_mesh}\n- Public bootstrap endpoints: disabled for validator workspaces\n\nThe generated validator configuration is wired for the private WireGuard mesh immediately.\n"
+        )
+    } else {
+        format!(
+            "## Bootstrap endpoints\n- Bootnodes: {}\n- Seeds: {}\n- DNS bootstrap records: `_dnsaddr.bootstrap.synergynode.xyz`\n\nThe generated node configuration is wired for multi-source bootstrap on startup.\n",
+            network_profile
+                .bootnodes
+                .iter()
+                .map(|entry| entry.host.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+            network_profile
+                .seed_servers
+                .iter()
+                .map(|entry| entry.host.clone())
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
+    };
+
     format!(
-        "# {display_label}\n\nThis isolated workspace was generated for the `{role_display}` role on `{environment}`.\n\n## Workspace\n- Path: `{workspace}`\n- Node wallet: `{reward_wallet}`\n- Reserved minimum stake: `{stake}`\n{public_host_note}\n## Role responsibilities\n{responsibilities}\n## Policy guardrails\n{policies}\n## Bootstrap endpoints\n- Bootnodes: {bootnodes}\n- Seeds: {seeds}\n- DNS bootstrap records: `_dnsaddr.bootstrap.synergynode.xyz`\n\nThe generated node configuration is wired for multi-source bootstrap on startup.\n",
+        "# {display_label}\n\nThis isolated workspace was generated for the `{role_display}` role on `{environment}`.\n\n## Workspace\n- Path: `{workspace}`\n- Node wallet: `{reward_wallet}`\n- Reserved minimum stake: `{stake}`\n{public_host_note}\n## Role responsibilities\n{responsibilities}\n## Policy guardrails\n{policies}\n{bootstrap_section}",
         role_display = role.display_name,
         environment = TESTNET_BETA_DISPLAY_NAME,
         workspace = workspace_directory.to_string_lossy(),
@@ -7167,24 +7279,16 @@ fn build_node_readme(
         stake = format_amount(MINIMUM_STAKE_SNRG),
         responsibilities = responsibilities,
         policies = policies,
-        bootnodes = network_profile
-            .bootnodes
-            .iter()
-            .map(|entry| entry.host.clone())
-            .collect::<Vec<_>>()
-            .join(", "),
-        seeds = network_profile
-            .seed_servers
-            .iter()
-            .map(|entry| entry.host.clone())
-            .collect::<Vec<_>>()
-            .join(", "),
+        bootstrap_section = bootstrap_section,
     )
 }
 
 fn role_overlay_for(role_id: &str) -> String {
     match role_id {
-        "validator" => "[role]\ncompiled_profile = \"validator_node\"\nservices = [\"p2p\", \"consensus\", \"mempool\", \"state\", \"aegis-verifier\", \"telemetry\"]\n\n[validator]\nparticipation = \"active\"\nverify_quorum_certificates = true\nstate_sync_before_join = true\n".to_string(),
+        "validator" => format!(
+            "[role]\ncompiled_profile = \"validator_node\"\nservices = [\"p2p\", \"consensus\", \"mempool\", \"state\", \"aegis-verifier\", \"telemetry\"]\n\n[validator]\nparticipation = \"active\"\nverify_quorum_certificates = true\nstate_sync_before_join = {state_sync_before_join}\n",
+            state_sync_before_join = TESTNET_BETA_VALIDATOR_STATE_SYNC_BEFORE_JOIN
+        ),
         "committee" => "[role]\ncompiled_profile = \"committee_node\"\nservices = [\"p2p\", \"committee-sync\", \"epoch-rotation-listener\", \"telemetry\"]\n\n[committee]\nrotation_enforced = true\ncluster_coordination = true\n".to_string(),
         "archive_validator" => "[role]\ncompiled_profile = \"archive_validator_node\"\nservices = [\"state\", \"archive\", \"proof-builder\", \"snapshot\", \"telemetry\"]\n\n[archive]\nretention = \"full-history\"\nsnapshots_enabled = true\n".to_string(),
         "audit_validator" => "[role]\ncompiled_profile = \"audit_validator_node\"\nservices = [\"consensus-observer\", \"audit\", \"receipt-emitter\", \"telemetry\"]\n\n[audit]\nindependent_alerting = true\nemit_signed_audit_receipts = true\n".to_string(),
@@ -7461,8 +7565,8 @@ mod tests {
                 result
                     .node
                     .connectivity_status
-                    .contains("bootnodes, dnsaddr bootstrap records, and seed services"),
-                "node connectivity note should mention all bootstrap sources"
+                    .contains("Private validator mesh configured"),
+                "validator connectivity note should mention the private validator mesh"
             );
 
             let node_toml = fs::read_to_string(config_path_for(&result.node, "node.toml"))
@@ -7496,7 +7600,7 @@ mod tests {
                     .get("node")
                     .and_then(|section| section.get("auto_register_validator"))
                     .and_then(toml::Value::as_bool),
-                Some(true)
+                Some(false)
             );
 
             let bootnodes = node_value
@@ -7504,19 +7608,7 @@ mod tests {
                 .and_then(|section| section.get("bootnodes"))
                 .and_then(toml::Value::as_array)
                 .expect("bootnodes array should exist");
-            assert_eq!(bootnodes.len(), 3);
-            assert_eq!(
-                bootnodes[0].as_str(),
-                Some("bootnode1.synergynode.xyz:5620")
-            );
-            assert_eq!(
-                bootnodes[1].as_str(),
-                Some("bootnode2.synergynode.xyz:5620")
-            );
-            assert_eq!(
-                bootnodes[2].as_str(),
-                Some("bootnode3.synergynode.xyz:5620")
-            );
+            assert!(bootnodes.is_empty(), "validator node.toml should not use bootnodes");
 
             let seeds = node_value
                 .get("network")
@@ -7566,6 +7658,13 @@ mod tests {
             assert_eq!(
                 node_value
                     .get("consensus")
+                    .and_then(|section| section.get("status_ready_gate_enabled"))
+                    .and_then(toml::Value::as_bool),
+                Some(TESTNET_BETA_STATUS_READY_GATE_ENABLED)
+            );
+            assert_eq!(
+                node_value
+                    .get("consensus")
                     .and_then(|section| section.get("status_ready_min_validators"))
                     .and_then(toml::Value::as_integer),
                 Some(TESTNET_BETA_STATUS_READY_MIN_VALIDATORS as i64)
@@ -7584,6 +7683,14 @@ mod tests {
                     .and_then(toml::Value::as_bool),
                 Some(TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED)
             );
+            assert_eq!(
+                node_value
+                    .get("validator")
+                    .and_then(|section| section.get("state_sync_before_join"))
+                    .and_then(toml::Value::as_bool),
+                Some(TESTNET_BETA_VALIDATOR_STATE_SYNC_BEFORE_JOIN)
+            );
+
             assert_eq!(
                 node_value
                     .get("p2p")
@@ -7610,33 +7717,21 @@ mod tests {
                 .and_then(|section| section.get("bootnodes"))
                 .and_then(toml::Value::as_array)
                 .expect("global.bootnodes should exist");
-            assert_eq!(peer_bootnodes.len(), 3);
-            assert_eq!(
-                peer_bootnodes[0].as_str(),
-                Some("bootnode1.synergynode.xyz:5620")
-            );
+            assert!(peer_bootnodes.is_empty());
 
             let peer_dns_records = peers_value
                 .get("global")
                 .and_then(|section| section.get("bootstrap_dns_records"))
                 .and_then(toml::Value::as_array)
                 .expect("global.bootstrap_dns_records should exist");
-            assert_eq!(peer_dns_records.len(), 1);
-            assert_eq!(
-                peer_dns_records[0].as_str(),
-                Some("_dnsaddr.bootstrap.synergynode.xyz")
-            );
+            assert!(peer_dns_records.is_empty());
 
             let peer_seeds = peers_value
                 .get("global")
                 .and_then(|section| section.get("seed_servers"))
                 .and_then(toml::Value::as_array)
                 .expect("global.seed_servers should exist");
-            assert_eq!(peer_seeds.len(), 3);
-            assert_eq!(
-                peer_seeds[0].as_str(),
-                Some("http://seed1.synergynode.xyz:5621")
-            );
+            assert!(peer_seeds.is_empty());
 
             let peer_persistent_peers = peers_value
                 .get("global")
@@ -7703,7 +7798,7 @@ mod tests {
             &json!({
                 "role_id": "validator",
                 "wallet_address": "synv1validator",
-                "dial": "snr://synv1validator@genesisval2.synergynode.xyz:5622",
+                "dial": "snr://synv1validator@10.69.0.2:5622",
                 "registered_at_utc": "2026-04-06T17:00:00Z"
             }),
         );
@@ -7712,7 +7807,7 @@ mod tests {
             &json!({
                 "role_id": "validator",
                 "wallet_address": "synv1validator",
-                "dial": "snr://synv1validator@genesisval2.synergynode.xyz:5622",
+                "dial": "snr://synv1validator@10.69.0.2:5622",
                 "registered_at_utc": "2026-04-06T17:05:00Z"
             }),
         );
@@ -7722,7 +7817,7 @@ mod tests {
             .map(|(_, dial)| dial)
             .collect::<Vec<_>>();
         dials.sort();
-        assert_eq!(dials, vec!["genesisval2.synergynode.xyz:5622".to_string()]);
+        assert_eq!(dials, vec!["10.69.0.2:5622".to_string()]);
     }
 
     #[test]
@@ -7739,7 +7834,7 @@ mod tests {
                 &json!({
                     "role_id": "validator",
                     "wallet_address": wallet,
-                    "public_host": "genesisval2.synergynode.xyz",
+                    "public_host": "10.69.0.2",
                     "p2p_port": port,
                     "registered_at_utc": "2026-04-06T17:05:00Z"
                 }),
@@ -7754,9 +7849,9 @@ mod tests {
         assert_eq!(
             dials,
             vec![
-                "genesisval2.synergynode.xyz:5622".to_string(),
-                "genesisval2.synergynode.xyz:5622".to_string(),
-                "genesisval2.synergynode.xyz:5622".to_string(),
+                "10.69.0.2:5622".to_string(),
+                "10.69.0.2:5622".to_string(),
+                "10.69.0.2:5622".to_string(),
             ]
         );
     }
@@ -7864,15 +7959,12 @@ public_address = "62.146.182.207:5622"
             };
 
             let mut targets = vec![
-                "genesisval1.synergynode.xyz:5622".to_string(),
-                "genesisval5.synergynode.xyz:5622".to_string(),
+                "10.69.0.1:5622".to_string(),
+                "10.69.0.5:5622".to_string(),
             ];
             filter_self_dial_targets_for_node(&mut targets, &node, &workspace);
 
-            assert_eq!(
-                targets,
-                vec!["genesisval5.synergynode.xyz:5622".to_string()]
-            );
+            assert_eq!(targets, vec!["10.69.0.5:5622".to_string()]);
         });
     }
 

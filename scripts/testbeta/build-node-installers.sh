@@ -11,7 +11,7 @@ KEYS_DIR="$ROOT_DIR/testbeta/runtime/keys"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/testbeta/runtime/installers}"
 TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
 TESTBETA_NETWORK_ID="${TESTBETA_NETWORK_ID:-synergy-testnet-beta}"
-SOURCE_REPO_ROOT="${SYNERGY_TESTBETA_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/../.." && pwd)}"
+SOURCE_REPO_ROOT="${SYNERGY_TESTBETA_SOURCE_REPO_ROOT:-$(cd "$ROOT_DIR/.." && pwd)}"
 PREFER_BUNDLED_BINARIES="${PREFER_BUNDLED_BINARIES:-1}"
 TESTBETA_ENV_DIR_DEFAULT="${TESTBETA_ENV_DIR_DEFAULT:-$ROOT_DIR/testbeta/runtime/env-files}"
 ENV_OVERRIDE_HELPER="${ENV_OVERRIDE_HELPER:-$ROOT_DIR/../scripts/testbeta/testbeta-env-overrides.sh}"
@@ -1912,12 +1912,31 @@ if not private_key:
     raise SystemExit(f"Missing runtime private key in setup package: {package_file}")
 
 mesh_peers = []
+allowed_validator_addresses = []
+validator_mesh_hosts = {
+    1: "10.69.0.1",
+    2: "10.69.0.2",
+    3: "10.69.0.3",
+    4: "10.69.0.4",
+    5: "10.69.0.5",
+    6: "10.69.0.6",
+    7: "10.69.0.7",
+}
+validator_public_host = None
 for entry in canonical_manifest.get("validators", []):
     slot = entry.get("slot")
     peer_address = str(entry.get("address") or "").strip()
-    if slot is None or not peer_address or peer_address == address:
+    if slot is None or not peer_address:
         continue
-    mesh_peers.append(f"snr://{peer_address}@genesisval{slot}.synergynode.xyz:5622")
+    allowed_validator_addresses.append(peer_address)
+    mesh_host = validator_mesh_hosts.get(int(slot))
+    if peer_address == address:
+        if mesh_host:
+            validator_public_host = mesh_host
+        continue
+    if not mesh_host:
+        continue
+    mesh_peers.append(f"snr://{peer_address}@{mesh_host}:5622")
 
 runtime_config = package.get("runtime_config")
 if not isinstance(runtime_config, dict):
@@ -1928,6 +1947,9 @@ network_config = runtime_config.get("network")
 if not isinstance(network_config, dict):
     network_config = {}
     runtime_config["network"] = network_config
+network_config["bootnodes"] = []
+network_config["seed_servers"] = []
+network_config["bootstrap_dns_records"] = []
 network_config["additional_dial_targets"] = mesh_peers
 network_config["persistent_peers"] = mesh_peers
 
@@ -1938,16 +1960,51 @@ if not isinstance(consensus_config, dict):
 consensus_config.update({
     "min_validators": 2,
     "validator_vote_threshold": 2,
+    "validator_cluster_size": 5,
     "max_validators": 5,
-    "status_ready_gate_enabled": True,
+    "status_ready_gate_enabled": False,
     "status_ready_min_validators": 2,
-    "status_ready_genesis_grace_secs": 60,
+    "status_ready_genesis_grace_secs": 0,
     "allow_genesis_status_bypass": True,
-    "mesh_settle_secs": 3,
-    "leader_timeout_secs": 120,
-    "vote_timeout_secs": 12,
+    "mesh_settle_secs": 15,
+    "leader_timeout_secs": 15,
+    "vote_timeout_secs": 30,
     "block_timeout_secs": 30,
     "penalization_enabled": False,
+})
+
+p2p_config = runtime_config.get("p2p")
+if not isinstance(p2p_config, dict):
+    p2p_config = {}
+    runtime_config["p2p"] = p2p_config
+p2p_config.update({
+    "enable_discovery": False,
+    "heartbeat_interval": 10,
+    "bootstrap_refresh_secs": 3600,
+})
+if validator_public_host:
+    package["public_host"] = validator_public_host
+    p2p_config["public_address"] = f"{validator_public_host}:5622"
+
+node_config = runtime_config.get("node")
+if not isinstance(node_config, dict):
+    node_config = {}
+    runtime_config["node"] = node_config
+node_config.update({
+    "auto_register_validator": False,
+    "validator_address": address,
+    "strict_validator_allowlist": True,
+    "allowed_validator_addresses": allowed_validator_addresses,
+})
+
+validator_config = runtime_config.get("validator")
+if not isinstance(validator_config, dict):
+    validator_config = {}
+    runtime_config["validator"] = validator_config
+validator_config.update({
+    "participation": "active",
+    "verify_quorum_certificates": True,
+    "state_sync_before_join": False,
 })
 
 out_dir = pathlib.Path(key_dir)

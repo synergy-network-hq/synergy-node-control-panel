@@ -18,16 +18,16 @@ TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-2}"
 TESTBETA_VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-5}"
 TESTBETA_VALIDATOR_VOTE_THRESHOLD="${TESTBETA_VALIDATOR_VOTE_THRESHOLD:-2}"
 TESTBETA_MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-5}"
-TESTBETA_STATUS_READY_GATE_ENABLED="${TESTBETA_STATUS_READY_GATE_ENABLED:-true}"
+TESTBETA_STATUS_READY_GATE_ENABLED="${TESTBETA_STATUS_READY_GATE_ENABLED:-false}"
 TESTBETA_STATUS_READY_MIN_VALIDATORS="${TESTBETA_STATUS_READY_MIN_VALIDATORS:-2}"
-TESTBETA_STATUS_READY_GENESIS_GRACE_SECS="${TESTBETA_STATUS_READY_GENESIS_GRACE_SECS:-60}"
+TESTBETA_STATUS_READY_GENESIS_GRACE_SECS="${TESTBETA_STATUS_READY_GENESIS_GRACE_SECS:-0}"
 TESTBETA_ALLOW_GENESIS_STATUS_BYPASS="${TESTBETA_ALLOW_GENESIS_STATUS_BYPASS:-true}"
-TESTBETA_MESH_SETTLE_SECS="${TESTBETA_MESH_SETTLE_SECS:-3}"
-TESTBETA_LEADER_TIMEOUT_SECS="${TESTBETA_LEADER_TIMEOUT_SECS:-120}"
-TESTBETA_VOTE_TIMEOUT_SECS="${TESTBETA_VOTE_TIMEOUT_SECS:-12}"
+TESTBETA_MESH_SETTLE_SECS="${TESTBETA_MESH_SETTLE_SECS:-15}"
+TESTBETA_LEADER_TIMEOUT_SECS="${TESTBETA_LEADER_TIMEOUT_SECS:-15}"
+TESTBETA_VOTE_TIMEOUT_SECS="${TESTBETA_VOTE_TIMEOUT_SECS:-30}"
 TESTBETA_BLOCK_TIMEOUT_SECS="${TESTBETA_BLOCK_TIMEOUT_SECS:-30}"
 TESTBETA_CONSENSUS_PENALIZATION_ENABLED="${TESTBETA_CONSENSUS_PENALIZATION_ENABLED:-false}"
-TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS="${TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS:-60}"
+TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS="${TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS:-3600}"
 ALLOW_WILDCARD_LISTEN="${ALLOW_WILDCARD_LISTEN:-false}"
 
 if [[ -f "$ENV_OVERRIDE_HELPER" ]]; then
@@ -130,6 +130,24 @@ is_assigned_synergy_host() {
   local host
   host="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
   [[ -n "$host" && "$host" == *.synergynode.xyz ]]
+}
+
+inventory_validator_mesh_host() {
+  local slot="${1:-}"
+  local node_id
+  node_id="$(printf 'GenVal-%02d' "$slot")"
+  awk -F, -v id="$node_id" '
+    NR > 1 && $1 == id {
+      if ($22 != "") {
+        print $22
+      } else if ($13 != "") {
+        print $13
+      } else if ($12 != "") {
+        print $12
+      }
+      exit
+    }
+  ' "$INVENTORY_FILE"
 }
 
 normalize_role_id() {
@@ -361,12 +379,12 @@ collect_static_validator_mesh_peers() {
       validator_env_file="$(testbeta_env_file_for_validator_address "$peer_id" || true)"
     fi
     resolved_host="$(testbeta_first_nonempty \
+      "$(inventory_validator_mesh_host "$slot")" \
+      "$(testbeta_env_value "$validator_env_file" "LOCAL_IP" || true)" \
+      "$(testbeta_env_value "$validator_env_file" "MANAGEMENT_HOST" || true)" \
       "$(testbeta_env_value "$validator_env_file" "HOSTNAME" || true)" \
-      "genesisval${slot}.synergynode.xyz" \
     )"
-    if ! is_assigned_synergy_host "$resolved_host"; then
-      continue
-    fi
+    [[ -n "$resolved_host" ]] || continue
     public_p2p_port="$(testbeta_first_nonempty \
       "$(testbeta_env_value "$validator_env_file" "P2P_PORT_EXTERNAL" || true)" \
       "$(testbeta_env_value "$validator_env_file" "P2P_PORT" || true)" \
@@ -401,6 +419,10 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port
   fi
 
   source_env_file="$(testbeta_env_file_for_inventory_node "$node_slot_id" "$node_type" "" "$host" || true)"
+  inventory_host="$host"
+  inventory_management_host="$management_host"
+  inventory_public_ip="$public_ip"
+  inventory_local_ip="$local_ip"
   validator_address="$(testbeta_first_nonempty \
     "$(testbeta_env_value "$source_env_file" "NODE_WALLET" || true)" \
     "$(lookup_node_address "$node_slot_id")" \
@@ -440,14 +462,41 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port
   role_id="$(normalize_role_id "$role")"
   compiled_profile="$(compiled_profile_for_role "$role_id")"
 
-  bootnodes="$(render_bootnode_list \
-    "\"snr://bootstrap@bootnode1.synergynode.xyz:5620\"" \
-    "\"snr://bootstrap@bootnode2.synergynode.xyz:5620\"" \
-    "\"snr://bootstrap@bootnode3.synergynode.xyz:5620\"" \
-  )"
+  if [[ "$role_group" == "consensus" && "$node_type" == "validator" ]]; then
+    validator_slot=""
+    if [[ "$node_slot_id" =~ ^GenVal-([0-9]+)$ ]]; then
+      validator_slot="$((10#${BASH_REMATCH[1]}))"
+    fi
+    validator_mesh_host="$(testbeta_first_nonempty \
+      "$(inventory_validator_mesh_host "$validator_slot")" \
+      "$inventory_local_ip" \
+      "$inventory_management_host" \
+      "$local_ip" \
+      "$management_host" \
+      "$inventory_host" \
+    )"
+    if [[ -n "$validator_mesh_host" ]]; then
+      local_ip="$validator_mesh_host"
+      management_host="$validator_mesh_host"
+      resolved_p2p_host="$validator_mesh_host"
+      bind_host="$validator_mesh_host"
+    fi
+    resolved_public_host="$(testbeta_first_nonempty "$validator_mesh_host" "$local_ip" "$management_host" "$host" "$resolved_public_host")"
+    public_address="$(compute_public_address "$resolved_public_host" "$public_p2p_port")"
+    discovery_public_address="$(compute_public_address "$resolved_public_host" "$public_discovery_port")"
+    rpc_bind_address="0.0.0.0:${rpc_port}"
+    bootnodes="[]"
+    auto_register="false"
+  else
+    bootnodes="$(render_bootnode_list \
+      "\"snr://bootstrap@bootnode1.synergynode.xyz:5620\"" \
+      "\"snr://bootstrap@bootnode2.synergynode.xyz:5620\"" \
+      "\"snr://bootstrap@bootnode3.synergynode.xyz:5620\"" \
+    )"
+    auto_register="$(normalize_bool "$auto_register")"
+  fi
   additional_dial_targets="$(collect_static_validator_mesh_peers "$node_slot_id" "$validator_address")"
 
-  auto_register="$(normalize_bool "$auto_register")"
   enable_pruning="$(normalize_bool "$enable_pruning")"
   vrf_enabled="$(normalize_bool "$vrf_enabled")"
 
@@ -559,6 +608,11 @@ auto_register_validator = ${auto_register}
 validator_address = "${validator_address}"
 strict_validator_allowlist = true
 allowed_validator_addresses = ${ALLOWED_VALIDATOR_ADDRESSES}
+
+[validator]
+participation = "active"
+verify_quorum_certificates = true
+state_sync_before_join = false
 CONFIG
 
   echo "Generated ${OUT_DIR}/${node_slot_id}.toml"

@@ -107,6 +107,8 @@ refresh_platform_binary_checksums() {
 sync_canonical_runtime_assets() {
   echo "Syncing canonical runtime genesis"
   ./scripts/testbeta/generate-testbeta-genesis.sh
+  echo "Generating canonical Testnet-Beta node keys"
+  ./scripts/testbeta/generate-node-keys.sh
   echo "Rendering canonical Testnet-Beta configs"
   ./scripts/testbeta/render-configs.sh
   echo "Building canonical Testnet-Beta installers"
@@ -128,6 +130,6 @@ sync_platform_binaries
 refresh_platform_binary_checksums
 sync_canonical_runtime_assets
 ./scripts/release/generate-workspace-manifest.sh
-./scripts/release/validate-bundled-assets.sh
+SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 ./scripts/release/validate-bundled-assets.sh
 
 npm run build

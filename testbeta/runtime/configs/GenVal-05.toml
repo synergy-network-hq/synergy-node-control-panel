@@ -22,11 +22,11 @@ p2p_port = 5622
 rpc_port = 5640
 ws_port = 5660
 max_peers = 100
-bootnodes = ["snr://bootstrap@bootnode1.synergynode.xyz:5620","snr://bootstrap@bootnode2.synergynode.xyz:5620","snr://bootstrap@bootnode3.synergynode.xyz:5620"]
+bootnodes = []
 seed_servers = []
 bootstrap_dns_records = []
-additional_dial_targets = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@genesisval2.synergynode.xyz:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@genesisval3.synergynode.xyz:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5622"]
-persistent_peers = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@genesisval1.synergynode.xyz:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@genesisval2.synergynode.xyz:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@genesisval3.synergynode.xyz:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@genesisval4.synergynode.xyz:5622"]
+additional_dial_targets = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@10.69.0.1:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@10.69.0.2:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@10.69.0.3:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@10.69.0.4:5622"]
+persistent_peers = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@10.69.0.1:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@10.69.0.2:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@10.69.0.3:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@10.69.0.4:5622"]
 
 [blockchain]
 block_time = 2
@@ -41,13 +41,13 @@ min_validators = 2
 validator_cluster_size = 5
 validator_vote_threshold = 2
 max_validators = 5
-status_ready_gate_enabled = true
+status_ready_gate_enabled = false
 status_ready_min_validators = 2
-status_ready_genesis_grace_secs = 60
+status_ready_genesis_grace_secs = 0
 allow_genesis_status_bypass = true
-mesh_settle_secs = 3
-leader_timeout_secs = 120
-vote_timeout_secs = 12
+mesh_settle_secs = 15
+leader_timeout_secs = 15
+vote_timeout_secs = 30
 block_timeout_secs = 30
 penalization_enabled = false
 synergy_score_decay_rate = 0.05
@@ -81,14 +81,14 @@ cors_origins = []
 
 [p2p]
 listen_address = "0.0.0.0:5622"
-public_address = "genesisval5.synergynode.xyz:5622"
+public_address = "10.69.0.5:5622"
 node_name = "genesisval5"
 enable_discovery = false
 discovery_port = 5680
 discovery_listen_address = "0.0.0.0:5680"
-discovery_public_address = "genesisval5.synergynode.xyz:5680"
+discovery_public_address = "10.69.0.5:5680"
 heartbeat_interval = 10
-bootstrap_refresh_secs = 60
+bootstrap_refresh_secs = 3600
 
 [storage]
 database = "rocksdb"
@@ -101,7 +101,12 @@ enabled = true
 interval_blocks = 10000
 
 [node]
-auto_register_validator = true
+auto_register_validator = false
 validator_address = "synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46"
 strict_validator_allowlist = true
 allowed_validator_addresses = ["synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra","synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu","synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu","synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49","synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46"]
+
+[validator]
+participation = "active"
+verify_quorum_certificates = true
+state_sync_before_join = false
