@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v8.0.18 - 2026-04-14
+
+- Aligned the bundled validator generator and runtime assets around the private WireGuard validator mesh so canonical setup packages and rendered validator configs stop drifting apart.
+- Regenerated the bundled validator installers and workspace manifest from the updated mesh inventory, disabled public bootstrap dependencies in the validator plane, and kept the packaged setup files consistent with the desktop validator rollout path.
+- Fixed the bundle-prep and validation path so a tagged release can regenerate fresh bundled assets and publish installers without failing its own manifest freshness checks.
+
 ## v8.0.0 - 2026-04-09
 
 - Aligned the control-panel app version, bundled workspace manifest, and release tag so published installers report the same `v8.0.0` release line in-app and in release metadata.
