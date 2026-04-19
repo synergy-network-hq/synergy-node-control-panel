@@ -177,16 +177,16 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
 
-      - name: Publish installer artifacts to GitHub release
+      - name: Publish installer artifacts to releases repo
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
         run: |
           set -euo pipefail
 
           tag="${GITHUB_REF_NAME}"
-          repo="${GITHUB_REPOSITORY}"
+          repo="synergy-network-hq/synergy-node-control-panel-releases"
           title="Synergy Node Control Panel ${tag#v}"
           notes="Automated build from ${GITHUB_REPOSITORY}@${GITHUB_SHA}."
 
