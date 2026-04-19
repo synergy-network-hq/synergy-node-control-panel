@@ -14,17 +14,17 @@ TESTBETA_CHAIN_ID="${TESTBETA_CHAIN_ID:-338639}"
 TESTBETA_NETWORK_NAME="${TESTBETA_NETWORK_NAME:-synergy-testnet-beta}"
 TESTBETA_BLOCK_TIME_SECS="${TESTBETA_BLOCK_TIME_SECS:-2}"
 TESTBETA_EPOCH_LENGTH="${TESTBETA_EPOCH_LENGTH:-1000}"
-TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-2}"
+TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-5}"
 TESTBETA_VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-5}"
-TESTBETA_VALIDATOR_VOTE_THRESHOLD="${TESTBETA_VALIDATOR_VOTE_THRESHOLD:-2}"
+TESTBETA_VALIDATOR_VOTE_THRESHOLD="${TESTBETA_VALIDATOR_VOTE_THRESHOLD:-4}"
 TESTBETA_MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-5}"
-TESTBETA_STATUS_READY_GATE_ENABLED="${TESTBETA_STATUS_READY_GATE_ENABLED:-false}"
-TESTBETA_STATUS_READY_MIN_VALIDATORS="${TESTBETA_STATUS_READY_MIN_VALIDATORS:-2}"
+TESTBETA_STATUS_READY_GATE_ENABLED="${TESTBETA_STATUS_READY_GATE_ENABLED:-true}"
+TESTBETA_STATUS_READY_MIN_VALIDATORS="${TESTBETA_STATUS_READY_MIN_VALIDATORS:-5}"
 TESTBETA_STATUS_READY_GENESIS_GRACE_SECS="${TESTBETA_STATUS_READY_GENESIS_GRACE_SECS:-0}"
-TESTBETA_ALLOW_GENESIS_STATUS_BYPASS="${TESTBETA_ALLOW_GENESIS_STATUS_BYPASS:-true}"
+TESTBETA_ALLOW_GENESIS_STATUS_BYPASS="${TESTBETA_ALLOW_GENESIS_STATUS_BYPASS:-false}"
 TESTBETA_MESH_SETTLE_SECS="${TESTBETA_MESH_SETTLE_SECS:-15}"
 TESTBETA_LEADER_TIMEOUT_SECS="${TESTBETA_LEADER_TIMEOUT_SECS:-15}"
-TESTBETA_VOTE_TIMEOUT_SECS="${TESTBETA_VOTE_TIMEOUT_SECS:-30}"
+TESTBETA_VOTE_TIMEOUT_SECS="${TESTBETA_VOTE_TIMEOUT_SECS:-8}"
 TESTBETA_BLOCK_TIMEOUT_SECS="${TESTBETA_BLOCK_TIMEOUT_SECS:-30}"
 TESTBETA_CONSENSUS_PENALIZATION_ENABLED="${TESTBETA_CONSENSUS_PENALIZATION_ENABLED:-false}"
 TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS="${TESTBETA_P2P_BOOTSTRAP_REFRESH_SECS:-3600}"
@@ -126,10 +126,70 @@ resolve_public_p2p_port() {
   esac
 }
 
-is_assigned_synergy_host() {
-  local host
-  host="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
-  [[ -n "$host" && "$host" == *.synergynode.xyz ]]
+role_uses_sentry_upstreams() {
+  case "${1:-}" in
+    rpc_gateway|indexer_explorer|observer_light)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+collect_bootnode_targets() {
+  python3 - "$MANIFEST_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+targets = []
+for entry in manifest.get("bootstrap", {}).get("bootnodes", []):
+    host = str(entry.get("host") or "").strip()
+    port = int(entry.get("port") or 5620)
+    if host:
+        targets.append(f"\"snr://bootstrap@{host}:{port}\"")
+
+print("[" + ",".join(targets) + "]")
+PY
+}
+
+collect_sentry_public_peers_for_role() {
+  local role_id="$1"
+  python3 - "$MANIFEST_FILE" "$role_id" <<'PY'
+import json
+import sys
+
+manifest_path, role_id = sys.argv[1], sys.argv[2]
+
+with open(manifest_path, encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+routing_role = {
+    "indexer_explorer": "indexer",
+    "observer_light": "observer",
+}.get(role_id, role_id)
+
+bootstrap = manifest.get("bootstrap", {})
+sentries = {
+    str(entry.get("label") or "").strip(): entry
+    for entry in bootstrap.get("sentries", [])
+    if str(entry.get("label") or "").strip()
+}
+targets = []
+for label in bootstrap.get("routing", {}).get(routing_role, []):
+    entry = sentries.get(str(label).strip())
+    if not entry:
+        continue
+    host = str(entry.get("public_host") or "").strip()
+    port = int(entry.get("port") or 5622)
+    if host:
+        targets.append(f"\"snr://{label}@{host}:{port}\"")
+
+print("[" + ",".join(targets) + "]")
+PY
 }
 
 inventory_validator_mesh_host() {
@@ -409,6 +469,7 @@ render_bootnode_list() {
   echo "[${joined}]"
 }
 ALLOWED_VALIDATOR_ADDRESSES="$(collect_allowed_validator_addresses)"
+BOOTNODE_TARGETS="$(collect_bootnode_targets)"
 
 generated_count=0
 
@@ -486,16 +547,18 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port
     discovery_public_address="$(compute_public_address "$resolved_public_host" "$public_discovery_port")"
     rpc_bind_address="0.0.0.0:${rpc_port}"
     bootnodes="[]"
+    additional_dial_targets="$(collect_static_validator_mesh_peers "$node_slot_id" "$validator_address")"
     auto_register="false"
   else
-    bootnodes="$(render_bootnode_list \
-      "\"snr://bootstrap@bootnode1.synergynode.xyz:5620\"" \
-      "\"snr://bootstrap@bootnode2.synergynode.xyz:5620\"" \
-      "\"snr://bootstrap@bootnode3.synergynode.xyz:5620\"" \
-    )"
+    if role_uses_sentry_upstreams "$role_id"; then
+      bootnodes="[]"
+      additional_dial_targets="$(collect_sentry_public_peers_for_role "$role_id")"
+    else
+      bootnodes="$BOOTNODE_TARGETS"
+      additional_dial_targets="[]"
+    fi
     auto_register="$(normalize_bool "$auto_register")"
   fi
-  additional_dial_targets="$(collect_static_validator_mesh_peers "$node_slot_id" "$validator_address")"
 
   enable_pruning="$(normalize_bool "$enable_pruning")"
   vrf_enabled="$(normalize_bool "$vrf_enabled")"
@@ -612,7 +675,7 @@ allowed_validator_addresses = ${ALLOWED_VALIDATOR_ADDRESSES}
 [validator]
 participation = "active"
 verify_quorum_certificates = true
-state_sync_before_join = false
+state_sync_before_join = true
 CONFIG
 
   echo "Generated ${OUT_DIR}/${node_slot_id}.toml"

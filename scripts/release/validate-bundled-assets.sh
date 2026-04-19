@@ -146,8 +146,8 @@ if ! rg -q '^[[:space:]]*allowed_validator_addresses[[:space:]]*=' "testbeta/run
   exit 1
 fi
 
-if ! rg -q '^[[:space:]]*status_ready_gate_enabled[[:space:]]*=[[:space:]]*false' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
-  echo "Bundled validator node.toml is missing status_ready_gate_enabled = false" >&2
+if ! rg -q '^[[:space:]]*status_ready_gate_enabled[[:space:]]*=[[:space:]]*true' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing status_ready_gate_enabled = true" >&2
   exit 1
 fi
 
@@ -156,8 +156,8 @@ if ! rg -q '^[[:space:]]*leader_timeout_secs[[:space:]]*=[[:space:]]*15' "testbe
   exit 1
 fi
 
-if ! rg -q '^[[:space:]]*vote_timeout_secs[[:space:]]*=[[:space:]]*30' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
-  echo "Bundled validator node.toml is missing vote_timeout_secs = 30" >&2
+if ! rg -q '^[[:space:]]*vote_timeout_secs[[:space:]]*=[[:space:]]*8' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing vote_timeout_secs = 8" >&2
   exit 1
 fi
 
@@ -166,8 +166,8 @@ if ! rg -q '^[[:space:]]*bootstrap_refresh_secs[[:space:]]*=[[:space:]]*3600' "t
   exit 1
 fi
 
-if ! rg -q '^[[:space:]]*state_sync_before_join[[:space:]]*=[[:space:]]*false' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
-  echo "Bundled validator node.toml is missing state_sync_before_join = false" >&2
+if ! rg -q '^[[:space:]]*state_sync_before_join[[:space:]]*=[[:space:]]*true' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing state_sync_before_join = true" >&2
   exit 1
 fi
 
@@ -215,16 +215,16 @@ if network.get("bootstrap_dns_records") != []:
     errors.append("runtime_config.network.bootstrap_dns_records must be empty for bundled validator packages")
 
 expected_consensus = {
-    "min_validators": 2,
-    "validator_vote_threshold": 2,
+    "min_validators": 5,
+    "validator_vote_threshold": 4,
     "validator_cluster_size": 5,
-    "status_ready_gate_enabled": False,
-    "status_ready_min_validators": 2,
+    "status_ready_gate_enabled": True,
+    "status_ready_min_validators": 5,
     "status_ready_genesis_grace_secs": 0,
-    "allow_genesis_status_bypass": True,
+    "allow_genesis_status_bypass": False,
     "mesh_settle_secs": 15,
     "leader_timeout_secs": 15,
-    "vote_timeout_secs": 30,
+    "vote_timeout_secs": 8,
     "block_timeout_secs": 30,
     "penalization_enabled": False,
 }
@@ -257,7 +257,7 @@ validator = runtime.get("validator") or {}
 expected_validator = {
     "participation": "active",
     "verify_quorum_certificates": True,
-    "state_sync_before_join": False,
+    "state_sync_before_join": True,
 }
 for key, expected in expected_validator.items():
     if validator.get(key) != expected:

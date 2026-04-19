@@ -299,6 +299,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const [terminalBusy, setTerminalBusy] = useState(false);
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalLines, setTerminalLines] = useState([]);
+  const [terminalVisible, setTerminalVisible] = useState(false);
 
   const activeRoleCatalog = useMemo(
     () => (setupMode === 'ceremony' ? CEREMONY_ROLE_OPTIONS : nodeCatalog),
@@ -982,6 +983,18 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       return;
     }
 
+    if (/^(i need a terminal|open terminal|show terminal)$/i.test(trimmedValue)) {
+      setTerminalVisible(true);
+      await queueJarvisMessage('Opening the local setup terminal at the bottom of the screen. You can inspect the workspace or run commands there any time.');
+      return;
+    }
+
+    if (/^(hide terminal|close terminal)$/i.test(trimmedValue)) {
+      setTerminalVisible(false);
+      await queueJarvisMessage('Terminal hidden. Say "I need a terminal" whenever you want it back.');
+      return;
+    }
+
     if (/^(dashboard|not now jarvis|not now|later)$/i.test(trimmedValue)) {
       await handoffToDashboard();
       return;
@@ -1604,6 +1617,45 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
                   Send
                 </SNRGButton>
               </form>
+
+              <div className="jarvis-choice-list jarvis-choice-list-utility">
+                <SNRGButton
+                  as="button"
+                  variant="blue"
+                  size="sm"
+                  className="jarvis-choice-pill"
+                  onClick={() => {
+                    void submitChoice('I need a terminal');
+                  }}
+                  disabled={running}
+                >
+                  I need a terminal
+                </SNRGButton>
+                <SNRGButton
+                  as="button"
+                  variant="blue"
+                  size="sm"
+                  className="jarvis-choice-pill"
+                  onClick={() => {
+                    void submitChoice('genesis setup');
+                  }}
+                  disabled={running}
+                >
+                  Genesis setup
+                </SNRGButton>
+                <SNRGButton
+                  as="button"
+                  variant="blue"
+                  size="sm"
+                  className="jarvis-choice-pill"
+                  onClick={() => {
+                    void submitChoice('not now jarvis', 'Return to dashboard');
+                  }}
+                  disabled={running}
+                >
+                  Return to dashboard
+                </SNRGButton>
+              </div>
             </div>
           </div>
         </article>
@@ -1729,32 +1781,64 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         </aside>
       </div>
 
-      <div className="jarvis-terminal-stage wizard-terminal-panel">
-        <div className="wizard-terminal-header">
-          <span>Setup terminal</span>
-          <code>{terminalCwd || '~'}</code>
+      {terminalVisible ? (
+        <div className="jarvis-terminal-stage wizard-terminal-panel">
+          <div className="wizard-terminal-header">
+            <span>Setup terminal</span>
+            <code>{terminalCwd || '~'}</code>
+            <SNRGButton
+              as="button"
+              variant="purple"
+              size="sm"
+              onClick={() => {
+                void handleResponseValue('hide terminal');
+              }}
+              disabled={terminalBusy}
+            >
+              Hide
+            </SNRGButton>
+          </div>
+          <div className="wizard-terminal-body" ref={terminalScrollRef}>
+            {terminalLines.map((line) => (
+              <div key={line.id} className={`wizard-terminal-line ${line.kind}`}>
+                <span className="wizard-terminal-time">{line.at}</span>
+                <span className="wizard-terminal-text">{line.text}</span>
+              </div>
+            ))}
+          </div>
+          <form className="wizard-terminal-input-row" onSubmit={submitTerminal}>
+            <span className="wizard-terminal-prompt">$</span>
+            <input
+              value={terminalInput}
+              onChange={(event) => setTerminalInput(event.target.value)}
+              placeholder="Run local command (example: whoami)"
+              disabled={terminalBusy}
+            />
+            <SNRGButton as="button" variant="blue" size="sm" type="submit" disabled={terminalBusy || !terminalInput.trim()}>
+              Run
+            </SNRGButton>
+          </form>
         </div>
-        <div className="wizard-terminal-body" ref={terminalScrollRef}>
-          {terminalLines.map((line) => (
-            <div key={line.id} className={`wizard-terminal-line ${line.kind}`}>
-              <span className="wizard-terminal-time">{line.at}</span>
-              <span className="wizard-terminal-text">{line.text}</span>
-            </div>
-          ))}
-        </div>
-        <form className="wizard-terminal-input-row" onSubmit={submitTerminal}>
-          <span className="wizard-terminal-prompt">$</span>
-          <input
-            value={terminalInput}
-            onChange={(event) => setTerminalInput(event.target.value)}
-            placeholder="Run local command (example: whoami)"
-            disabled={terminalBusy}
-          />
-          <SNRGButton as="button" variant="blue" size="sm" type="submit" disabled={terminalBusy || !terminalInput.trim()}>
-            Run
+      ) : (
+        <div className="jarvis-terminal-callout">
+          <div>
+            <span className="jarvis-chat-author">Jarvis</span>
+            <strong>Need direct shell access?</strong>
+            <p>Say “I need a terminal” and I will open a local terminal here without leaving the conversational setup flow.</p>
+          </div>
+          <SNRGButton
+            as="button"
+            variant="blue"
+            size="sm"
+            onClick={() => {
+              void submitChoice('I need a terminal');
+            }}
+            disabled={running}
+          >
+            Open terminal
           </SNRGButton>
-        </form>
-      </div>
+        </div>
+      )}
     </section>
   );
 }

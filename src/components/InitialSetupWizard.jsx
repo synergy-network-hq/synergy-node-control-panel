@@ -1138,7 +1138,7 @@ function InitialSetupWizard({ onComplete }) {
         }));
       });
 
-      await runStep('installers', 'Run local installer scripts', async () => {
+      await runStep('installers', 'Run packaged node setup', async () => {
         const installersRoot = joinWorkspacePath(resolvedWorkspace, 'testbeta', 'runtime', 'installers');
         for (const [index, logicalMachineId] of targetNodes.entries()) {
           updateAutopilotStep(

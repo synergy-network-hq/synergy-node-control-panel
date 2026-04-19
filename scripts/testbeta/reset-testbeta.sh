@@ -15,7 +15,7 @@ SKIP_RESTART="false"
 
 usage() {
   cat <<USAGE
-Usage: $0 [--hosts-file <path>] [--rebuild-installers] [--skip-restart]
+Usage: $0 [--hosts-file <path>] [--rebuild-installers (GitHub Actions only)] [--skip-restart]
 
 Performs a full closed-testbeta reset workflow:
 1) stop nodes
@@ -261,8 +261,9 @@ rebuild_installers_if_requested() {
   if [[ "$REBUILD_INSTALLERS" != "true" ]]; then
     return
   fi
-  echo "Rebuilding installers..."
-  "$ROOT_DIR/scripts/testbeta/build-node-installers.sh"
+  echo "Local installer rebuilds have been removed from the repo." >&2
+  echo "Trigger the GitHub Actions release workflow to produce updated installers." >&2
+  exit 1
 }
 
 start_machine() {

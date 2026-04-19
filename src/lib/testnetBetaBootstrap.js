@@ -1,13 +1,25 @@
 import { fetchSeedPeerTargets, readTextFile, writeTextFile } from './desktopClient';
 
-const BOOTSTRAP_DNS_RECORD = '_dnsaddr.bootstrap.synergynode.xyz';
+const BOOTSTRAP_DNS_RECORD = '_dnsaddr.bootstrap.synergyvps.xyz';
 const PORT_SETTINGS_STORAGE_KEY = 'synergy:testbeta:port-settings:v1';
 const TESTNET_ENDPOINTS = {
-  coreRpc: 'https://testbeta-core-rpc.synergynode.xyz',
-  coreWs: 'wss://testbeta-core-ws.synergynode.xyz',
+  coreRpc: 'https://testbeta-core-rpc.synergy-network.io',
+  coreWs: 'wss://testbeta-core-ws.synergy-network.io',
   walletApi: 'https://testbeta-wallet-api.synergy-network.io',
   sxcpApi: 'https://testbeta-sxcp-api.synergy-network.io',
 };
+const CANONICAL_VALIDATOR_PEERS = Object.freeze([
+  { address: 'synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra', host: '10.69.0.1', port: 5622 },
+  { address: 'synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu', host: '10.69.0.2', port: 5622 },
+  { address: 'synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu', host: '10.69.0.3', port: 5622 },
+  { address: 'synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49', host: '10.69.0.4', port: 5622 },
+  { address: 'synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46', host: '10.69.0.5', port: 5622 },
+]);
+const SENTRY_UPSTREAMS = Object.freeze({
+  rpc_gateway: ['relay1.synergynode.xyz:5622', 'relay2.synergynode.xyz:5622'],
+  indexer: ['relay1.synergynode.xyz:5622', 'relay2.synergynode.xyz:5622'],
+  observer: ['relay1.synergynode.xyz:5622', 'relay2.synergynode.xyz:5622'],
+});
 
 const TESTNET_BETA_DEFAULT_PORT_SETTINGS = Object.freeze({
   p2p: 5622,
@@ -555,21 +567,23 @@ async function resolveEffectiveNodePortSettings(node, settings) {
   };
 }
 
-export function buildPeersToml(networkProfile, additionalDialTargets = []) {
-  const bootnodes = (Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : [])
+export function buildPeersToml(networkProfile, additionalDialTargets = [], options = {}) {
+  const explicitOnly = Boolean(options?.explicitOnly);
+  const bootnodes = (explicitOnly ? [] : (Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : []))
     .map((entry) => `${entry.host}:${entry.port}`);
-  const seeds = seedServerUrls(networkProfile).map((entry) => {
+  const seeds = (explicitOnly ? [] : seedServerUrls(networkProfile)).map((entry) => {
     const trimmed = String(entry).trim().replace(/\/+$/, '');
     return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
   });
   const dialTargets = normalizeDialTargets(additionalDialTargets);
+  const bootstrapDnsRecords = explicitOnly ? [] : [BOOTSTRAP_DNS_RECORD];
 
   return `# Testnet-Beta multi-source bootstrap inputs.
 # Nodes consume these endpoints directly for hardcoded bootnode dialing, dnsaddr resolution, and seed-service fallbacks.
 [global]
 bootnodes = ${tomlArray(bootnodes)}
 seed_servers = ${tomlArray(seeds)}
-bootstrap_dns_records = ${tomlArray([BOOTSTRAP_DNS_RECORD])}
+bootstrap_dns_records = ${tomlArray(bootstrapDnsRecords)}
 additional_dial_targets = ${tomlArray(dialTargets)}
 persistent_peers = ${tomlArray(dialTargets)}
 
@@ -662,7 +676,7 @@ export async function applyTestnetBetaPortSettings(node, settings) {
   const publicAddress = formatHostPort(publicHost, publicP2pPort);
   const metricsBind = updateAddressPort(
     readSectionValue(contents, 'telemetry', 'metrics_bind'),
-    '127.0.0.1',
+    '0.0.0.0',
     portSettings.metrics,
   );
 
@@ -717,12 +731,18 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
   if (!peersTomlPath) {
     throw new Error('Generated node is missing a peers.toml config path.');
   }
+  const roleId = String(node?.role_id ?? node?.roleId ?? '').trim().toLowerCase();
+  const isValidator = roleId === 'validator';
+  const sentryTargets = Array.isArray(SENTRY_UPSTREAMS[roleId]) ? SENTRY_UPSTREAMS[roleId] : [];
+  const useExplicitOnly = isValidator || sentryTargets.length > 0;
 
   const activePorts = await readTestnetBetaNodePortSettings(node)
     .then((result) => result.portSettings)
     .catch(() => readStoredTestnetBetaPortSettings());
 
-  const { targets = [], failures = [] } = await fetchSeedPeerTargets(seedServerUrls(networkProfile));
+  const { targets = [], failures = [] } = useExplicitOnly
+    ? { targets: [], failures: [] }
+    : await fetchSeedPeerTargets(seedServerUrls(networkProfile));
   const bootnodeTargets = new Set(
     normalizeDialTargets(
       (Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : []).map(
@@ -753,11 +773,21 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
   }
   const selfTargets = new Set(normalizeDialTargets(selfAddressCandidates));
 
-  const additionalDialTargets = normalizeDialTargets(targets).filter(
-    (target) => !bootnodeTargets.has(target) && !selfTargets.has(target),
-  );
+  const validatorTargets = CANONICAL_VALIDATOR_PEERS
+    .filter((entry) => entry.address !== String(node?.node_address ?? node?.nodeAddress ?? '').trim())
+    .map((entry) => `${entry.host}:${entry.port}`);
+  const additionalDialTargets = isValidator
+    ? normalizeDialTargets(validatorTargets).filter((target) => !selfTargets.has(target))
+    : sentryTargets.length > 0
+      ? normalizeDialTargets(sentryTargets).filter((target) => !selfTargets.has(target))
+      : normalizeDialTargets(targets).filter(
+        (target) => !bootnodeTargets.has(target) && !selfTargets.has(target),
+      );
 
-  await writeTextFile(peersTomlPath, buildPeersToml(networkProfile, additionalDialTargets));
+  await writeTextFile(
+    peersTomlPath,
+    buildPeersToml(networkProfile, additionalDialTargets, { explicitOnly: useExplicitOnly }),
+  );
 
   return {
     peersTomlPath,

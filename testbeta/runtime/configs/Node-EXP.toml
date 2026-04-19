@@ -22,11 +22,11 @@ p2p_port = 5627
 rpc_port = 5647
 ws_port = 5667
 max_peers = 100
-bootnodes = ["snr://bootstrap@bootnode1.synergynode.xyz:5620","snr://bootstrap@bootnode2.synergynode.xyz:5620","snr://bootstrap@bootnode3.synergynode.xyz:5620"]
+bootnodes = []
 seed_servers = []
 bootstrap_dns_records = []
-additional_dial_targets = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@10.69.0.1:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@10.69.0.2:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@10.69.0.3:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@10.69.0.4:5622","snr://synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46@10.69.0.5:5622"]
-persistent_peers = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@10.69.0.1:5622","snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@10.69.0.2:5622","snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@10.69.0.3:5622","snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@10.69.0.4:5622","snr://synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46@10.69.0.5:5622"]
+additional_dial_targets = ["snr://sentry1@relay1.synergynode.xyz:5622","snr://sentry2@relay2.synergynode.xyz:5622"]
+persistent_peers = ["snr://sentry1@relay1.synergynode.xyz:5622","snr://sentry2@relay2.synergynode.xyz:5622"]
 
 [blockchain]
 block_time = 2
@@ -37,17 +37,17 @@ chain_id = 338639
 algorithm = "Proof of Synergy"
 block_time_secs = 2
 epoch_length = 1000
-min_validators = 2
+min_validators = 5
 validator_cluster_size = 5
-validator_vote_threshold = 2
+validator_vote_threshold = 4
 max_validators = 5
-status_ready_gate_enabled = false
-status_ready_min_validators = 2
+status_ready_gate_enabled = true
+status_ready_min_validators = 5
 status_ready_genesis_grace_secs = 0
-allow_genesis_status_bypass = true
+allow_genesis_status_bypass = false
 mesh_settle_secs = 15
 leader_timeout_secs = 15
-vote_timeout_secs = 30
+vote_timeout_secs = 8
 block_timeout_secs = 30
 penalization_enabled = false
 synergy_score_decay_rate = 0.05
@@ -81,12 +81,12 @@ cors_origins = []
 
 [p2p]
 listen_address = "0.0.0.0:5627"
-public_address = "genesisindexer.synergynode.xyz:5627"
+public_address = "testbeta-explorer.synergy-network.io:5627"
 node_name = "genesisindexer"
 enable_discovery = false
 discovery_port = 5687
 discovery_listen_address = "0.0.0.0:5687"
-discovery_public_address = "genesisindexer.synergynode.xyz:5687"
+discovery_public_address = "testbeta-explorer.synergy-network.io:5687"
 heartbeat_interval = 10
 bootstrap_refresh_secs = 3600
 
@@ -109,4 +109,4 @@ allowed_validator_addresses = ["synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra","synv
 [validator]
 participation = "active"
 verify_quorum_certificates = true
-state_sync_before_join = false
+state_sync_before_join = true

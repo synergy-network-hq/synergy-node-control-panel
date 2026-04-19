@@ -7,6 +7,10 @@ import SettingsPage from './components/SettingsPage';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
 import TestnetBetaJarvisSetup from './components/TestnetBetaJarvisSetup';
 import TestnetBetaDashboard from './components/TestnetBetaDashboard';
+import ControlPanelConnectivityPage from './components/control-panel/ControlPanelConnectivityPage';
+import ControlPanelLogsPage from './components/control-panel/ControlPanelLogsPage';
+import ControlPanelRewardsPage from './components/control-panel/ControlPanelRewardsPage';
+import { ControlPanelProvider } from './components/control-panel/ControlPanelProvider';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { fetchTestnetBetaLiveStatus, fetchTestnetBetaState } from './lib/testnetBetaPageData';
 
@@ -171,16 +175,21 @@ function App() {
     nextScreen = <TestnetBetaJarvisSetup onComplete={handleSetupComplete} onDefer={handleSetupDeferred} />;
   } else {
     nextScreen = (
-      <Layout>
-        <Routes>
-          <Route path="/" element={<TestnetBetaDashboard onLaunchSetup={handleLaunchSetup} />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/node/:nodeId" element={<TestnetBetaNodeDetail />} />
-          <Route path="/monitor/:nodeSlotId" element={<NetworkMonitorNodePage />} />
-          <Route path="/help" element={<HelpArticlesPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Layout>
+      <ControlPanelProvider>
+        <Layout onLaunchSetup={handleLaunchSetup}>
+          <Routes>
+            <Route path="/" element={<TestnetBetaDashboard onLaunchSetup={handleLaunchSetup} />} />
+            <Route path="/connectivity" element={<ControlPanelConnectivityPage />} />
+            <Route path="/logs" element={<ControlPanelLogsPage />} />
+            <Route path="/rewards" element={<ControlPanelRewardsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/node/:nodeId" element={<TestnetBetaNodeDetail />} />
+            <Route path="/monitor/:nodeSlotId" element={<NetworkMonitorNodePage />} />
+            <Route path="/help" element={<HelpArticlesPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout>
+      </ControlPanelProvider>
     );
   }
 

@@ -8,4 +8,6 @@ export function runtimeAsset(path) {
   return `${baseUrl}${normalizedPath}`;
 }
 
-export const brandLogoSrc = runtimeAsset('snrg.gif');
+export const brandLogoSrc = runtimeAsset('branding/assets/snrg-logo.png');
+export const ecosystemHeaderGifSrc = runtimeAsset('branding/assets/ecobanner.gif');
+export const splashBrandGifSrc = runtimeAsset('branding/assets/snrg-splash.gif');

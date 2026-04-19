@@ -74,17 +74,7 @@ rustup target add x86_64-pc-windows-gnu           # required for --windows / --a
 
 ## 3. Node Installer Bundles
 
-Node installer bundles are per-node archives deployed to remote machines during initial setup. They contain the `synergy-testbeta` binary, config, keys, and a startup script.
-
-### `scripts/testbeta/build-node-installers.sh`
-**Run from:** repo root
-**What it does:** Assembles per-node installer bundles under `testbeta/runtime/installers/<node-slot-id>/`. Each bundle is uploaded to the corresponding remote machine by `remote-node-orchestrator.sh install_node`. The script resolves platform binaries automatically — it prefers freshly compiled binaries in `target/` and falls back to pre-built binaries in `binaries/`.
-
-```bash
-bash scripts/testbeta/build-node-installers.sh
-```
-
-**Required before running:** The appropriate `synergy-testbeta` binary must exist in `target/release/`, `target/x86_64-unknown-linux-gnu/release/`, or `binaries/` (fallback).
+Node installer bundles are per-node assets under `testbeta/runtime/installers/<node-slot-id>/` that the control panel uploads during initial setup. They are packaged into release artifacts by GitHub Actions. Local installer-build scripts were removed from the repository.
 
 ---
 
@@ -180,7 +170,7 @@ bash scripts/testbeta/run-node.sh status node-03
 
 ### `scripts/testbeta/reset-testbeta.sh` (via `scripts/reset-testbeta.sh`)
 **Run from:** repo root
-**What it does:** Full closed-testbeta reset workflow. Stops all nodes, clears all chain/token/validator state locally and on all remote machines, re-renders configs, regenerates deterministic genesis, then optionally rebuilds installers. Nodes are intentionally **not** restarted — use **Start All** from the control panel dashboard when ready.
+**What it does:** Full closed-testbeta reset workflow. Stops all nodes, clears all chain/token/validator state locally and on all remote machines, re-renders configs, and regenerates deterministic genesis. Nodes are intentionally **not** restarted — use **Start All** from the control panel dashboard when ready.
 
 ```bash
 bash scripts/reset-testbeta.sh
@@ -190,7 +180,7 @@ bash scripts/reset-testbeta.sh
 
 | Flag | What it does |
 |---|---|
-| `--rebuild-installers` | Also rebuilds all node installer bundles after the reset (calls `build-node-installers.sh`) |
+| `--rebuild-installers` | No longer supported locally. The script exits and tells you to trigger the GitHub Actions release workflow instead. |
 | `--skip-restart` | Skip the final cluster restart (default is already skip — nodes don't restart after reset) |
 | `--hosts-file <path>` | Override the default `testbeta/runtime/hosts.env` with a custom hosts file |
 
@@ -264,7 +254,6 @@ bash scripts/release/preflight.sh
 | `bash scripts/build-sidecars.sh --linux` | repo root | Cross-compile agent for Linux (zigbuild) |
 | `bash scripts/build-sidecars.sh --windows` | repo root | Cross-compile agent for Windows (zigbuild) |
 | `bash scripts/build-sidecars.sh --all` | repo root | Build agent for all remote platforms |
-| `bash scripts/testbeta/build-node-installers.sh` | repo root | Assemble per-node installer bundles |
 | `bash scripts/testbeta/remote-node-orchestrator.sh <id> <op>` | repo root | Run any operation on a remote node (node-01–node-25, excl. node-19/21) |
 | `bash scripts/testbeta/run-node.sh <action> <id>` | repo root | Start/stop/status a locally-hosted node |
 | `bash scripts/reset-testbeta.sh` | repo root | Full testbeta reset (stop + wipe + regenerate) |

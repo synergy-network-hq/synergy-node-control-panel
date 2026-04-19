@@ -916,7 +916,7 @@
       ]
     },
     "operational_manifest": {
-      "version": 1,
+      "version": 2,
       "environment_id": "testbeta",
       "display_name": "Synergy Testnet-Beta",
       "network_id": "synergy-testnet-beta",
@@ -931,30 +931,88 @@
         "bootnodes": [
           {
             "label": "bootnode1",
-            "host": "bootnode1.synergynode.xyz",
-            "ip_address": "74.208.227.23",
+            "host": "bootnode1.synergyvps.xyz",
+            "ip_address": "170.64.187.206",
             "port": 5620
           },
           {
             "label": "bootnode2",
-            "host": "bootnode2.synergynode.xyz",
+            "host": "bootnode2.synergyvps.xyz",
             "ip_address": "146.190.210.121",
             "port": 5620
           },
           {
             "label": "bootnode3",
-            "host": "bootnode3.synergynode.xyz",
+            "host": "bootnode3.synergyvps.xyz",
             "ip_address": "157.245.226.240",
             "port": 5620
           }
         ],
-        "seed_servers": [],
+        "seed_servers": [
+          {
+            "label": "seed1",
+            "host": "seed1.synergyvps.xyz",
+            "ip_address": "170.64.187.206",
+            "port": 5621
+          },
+          {
+            "label": "seed2",
+            "host": "seed2.synergyvps.xyz",
+            "ip_address": "146.190.210.121",
+            "port": 5621
+          },
+          {
+            "label": "seed3",
+            "host": "seed3.synergyvps.xyz",
+            "ip_address": "157.245.226.240",
+            "port": 5621
+          }
+        ],
+        "sentries": [
+          {
+            "label": "sentry1",
+            "public_host": "relay1.synergynode.xyz",
+            "private_host": "10.69.0.201",
+            "public_ip": "195.26.241.95",
+            "port": 5622,
+            "metrics_port": 6030
+          },
+          {
+            "label": "sentry2",
+            "public_host": "relay2.synergynode.xyz",
+            "private_host": "10.69.0.202",
+            "public_ip": "94.72.117.108",
+            "port": 5622,
+            "metrics_port": 6030
+          }
+        ],
+        "routing": {
+          "bootnodes": [
+            "sentry1"
+          ],
+          "seed_servers": [
+            "sentry2"
+          ],
+          "rpc_gateway": [
+            "sentry1",
+            "sentry2"
+          ],
+          "indexer": [
+            "sentry1",
+            "sentry2"
+          ],
+          "observer": [
+            "sentry1",
+            "sentry2"
+          ]
+        },
         "dns": {
-          "bootstrap_txt": "_dnsaddr.bootstrap.synergynode.xyz"
+          "bootstrap_txt": "_dnsaddr.bootstrap.synergyvps.xyz"
         }
       },
       "ports": {
         "bootnode": 5620,
+        "seed_http": 5621,
         "node_listener_base": 5622,
         "rpc_base": 5640,
         "ws_base": 5660,
@@ -963,13 +1021,13 @@
       },
       "public_endpoints": {
         "core_rpc": {
-          "url": "https://testbeta-core-rpc.synergynode.xyz",
-          "host": "testbeta-core-rpc.synergynode.xyz",
+          "url": "https://testbeta-core-rpc.synergy-network.io",
+          "host": "testbeta-core-rpc.synergy-network.io",
           "ip_address": "74.208.227.23"
         },
         "core_ws": {
-          "url": "wss://testbeta-core-ws.synergynode.xyz",
-          "host": "testbeta-core-ws.synergynode.xyz",
+          "url": "wss://testbeta-core-ws.synergy-network.io",
+          "host": "testbeta-core-ws.synergy-network.io",
           "ip_address": "74.208.227.23"
         },
         "api": {
@@ -980,6 +1038,11 @@
         "explorer": {
           "url": "https://testbeta-explorer.synergy-network.io",
           "host": "testbeta-explorer.synergy-network.io",
+          "ip_address": "74.208.227.23"
+        },
+        "indexer_ws": {
+          "url": "wss://testbeta-indexer.synergy-network.io",
+          "host": "testbeta-indexer.synergy-network.io",
           "ip_address": "74.208.227.23"
         },
         "atlas_api": {
@@ -999,27 +1062,47 @@
       "validators": [
         {
           "slot": 1,
+          "label": "GenVal-01",
           "address": "synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra",
+          "private_host": "10.69.0.1",
+          "private_ip": "10.69.0.1",
+          "public_ip": "62.146.182.207",
           "public_key_file": "config/genesis-validators/node-01.identity.json"
         },
         {
           "slot": 2,
+          "label": "GenVal-02",
           "address": "synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu",
+          "private_host": "10.69.0.2",
+          "private_ip": "10.69.0.2",
+          "public_ip": "62.146.182.208",
           "public_key_file": "config/genesis-validators/node-02.identity.json"
         },
         {
           "slot": 3,
+          "label": "GenVal-03",
           "address": "synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu",
+          "private_host": "10.69.0.3",
+          "private_ip": "10.69.0.3",
+          "public_ip": "62.146.182.209",
           "public_key_file": "config/genesis-validators/node-03.identity.json"
         },
         {
           "slot": 4,
+          "label": "GenVal-04",
           "address": "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49",
+          "private_host": "10.69.0.4",
+          "private_ip": "10.69.0.4",
+          "public_ip": "73.79.66.255",
           "public_key_file": "config/genesis-validators/node-04.identity.json"
         },
         {
           "slot": 5,
+          "label": "GenVal-05",
           "address": "synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46",
+          "private_host": "10.69.0.5",
+          "private_ip": "10.69.0.5",
+          "public_ip": "194.163.183.166",
           "public_key_file": "config/genesis-validators/node-05.identity.json"
         }
       ],
@@ -1103,16 +1186,16 @@
       "bootstrap_dns_records": []
     },
     "consensus": {
-      "min_validators": 2,
-      "validator_vote_threshold": 2,
+      "min_validators": 5,
+      "validator_vote_threshold": 4,
       "max_validators": 5,
-      "status_ready_gate_enabled": false,
-      "status_ready_min_validators": 2,
+      "status_ready_gate_enabled": true,
+      "status_ready_min_validators": 5,
       "status_ready_genesis_grace_secs": 0,
-      "allow_genesis_status_bypass": true,
+      "allow_genesis_status_bypass": false,
       "mesh_settle_secs": 15,
       "leader_timeout_secs": 15,
-      "vote_timeout_secs": 30,
+      "vote_timeout_secs": 8,
       "block_timeout_secs": 30,
       "validator_cluster_size": 5,
       "penalization_enabled": false
@@ -1138,7 +1221,7 @@
     "validator": {
       "participation": "active",
       "verify_quorum_certificates": true,
-      "state_sync_before_join": false
+      "state_sync_before_join": true
     }
   }
 }

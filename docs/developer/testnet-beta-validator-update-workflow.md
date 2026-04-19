@@ -21,10 +21,9 @@ The control panel is what creates and repairs validator workspaces. The primary 
 | File | Role |
 | --- | --- |
 | `control-service/src/testnet_beta.rs` | Builds the live validator workspace used by the app during `setup_node`, installer import, ceremony import, and workspace repair. If a validator started by the control panel should see a config value, this file usually needs to emit it. |
-| `scripts/testbeta/build-node-installers.sh` | Generates the bundled per-node installers under `testbeta/runtime/installers/`, including `config/node.toml`, `config/peers.toml`, startup scripts, and `keys/setup-package.json`. |
 | `scripts/testbeta/render-configs.sh` | Generates the canonical rendered configs under `testbeta/runtime/configs/`. Keep this aligned with the installer/runtime config shape so the bundled reference configs match what the control panel deploys. |
 | `src/lib/testnetBetaBootstrap.js` | Renderer-side helper that writes bootstrap peer config. Update this when the `peers.toml` structure changes. |
-| `scripts/release/build-bundle-prep.sh` | Release prep entry point. Rebuilds deterministic runtime artifacts before packaging the app. |
+| `scripts/release/build-bundle-prep.sh` | Release prep entry point. Rebuilds deterministic runtime artifacts, validates the committed installer templates, and leaves installer packaging to GitHub Actions. |
 
 ## Generated Files
 
@@ -48,7 +47,7 @@ Today, the control panel deploys validators from the generated bundles under:
 If `genesis-nodes/.../setup-packages/` or related folders are still kept around, treat them as downstream export copies only. The safe rule is:
 
 1. Update the generator inside `node-control-panel/`.
-2. Regenerate installer assets.
+2. Refresh the committed installer assets under `testbeta/runtime/installers/`.
 3. Sync any legacy `genesis-nodes/` copies from the regenerated control-panel output.
 
 Do not make the same config change independently in both places.
@@ -62,9 +61,9 @@ Example: changing timeout values, quorum thresholds, peer lists, bootstrap behav
 Update the relevant generators:
 
 1. `control-service/src/testnet_beta.rs`
-2. `scripts/testbeta/build-node-installers.sh`
-3. `scripts/testbeta/render-configs.sh`
-4. `src/lib/testnetBetaBootstrap.js` if `peers.toml` changed
+2. `scripts/testbeta/render-configs.sh`
+3. `src/lib/testnetBetaBootstrap.js` if `peers.toml` changed
+4. Refresh the committed installer assets under `testbeta/runtime/installers/`
 
 ### Case 2: New config key or renamed config key
 
@@ -86,14 +85,13 @@ If the runtime parser and the control-panel generator are not updated together, 
 Use this checklist every time validator setup behavior changes.
 
 1. Update `control-service/src/testnet_beta.rs` so live app-created validator workspaces use the new values.
-2. Update `scripts/testbeta/build-node-installers.sh` so bundled installers and `setup-package.json` carry the same values.
-3. Update `scripts/testbeta/render-configs.sh` so bundled reference configs stay aligned.
-4. Update `src/lib/testnetBetaBootstrap.js` if `peers.toml` generation changed.
-5. If the key is new, update the core runtime parser/consumer in `../src/...`.
-6. Regenerate runtime artifacts.
-7. Verify generated `node.toml`, `peers.toml`, and `setup-package.json`.
-8. Rebuild the app bundle if this is a release or installer handoff.
-9. Only after regeneration, sync any legacy `genesis-nodes/` package copies that still need to exist.
+2. Update `scripts/testbeta/render-configs.sh` so bundled reference configs stay aligned.
+3. Update `src/lib/testnetBetaBootstrap.js` if `peers.toml` generation changed.
+4. If the key is new, update the core runtime parser/consumer in `../src/...`.
+5. Refresh the committed installer assets under `testbeta/runtime/installers/`.
+6. Verify generated `node.toml`, `peers.toml`, and `setup-package.json`.
+7. Rebuild the app bundle if this is a release or installer handoff.
+8. Only after regeneration, sync any legacy `genesis-nodes/` package copies that still need to exist.
 
 ## Regenerate Artifacts
 
@@ -101,8 +99,6 @@ Run from `node-control-panel/`:
 
 ```bash
 bash scripts/testbeta/render-configs.sh
-bash scripts/testbeta/build-node-installers.sh
-bash scripts/testbeta/sync-legacy-setup-packages.sh
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 ```
 
@@ -261,8 +257,8 @@ Type: `Manual`
 Update the control-panel generator code first:
 
 - `control-service/src/testnet_beta.rs`
-- `scripts/testbeta/build-node-installers.sh`
 - `scripts/testbeta/render-configs.sh`
+- `testbeta/runtime/installers/*` bundled installer templates and `keys/setup-package.json`
 - `src/lib/testnetBetaBootstrap.js` when `peers.toml` generation changes
 - `.github/workflows/release.yml` only when the packaging workflow itself changes
 
@@ -321,8 +317,6 @@ Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-p
 cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
 
 bash scripts/testbeta/render-configs.sh
-bash scripts/testbeta/build-node-installers.sh
-bash scripts/testbeta/sync-legacy-setup-packages.sh
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 npm run build:bundle-prep
 ```
 
@@ -331,7 +325,7 @@ What that manual bundle-prep command does:
 1. Refreshes `binaries/*.sha256`.
 2. Syncs canonical genesis into `testbeta/runtime/configs/genesis/genesis.json`.
 3. Re-renders `testbeta/runtime/configs/*.toml`.
-4. Rebuilds `testbeta/runtime/installers/*`.
+4. Validates the committed `testbeta/runtime/installers/*` templates that GitHub Actions will package.
 5. Rewrites `testbeta/runtime/workspace-manifest.json`.
 6. Validates the bundled validator mesh settings.
 7. Rebuilds the renderer assets under `dist/`.
@@ -368,7 +362,6 @@ Run from `/Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-p
 cd /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/node-control-panel
 
 bash -n scripts/testbeta/render-configs.sh
-bash -n scripts/testbeta/build-node-installers.sh
 bash -n scripts/release/validate-bundled-assets.sh
 bash -n scripts/release.sh
 
@@ -421,7 +414,6 @@ git add docs/developer/testnet-beta-validator-update-workflow.md
 git add package.json
 git add scripts/testbeta/sync-legacy-setup-packages.sh
 git add scripts/testbeta/render-configs.sh
-git add scripts/testbeta/build-node-installers.sh
 git add scripts/release/validate-bundled-assets.sh
 git add testbeta/runtime/configs
 git add testbeta/runtime/installers

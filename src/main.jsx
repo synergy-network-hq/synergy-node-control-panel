@@ -8,6 +8,7 @@ import './styles/animations.css';
 import './styles/synergy.css';
 import './styles.css';
 import './styles/monitor.css';
+import './styles/controlPanelRevamp.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

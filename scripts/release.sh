@@ -95,7 +95,7 @@ git add control-service/Cargo.lock 2>/dev/null || true
 git add control-service/src/testnet_beta.rs
 git add templates/validator.toml
 git add scripts/release.sh scripts/release/build-bundle-prep.sh scripts/release/preflight.sh scripts/release/generate-latest-json.sh scripts/release/validate-bundled-assets.sh
-git add scripts/testbeta/build-node-installers.sh scripts/testbeta/build-validator-rpc-installer.sh scripts/testbeta/render-configs.sh
+git add scripts/testbeta/render-configs.sh
 git add testbeta/runtime/configs testbeta/runtime/installers testbeta/runtime/workspace-manifest.json
 git add .github/workflows/release.yml electron-builder.yml 2>/dev/null || true
 git commit -m "chore: bump version to $VERSION"

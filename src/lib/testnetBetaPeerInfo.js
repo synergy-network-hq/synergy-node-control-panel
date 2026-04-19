@@ -27,10 +27,18 @@ function parsePeerEndpoint(value) {
 
 function hasAssignedSynergyEndpoint(value) {
   const host = parsePeerEndpoint(value)?.host || '';
-  return host.endsWith('.synergynode.xyz');
+  return /^10\.69\.0\.\d+$/.test(host)
+    || host.endsWith('.synergynode.xyz')
+    || host.endsWith('.synergyvps.xyz')
+    || host.endsWith('.synergy-network.io');
 }
 
 const CANONICAL_VALIDATOR_HOSTS = new Map([
+  ['10.69.0.1', 'synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra'],
+  ['10.69.0.2', 'synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu'],
+  ['10.69.0.3', 'synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu'],
+  ['10.69.0.4', 'synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49'],
+  ['10.69.0.5', 'synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46'],
   ['genesisval1.synergynode.xyz', 'synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra'],
   ['genesisval2.synergynode.xyz', 'synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu'],
   ['genesisval3.synergynode.xyz', 'synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu'],

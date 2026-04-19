@@ -121,6 +121,26 @@ a.snrgfx-btn:focus-visible,
   filter: grayscale(0.18);
 }
 
+.snrgfx-btn:disabled::after,
+.snrgfx-btn[disabled]::after,
+.snrgfx-btn[aria-disabled="true"]::after {
+  content: "Soon";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.24rem 0.52rem;
+  border-radius: 999px;
+  background: rgba(62, 247, 161, 0.96);
+  color: #04101b;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 0 0 1px rgba(4, 16, 27, 0.16), 0 0 18px rgba(62, 247, 161, 0.24);
+  z-index: 2;
+}
+
 .snrgfx-btn-block {
   width: 100%;
 }

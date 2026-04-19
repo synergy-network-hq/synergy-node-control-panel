@@ -1,4 +1,4 @@
-import { brandLogoSrc } from '../lib/runtimeAssets';
+import { splashBrandGifSrc } from '../lib/runtimeAssets';
 
 function StartupLoadingScreen({ progress, phase }) {
   const clamped = Math.max(0, Math.min(100, Number(progress || 0)));
@@ -26,7 +26,7 @@ function StartupLoadingScreen({ progress, phase }) {
 
       <div className={`startup-brand-stage ${showBrand ? 'show' : ''}`}>
         <div className="startup-logo-wrap">
-          <img src={brandLogoSrc} alt="Synergy Network" className="startup-logo" />
+          <img src={splashBrandGifSrc} alt="Synergy Network" className="startup-logo" />
         </div>
         <div className="startup-progress-wrap">
           <div className="startup-progress-track">

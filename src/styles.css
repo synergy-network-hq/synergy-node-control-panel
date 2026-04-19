@@ -3037,6 +3037,10 @@ code {
   min-width: 0;
 }
 
+.settings-shell-column-console {
+  min-height: 0;
+}
+
 .settings-shell-panel {
   display: flex;
   flex-direction: column;
@@ -3579,7 +3583,9 @@ code {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-height: 420px;
+  min-height: 320px;
+  height: min(52vh, 560px);
+  max-height: 560px;
   border-radius: 1rem;
   border: 1px solid rgba(34, 211, 238, 0.22);
   background: linear-gradient(180deg, #08101b, #060b12);

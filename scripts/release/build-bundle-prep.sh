@@ -111,8 +111,7 @@ sync_canonical_runtime_assets() {
   ./scripts/testbeta/generate-node-keys.sh
   echo "Rendering canonical Testnet-Beta configs"
   ./scripts/testbeta/render-configs.sh
-  echo "Building canonical Testnet-Beta installers"
-  ./scripts/testbeta/build-node-installers.sh
+  echo "Using committed canonical Testnet-Beta installer templates"
 }
 
 # Ensure Unix platform binaries are executable
