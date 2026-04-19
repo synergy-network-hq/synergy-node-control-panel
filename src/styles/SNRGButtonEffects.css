@@ -121,9 +121,10 @@ a.snrgfx-btn:focus-visible,
   filter: grayscale(0.18);
 }
 
-.snrgfx-btn:disabled::after,
-.snrgfx-btn[disabled]::after,
-.snrgfx-btn[aria-disabled="true"]::after {
+/* SOON badge is opt-in via data-soon="true" so most disabled buttons stay clean. */
+.snrgfx-btn[data-soon="true"]:disabled::after,
+.snrgfx-btn[data-soon="true"][disabled]::after,
+.snrgfx-btn[data-soon="true"][aria-disabled="true"]::after {
   content: "Soon";
   position: absolute;
   top: 50%;
@@ -220,6 +221,22 @@ a.snrgfx-btn:focus-visible,
   --snrgfx-btn-hover-border: #00ff66;
   --snrgfx-btn-hover-shadow: rgba(0, 255, 102, 0.34);
   --snrgfx-btn-text: #dfffe9;
+}
+
+.snrgfx-btn-green {
+  --snrgfx-btn-bg: rgba(6, 22, 16, 0.82);
+  --snrgfx-btn-border: rgba(62, 247, 161, 0.62);
+  --snrgfx-btn-hover-border: #3ef7a1;
+  --snrgfx-btn-hover-shadow: rgba(62, 247, 161, 0.34);
+  --snrgfx-btn-text: #d6ffe7;
+}
+
+.snrgfx-btn-orange {
+  --snrgfx-btn-bg: rgba(28, 16, 8, 0.82);
+  --snrgfx-btn-border: rgba(255, 154, 90, 0.6);
+  --snrgfx-btn-hover-border: #ff9a5a;
+  --snrgfx-btn-hover-shadow: rgba(255, 154, 90, 0.34);
+  --snrgfx-btn-text: #ffe5cf;
 }
 
 .snrgfx-btn-grid-hero {

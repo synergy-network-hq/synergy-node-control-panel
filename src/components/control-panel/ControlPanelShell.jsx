@@ -423,8 +423,8 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
   };
 
   return (
-    <div className="cp-shell-frame">
-      <div className="cp-shell">
+    <div className="cp-shell-frame" data-cp-mode={viewMode}>
+      <div className="cp-shell" data-cp-mode={viewMode}>
         <aside className="cp-sidebar">
           <div className="cp-sidebar-brand">
             <div className="cp-sidebar-brand-copy">
@@ -451,6 +451,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
                   key={item.label}
                   type="button"
                   className="cp-nav-link is-disabled"
+                  data-soon={item.label === 'Documentation' ? 'true' : undefined}
                   disabled
                 >
                   <span className="material-icons" aria-hidden="true">{item.icon}</span>
@@ -549,7 +550,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
               >
                 {updateButtonLabel(updateState)}
               </button>
-              <button type="button" className="cp-update-button cp-wallet-button" disabled>
+              <button type="button" className="cp-update-button cp-wallet-button" data-soon="true" disabled>
                 Connect Wallet
               </button>
             </div>

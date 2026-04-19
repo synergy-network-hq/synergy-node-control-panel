@@ -12,6 +12,8 @@ const VARIANT_CLASS_MAP = {
   community: 'snrgfx-btn-community',
   lime: 'snrgfx-btn-lime',
   presale: 'snrgfx-btn-presale',
+  green: 'snrgfx-btn-green',
+  orange: 'snrgfx-btn-orange',
 };
 
 const SIZE_CLASS_MAP = {

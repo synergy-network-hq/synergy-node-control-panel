@@ -300,6 +300,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const [terminalInput, setTerminalInput] = useState('');
   const [terminalLines, setTerminalLines] = useState([]);
   const [terminalVisible, setTerminalVisible] = useState(false);
+  const [showDeveloperPanel, setShowDeveloperPanel] = useState(false);
 
   const activeRoleCatalog = useMemo(
     () => (setupMode === 'ceremony' ? CEREMONY_ROLE_OPTIONS : nodeCatalog),
@@ -571,51 +572,61 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       await queueJarvisMessages([
         {
           text: 'Hello, and welcome.',
-          typingMs: 480,
-          pauseMs: 220,
+          typingMs: 1400,
+          pauseMs: 1600,
         },
         {
           text: 'I am Jarvis, your setup assistant.',
-          typingMs: 620,
-          pauseMs: 240,
+          typingMs: 1700,
+          pauseMs: 1700,
         },
       ]);
 
       await refreshState(false);
+      await refreshPublicHost({ announce: true });
 
       await queueJarvisMessages([
         {
-          text: 'I will help you set up a Synergy node on this computer.',
-          typingMs: 740,
-          pauseMs: 240,
+          text: 'I will help you set up a Synergy validator on this computer.',
+          typingMs: 2100,
+          pauseMs: 1800,
         },
         {
-          text: 'I will ask a few simple questions, create a private folder for the node, and prepare the control panel for it.',
-          typingMs: 960,
-          pauseMs: 260,
+          text: 'I will create a private workspace folder for the node, generate its wallet, write its runtime configuration, and prepare its required stake — all automatically.',
+          typingMs: 2600,
+          pauseMs: 1900,
+        },
+        {
+          text: 'Before I begin, I just need to know one thing.',
+          typingMs: 1500,
+          pauseMs: 1600,
+        },
+        {
+          text: 'What type of validator would you like to set up?',
+          typingMs: 1600,
+          pauseMs: 1200,
         },
       ]);
 
-      await refreshPublicHost({ announce: true });
       setPhase('await_node_type');
     } catch (error) {
       addTerminalLine('error', `Failed to initialize Testnet-Beta setup: ${String(error)}`);
       await queueJarvisMessages([
         {
-          text: 'I ran into a problem while getting setup ready.',
-          typingMs: 640,
-          pauseMs: 220,
+          text: 'Something interrupted setup on my end.',
+          typingMs: 1500,
+          pauseMs: 1400,
         },
         {
-          text: 'You can restart setup once the issue is cleared.',
-          typingMs: 820,
+          text: 'Please close and reopen the control panel to try again.',
+          typingMs: 1700,
         },
       ]);
       setPhase('error');
     } finally {
       setRunning(false);
     }
-  }, [addTerminalLine, queueJarvisMessages, refreshState]);
+  }, [addTerminalLine, queueJarvisMessages, refreshPublicHost, refreshState]);
 
   useEffect(() => {
     if (initializedRef.current) return;
@@ -983,6 +994,16 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       return;
     }
 
+    if (/^developer data please$/i.test(trimmedValue)) {
+      setShowDeveloperPanel((prev) => !prev);
+      await queueJarvisMessage(
+        showDeveloperPanel
+          ? 'Developer panel hidden.'
+          : 'Developer panel unlocked. Setup diagnostics are now visible on the right.',
+      );
+      return;
+    }
+
     if (/^(i need a terminal|open terminal|show terminal)$/i.test(trimmedValue)) {
       setTerminalVisible(true);
       await queueJarvisMessage('Opening the local setup terminal at the bottom of the screen. You can inspect the workspace or run commands there any time.');
@@ -991,7 +1012,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
     if (/^(hide terminal|close terminal)$/i.test(trimmedValue)) {
       setTerminalVisible(false);
-      await queueJarvisMessage('Terminal hidden. Say "I need a terminal" whenever you want it back.');
+      await queueJarvisMessage('Terminal hidden.');
       return;
     }
 
@@ -1053,9 +1074,37 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     }
 
     if (phase === 'await_node_type') {
-      const nextRole = nodeCatalog.find((entry) => entry.id === trimmedValue);
+      const normalized = trimmedValue.toLowerCase();
+      const nextRole = nodeCatalog.find((entry) => {
+        const id = String(entry?.id || '').toLowerCase();
+        const display = String(entry?.display_name || '').toLowerCase();
+        const klass = String(entry?.class_name || '').toLowerCase();
+        return id === normalized
+          || display === normalized
+          || klass === normalized
+          || display.includes(normalized)
+          || id.startsWith(normalized);
+      });
+
       if (!nextRole) {
-        await queueJarvisMessage('Choose one of the node types in the list or type "genesis setup" to switch into ceremony mode.');
+        const options = nodeCatalog
+          .map((entry) => entry.display_name)
+          .filter(Boolean)
+          .slice(0, 6)
+          .join(', ');
+        await queueJarvisMessages([
+          {
+            text: "I didn't recognize that validator type.",
+            typingMs: 1400,
+            pauseMs: 1400,
+          },
+          {
+            text: options
+              ? `You can pick any of these: ${options}.`
+              : 'Please try again with a valid validator type name.',
+            typingMs: 1800,
+          },
+        ]);
         return;
       }
 
@@ -1068,16 +1117,33 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
       await queueJarvisMessages([
         {
-          text: `${nextRole.display_name} selected. I will set this computer up for that job.`,
-          typingMs: 760,
-          pauseMs: 220,
+          text: `Perfect — ${nextRole.display_name}.`,
+          typingMs: 1400,
+          pauseMs: 1500,
         },
         {
-          text: 'Take a quick look at the computer details on the right. If they look right, continue. If not, refresh and I will check again.',
-          typingMs: 1040,
+          text: `I'll set up a private workspace at ${nextDirectory}.`,
+          typingMs: 2100,
+          pauseMs: 1800,
+        },
+        {
+          text: 'Generating the node wallet now.',
+          typingMs: 1500,
+          pauseMs: 1600,
+        },
+        {
+          text: 'Writing the runtime configuration and peer list.',
+          typingMs: 1700,
+          pauseMs: 1700,
+        },
+        {
+          text: 'Preparing the required 5,000 SNRG stake.',
+          typingMs: 1600,
+          pauseMs: 1600,
         },
       ]);
-      setPhase('review_device');
+
+      await runProvision();
       return;
     }
 
@@ -1255,7 +1321,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     }
 
     if (phase === 'error') {
-      await queueJarvisMessage('Type restart to try setup again, say "genesis setup" to switch into ceremony mode, or say "not now jarvis" and I will take you to the dashboard.');
+      await queueJarvisMessage('Something interrupted setup. Please close and reopen the control panel to try again.');
     }
   }, [
     ceremonyPackagePath,
@@ -1278,6 +1344,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     selectedRole?.package_hint,
     selectedRoleId,
     setupMode,
+    showDeveloperPanel,
   ]);
 
   const submitChat = useCallback(async (event) => {
@@ -1485,15 +1552,15 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     : ['Jarvis will append a unique suffix automatically if the requested workspace path is already in use.'];
 
   return (
-    <section className={`jarvis-shell ${shellReady ? 'is-ready' : ''}`}>
+    <section
+      className={`jarvis-shell ${shellReady ? 'is-ready' : ''}`}
+      data-developer={showDeveloperPanel ? 'true' : 'false'}
+    >
       <div className="jarvis-layout">
         <article className="jarvis-chat-stage">
           <div className="jarvis-panel-header">
             <div>
-              <h2 className="jarvis-panel-title">Setup Assistant</h2>
-            </div>
-            <div className={`jarvis-phase-chip jarvis-phase-chip-${setupStatus.tone} ${running ? 'is-active' : ''}`}>
-              {setupStatus.label}
+              <h2 className="jarvis-panel-title">Welcome!</h2>
             </div>
           </div>
 
@@ -1523,143 +1590,23 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             </div>
 
             <div className="jarvis-chat-controls">
-              {!typing && promptConfig.kind === 'choices' ? (
-                <div className="jarvis-choice-list">
-                  {promptConfig.options.map((option) => (
-                    <SNRGButton
-                      key={option.value}
-                      as="button"
-                      variant="blue"
-                      size="sm"
-                      className="jarvis-choice-pill"
-                      onClick={() => submitChoice(option.value, option.label)}
-                      disabled={running}
-                    >
-                      {option.label}
-                    </SNRGButton>
-                  ))}
-                </div>
-              ) : null}
-
-              {promptConfig.kind === 'select' ? (
-                <form className="jarvis-select-row" onSubmit={submitSelect}>
-                  <select value={selectValue} onChange={(event) => setSelectValue(event.target.value)} disabled={running}>
-                    {promptConfig.options.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <SNRGButton as="button" type="submit" variant="blue" size="sm" disabled={running || !selectValue}>
-                    Continue
-                  </SNRGButton>
-                </form>
-              ) : null}
-
-              {promptConfig.kind === 'package' ? (
-                <div className="jarvis-choice-list">
-                  <SNRGButton
-                    as="button"
-                    variant="blue"
-                    size="sm"
-                    className="jarvis-choice-pill"
-                    onClick={() => {
-                      void selectCeremonyPackage();
-                    }}
-                    disabled={running}
-                  >
-                    Select Package
-                  </SNRGButton>
-                  <SNRGButton
-                    as="button"
-                    variant="blue"
-                    size="sm"
-                    className="jarvis-choice-pill"
-                    onClick={() => {
-                      void runCeremonyImport();
-                    }}
-                    disabled={running || !ceremonyPackagePath}
-                  >
-                    Import Package
-                  </SNRGButton>
-                  <SNRGButton
-                    as="button"
-                    variant="blue"
-                    size="sm"
-                    className="jarvis-choice-pill"
-                    onClick={() => {
-                      void handoffToDashboard();
-                    }}
-                    disabled={running}
-                  >
-                    Return to Dashboard
-                  </SNRGButton>
-                </div>
-              ) : null}
-
-              {!hidePromptHint && promptConfig.hint ? (
-                <p className="jarvis-chat-hint">{promptConfig.hint}</p>
-              ) : null}
-
-              {promptConfig.kind === 'package' && ceremonyPackagePath ? (
-                <p className="jarvis-chat-hint">Selected package: {ceremonyPackagePath}</p>
-              ) : null}
-
               <form className="jarvis-chat-form" onSubmit={submitChat}>
                 <input
                   type="text"
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  placeholder={promptConfig.placeholder || 'Type a message for Jarvis'}
+                  placeholder="Type your reply here"
                   disabled={chatInputLocked}
                 />
                 <SNRGButton as="button" type="submit" variant="blue" size="sm" disabled={chatInputLocked || !input.trim()}>
                   Send
                 </SNRGButton>
               </form>
-
-              <div className="jarvis-choice-list jarvis-choice-list-utility">
-                <SNRGButton
-                  as="button"
-                  variant="blue"
-                  size="sm"
-                  className="jarvis-choice-pill"
-                  onClick={() => {
-                    void submitChoice('I need a terminal');
-                  }}
-                  disabled={running}
-                >
-                  I need a terminal
-                </SNRGButton>
-                <SNRGButton
-                  as="button"
-                  variant="blue"
-                  size="sm"
-                  className="jarvis-choice-pill"
-                  onClick={() => {
-                    void submitChoice('genesis setup');
-                  }}
-                  disabled={running}
-                >
-                  Genesis setup
-                </SNRGButton>
-                <SNRGButton
-                  as="button"
-                  variant="blue"
-                  size="sm"
-                  className="jarvis-choice-pill"
-                  onClick={() => {
-                    void submitChoice('not now jarvis', 'Return to dashboard');
-                  }}
-                  disabled={running}
-                >
-                  Return to dashboard
-                </SNRGButton>
-              </div>
             </div>
           </div>
         </article>
 
+        {showDeveloperPanel ? (
         <aside className="jarvis-side-stage">
           <section className="jarvis-detail-card">
             <div className="jarvis-detail-header">
@@ -1779,6 +1726,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             </section>
           ) : null}
         </aside>
+        ) : null}
       </div>
 
       {terminalVisible ? (
@@ -1819,26 +1767,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             </SNRGButton>
           </form>
         </div>
-      ) : (
-        <div className="jarvis-terminal-callout">
-          <div>
-            <span className="jarvis-chat-author">Jarvis</span>
-            <strong>Need direct shell access?</strong>
-            <p>Say “I need a terminal” and I will open a local terminal here without leaving the conversational setup flow.</p>
-          </div>
-          <SNRGButton
-            as="button"
-            variant="blue"
-            size="sm"
-            onClick={() => {
-              void submitChoice('I need a terminal');
-            }}
-            disabled={running}
-          >
-            Open terminal
-          </SNRGButton>
-        </div>
-      )}
+      ) : null}
     </section>
   );
 }

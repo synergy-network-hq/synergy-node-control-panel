@@ -24,6 +24,108 @@ import {
 } from './ControlPanelShared';
 import { boostSyncAction, registerWithSeedsAction } from './controlPanelActions';
 
+/** Global Peer Map — shows regional clusters (Expert mode). */
+function ConnectivityMapExpert({ title, detail, model, action }) {
+  const regions = [
+    { id: 'na', label: 'North America', x: 22, y: 38 },
+    { id: 'eu', label: 'Europe', x: 50, y: 32 },
+    { id: 'ap', label: 'Asia Pacific', x: 78, y: 44 },
+  ];
+  // Distribute peers across the three regions deterministically.
+  const bucketed = { na: [], eu: [], ap: [] };
+  (model.peers || []).forEach((peer, index) => {
+    const bucket = ['na', 'eu', 'ap'][index % 3];
+    bucketed[bucket].push(peer);
+  });
+
+  return (
+    <PanelCard title={title} detail={detail} action={action}>
+      <div className="cp-topology-map cp-topology-map-global">
+        <svg className="cp-topology-world" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
+          {/* Stylized continental blobs */}
+          <path d="M8 22 Q18 14 28 18 T48 22 L46 34 Q30 40 18 36 Q10 30 8 22 Z" />
+          <path d="M42 18 Q52 12 60 16 T70 22 L68 30 Q58 32 50 28 Q44 24 42 18 Z" />
+          <path d="M66 26 Q76 20 86 24 T92 38 L88 46 Q78 48 70 44 Q66 36 66 26 Z" />
+        </svg>
+        {regions.map((region) => (
+          <div
+            key={region.id}
+            className="cp-topology-region"
+            style={{ left: `${region.x}%`, top: `${region.y}%` }}
+          >
+            <div className="cp-topology-node is-center tone-cyan">
+              <span className="material-icons">public</span>
+            </div>
+            <div className="cp-topology-label">
+              <strong>{region.label}</strong>
+              <span>{bucketed[region.id].length} peers</span>
+              <small>
+                {bucketed[region.id][0]?.metric || '—'}
+              </small>
+            </div>
+          </div>
+        ))}
+      </div>
+    </PanelCard>
+  );
+}
+
+/** P2P hemisphere + gossip protocol stats (Developer mode). */
+function ConnectivityMapDeveloper({ title, detail, model, action }) {
+  const peers = (model.peers || []).slice(0, 12);
+  const meshDegree = peers.length;
+  const fanout = Math.min(6, Math.max(1, Math.round(meshDegree / 2)));
+
+  return (
+    <PanelCard title={title} detail={detail} action={action}>
+      <div className="cp-topology-map cp-topology-map-hemi">
+        <svg viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true" className="cp-topology-hemi-svg">
+          <defs>
+            <radialGradient id="hemi-grad" cx="50%" cy="100%" r="80%">
+              <stop offset="0%" stopColor="rgba(62,247,161,0.32)" />
+              <stop offset="100%" stopColor="rgba(62,247,161,0.02)" />
+            </radialGradient>
+          </defs>
+          <path d="M4 56 A46 46 0 0 1 96 56 Z" fill="url(#hemi-grad)" stroke="rgba(62,247,161,0.35)" strokeWidth="0.6" />
+          {/* latitude arcs */}
+          {[44, 32, 20].map((r) => (
+            <path key={r} d={`M${50 - r} 56 A${r} ${r} 0 0 1 ${50 + r} 56`} fill="none" stroke="rgba(62,247,161,0.16)" strokeWidth="0.3" />
+          ))}
+          {/* gossip links */}
+          {peers.map((peer, idx) => {
+            const angle = Math.PI - (Math.PI * (idx + 0.5)) / peers.length;
+            const r = 38;
+            const x = 50 + r * Math.cos(angle);
+            const y = 56 - r * Math.sin(angle);
+            return (
+              <g key={peer.id || idx}>
+                <line x1="50" y1="56" x2={x} y2={y} stroke="rgba(62,247,161,0.35)" strokeWidth="0.35" strokeDasharray="1 1" />
+                <circle cx={x} cy={y} r="1.4" fill="#3ef7a1" />
+              </g>
+            );
+          })}
+          <circle cx="50" cy="56" r="3" fill="#3ef7a1" />
+        </svg>
+
+        <div className="cp-topology-hemi-stats">
+          <div>
+            <span>Mesh degree</span>
+            <strong>{meshDegree}</strong>
+          </div>
+          <div>
+            <span>Gossip fanout</span>
+            <strong>{fanout}</strong>
+          </div>
+          <div>
+            <span>Avg hop</span>
+            <strong>{peers.length ? `${Math.max(1, Math.round(Math.log2(peers.length + 1)))}` : '—'}</strong>
+          </div>
+        </div>
+      </div>
+    </PanelCard>
+  );
+}
+
 export default function ControlPanelConnectivityPage() {
   const {
     error,
@@ -192,11 +294,8 @@ export default function ControlPanelConnectivityPage() {
   return (
     <div className="cp-page-stack">
       <SectionHeader
-        eyebrow={viewMode === 'basic' ? 'Network View' : 'Connectivity View'}
+        eyebrow={viewMode === 'basic' ? 'Network' : 'Connectivity'}
         title={viewMode === 'basic' ? 'Connection Map' : viewMode === 'expert' ? 'Peer Topology' : 'P2P Telemetry'}
-        copy={viewMode === 'basic'
-          ? 'A simpler view of how this node is connected to the wider Synergy network.'
-          : 'Mesh status, route quality, bootstrap health, and node readiness in one place.'}
         actions={(
           <>
             <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>
@@ -222,15 +321,18 @@ export default function ControlPanelConnectivityPage() {
 
       <div className="cp-dashboard-grid">
         <div className="cp-dashboard-main">
-          <TopologyMap
-            title={viewMode === 'basic' ? 'Who your node sees' : 'Live topology map'}
-            detail={localPeerLoading
+          {(() => {
+            const mapTitle = viewMode === 'basic'
+              ? 'Who your node sees'
+              : viewMode === 'expert'
+                ? 'Global peer map'
+                : 'P2P gossip mesh';
+            const mapDetail = localPeerLoading
               ? 'Refreshing live peer sessions…'
               : (localPeerInfo?.peerCount
                 ? `${formatNumber(localPeerInfo.peerCount)} peers visible from the selected node`
-                : 'Falling back to bootstrap reachability and public network probes.')}
-            model={topologyModel}
-            action={(
+                : 'Falling back to bootstrap reachability and public network probes.');
+            const mapAction = (
               <SNRGButton
                 variant="blue"
                 size="sm"
@@ -239,8 +341,37 @@ export default function ControlPanelConnectivityPage() {
               >
                 {actionBusy === 'register' ? 'Registering...' : 'Re-register'}
               </SNRGButton>
-            )}
-          />
+            );
+
+            if (viewMode === 'expert') {
+              return (
+                <ConnectivityMapExpert
+                  title={mapTitle}
+                  detail={mapDetail}
+                  model={topologyModel}
+                  action={mapAction}
+                />
+              );
+            }
+            if (viewMode === 'developer') {
+              return (
+                <ConnectivityMapDeveloper
+                  title={mapTitle}
+                  detail={mapDetail}
+                  model={topologyModel}
+                  action={mapAction}
+                />
+              );
+            }
+            return (
+              <TopologyMap
+                title={mapTitle}
+                detail={mapDetail}
+                model={topologyModel}
+                action={mapAction}
+              />
+            );
+          })()}
 
           <MetricBars
             title={viewMode === 'basic' ? 'Connection quality' : 'Route quality bars'}

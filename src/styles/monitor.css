@@ -2227,6 +2227,77 @@
   animation-delay: 150ms;
 }
 
+/* Default (no developer panel): center the chat stage and fly it in from the bottom */
+.jarvis-shell[data-developer="false"] {
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+  padding: 2rem 1.2rem;
+  overflow: hidden;
+}
+
+.jarvis-shell[data-developer="false"] .jarvis-layout {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 760px;
+  min-height: 0;
+  justify-content: center;
+  align-self: center;
+}
+
+.jarvis-shell[data-developer="false"] .jarvis-chat-stage {
+  width: 100%;
+  max-width: 760px;
+  height: min(82vh, 720px);
+  max-height: calc(100dvh - 4rem);
+  margin: 0 auto;
+}
+
+.jarvis-shell[data-developer="false"] .jarvis-chat-window {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.jarvis-shell[data-developer="false"] .jarvis-chat-log {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(118, 216, 255, 0.35) transparent;
+}
+
+.jarvis-shell[data-developer="false"] .jarvis-chat-log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.jarvis-shell[data-developer="false"] .jarvis-chat-log::-webkit-scrollbar-thumb {
+  background: rgba(118, 216, 255, 0.28);
+  border-radius: 999px;
+}
+
+.jarvis-shell[data-developer="false"] .jarvis-chat-log::-webkit-scrollbar-thumb:hover {
+  background: rgba(118, 216, 255, 0.48);
+}
+
+.jarvis-shell[data-developer="false"].is-ready .jarvis-chat-stage {
+  animation: jarvis-fly-in-bottom 720ms cubic-bezier(0.18, 0.82, 0.2, 1) both;
+}
+
+@keyframes jarvis-fly-in-bottom {
+  0% {
+    opacity: 0;
+    transform: translateY(72px) scale(0.985);
+    filter: blur(6px);
+  }
+  60% {
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
 .jarvis-chat-stage {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

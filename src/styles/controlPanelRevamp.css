@@ -37,7 +37,65 @@
   --cp-gold: #ffcb65;
   --cp-warn: #ffb15f;
   --cp-bad: #ff7d88;
+  --cp-good: #3ef7a1;
+  --cp-green: #3ef7a1;
+  --cp-orange: #ff9a5a;
+  --cp-red: #ff7d88;
+  --cp-yellow: #ffcb65;
   --cp-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+
+  /* Mode accent defaults (Basic = blue). Overridden by [data-cp-mode]. */
+  --cp-accent: var(--cp-blue);
+  --cp-accent-rgb: 112, 167, 255;
+  --cp-accent-soft: rgba(112, 167, 255, 0.24);
+  --cp-accent-glow: 0 0 32px rgba(112, 167, 255, 0.28);
+}
+
+[data-cp-mode="basic"] {
+  --cp-accent: var(--cp-blue);
+  --cp-accent-rgb: 112, 167, 255;
+  --cp-accent-soft: rgba(112, 167, 255, 0.24);
+  --cp-accent-glow: 0 0 32px rgba(112, 167, 255, 0.28);
+}
+
+[data-cp-mode="expert"] {
+  --cp-accent: var(--cp-purple);
+  --cp-accent-rgb: 180, 140, 255;
+  --cp-accent-soft: rgba(180, 140, 255, 0.24);
+  --cp-accent-glow: 0 0 32px rgba(180, 140, 255, 0.28);
+}
+
+[data-cp-mode="developer"] {
+  --cp-accent: var(--cp-lime);
+  --cp-accent-rgb: 62, 247, 161;
+  --cp-accent-soft: rgba(62, 247, 161, 0.24);
+  --cp-accent-glow: 0 0 32px rgba(62, 247, 161, 0.28);
+}
+
+/* Accent surfaces that respond to mode */
+[data-cp-mode] .cp-nav-link.is-active,
+[data-cp-mode] .cp-mode-button.is-active {
+  border-color: var(--cp-accent-soft);
+  background: linear-gradient(90deg, rgba(var(--cp-accent-rgb), 0.18), rgba(10, 24, 40, 0.96));
+  color: var(--cp-text);
+  box-shadow: inset 0 0 0 1px rgba(var(--cp-accent-rgb), 0.22), var(--cp-accent-glow);
+}
+
+[data-cp-mode] .cp-topology-node.is-center {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(var(--cp-accent-rgb), 0.45), rgba(13, 27, 43, 0.92));
+  border-color: rgba(var(--cp-accent-rgb), 0.5);
+  box-shadow: 0 0 0 1px rgba(var(--cp-accent-rgb), 0.12), var(--cp-accent-glow);
+}
+
+[data-cp-mode] .cp-status-pill.is-live {
+  color: var(--cp-accent);
+}
+
+[data-cp-mode] .cp-chip-button.is-active {
+  border-color: rgba(var(--cp-accent-rgb), 0.42);
+  background: rgba(var(--cp-accent-rgb), 0.12);
+  color: var(--cp-text);
 }
 
 html,
@@ -107,10 +165,10 @@ body,
 .cp-eyebrow {
   display: inline-block;
   font-family: 'Orbitron Local', var(--snrg-font-tech), sans-serif;
-  font-size: 0.78rem;
+  font-size: 0.65rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--cp-cyan);
+  color: var(--cp-accent, var(--cp-cyan));
 }
 
 .cp-sidebar-brand strong,
@@ -119,10 +177,10 @@ body,
 }
 
 .cp-sidebar-brand strong {
-  font-size: 1.56rem;
-  line-height: 1.05;
+  font-size: 1.12rem;
+  line-height: 1.1;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   color: var(--cp-text);
 }
 
@@ -521,12 +579,13 @@ body,
   position: relative;
 }
 
-.cp-update-button:disabled::after,
-.cp-icon-button:disabled::after,
-.cp-mode-button:disabled::after,
-.cp-chip-button:disabled::after,
-.cp-node-chip:disabled::after,
-.cp-nav-link.is-disabled::after {
+/* SOON badge is opt-in via [data-soon="true"] so only Wallet Connect + Documentation show it. */
+.cp-update-button[data-soon="true"]:disabled::after,
+.cp-icon-button[data-soon="true"]:disabled::after,
+.cp-mode-button[data-soon="true"]:disabled::after,
+.cp-chip-button[data-soon="true"]:disabled::after,
+.cp-node-chip[data-soon="true"]:disabled::after,
+.cp-nav-link.is-disabled[data-soon="true"]::after {
   content: 'Soon';
   position: absolute;
   top: 50%;
@@ -594,16 +653,17 @@ body,
 }
 
 .cp-section-copy h1 {
-  margin-top: 10px;
-  font-size: clamp(2.5rem, 4vw, 4.5rem);
-  line-height: 0.98;
-  letter-spacing: -0.05em;
+  margin-top: 6px;
+  font-size: clamp(1.5rem, 1.6vw, 1.9rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
 }
 
 .cp-section-copy p {
   max-width: 760px;
-  margin-top: 14px;
-  font-size: 1rem;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
 .cp-inline-notice {
@@ -653,8 +713,16 @@ body,
 }
 
 .cp-panel-card-head h3 {
-  margin-top: 8px;
-  font-size: 1.25rem;
+  margin-top: 4px;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+}
+
+.cp-panel-card-head p {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 
 .cp-hero-panel {
@@ -671,8 +739,16 @@ body,
 }
 
 .cp-hero-copy h2 {
-  font-size: clamp(1.8rem, 2.4vw, 2.8rem);
-  margin-bottom: 12px;
+  font-size: clamp(1.25rem, 1.4vw, 1.55rem);
+  margin-bottom: 8px;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.cp-hero-copy p {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--cp-text-soft);
 }
 
 .cp-stat-strip {
@@ -702,21 +778,33 @@ body,
 
 .cp-stat-strip span {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   color: var(--cp-text-muted);
-  font-size: 0.78rem;
+  font-size: 0.65rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .cp-stat-strip strong {
-  font-size: 1.02rem;
+  font-size: 0.9rem;
   color: var(--cp-text);
 }
 
 .cp-action-stack {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cp-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cp-action-grid .snrgfx-btn {
+  min-height: 2.4rem;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.82rem;
 }
 
 .cp-metric-grid {
@@ -755,7 +843,7 @@ body,
 .cp-endpoint-meta small {
   display: block;
   color: var(--cp-text-muted);
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -763,7 +851,9 @@ body,
 .cp-metric-copy strong {
   display: block;
   margin-top: 4px;
-  font-size: clamp(1.1rem, 2vw, 1.75rem);
+  font-size: clamp(1.1rem, 1.3vw, 1.35rem);
+  line-height: 1.15;
+  letter-spacing: -0.005em;
 }
 
 .cp-metric-card.tone-cyan .cp-metric-icon,
@@ -1047,6 +1137,122 @@ body,
   color: var(--cp-text-soft);
 }
 
+/* ============== Expert mode: global peer map ============== */
+.cp-topology-map-global {
+  min-height: 380px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(160, 120, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(9, 8, 22, 0.94), rgba(14, 10, 28, 0.82));
+  border-color: rgba(160, 120, 255, 0.2);
+}
+
+.cp-topology-world {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: rgba(160, 120, 255, 0.08);
+  stroke: rgba(160, 120, 255, 0.24);
+  stroke-width: 0.3;
+}
+
+.cp-topology-region {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.cp-topology-region .cp-topology-node.is-center {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: radial-gradient(circle at 50% 50%, rgba(160, 120, 255, 0.45), rgba(18, 14, 36, 0.95));
+  border-color: rgba(160, 120, 255, 0.45);
+  box-shadow: 0 0 28px rgba(160, 120, 255, 0.22);
+}
+
+.cp-topology-region .cp-topology-node.is-center .material-icons {
+  color: #e5dcff;
+  font-size: 22px;
+}
+
+.cp-topology-region .cp-topology-label {
+  text-align: center;
+  min-width: 140px;
+  background: rgba(14, 10, 28, 0.82);
+  border-color: rgba(160, 120, 255, 0.2);
+}
+
+.cp-topology-region .cp-topology-label strong {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.cp-topology-region .cp-topology-label span {
+  display: block;
+  font-size: 0.72rem;
+  color: rgba(220, 208, 255, 0.82);
+}
+
+.cp-topology-region .cp-topology-label small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.68rem;
+  color: rgba(180, 168, 220, 0.7);
+}
+
+/* ============== Developer mode: P2P gossip hemisphere ============== */
+.cp-topology-map-hemi {
+  min-height: 380px;
+  background:
+    radial-gradient(circle at 50% 96%, rgba(62, 247, 161, 0.08), transparent 48%),
+    linear-gradient(180deg, rgba(3, 11, 20, 0.96), rgba(6, 16, 12, 0.9));
+  border-color: rgba(62, 247, 161, 0.22);
+  padding: 12px 16px 0;
+}
+
+.cp-topology-hemi-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  max-height: 320px;
+}
+
+.cp-topology-hemi-stats {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cp-topology-hemi-stats > div {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(6, 18, 12, 0.78);
+  border: 1px solid rgba(62, 247, 161, 0.22);
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.cp-topology-hemi-stats span {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(180, 228, 200, 0.72);
+}
+
+.cp-topology-hemi-stats strong {
+  font-size: 1.05rem;
+  color: #d8ffe7;
+  font-family: 'JetBrains Mono Local', var(--snrg-font-code), monospace;
+}
+
 .cp-activity-item {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
@@ -1236,6 +1442,136 @@ body,
   font-family: 'JetBrains Mono Local', var(--snrg-font-code), monospace;
   font-size: 0.8rem;
 }
+
+/* Logs page — bounded scroll container */
+.cp-logs-scroll {
+  max-height: min(62vh, 640px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--cp-accent-rgb, 112, 167, 255), 0.35) transparent;
+}
+
+.cp-logs-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cp-logs-scroll::-webkit-scrollbar-thumb {
+  background: rgba(var(--cp-accent-rgb, 112, 167, 255), 0.32);
+  border-radius: 999px;
+}
+
+/* Basic mode — friendly daily activity */
+.cp-logs-basic .cp-activity-item {
+  padding: 14px 16px;
+  border-radius: 18px;
+  border-color: rgba(var(--cp-accent-rgb), 0.18);
+  background: rgba(9, 22, 38, 0.68);
+}
+
+.cp-logs-basic .cp-activity-copy p {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--cp-text-soft);
+}
+
+/* Expert mode — dense timestamp table */
+.cp-logs-table {
+  display: grid;
+  gap: 0;
+  border-radius: 16px;
+  border: 1px solid var(--cp-border);
+  overflow: hidden;
+  background: rgba(7, 18, 31, 0.7);
+}
+
+.cp-logs-table-head,
+.cp-logs-table-row {
+  display: grid;
+  grid-template-columns: 120px 90px 140px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 14px;
+  align-items: start;
+  font-size: 0.78rem;
+}
+
+.cp-logs-table-head {
+  background: rgba(11, 26, 44, 0.92);
+  color: var(--cp-text-muted);
+  font-family: 'Orbitron Local', var(--snrg-font-tech), sans-serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid rgba(var(--cp-accent-rgb), 0.24);
+}
+
+.cp-logs-table-row {
+  border-top: 1px solid rgba(129, 170, 219, 0.08);
+  color: var(--cp-text-soft);
+}
+
+.cp-logs-table-row:first-child {
+  border-top: 0;
+}
+
+.cp-logs-table-time {
+  font-family: 'JetBrains Mono Local', var(--snrg-font-code), monospace;
+  color: var(--cp-text-muted);
+}
+
+.cp-logs-table-severity {
+  font-family: 'Orbitron Local', var(--snrg-font-tech), sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.cp-logs-table-severity.tone-bad { color: var(--cp-bad); }
+.cp-logs-table-severity.tone-warn { color: var(--cp-warn); }
+.cp-logs-table-severity.tone-good { color: var(--cp-good); }
+.cp-logs-table-severity.tone-cyan { color: var(--cp-cyan); }
+.cp-logs-table-severity.tone-neutral { color: var(--cp-text-muted); }
+
+.cp-logs-table-source {
+  color: var(--cp-text);
+  font-weight: 600;
+}
+
+.cp-logs-table-message {
+  color: var(--cp-text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Developer mode — terminal block */
+.cp-logs-terminal {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(var(--cp-accent-rgb, 62, 247, 161), 0.28);
+  background: #030b14;
+  color: #d4eeff;
+  font-family: 'JetBrains Mono Local', var(--snrg-font-code), monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre;
+  overflow: auto;
+  max-height: min(60vh, 620px);
+}
+
+.cp-logs-terminal .tok-error { color: #ff7d88; }
+.cp-logs-terminal .tok-warn  { color: #ffcb65; }
+.cp-logs-terminal .tok-info  { color: #3ef7a1; }
+.cp-logs-terminal .tok-debug { color: #8da3bf; }
+.cp-logs-terminal .tok-time  { color: rgba(212, 238, 255, 0.62); }
+.cp-logs-terminal .tok-src   { color: #4be6f7; }
+.cp-logs-terminal .tok-msg   { color: #edf6ff; }
 
 .cp-status-pill {
   display: inline-flex;
@@ -1482,7 +1818,7 @@ body,
   }
 
   .cp-section-copy h1 {
-    font-size: 2.35rem;
+    font-size: 1.4rem;
   }
 
   .cp-metric-grid,

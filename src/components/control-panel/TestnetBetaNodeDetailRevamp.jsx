@@ -37,6 +37,7 @@ import {
 import {
   boostSyncAction,
   registerWithSeedsAction,
+  rejoinNetworkAction,
   restartNodeAction,
   runNodeControlAction,
 } from './controlPanelActions';
@@ -208,6 +209,8 @@ export default function TestnetBetaNodeDetailRevamp() {
 
       if (kind === 'restart') {
         message = await restartNodeAction({ node, network });
+      } else if (kind === 'rejoin') {
+        message = await rejoinNetworkAction({ node, network });
       } else if (kind === 'boost') {
         message = await boostSyncAction(node.id);
       } else if (kind === 'register') {
@@ -243,6 +246,7 @@ export default function TestnetBetaNodeDetailRevamp() {
     [liveStatus, localPeerInfo, node, nodeLive, nodeLiveById, validatorNodesByAddress, viewMode],
   );
 
+  const isRunning = Boolean(nodeLive?.is_running);
   const syncPercent = nodeSyncPercent(nodeLive, liveStatus);
   const signalBars = [
     {
@@ -305,9 +309,6 @@ export default function TestnetBetaNodeDetailRevamp() {
       <SectionHeader
         eyebrow={viewMode === 'basic' ? 'Node View' : 'Node Details'}
         title={node.display_label || roleTypeLabel(node.role_display_name)}
-        copy={viewMode === 'basic'
-          ? 'Health, rewards, network reachability, and the actions most operators actually need.'
-          : 'Identity, readiness, workspace artifacts, and live control actions for the selected node.'}
         actions={(
           <>
             <SNRGButton variant="blue" size="sm" onClick={() => openPath(node.workspace_directory)}>
@@ -330,117 +331,101 @@ export default function TestnetBetaNodeDetailRevamp() {
         <div className="cp-dashboard-main">
           <PanelCard
             className="cp-hero-panel"
-            eyebrow={node.role_id || 'Node'}
-            title={nodeRuntimeLabel(nodeLive)}
+            eyebrow="Controls"
+            title="Node actions"
             detail={node.public_host || node.workspace_directory}
             action={(
-              <StatusPill tone={nodeRuntimeTone(nodeLive)}>
+              <StatusPill tone={nodeRuntimeTone(nodeLive)} live={isRunning}>
                 {nodeRuntimeLabel(nodeLive)}
               </StatusPill>
             )}
           >
-            <div className="cp-hero-layout">
-              <div className="cp-hero-copy">
-                <h2>{viewMode === 'basic' ? 'Node is healthy' : 'Runtime status'}</h2>
-                <p>
-                  {viewMode === 'basic'
-                    ? 'Jarvis is keeping the explanation simple here: how healthy the node is, how connected it is, and whether it needs intervention.'
-                    : 'The runtime, chain, and workspace artifacts stay in one panel so you can inspect and act without switching contexts.'}
-                </p>
-                <div className="cp-stat-strip">
-                  <div>
-                    <span>Process</span>
-                    <strong>{nodeLive?.pid ? `PID ${nodeLive.pid}` : 'Not running'}</strong>
-                  </div>
-                  <div>
-                    <span>Uptime</span>
-                    <strong>{formatRuntimeDuration(nodeLive?.process_uptime_secs)}</strong>
-                  </div>
-                  <div>
-                    <span>Wallet</span>
-                    <strong>{truncateMiddle(node.node_address, 8, 6)}</strong>
-                  </div>
-                </div>
-              </div>
-              <div className="cp-action-stack">
-                <SNRGButton
-                  variant="lime"
-                  size="sm"
-                  disabled={actionBusy === 'start'}
-                  onClick={() => void handleAction('start')}
-                >
-                  {actionBusy === 'start' ? 'Starting...' : 'Start'}
-                </SNRGButton>
-                <SNRGButton
-                  variant="purple"
-                  size="sm"
-                  disabled={actionBusy === 'restart'}
-                  onClick={() => void handleAction('restart')}
-                >
-                  {actionBusy === 'restart' ? 'Restarting...' : 'Restart'}
-                </SNRGButton>
-                <SNRGButton
-                  variant="blue"
-                  size="sm"
-                  disabled={actionBusy === 'boost'}
-                  onClick={() => void handleAction('boost')}
-                >
-                  {actionBusy === 'boost' ? 'Boosting...' : 'Boost Sync'}
-                </SNRGButton>
-                <SNRGButton
-                  variant="blue"
-                  size="sm"
-                  disabled={actionBusy === 'register'}
-                  onClick={() => void handleAction('register')}
-                >
-                  {actionBusy === 'register' ? 'Registering...' : 'Re-register'}
-                </SNRGButton>
-                <SNRGButton
-                  variant="purple"
-                  size="sm"
-                  disabled={actionBusy === 'stop'}
-                  onClick={() => void handleAction('stop')}
-                >
-                  {actionBusy === 'stop' ? 'Stopping...' : 'Stop'}
-                </SNRGButton>
-              </div>
+            <div className="cp-action-grid">
+              <SNRGButton
+                variant="green"
+                size="sm"
+                disabled={isRunning || actionBusy === 'start'}
+                onClick={() => void handleAction('start')}
+              >
+                {actionBusy === 'start' ? 'Starting…' : 'Start'}
+              </SNRGButton>
+              <SNRGButton
+                variant="red"
+                size="sm"
+                disabled={!isRunning || actionBusy === 'stop'}
+                onClick={() => void handleAction('stop')}
+              >
+                {actionBusy === 'stop' ? 'Stopping…' : 'Stop'}
+              </SNRGButton>
+              <SNRGButton
+                variant="orange"
+                size="sm"
+                disabled={actionBusy === 'restart'}
+                onClick={() => void handleAction('restart')}
+              >
+                {actionBusy === 'restart' ? 'Restarting…' : 'Restart'}
+              </SNRGButton>
+              <SNRGButton
+                variant="orange"
+                size="sm"
+                disabled={actionBusy === 'rejoin'}
+                onClick={() => void handleAction('rejoin')}
+              >
+                {actionBusy === 'rejoin' ? 'Rejoining…' : 'Rejoin'}
+              </SNRGButton>
+              <SNRGButton
+                variant="yellow"
+                size="sm"
+                disabled={actionBusy === 'boost'}
+                onClick={() => void handleAction('boost')}
+              >
+                {actionBusy === 'boost' ? 'Boosting…' : 'Boost Sync'}
+              </SNRGButton>
+              <SNRGButton
+                variant="yellow"
+                size="sm"
+                disabled={actionBusy === 'register'}
+                onClick={() => void handleAction('register')}
+              >
+                {actionBusy === 'register' ? 'Registering…' : 'Re-register'}
+              </SNRGButton>
             </div>
           </PanelCard>
 
           <div className="cp-metric-grid cp-metric-grid-dashboard">
             <MetricCard
-              label="Role"
-              value={roleTypeLabel(node.role_display_name)}
-              detail={node.role_id || 'Assigned runtime role'}
-              tone="cyan"
-              icon="badge"
+              label="Synergy Score"
+              value={formatScore(nodeLive?.synergy_score)}
+              detail={nodeLive?.synergy_score_status || 'Waiting for telemetry'}
+              tone="purple"
+              icon="auto_graph"
             />
             <MetricCard
-              label="Block height"
+              label="Block Height"
               value={formatNumber(nodeBlockHeightValue(nodeLive, liveStatus))}
               detail={nodeBlockHeightDetail(nodeLive, liveStatus)}
               tone={nodeRuntimeTone(nodeLive)}
               icon="data_usage"
             />
             <MetricCard
-              label="Score"
-              value={formatScore(nodeLive?.synergy_score)}
-              detail={nodeLive?.synergy_score_status || 'Waiting for score telemetry'}
-              tone="purple"
-              icon="auto_graph"
+              label="Uptime"
+              value={formatRuntimeDuration(nodeLive?.process_uptime_secs) || '—'}
+              detail={nodeLive?.is_running ? 'Running' : 'Stopped'}
+              tone={nodeLive?.is_running ? 'good' : 'neutral'}
+              icon="schedule"
             />
             <MetricCard
               label="Peers"
               value={formatNumber(localPeerInfo?.peerCount ?? nodeLive?.local_peer_count)}
-              detail="Visible active sessions"
-              tone="good"
+              detail="Active sessions"
+              tone="cyan"
               icon="hub"
             />
           </div>
 
           <MetricBars
-            title="Runtime signal bars"
-            detail="The most important live indicators for this node."
+            title="Runtime signals"
+            detail="Live indicators for this node."
             items={signalBars}
           />
 
@@ -483,8 +468,8 @@ export default function TestnetBetaNodeDetailRevamp() {
             mode={viewMode}
             title={viewMode === 'basic' ? 'Jarvis insight' : 'Control guidance'}
             message={viewMode === 'basic'
-              ? 'This page is for simple decisions: is the node healthy, is it connected, and which action is safest next?'
-              : 'This node page is the future execution surface for Jarvis. For now the command buttons stay explicit, but the assistant context is already anchored beside them.'}
+              ? 'Is the node healthy, connected, and which action is safest next?'
+              : 'Command actions stay explicit here while Jarvis holds assistant context alongside.'}
             chips={[
               nodeRuntimeLabel(nodeLive),
               `${formatPercent(syncPercent, 0)} sync`,

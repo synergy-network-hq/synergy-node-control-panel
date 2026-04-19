@@ -10,7 +10,6 @@ import {
   statusTone,
 } from './controlPanelModel';
 import {
-  ActivityFeed,
   EmptyPanel,
   JarvisCard,
   MetricBars,
@@ -18,6 +17,24 @@ import {
   SectionHeader,
   StatusPill,
 } from './ControlPanelShared';
+
+function severityTone(level) {
+  const value = String(level || '').toUpperCase();
+  if (value === 'ERROR') return 'bad';
+  if (value === 'WARN') return 'warn';
+  if (value === 'INFO') return 'cyan';
+  if (value === 'DEBUG' || value === 'TRACE') return 'neutral';
+  return 'good';
+}
+
+function terminalTokenClass(level) {
+  const value = String(level || '').toUpperCase();
+  if (value === 'ERROR') return 'tok-error';
+  if (value === 'WARN') return 'tok-warn';
+  if (value === 'INFO') return 'tok-info';
+  if (value === 'DEBUG' || value === 'TRACE') return 'tok-debug';
+  return 'tok-info';
+}
 
 function matchesFilter(entry, filter, query) {
   const level = String(entry?.level || '').toUpperCase();
@@ -165,11 +182,8 @@ export default function ControlPanelLogsPage() {
   return (
     <div className="cp-page-stack">
       <SectionHeader
-        eyebrow={viewMode === 'basic' ? 'Friendly Feed' : viewMode === 'expert' ? 'Operations Feed' : 'Developer Feed'}
+        eyebrow={viewMode === 'basic' ? 'Daily Activity' : viewMode === 'expert' ? 'System Logs' : 'Runtime Logs'}
         title={viewMode === 'basic' ? 'System Activity' : viewMode === 'expert' ? 'System Logs' : 'Raw Runtime Logs'}
-        copy={viewMode === 'basic'
-          ? 'Jarvis translates the log stream into a daily activity feed.'
-          : 'Filter event sources, severity, and raw runtime traces without leaving the control panel.'}
         actions={(
           <>
             <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>
@@ -211,12 +225,80 @@ export default function ControlPanelLogsPage() {
             items={logLevelBars}
           />
 
-          <ActivityFeed
-            title={viewMode === 'basic' ? 'Today’s important moments' : 'Filtered event feed'}
-            detail={loading ? 'Updating the feed…' : `${formatNumber(filteredEntries.length)} visible events`}
-            items={filteredEntries.slice(0, viewMode === 'developer' ? 10 : 8)}
-            emptyMessage="No log events match the active filter."
-          />
+          {viewMode === 'basic' ? (
+            <PanelCard
+              title="Today’s important moments"
+              detail={loading ? 'Updating the feed…' : `${formatNumber(filteredEntries.length)} visible events`}
+            >
+              <div className="cp-logs-scroll cp-logs-basic">
+                <div className="cp-activity-feed">
+                  {filteredEntries.length ? filteredEntries.map((item) => (
+                    <article key={item.id} className={`cp-activity-item tone-${item.tone || 'neutral'}`}>
+                      <div className="cp-activity-marker"></div>
+                      <div className="cp-activity-copy">
+                        <div className="cp-activity-head">
+                          <strong>{item.title}</strong>
+                          <span>{item.time}</span>
+                        </div>
+                        <p>{item.detail}</p>
+                      </div>
+                    </article>
+                  )) : <div className="cp-empty-inline">No log events match the active filter.</div>}
+                </div>
+              </div>
+            </PanelCard>
+          ) : viewMode === 'expert' ? (
+            <PanelCard
+              title="System logs"
+              detail={loading ? 'Updating the feed…' : `${formatNumber(filteredEntries.length)} visible events`}
+            >
+              <div className="cp-logs-scroll">
+                <div className="cp-logs-table">
+                  <div className="cp-logs-table-head">
+                    <span>Time</span>
+                    <span>Severity</span>
+                    <span>Source</span>
+                    <span>Message</span>
+                  </div>
+                  {filteredEntries.length ? filteredEntries.map((entry) => (
+                    <div key={entry.id} className="cp-logs-table-row">
+                      <span className="cp-logs-table-time">{entry.time}</span>
+                      <span className={`cp-logs-table-severity tone-${severityTone(entry.level)}`}>{entry.level || 'INFO'}</span>
+                      <span className="cp-logs-table-source">{entry.sourceLabel || '—'}</span>
+                      <span className="cp-logs-table-message">{entry.raw || entry.detail}</span>
+                    </div>
+                  )) : (
+                    <div className="cp-logs-table-row">
+                      <span className="cp-logs-table-time">—</span>
+                      <span className="cp-logs-table-severity tone-neutral">—</span>
+                      <span className="cp-logs-table-source">—</span>
+                      <span className="cp-logs-table-message">No log events match the active filter.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </PanelCard>
+          ) : (
+            <PanelCard
+              title="Raw runtime logs"
+              detail={loading ? 'Streaming…' : `${formatNumber(filteredEntries.length)} entries`}
+            >
+              <pre className="cp-logs-terminal">
+                {filteredEntries.length ? filteredEntries.map((entry) => (
+                  <span key={entry.id}>
+                    <span className="tok-time">{entry.time}</span>
+                    {'  '}
+                    <span className={terminalTokenClass(entry.level)}>[{String(entry.level || 'INFO').padEnd(5, ' ')}]</span>
+                    {'  '}
+                    <span className="tok-src">{(entry.sourceLabel || 'node').padEnd(16, ' ').slice(0, 16)}</span>
+                    {'  '}
+                    <span className="tok-msg">{entry.raw || entry.detail}</span>
+                    {'\n'}
+                  </span>
+                )) : '$ net stat --peers\nNo log events match the active filter.'}
+              </pre>
+            </PanelCard>
+          )}
         </div>
 
         <div className="cp-dashboard-side">
