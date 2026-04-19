@@ -56,14 +56,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Checkout Testnet-Beta node source
-        uses: actions/checkout@v4
-        with:
-          repository: synergy-network-hq/testnet-beta
-          path: testnet-beta-source
-          ref: ${{ env.TESTNET_BETA_REF }}
-          token: ${{ secrets.RELEASES_REPO_TOKEN }}
-          persist-credentials: false
-          submodules: false
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # This repo is public; clone it directly so release builds do not
+          # depend on a PAT that may be missing or have stale permissions.
+          git clone \
+            --depth 1 \
+            --branch "${TESTNET_BETA_REF}" \
+            --single-branch \
+            https://github.com/synergy-network-hq/testnet-beta.git \
+            testnet-beta-source
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

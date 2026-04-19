@@ -1,36 +1,47 @@
+[identity]
+node_id = "validator-node-01"
+role = "validator"
+role_display = "validator"
+address = ""
+label = "validator-node-01"
+
+[role]
+compiled_profile = "validator_node"
+services = []
+
 [network]
 id = 338639
 name = "synergy-testnet-beta"
 p2p_port = 5622
 rpc_port = 5640
 ws_port = 5660
-max_peers = 50
+max_peers = 100
 bootnodes = []
 seed_servers = []
 bootstrap_dns_records = []
-additional_dial_targets = []
-persistent_peers = []
+additional_dial_targets = ["10.69.0.1:5622", "10.69.0.2:5622", "10.69.0.3:5622", "10.69.0.4:5622", "10.69.0.5:5622"]
+persistent_peers = ["10.69.0.1:5622", "10.69.0.2:5622", "10.69.0.3:5622", "10.69.0.4:5622", "10.69.0.5:5622"]
 
 [blockchain]
-block_time = 5
+block_time = 2
 max_gas_limit = "0x2fefd8"
 chain_id = 338639
 
 [consensus]
 algorithm = "Proof of Synergy"
-block_time_secs = 5
+block_time_secs = 2
 epoch_length = 1000
-min_validators = 2
+min_validators = 5
 validator_cluster_size = 5
-validator_vote_threshold = 2
+validator_vote_threshold = 4
 max_validators = 5
-status_ready_gate_enabled = false
-status_ready_min_validators = 2
+status_ready_gate_enabled = true
+status_ready_min_validators = 5
 status_ready_genesis_grace_secs = 0
-allow_genesis_status_bypass = true
+allow_genesis_status_bypass = false
 mesh_settle_secs = 15
 leader_timeout_secs = 15
-vote_timeout_secs = 30
+vote_timeout_secs = 8
 block_timeout_secs = 30
 penalization_enabled = false
 synergy_score_decay_rate = 0.05
@@ -45,13 +56,14 @@ uptime = 0.3
 collaboration = 0.2
 
 [logging]
-log_level = "info"
+log_level = "debug"
 log_file = "data/logs/validator.log"
 enable_console = true
 max_file_size = 10485760
 max_files = 5
 
 [rpc]
+bind_address = "127.0.0.1:5640"
 enable_http = true
 http_port = 5640
 enable_ws = true
@@ -63,10 +75,12 @@ cors_origins = []
 
 [p2p]
 listen_address = "0.0.0.0:5622"
-public_address = "127.0.0.1:5622"
+public_address = "replace-with-public-host:5622"
 node_name = "validator-node-01"
 enable_discovery = false
 discovery_port = 5680
+discovery_listen_address = "0.0.0.0:5680"
+discovery_public_address = "replace-with-public-host:5680"
 heartbeat_interval = 10
 bootstrap_refresh_secs = 3600
 
@@ -83,7 +97,8 @@ validator_address = ""
 strict_validator_allowlist = true
 allowed_validator_addresses = ["synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra", "synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu", "synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu", "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49", "synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46"]
 
-[validator]
-participation = "active"
-verify_quorum_certificates = true
-state_sync_before_join = false
+[telemetry]
+enabled = true
+metrics_bind = "127.0.0.1:6030"
+structured_logs = true
+log_level = "debug"

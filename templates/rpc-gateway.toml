@@ -1,24 +1,49 @@
+[identity]
+node_id = "rpc-gateway-01"
+role = "rpc_gateway"
+role_display = "rpc-gateway"
+address = ""
+label = "rpc-gateway-01"
+
+[role]
+compiled_profile = "rpc_gateway_node"
+services = []
+
 [network]
 id = 338639
 name = "synergy-testnet-beta"
-p2p_port = 5622
-rpc_port = 5640
-ws_port = 5660
-max_peers = 50
-bootnodes = ["snr://bootstrap@bootnode1.synergynode.xyz:5620", "snr://bootstrap@bootnode2.synergynode.xyz:5620", "snr://bootstrap@bootnode3.synergynode.xyz:5620"]
+p2p_port = 5626
+rpc_port = 5646
+ws_port = 5666
+max_peers = 100
+bootnodes = []
+seed_servers = []
+bootstrap_dns_records = []
+additional_dial_targets = ["relay1.synergynode.xyz:5622", "relay2.synergynode.xyz:5622"]
+persistent_peers = ["relay1.synergynode.xyz:5622", "relay2.synergynode.xyz:5622"]
 
 [blockchain]
-block_time = 5
+block_time = 2
 max_gas_limit = "0x2fefd8"
 chain_id = 338639
 
 [consensus]
 algorithm = "Proof of Synergy"
-block_time_secs = 5
+block_time_secs = 2
 epoch_length = 1000
+min_validators = 5
 validator_cluster_size = 5
-validator_vote_threshold = 3
+validator_vote_threshold = 4
 max_validators = 5
+status_ready_gate_enabled = true
+status_ready_min_validators = 5
+status_ready_genesis_grace_secs = 0
+allow_genesis_status_bypass = false
+mesh_settle_secs = 15
+leader_timeout_secs = 15
+vote_timeout_secs = 8
+block_timeout_secs = 30
+penalization_enabled = false
 synergy_score_decay_rate = 0.05
 vrf_enabled = false
 vrf_seed_epoch_interval = 1000
@@ -31,32 +56,49 @@ uptime = 0.3
 collaboration = 0.2
 
 [logging]
-log_level = "info"
+log_level = "debug"
 log_file = "data/logs/rpc-gateway.log"
 enable_console = true
 max_file_size = 10485760
 max_files = 5
 
 [rpc]
+bind_address = "127.0.0.1:5646"
 enable_http = true
-http_port = 5640
+http_port = 5646
 enable_ws = true
-ws_port = 5660
+ws_port = 5666
 enable_grpc = true
-grpc_port = 5640
+grpc_port = 5646
 cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "0.0.0.0:5622"
-public_address = "127.0.0.1:5622"
+listen_address = "0.0.0.0:5626"
+public_address = "replace-with-public-host:5626"
 node_name = "rpc-gateway-01"
 enable_discovery = false
-discovery_port = 5680
-heartbeat_interval = 30
+discovery_port = 5686
+discovery_listen_address = "0.0.0.0:5686"
+discovery_public_address = "replace-with-public-host:5686"
+heartbeat_interval = 10
+bootstrap_refresh_secs = 3600
 
 [storage]
 database = "rocksdb"
 path = "data/chain"
 enable_pruning = true
 pruning_interval = 86400
+
+[node]
+bootstrap_only = false
+auto_register_validator = false
+validator_address = ""
+strict_validator_allowlist = true
+allowed_validator_addresses = ["synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra", "synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu", "synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu", "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49", "synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46"]
+
+[telemetry]
+enabled = true
+metrics_bind = "127.0.0.1:6036"
+structured_logs = true
+log_level = "debug"
