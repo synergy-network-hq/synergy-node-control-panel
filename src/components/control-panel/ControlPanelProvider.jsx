@@ -138,6 +138,16 @@ export function ControlPanelProvider({ children }) {
       const peerCount = Number(entry?.local_peer_count);
       return Number.isFinite(peerCount) ? Math.max(highest, peerCount) : highest;
     }, 0);
+    const validatorMeshHeight = liveNodes.reduce((highest, entry) => {
+      const candidate = Number(
+        entry?.best_network_height
+          ?? entry?.local_chain_height
+          ?? entry?.log_local_chain_height,
+      );
+      return Number.isFinite(candidate) ? Math.max(highest, candidate) : highest;
+    }, 0);
+    const publicChainHeight = Number(liveStatus?.public_chain_height);
+    const usingMeshHeightFallback = !Number.isFinite(publicChainHeight) || publicChainHeight <= 0;
 
     return {
       runningNodes,
@@ -145,7 +155,10 @@ export function ControlPanelProvider({ children }) {
       healthyBootnodes,
       totalBootnodes: (liveStatus?.bootnodes || []).length,
       totalPeers,
-      publicChainHeight: liveStatus?.public_chain_height ?? null,
+      publicChainHeight: usingMeshHeightFallback
+        ? (validatorMeshHeight > 0 ? validatorMeshHeight : null)
+        : publicChainHeight,
+      publicChainHeightSource: usingMeshHeightFallback ? 'validator-mesh' : 'public-rpc',
       discoveryStatus: liveStatus?.discovery_status || 'Unknown',
       publicRpcOnline: liveStatus?.public_rpc_online === true,
     };

@@ -57,7 +57,7 @@ const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 8;
 const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 30;
 const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 5;
 const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 4;
-const TESTNET_BETA_MAX_VALIDATORS: usize = 5;
+const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
 const TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED: bool = false;
 const TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS: usize = 3600;
@@ -2395,6 +2395,7 @@ fn process_matches_workspace(process: &sysinfo::Process, workspace_directory: &P
     let workspace = workspace_directory.to_string_lossy();
     let config_path = workspace_directory.join("config").join("node.toml");
     let config_path = config_path.to_string_lossy();
+    let binary_directory = workspace_directory.join("bin");
     let command_line = process
         .cmd()
         .iter()
@@ -2402,7 +2403,23 @@ fn process_matches_workspace(process: &sysinfo::Process, workspace_directory: &P
         .collect::<Vec<_>>()
         .join(" ");
 
-    command_line.contains(workspace.as_ref()) || command_line.contains(config_path.as_ref())
+    if command_line.contains(workspace.as_ref()) || command_line.contains(config_path.as_ref()) {
+        return true;
+    }
+
+    if process
+        .exe()
+        .is_some_and(|exe| exe.starts_with(&binary_directory))
+    {
+        return true;
+    }
+
+    // Validators are often started from the workspace with a relative binary
+    // path and `--config config/node.toml`, so the full workspace path never
+    // appears in the command line.
+    process.cwd().is_some_and(|cwd| cwd == workspace_directory)
+        && command_line.contains("config/node.toml")
+        && command_line.contains("synergy-testbeta")
 }
 
 fn persist_workspace_pid(workspace_directory: &Path, pid: u32) {
@@ -2515,10 +2532,6 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         return Ok(());
     }
 
-    let contents = fs::read_to_string(config_path)
-        .map_err(|error| format!("Failed to read {}: {error}", config_path.display()))?;
-    let mut updated = contents.clone();
-
     let workspace_directory = match config_path.parent().and_then(Path::parent) {
         Some(path) => path,
         None => return Ok(()),
@@ -2548,20 +2561,6 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         return Ok(());
     }
 
-    if updated.contains("auto_register_validator = false") {
-        return Ok(());
-    }
-    if !updated.contains("auto_register_validator = true") {
-        return Ok(());
-    }
-
-    updated = updated.replacen(
-        "auto_register_validator = true",
-        "auto_register_validator = false",
-        1,
-    );
-    fs::write(config_path, updated)
-        .map_err(|error| format!("Failed to update {}: {error}", config_path.display()))?;
     Ok(())
 }
 

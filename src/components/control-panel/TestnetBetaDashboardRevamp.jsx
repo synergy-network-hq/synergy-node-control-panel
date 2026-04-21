@@ -374,7 +374,9 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
               <MetricCard
                 label={viewMode === 'basic' ? 'Network height' : 'Public chain tip'}
                 value={formatNumber(networkStats.publicChainHeight)}
-                detail="Most recent public chain height"
+                detail={networkStats.publicChainHeightSource === 'validator-mesh'
+                  ? 'Public RPC unavailable, using validator mesh height'
+                  : 'Most recent public chain height'}
                 tone="cyan"
                 icon="data_usage"
               />
