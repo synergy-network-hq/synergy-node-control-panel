@@ -1,4 +1,4 @@
-# Synergy Lean 15-Node Closed Testnet-Beta Bundle
+# Synergy Testnet-Beta Bundle
 
 This directory defines the deterministic testbeta profile.
 

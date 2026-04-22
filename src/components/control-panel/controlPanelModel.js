@@ -284,7 +284,7 @@ export function buildTopologyModel({
   nodeLiveById,
   viewMode = 'basic',
 }) {
-  const peerLimit = viewMode === 'developer' ? 10 : viewMode === 'expert' ? 8 : 6;
+  const peerLimit = viewMode === 'developer' ? 10 : viewMode === 'advanced' ? 8 : 6;
   const rawPeers = [];
 
   safeArray(localPeerInfo?.peers).forEach((peer) => {

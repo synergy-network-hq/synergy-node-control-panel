@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { writeStoredDeveloperMode } from './developerMode';
+import {
+  modeLabel as profileModeLabel,
+  normalizePanelViewMode,
+} from '../components/control-panel/viewProfiles';
 
-const VIEW_MODE_STORAGE_KEY = 'synergy:testbeta:view-mode:v1';
+const VIEW_MODE_STORAGE_KEY = 'synergy:testbeta:view-mode:v2';
+const LEGACY_VIEW_MODE_STORAGE_KEY = 'synergy:testbeta:view-mode:v1';
 const VIEW_MODE_EVENT = 'synergy:testbeta:view-mode-change';
-const VIEW_MODES = new Set(['basic', 'expert', 'developer']);
 
 function getLocalStorage() {
   if (typeof window === 'undefined') {
@@ -18,8 +22,7 @@ function getLocalStorage() {
 }
 
 function normalizeViewMode(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  return VIEW_MODES.has(normalized) ? normalized : 'basic';
+  return normalizePanelViewMode(value);
 }
 
 export function readStoredViewMode() {
@@ -29,7 +32,11 @@ export function readStoredViewMode() {
   }
 
   try {
-    return normalizeViewMode(storage.getItem(VIEW_MODE_STORAGE_KEY));
+    const current = storage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (current) {
+      return normalizeViewMode(current);
+    }
+    return normalizeViewMode(storage.getItem(LEGACY_VIEW_MODE_STORAGE_KEY));
   } catch {
     return 'basic';
   }
@@ -42,6 +49,7 @@ export function writeStoredViewMode(value) {
   if (storage) {
     try {
       storage.setItem(VIEW_MODE_STORAGE_KEY, normalized);
+      storage.removeItem(LEGACY_VIEW_MODE_STORAGE_KEY);
     } catch {
       // Keep dispatch behavior even if storage is unavailable.
     }
@@ -107,13 +115,5 @@ export function usePanelViewMode() {
 }
 
 export function modeLabel(viewMode) {
-  switch (normalizeViewMode(viewMode)) {
-    case 'expert':
-      return 'Expert';
-    case 'developer':
-      return 'Developer';
-    case 'basic':
-    default:
-      return 'Basic';
-  }
+  return profileModeLabel(normalizeViewMode(viewMode));
 }

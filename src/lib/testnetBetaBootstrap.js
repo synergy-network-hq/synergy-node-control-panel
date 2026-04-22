@@ -78,6 +78,15 @@ function usesFixedValidatorPorts(node) {
   return roleId === 'validator';
 }
 
+function usesStaticValidatorMesh(node) {
+  const roleId = String(node?.role_id ?? node?.roleId ?? '').trim().toLowerCase();
+  if (roleId !== 'validator') {
+    return false;
+  }
+  const nodeAddress = String(node?.node_address ?? node?.nodeAddress ?? '').trim();
+  return CANONICAL_VALIDATOR_PEERS.some((entry) => entry.address === nodeAddress);
+}
+
 function normalizeStoredPortSettings(value) {
   const normalized = cloneDefaultPortSettings();
   const source = value && typeof value === 'object' ? value : {};
@@ -733,8 +742,9 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
   }
   const roleId = String(node?.role_id ?? node?.roleId ?? '').trim().toLowerCase();
   const isValidator = roleId === 'validator';
+  const validatorMeshOnly = usesStaticValidatorMesh(node);
   const sentryTargets = Array.isArray(SENTRY_UPSTREAMS[roleId]) ? SENTRY_UPSTREAMS[roleId] : [];
-  const useExplicitOnly = isValidator || sentryTargets.length > 0;
+  const useExplicitOnly = validatorMeshOnly || sentryTargets.length > 0;
 
   const activePorts = await readTestnetBetaNodePortSettings(node)
     .then((result) => result.portSettings)
@@ -776,7 +786,7 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
   const validatorTargets = CANONICAL_VALIDATOR_PEERS
     .filter((entry) => entry.address !== String(node?.node_address ?? node?.nodeAddress ?? '').trim())
     .map((entry) => `${entry.host}:${entry.port}`);
-  const additionalDialTargets = isValidator
+  const additionalDialTargets = validatorMeshOnly
     ? normalizeDialTargets(validatorTargets).filter((target) => !selfTargets.has(target))
     : sentryTargets.length > 0
       ? normalizeDialTargets(sentryTargets).filter((target) => !selfTargets.has(target))

@@ -1,7 +1,7 @@
 {
-  "workspace_resource_version": "8.0.18+8b98346e6bf9",
-  "app_version": "8.0.18",
-  "bundle_digest": "8b98346e6bf989bc71e231b66f529a55de5d2f4a33ca1f2f00d89d8debc9b556",
+  "workspace_resource_version": "9.0.6+dd1771e3fb99",
+  "app_version": "9.0.6",
+  "bundle_digest": "dd1771e3fb99249fe6fb92533990f50a1c4c80d37d1d66a90bcbee4acba32ddd",
   "platform_binaries": [
     "binaries/synergy-testbeta-darwin-arm64",
     "binaries/synergy-testbeta-linux-amd64",
@@ -13,13 +13,25 @@
     "testbeta/runtime/installers/GenVal-01/config/genesis.json",
     "testbeta/runtime/installers/GenVal-01/config/peers.toml",
     "testbeta/runtime/installers/GenVal-01/keys/setup-package.json",
+    "testbeta/runtime/installers/Node-RPC/nginx.conf",
+    "testbeta/runtime/installers/Node-EXP/nginx.conf",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/dist/index.html",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/dist/assets",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/backend/dist",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/backend/scripts/migrate.js",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/backend/migrations",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/backend/node_modules/fastify/package.json",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/dist",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/scripts/migrate.js",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/migrations",
+    "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/node_modules/pg/package.json",
     "scripts/testbeta/remote-node-orchestrator.sh",
     "scripts/reset-testbeta.sh",
     "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md"
   ],
   "checksums": {
     "binaries/synergy-testbeta-darwin-arm64": "9a30b6c3d88c2ba3f019c8567545d507cdc3ee22c289ad4b7dc05a92b0bf6337",
-    "binaries/synergy-testbeta-linux-amd64": "b310bdf4881d90d4fc873dd820af37f0accca1f3612fdefb7a18393d9788fd5c",
+    "binaries/synergy-testbeta-linux-amd64": "31a726caeb7f50588ff81e06e10be1680314d03f5ba690e6db83402f69e5ba49",
     "binaries/synergy-testbeta-windows-amd64.exe": "e2977213c16abd5e482331b355a850ffb040106c94c97564f2d3e36671e2d38a"
   }
 }

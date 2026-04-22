@@ -1,6 +1,7 @@
 import { SNRGButton } from '../../styles/SNRGButton';
 import { modeLabel } from '../../lib/panelViewMode';
 import { buildMetricBars } from './controlPanelModel';
+import { MODE_SWITCH_ITEMS } from './viewProfiles';
 
 export function StatusPill({ tone = 'neutral', children, live = false }) {
   return (
@@ -11,15 +12,9 @@ export function StatusPill({ tone = 'neutral', children, live = false }) {
 }
 
 export function ModeSwitcher({ mode, onChange, compact = false }) {
-  const items = [
-    { id: 'basic', label: 'Basic', icon: 'person' },
-    { id: 'expert', label: 'Expert', icon: 'psychology' },
-    { id: 'developer', label: 'Developer', icon: 'terminal' },
-  ];
-
   return (
     <div className={`cp-mode-switcher ${compact ? 'is-compact' : ''}`}>
-      {items.map((item) => (
+      {MODE_SWITCH_ITEMS.map((item) => (
         <button
           key={item.id}
           type="button"
@@ -223,10 +218,14 @@ export function ActivityFeed({
   detail,
   items,
   emptyMessage = 'No recent events yet.',
+  fixedLines = 0,
 }) {
   return (
     <PanelCard title={title} detail={detail}>
-      <div className="cp-activity-feed">
+      <div
+        className={`cp-activity-feed ${fixedLines ? 'is-scroll-locked' : ''}`}
+        style={fixedLines ? { '--cp-feed-lines': fixedLines } : undefined}
+      >
         {items.length ? items.map((item) => (
           <article key={item.id} className={`cp-activity-item tone-${item.tone || 'neutral'}`}>
             <div className="cp-activity-marker"></div>

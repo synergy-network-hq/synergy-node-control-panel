@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { invoke } from '../../lib/desktopClient';
+import { invoke, resolvePeerTopology } from '../../lib/desktopClient';
 import { normalizePeerInfoPayload } from '../../lib/testnetBetaPeerInfo';
 import { SNRGButton } from '../../styles/SNRGButton';
 import { useControlPanel } from './ControlPanelProvider';
@@ -14,6 +14,7 @@ import {
   statusTone,
 } from './controlPanelModel';
 import {
+  ActivityFeed,
   JarvisCard,
   MetricBars,
   MetricCard,
@@ -22,108 +23,75 @@ import {
   StatusPill,
   TopologyMap,
 } from './ControlPanelShared';
+import PeerGlobe from './PeerGlobe';
+import PeerGlobeLegend from './PeerGlobeLegend';
+import PeerDetailsDrawer from './PeerDetailsDrawer';
+import PeerGraph from './PeerGraph';
+import PeerTable from './PeerTable';
+import ActionAuditStream from './ActionAuditStream';
 import { boostSyncAction, registerWithSeedsAction } from './controlPanelActions';
 
-/** Global Peer Map — shows regional clusters (Expert mode). */
-function ConnectivityMapExpert({ title, detail, model, action }) {
-  const regions = [
-    { id: 'na', label: 'North America', x: 22, y: 38 },
-    { id: 'eu', label: 'Europe', x: 50, y: 32 },
-    { id: 'ap', label: 'Asia Pacific', x: 78, y: 44 },
-  ];
-  // Distribute peers across the three regions deterministically.
-  const bucketed = { na: [], eu: [], ap: [] };
-  (model.peers || []).forEach((peer, index) => {
-    const bucket = ['na', 'eu', 'ap'][index % 3];
-    bucketed[bucket].push(peer);
-  });
+function buildConnectionProblems(localPeerInfoError, readinessReport) {
+  const items = [];
+  if (localPeerInfoError) {
+    items.push({
+      id: 'peer-error',
+      title: 'Peer inspection is unavailable',
+      detail: localPeerInfoError,
+      tone: 'bad',
+      time: 'now',
+    });
+  }
 
-  return (
-    <PanelCard title={title} detail={detail} action={action}>
-      <div className="cp-topology-map cp-topology-map-global">
-        <svg className="cp-topology-world" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
-          {/* Stylized continental blobs */}
-          <path d="M8 22 Q18 14 28 18 T48 22 L46 34 Q30 40 18 36 Q10 30 8 22 Z" />
-          <path d="M42 18 Q52 12 60 16 T70 22 L68 30 Q58 32 50 28 Q44 24 42 18 Z" />
-          <path d="M66 26 Q76 20 86 24 T92 38 L88 46 Q78 48 70 44 Q66 36 66 26 Z" />
-        </svg>
-        {regions.map((region) => (
-          <div
-            key={region.id}
-            className="cp-topology-region"
-            style={{ left: `${region.x}%`, top: `${region.y}%` }}
-          >
-            <div className="cp-topology-node is-center tone-cyan">
-              <span className="material-icons">public</span>
-            </div>
-            <div className="cp-topology-label">
-              <strong>{region.label}</strong>
-              <span>{bucketed[region.id].length} peers</span>
-              <small>
-                {bucketed[region.id][0]?.metric || '—'}
-              </small>
-            </div>
-          </div>
-        ))}
-      </div>
-    </PanelCard>
-  );
+  safeArray(readinessReport?.checks)
+    .filter((check) => /warn|fail|error/i.test(String(check?.status || '')))
+    .slice(0, 3)
+    .forEach((check) => {
+      items.push({
+        id: check.id,
+        title: check.label,
+        detail: check.detail,
+        tone: 'warn',
+        time: readinessReport?.overall_status || 'Readiness',
+      });
+    });
+
+  if (!items.length) {
+    items.push({
+      id: 'steady',
+      title: 'No connection warnings are active',
+      detail: 'The current peer posture looks stable for the selected node.',
+      tone: 'good',
+      time: 'now',
+    });
+  }
+
+  return items;
 }
 
-/** P2P hemisphere + gossip protocol stats (Developer mode). */
-function ConnectivityMapDeveloper({ title, detail, model, action }) {
-  const peers = (model.peers || []).slice(0, 12);
-  const meshDegree = peers.length;
-  const fanout = Math.min(6, Math.max(1, Math.round(meshDegree / 2)));
+function connectionQuality(selectedNodeLive, readinessReport) {
+  const peerCount = Number(selectedNodeLive?.local_peer_count || 0);
+  const readinessTone = statusTone(readinessReport?.overall_status);
 
-  return (
-    <PanelCard title={title} detail={detail} action={action}>
-      <div className="cp-topology-map cp-topology-map-hemi">
-        <svg viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true" className="cp-topology-hemi-svg">
-          <defs>
-            <radialGradient id="hemi-grad" cx="50%" cy="100%" r="80%">
-              <stop offset="0%" stopColor="rgba(62,247,161,0.32)" />
-              <stop offset="100%" stopColor="rgba(62,247,161,0.02)" />
-            </radialGradient>
-          </defs>
-          <path d="M4 56 A46 46 0 0 1 96 56 Z" fill="url(#hemi-grad)" stroke="rgba(62,247,161,0.35)" strokeWidth="0.6" />
-          {/* latitude arcs */}
-          {[44, 32, 20].map((r) => (
-            <path key={r} d={`M${50 - r} 56 A${r} ${r} 0 0 1 ${50 + r} 56`} fill="none" stroke="rgba(62,247,161,0.16)" strokeWidth="0.3" />
-          ))}
-          {/* gossip links */}
-          {peers.map((peer, idx) => {
-            const angle = Math.PI - (Math.PI * (idx + 0.5)) / peers.length;
-            const r = 38;
-            const x = 50 + r * Math.cos(angle);
-            const y = 56 - r * Math.sin(angle);
-            return (
-              <g key={peer.id || idx}>
-                <line x1="50" y1="56" x2={x} y2={y} stroke="rgba(62,247,161,0.35)" strokeWidth="0.35" strokeDasharray="1 1" />
-                <circle cx={x} cy={y} r="1.4" fill="#3ef7a1" />
-              </g>
-            );
-          })}
-          <circle cx="50" cy="56" r="3" fill="#3ef7a1" />
-        </svg>
-
-        <div className="cp-topology-hemi-stats">
-          <div>
-            <span>Mesh degree</span>
-            <strong>{meshDegree}</strong>
-          </div>
-          <div>
-            <span>Gossip fanout</span>
-            <strong>{fanout}</strong>
-          </div>
-          <div>
-            <span>Avg hop</span>
-            <strong>{peers.length ? `${Math.max(1, Math.round(Math.log2(peers.length + 1)))}` : '—'}</strong>
-          </div>
-        </div>
-      </div>
-    </PanelCard>
-  );
+  if (peerCount >= 4 && readinessTone !== 'bad') {
+    return {
+      label: 'Good',
+      detail: 'The node can currently see enough peers to stay healthy.',
+      tone: 'good',
+    };
+  }
+  if (peerCount >= 2) {
+    return {
+      label: 'Fair',
+      detail: 'The node is connected, but the peer set is thin and worth watching.',
+      tone: 'warn',
+    };
+  }
+  return {
+    label: 'Poor',
+    detail: 'The node does not currently have enough live peers to be comfortable.',
+    tone: 'bad',
+  };
 }
 
 export default function ControlPanelConnectivityPage() {
@@ -133,11 +101,17 @@ export default function ControlPanelConnectivityPage() {
     liveStatus,
     networkStats,
     nodeLiveById,
+    peerRegionFilter,
+    recordAction,
     refresh,
     selectedNode,
     selectedNodeLive,
+    selectedPeerId,
+    setPeerRegionFilter,
+    setSelectedPeerId,
     validatorNodesByAddress,
     viewMode,
+    viewProfile,
   } = useControlPanel();
 
   const [localPeerInfo, setLocalPeerInfo] = useState(null);
@@ -147,19 +121,19 @@ export default function ControlPanelConnectivityPage() {
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState('');
   const [notice, setNotice] = useState('');
+  const [peerTopology, setPeerTopology] = useState({
+    points: [],
+    regionSummary: [],
+    routes: [],
+  });
 
   useEffect(() => {
     if (!notice) {
       return undefined;
     }
 
-    const timer = window.setTimeout(() => {
-      setNotice('');
-    }, 3200);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
+    const timer = window.setTimeout(() => setNotice(''), 3600);
+    return () => window.clearTimeout(timer);
   }, [notice]);
 
   useEffect(() => {
@@ -248,6 +222,26 @@ export default function ControlPanelConnectivityPage() {
     };
   }, [selectedNode]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTopology = async () => {
+      const topology = await resolvePeerTopology({
+        peers: safeArray(localPeerInfo?.peers),
+        localNode: selectedNode,
+        bootnodes: liveStatus?.bootnodes,
+      });
+      if (!cancelled) {
+        setPeerTopology(topology);
+      }
+    };
+
+    void loadTopology();
+    return () => {
+      cancelled = true;
+    };
+  }, [liveStatus?.bootnodes, localPeerInfo?.peers, selectedNode]);
+
   const handleAction = async (kind) => {
     if (!selectedNode) {
       return;
@@ -259,9 +253,24 @@ export default function ControlPanelConnectivityPage() {
         ? await boostSyncAction(selectedNode.id)
         : await registerWithSeedsAction(selectedNode.id);
       setNotice(message);
+      recordAction({
+        title: kind === 'boost' ? 'Reconnect peers' : 'Refresh topology',
+        detail: message,
+        status: 'good',
+        source: 'connectivity',
+        command: kind,
+      });
       await refresh({ silent: true });
     } catch (actionError) {
-      setNotice(String(actionError));
+      const detail = String(actionError);
+      setNotice(detail);
+      recordAction({
+        title: `${kind} failed`,
+        detail,
+        status: 'bad',
+        source: 'connectivity',
+        command: kind,
+      });
     } finally {
       setActionBusy('');
     }
@@ -279,25 +288,63 @@ export default function ControlPanelConnectivityPage() {
     }),
     [liveStatus, localPeerInfo, nodeLiveById, selectedNode, selectedNodeLive, validatorNodesByAddress, viewMode],
   );
-
   const latencyBars = useMemo(
     () => buildLatencyBars({ localPeerInfo, liveStatus }),
     [liveStatus, localPeerInfo],
   );
-
   const readinessHeadline = readinessReport
     ? `${readinessReport.ready_count}/${readinessReport.total_count} checks passed`
     : (readinessLoading ? 'Checking node readiness…' : 'Readiness not loaded');
-
   const livePeerCards = safeArray(localPeerInfo?.peers).slice(0, viewMode === 'developer' ? 8 : 5);
+  const filteredPoints = peerRegionFilter === 'all'
+    ? peerTopology.points
+    : peerTopology.points.filter((peer) => peer.region === peerRegionFilter);
+  const selectedPeer = peerTopology.points.find((peer) => peer.id === selectedPeerId) || null;
+  const connectionStatus = connectionQuality(selectedNodeLive, readinessReport);
+  const connectionProblems = buildConnectionProblems(localPeerInfoError, readinessReport);
+
+  const exportPeerSnapshot = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(peerTopology, null, 2));
+      setNotice('Peer snapshot copied to the clipboard.');
+      recordAction({
+        title: 'Exported peer snapshot',
+        detail: 'The current topology snapshot was copied to the clipboard.',
+        status: 'good',
+        source: 'connectivity',
+        command: 'copy-peer-snapshot',
+      });
+    } catch (copyError) {
+      setNotice(String(copyError));
+    }
+  };
 
   return (
     <div className="cp-page-stack">
       <SectionHeader
-        eyebrow={viewMode === 'basic' ? 'Network' : 'Connectivity'}
-        title={viewMode === 'basic' ? 'Connection Map' : viewMode === 'expert' ? 'Peer Topology' : 'P2P Telemetry'}
+        eyebrow={viewProfile.label}
+        title={viewProfile.navLabels.connectivity}
+        copy={viewMode === 'basic'
+          ? 'This view answers one question first: is the node connected well enough to stay healthy?'
+          : viewMode === 'advanced'
+            ? 'Inspect regional spread, visible peers, and route quality from a real topology surface.'
+            : 'Inspect raw peer posture, logical topology, and transport-facing visibility from one workspace.'}
         actions={(
           <>
+            {viewMode !== 'basic' ? (
+              <div className="cp-chip-row">
+                {['all', ...peerTopology.regionSummary.map((entry) => entry.region)].map((region) => (
+                  <button
+                    key={region}
+                    type="button"
+                    className={`cp-chip cp-chip-button ${peerRegionFilter === region ? 'is-active' : ''}`}
+                    onClick={() => setPeerRegionFilter(region)}
+                  >
+                    {region}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>
               Refresh
             </SNRGButton>
@@ -307,7 +354,7 @@ export default function ControlPanelConnectivityPage() {
               disabled={actionBusy === 'boost' || !selectedNode}
               onClick={() => void handleAction('boost')}
             >
-              {actionBusy === 'boost' ? 'Boosting...' : 'Boost Sync'}
+              {actionBusy === 'boost' ? 'Reconnecting…' : 'Reconnect peers'}
             </SNRGButton>
           </>
         )}
@@ -319,184 +366,256 @@ export default function ControlPanelConnectivityPage() {
         </div>
       ) : null}
 
-      <div className="cp-dashboard-grid">
-        <div className="cp-dashboard-main">
-          {(() => {
-            const mapTitle = viewMode === 'basic'
-              ? 'Who your node sees'
-              : viewMode === 'expert'
-                ? 'Global peer map'
-                : 'P2P gossip mesh';
-            const mapDetail = localPeerLoading
-              ? 'Refreshing live peer sessions…'
-              : (localPeerInfo?.peerCount
-                ? `${formatNumber(localPeerInfo.peerCount)} peers visible from the selected node`
-                : 'Falling back to bootstrap reachability and public network probes.');
-            const mapAction = (
-              <SNRGButton
-                variant="blue"
-                size="sm"
-                disabled={actionBusy === 'register' || !selectedNode}
-                onClick={() => void handleAction('register')}
-              >
-                {actionBusy === 'register' ? 'Registering...' : 'Re-register'}
-              </SNRGButton>
-            );
-
-            if (viewMode === 'expert') {
-              return (
-                <ConnectivityMapExpert
-                  title={mapTitle}
-                  detail={mapDetail}
-                  model={topologyModel}
-                  action={mapAction}
-                />
-              );
-            }
-            if (viewMode === 'developer') {
-              return (
-                <ConnectivityMapDeveloper
-                  title={mapTitle}
-                  detail={mapDetail}
-                  model={topologyModel}
-                  action={mapAction}
-                />
-              );
-            }
-            return (
-              <TopologyMap
-                title={mapTitle}
-                detail={mapDetail}
-                model={topologyModel}
-                action={mapAction}
-              />
-            );
-          })()}
-
-          <MetricBars
-            title={viewMode === 'basic' ? 'Connection quality' : 'Route quality bars'}
-            detail={viewMode === 'basic'
-              ? 'Healthy links stay bright. Weak or stale links fade toward warning states.'
-              : 'Derived from live peer heartbeats or bootstrap relay latency when local peer info is unavailable.'}
-            items={latencyBars}
-          />
-
-          <PanelCard
-            title="Bootstrap services"
-            detail="These public network entry points are the first layer of connectivity."
-          >
-            <div className="cp-endpoint-list">
-              {safeArray(liveStatus?.bootnodes).map((entry, index) => (
-                <div key={`${entry?.host || 'bootnode'}-${index}`} className="cp-endpoint-item">
-                  <div>
-                    <strong>{entry?.host || `Bootnode ${index + 1}`}</strong>
-                    <span>{entry?.detail || 'Bootstrap relay probe'}</span>
-                  </div>
-                  <div className="cp-endpoint-meta">
-                    <StatusPill tone={entry?.reachable ? 'good' : 'warn'}>
-                      {entry?.reachable ? 'Reachable' : 'Pending'}
-                    </StatusPill>
-                    <small>{entry?.latency_ms != null ? `${entry.latency_ms} ms` : 'Waiting'}</small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </PanelCard>
-
-          {viewMode !== 'basic' && readinessReport ? (
+      {viewMode === 'basic' ? (
+        <div className="cp-dashboard-grid">
+          <div className="cp-dashboard-main">
             <PanelCard
-              title="Readiness checks"
-              detail={readinessHeadline}
+              title="Simple globe summary"
+              detail={localPeerLoading
+                ? 'Refreshing the latest peer view…'
+                : 'Friendly regional view of the network around this node.'}
+            >
+              {peerTopology.points.length ? (
+                <>
+                  <PeerGlobe
+                    points={peerTopology.points}
+                    routes={peerTopology.routes}
+                    regionSummary={peerTopology.regionSummary}
+                    mode="basic"
+                  />
+                  <PeerGlobeLegend />
+                </>
+              ) : (
+                <TopologyMap title="Connection preview" detail="Waiting for local peer visibility." model={topologyModel} />
+              )}
+            </PanelCard>
+
+            <PanelCard title="Connection quality" detail="A plain-language summary of current peer posture.">
+              <div className={`cp-inline-notice tone-${connectionStatus.tone}`}>
+                <strong>{connectionStatus.label}</strong> {connectionStatus.detail}
+              </div>
+            </PanelCard>
+
+            <ActivityFeed title="Recent connection problems" detail="Plain-language connection warnings and readiness issues." items={connectionProblems} />
+
+            <PanelCard title="Bootstrap helper" detail="If peer count is low, this tells you what the node is likely waiting on.">
+              <p className="cp-panel-inline-note">
+                {networkStats.healthyBootnodes > 0
+                  ? `Bootstrap services are responding (${formatNumber(networkStats.healthyBootnodes)} healthy). If peers are still low, the node is probably waiting for more sessions to complete.`
+                  : 'Bootstrap services are not responding right now, so the node is waiting on the discovery path before it can build a larger peer set.'}
+              </p>
+            </PanelCard>
+          </div>
+
+          <div className="cp-dashboard-side">
+            <JarvisCard
+              mode={viewMode}
+              title="Assistant guidance"
+              message={connectionStatus.detail}
+              chips={[
+                `${formatNumber(selectedNodeLive?.local_peer_count ?? 0)} peers`,
+                readinessReport?.overall_status || 'Readiness pending',
+                `${formatNumber(peerTopology.regionSummary.length)} regions`,
+              ]}
+            />
+
+            <PanelCard title="Quick facts" detail="Friendly network facts for the selected node.">
+              <div className="cp-definition-list">
+                <div className="cp-definition-item">
+                  <span>Visible peers</span>
+                  <strong>{formatNumber(selectedNodeLive?.local_peer_count ?? 0)}</strong>
+                </div>
+                <div className="cp-definition-item">
+                  <span>Pending peers</span>
+                  <strong>{formatNumber(Math.max(0, (selectedNodeLive?.local_peer_count ?? 0) - peerTopology.points.length))}</strong>
+                </div>
+                <div className="cp-definition-item">
+                  <span>Last successful response</span>
+                  <strong>{peerTopology.points[0]?.lastSeenAt || 'Unknown'}</strong>
+                </div>
+              </div>
+            </PanelCard>
+
+            <PanelCard title="Simple regional summary" detail="How many regions are represented right now.">
+              <div className="cp-plan-list">
+                {peerTopology.regionSummary.length ? peerTopology.regionSummary.map((entry) => (
+                  <p key={entry.region}>{entry.region}: {formatNumber(entry.peerCount)} peers</p>
+                )) : <p>You currently do not have enough visible peers to build a regional picture yet.</p>}
+              </div>
+            </PanelCard>
+          </div>
+        </div>
+      ) : viewMode === 'advanced' ? (
+        <div className="cp-dashboard-grid">
+          <div className="cp-dashboard-main">
+            <PanelCard
+              title="Interactive peer globe"
+              detail={localPeerLoading ? 'Refreshing live peer sessions…' : `${formatNumber(peerTopology.points.length)} peers resolved from the selected node.`}
               action={(
-                <StatusPill tone={statusTone(readinessReport?.overall_status)}>
-                  {readinessReport?.overall_status || 'Unknown'}
-                </StatusPill>
+                <div className="cp-chip-row">
+                  <SNRGButton variant="blue" size="sm" onClick={exportPeerSnapshot}>Export peer snapshot</SNRGButton>
+                  <SNRGButton
+                    variant="blue"
+                    size="sm"
+                    disabled={actionBusy === 'register' || !selectedNode}
+                    onClick={() => void handleAction('register')}
+                  >
+                    {actionBusy === 'register' ? 'Refreshing…' : 'Refresh topology'}
+                  </SNRGButton>
+                </div>
               )}
             >
-              <div className="cp-checklist">
-                {safeArray(readinessReport?.checks).slice(0, viewMode === 'developer' ? 8 : 5).map((check) => (
-                  <div key={check.id} className={`cp-checklist-item tone-${statusTone(check.status)}`}>
-                    <strong>{check.label}</strong>
-                    <p>{check.detail}</p>
-                    {check.suggestion ? <small>{check.suggestion}</small> : null}
+              <PeerGlobe
+                points={filteredPoints}
+                routes={peerTopology.routes.filter((route) => filteredPoints.some((peer) => peer.id === route.toPeerId))}
+                regionSummary={peerTopology.regionSummary}
+                selectedRegion={peerRegionFilter}
+                onSelectRegion={(region) => setPeerRegionFilter((current) => current === region ? 'all' : region)}
+                selectedPeerId={selectedPeerId}
+                onSelectPeer={(peer) => setSelectedPeerId(peer.id)}
+                mode="advanced"
+              />
+              <PeerGlobeLegend />
+            </PanelCard>
+
+            <MetricBars
+              title="Route quality charts"
+              detail="Peer heartbeat freshness and bootstrap latency distribution."
+              items={latencyBars}
+            />
+
+            <PanelCard title="Visible peers table" detail="Filtered peer visibility for the selected region.">
+              <PeerTable peers={filteredPoints} selectedPeerId={selectedPeerId} onSelectPeer={(peer) => setSelectedPeerId(peer.id)} mode="advanced" />
+            </PanelCard>
+
+            <PanelCard title="Bootstrap services / seed services" detail="Separate from normal peer sessions.">
+              <div className="cp-endpoint-list">
+                {safeArray(liveStatus?.bootnodes).map((entry, index) => (
+                  <div key={`${entry?.host || 'bootnode'}-${index}`} className="cp-endpoint-item">
+                    <div>
+                      <strong>{entry?.host || `Bootnode ${index + 1}`}</strong>
+                      <span>{entry?.detail || 'Bootstrap relay probe'}</span>
+                    </div>
+                    <div className="cp-endpoint-meta">
+                      <StatusPill tone={entry?.reachable ? 'good' : 'warn'}>
+                        {entry?.reachable ? 'Reachable' : 'Pending'}
+                      </StatusPill>
+                      <small>{entry?.latency_ms != null ? `${entry.latency_ms} ms` : 'Waiting'}</small>
+                    </div>
                   </div>
                 ))}
               </div>
             </PanelCard>
-          ) : null}
-        </div>
-
-        <div className="cp-dashboard-side">
-          <JarvisCard
-            mode={viewMode}
-            title="Network Assistant"
-            detailText="Guidance for Node Operations"
-            message={viewMode === 'basic'
-              ? 'Good news: your node is out there making friends instead of sulking in a digital corner. Keep an eye on bright links and peer count. If they start disappearing, the network is basically sending you a passive-aggressive text.'
-              : viewMode === 'expert'
-                ? 'Your node is mingling with the mesh like it actually read the invitation. Watch relay health, peer volume, and readiness together. If one starts acting dramatic, assume the others are about to join the show.'
-                : 'The gossip layer is doing its thing, which is adorable when it works. If routes thin out or readiness drops, that is the network politely handing you homework with extra sarcasm.'}
-            chips={[
-              `${formatNumber(networkStats.healthyBootnodes)}/${formatNumber(networkStats.totalBootnodes)} relays`,
-              `${formatNumber(localPeerInfo?.peerCount ?? 0)} peers`,
-              readinessReport?.overall_status || 'Readiness pending',
-            ]}
-          />
-
-          <div className="cp-metric-grid">
-            <MetricCard
-              label="Peer sessions"
-              value={formatNumber(localPeerInfo?.peerCount ?? selectedNodeLive?.local_peer_count)}
-              detail="Visible active peers from the selected node"
-              tone="cyan"
-              icon="hub"
-            />
-            <MetricCard
-              label="Discovery"
-              value={liveStatus?.discovery_status || 'Unknown'}
-              detail={liveStatus?.discovery_detail || 'Waiting for the next probe'}
-              tone={statusTone(liveStatus?.discovery_status)}
-              icon="travel_explore"
-            />
-            <MetricCard
-              label="Readiness"
-              value={readinessReport?.overall_status || 'Pending'}
-              detail={readinessHeadline}
-              tone={statusTone(readinessReport?.overall_status)}
-              icon="fact_check"
-            />
-            <MetricCard
-              label="Public RPC"
-              value={networkStats.publicRpcOnline ? 'Online' : 'Checking'}
-              detail={liveStatus?.public_rpc_endpoint || 'Endpoint not reported'}
-              tone={networkStats.publicRpcOnline ? 'good' : 'warn'}
-              icon="lan"
-            />
           </div>
 
-          <PanelCard
-            title={viewMode === 'basic' ? 'Nearby nodes' : 'Visible peers'}
-            detail={livePeerCards.length ? 'Sample of the live peer sessions currently visible from this node.' : 'No local peer sessions are visible yet.'}
-            action={selectedNode ? (
-              <SNRGButton as={Link} to={`/node/${selectedNode.id}`} variant="blue" size="sm">
-                Node Details
-              </SNRGButton>
-            ) : null}
-          >
-            <div className="cp-peer-list">
-              {livePeerCards.length ? livePeerCards.map((peer) => (
-                <article key={peer.id} className="cp-peer-item">
-                  <div>
-                    <strong>{peer.validatorAddress || peer.publicAddress || peer.address || 'Peer'}</strong>
-                    <span>{peer.publicAddress || peer.address || 'No dial target reported'}</span>
-                  </div>
-                  <StatusPill tone="good">{peer.version || 'v?'}</StatusPill>
-                </article>
-              )) : <div className="cp-empty-inline">Run the node and allow peer discovery to populate this list.</div>}
-            </div>
-          </PanelCard>
+          <div className="cp-dashboard-side">
+            <JarvisCard
+              mode={viewMode}
+              title="Alert summary"
+              message={connectionProblems[0]?.detail || 'Peer posture looks stable.'}
+              chips={[
+                `${formatNumber(filteredPoints.length)} filtered peers`,
+                `${formatNumber(peerTopology.regionSummary.length)} regions`,
+                readinessReport?.overall_status || 'Readiness pending',
+              ]}
+            />
+
+            <PanelCard title="Region summary" detail="Click a region on the globe or here to filter the peer table.">
+              <div className="cp-plan-list">
+                {peerTopology.regionSummary.map((entry) => (
+                  <button
+                    key={entry.region}
+                    type="button"
+                    className={`cp-peer-region-button ${peerRegionFilter === entry.region ? 'is-active' : ''}`}
+                    onClick={() => setPeerRegionFilter((current) => current === entry.region ? 'all' : entry.region)}
+                  >
+                    <strong>{entry.region}</strong>
+                    <span>{formatNumber(entry.peerCount)} peers</span>
+                  </button>
+                ))}
+              </div>
+            </PanelCard>
+
+            <PanelCard title="Selected peer" detail="The current row or marker selection appears here.">
+              <PeerDetailsDrawer peer={selectedPeer} mode="advanced" />
+            </PanelCard>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="cp-dashboard-grid">
+          <div className="cp-dashboard-main">
+            <PanelCard
+              title="Interactive globe"
+              detail={`${formatNumber(filteredPoints.length)} raw peer sessions visible from the selected node.`}
+              action={(
+                <div className="cp-chip-row">
+                  <button type="button" className="cp-chip cp-chip-button" onClick={() => setPeerRegionFilter('all')}>
+                    Reset view
+                  </button>
+                  <button type="button" className="cp-chip cp-chip-button" onClick={exportPeerSnapshot}>
+                    Copy peer snapshot JSON
+                  </button>
+                </div>
+              )}
+            >
+              <PeerGlobe
+                points={filteredPoints}
+                routes={peerTopology.routes.filter((route) => filteredPoints.some((peer) => peer.id === route.toPeerId))}
+                regionSummary={peerTopology.regionSummary}
+                selectedRegion={peerRegionFilter}
+                onSelectRegion={(region) => setPeerRegionFilter((current) => current === region ? 'all' : region)}
+                selectedPeerId={selectedPeerId}
+                onSelectPeer={(peer) => setSelectedPeerId(peer.id)}
+                mode="developer"
+              />
+              <PeerGlobeLegend />
+            </PanelCard>
+
+            <PanelCard title="Logical topology graph" detail="A role- and health-aware graph of the visible sessions.">
+              <PeerGraph peers={filteredPoints} selectedPeerId={selectedPeerId} onSelectPeer={(peer) => setSelectedPeerId(peer.id)} />
+            </PanelCard>
+
+            <div className="cp-metric-grid cp-metric-grid-dashboard cp-metric-grid-dense">
+              <MetricCard label="Inbound / outbound" value={formatNumber(filteredPoints.length)} detail="Raw session visibility" tone="cyan" icon="hub" />
+              <MetricCard label="Reconnect attempts" value={actionBusy ? 'Running' : 'Idle'} detail="Use Reconnect peers to reseed from the current node." tone={actionBusy ? 'warn' : 'good'} icon="refresh" />
+              <MetricCard label="Protocol mismatches" value={formatNumber(filteredPoints.filter((peer) => !peer.protocolVersion).length)} detail="Peers missing version metadata" tone="warn" icon="warning" />
+              <MetricCard label="Stale sessions" value={formatNumber(filteredPoints.filter((peer) => peer.health === 'stale').length)} detail="No recent heartbeat" tone="bad" icon="portable_wifi_off" />
+            </div>
+
+            <PanelCard title="Raw peer session table" detail="Sortable and filterable transport-facing rows.">
+              <PeerTable peers={filteredPoints} selectedPeerId={selectedPeerId} onSelectPeer={(peer) => setSelectedPeerId(peer.id)} mode="developer" />
+            </PanelCard>
+          </div>
+
+          <div className="cp-dashboard-side">
+            <PanelCard title="Selected peer inspector" detail="Raw metadata and timing for the current peer selection.">
+              <PeerDetailsDrawer peer={selectedPeer} mode="developer" />
+            </PanelCard>
+
+            <PanelCard title="Seed / bootstrap inspector" detail="Bootstrap services remain separate from ordinary peers.">
+              <div className="cp-endpoint-list">
+                {safeArray(liveStatus?.bootnodes).map((entry, index) => (
+                  <div key={`${entry?.host || 'bootnode'}-${index}`} className="cp-endpoint-item">
+                    <div>
+                      <strong>{entry?.host || `Bootnode ${index + 1}`}</strong>
+                      <span>{entry?.detail || 'Bootstrap relay probe'}</span>
+                    </div>
+                    <small>{entry?.latency_ms != null ? `${entry.latency_ms} ms` : 'Waiting'}</small>
+                  </div>
+                ))}
+              </div>
+            </PanelCard>
+
+            <PanelCard title="P2P warning stream" detail="Connection warnings and recent topology trouble.">
+              <ActivityFeed title="Warnings" detail={readinessHeadline} items={connectionProblems} />
+            </PanelCard>
+
+            <PanelCard title="Action audit trail" detail="Local connectivity actions and receipts.">
+              <ActionAuditStream entries={[]} emptyMessage="Connectivity actions will appear here as you run them." />
+            </PanelCard>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

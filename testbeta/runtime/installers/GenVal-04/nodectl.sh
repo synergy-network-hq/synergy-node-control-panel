@@ -32,25 +32,84 @@ select_binary() {
   fi
 }
 
-is_running() {
+read_pid_cmdline() {
+  local pid="$1"
+  if [[ -r "/proc/$pid/cmdline" ]]; then
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true
+    return 0
+  fi
+
+  ps -p "$pid" -o command= 2>/dev/null || true
+}
+
+read_pid_cwd() {
+  local pid="$1"
+  if [[ -L "/proc/$pid/cwd" ]]; then
+    readlink "/proc/$pid/cwd" 2>/dev/null || true
+    return 0
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+    return 0
+  fi
+
+  return 1
+}
+
+pid_matches_node() {
+  local pid="$1"
+  local cmdline config_path cwd
+  [[ -n "${pid:-}" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+
+  cmdline="$(read_pid_cmdline "$pid")"
+  [[ "$cmdline" == *"synergy-testbeta"* ]] || return 1
+  [[ "$cmdline" != *"synergy-testbeta-agent"* ]] || return 1
+
+  config_path="$BASE_DIR/config/node.toml"
+  if [[ "$cmdline" == *"$config_path"* ]]; then
+    return 0
+  fi
+
+  if [[ "$cmdline" != *"--config config/node.toml"* ]]; then
+    return 1
+  fi
+
+  cwd="$(read_pid_cwd "$pid")"
+  [[ "$cwd" == "$BASE_DIR" ]]
+}
+
+find_live_pids() {
+  local pid
+
   if [[ -f "$PID_FILE" ]]; then
-    local pid
-    pid="$(cat "$PID_FILE")"
-    if kill -0 "$pid" 2>/dev/null; then
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if pid_matches_node "$pid"; then
+      printf '%s\n' "$pid"
       return 0
     fi
   fi
 
-  local config_path live_pid
-  config_path="$BASE_DIR/config/node.toml"
-  if command -v pgrep >/dev/null 2>&1; then
-    live_pid="$(pgrep -f -o "$config_path" 2>/dev/null || true)"
+  command -v pgrep >/dev/null 2>&1 || return 1
+  while IFS= read -r pid; do
+    if pid_matches_node "$pid"; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(pgrep -f "synergy-testbeta" 2>/dev/null || true)
+}
+
+is_running() {
+  local live_pid
+
+  while IFS= read -r live_pid; do
     if [[ -n "$live_pid" ]]; then
       echo "$live_pid" > "$PID_FILE"
       return 0
     fi
-  fi
+  done < <(find_live_pids)
 
+  rm -f "$PID_FILE"
   return 1
 }
 
@@ -82,29 +141,49 @@ sync_node() {
 }
 
 stop_node() {
-  if ! is_running; then
+  local live_pids=()
+  local pid
+
+  while IFS= read -r pid; do
+    if [[ -n "$pid" ]]; then
+      live_pids+=("$pid")
+    fi
+  done < <(find_live_pids)
+
+  if [[ "${#live_pids[@]}" -eq 0 ]]; then
     echo "$NODE_SLOT_ID is not running"
     rm -f "$PID_FILE"
     return
   fi
 
-  local pid
-  pid="$(cat "$PID_FILE")"
-  kill "$pid" 2>/dev/null || true
+  echo "${live_pids[0]}" > "$PID_FILE"
+
+  for pid in "${live_pids[@]}"; do
+    kill "$pid" 2>/dev/null || true
+  done
 
   for _ in {1..10}; do
-    if ! kill -0 "$pid" 2>/dev/null; then
+    local any_alive=0
+    for pid in "${live_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        any_alive=1
+        break
+      fi
+    done
+    if [[ "$any_alive" -eq 0 ]]; then
       break
     fi
     sleep 1
   done
 
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -9 "$pid" 2>/dev/null || true
-  fi
+  for pid in "${live_pids[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done
 
   rm -f "$PID_FILE"
-  echo "Stopped $NODE_SLOT_ID"
+  echo "Stopped $NODE_SLOT_ID (${#live_pids[@]} process(es))"
 }
 
 reset_chain() {

@@ -16,6 +16,17 @@ contextBridge.exposeInMainWorld('synergyDesktop', {
   writeTextFile: (path, contents) =>
     ipcRenderer.invoke('desktop:write-text-file', { path, contents }),
   relaunch: () => ipcRenderer.invoke('desktop:relaunch'),
+  openTerminalSession: (options) => ipcRenderer.invoke('desktop:open-terminal-session', options),
+  writeTerminalInput: (sessionId, input) =>
+    ipcRenderer.invoke('desktop:write-terminal-input', { sessionId, input }),
+  resizeTerminal: (sessionId, cols, rows) =>
+    ipcRenderer.invoke('desktop:resize-terminal', { sessionId, cols, rows }),
+  closeTerminalSession: (sessionId) =>
+    ipcRenderer.invoke('desktop:close-terminal-session', sessionId),
+  listTerminalSessions: () =>
+    ipcRenderer.invoke('desktop:list-terminal-sessions'),
+  resolvePeerTopology: (input) =>
+    ipcRenderer.invoke('desktop:resolve-peer-topology', input),
 
   // Auto-update
   checkForUpdate: () => ipcRenderer.invoke('desktop:check-for-update'),
@@ -25,5 +36,20 @@ contextBridge.exposeInMainWorld('synergyDesktop', {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
+  },
+  onTerminalOutput: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('terminal:output', listener);
+    return () => ipcRenderer.removeListener('terminal:output', listener);
+  },
+  onTerminalExit: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('terminal:exit', listener);
+    return () => ipcRenderer.removeListener('terminal:exit', listener);
+  },
+  onTerminalAudit: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('terminal:audit', listener);
+    return () => ipcRenderer.removeListener('terminal:audit', listener);
   },
 });

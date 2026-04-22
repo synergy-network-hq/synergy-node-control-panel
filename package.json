@@ -1,6 +1,6 @@
 {
   "name": "synergy-node-control-panel",
-  "version": "9.0.5",
+  "version": "9.0.6",
   "description": "Synergy Node Control Panel",
   "author": "Synergy Network <support@synergy-network.io>",
   "type": "module",
@@ -19,12 +19,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "d3-geo": "^3.1.1",
     "electron-updater": "^6.8.3",
+    "geoip-lite": "^2.0.1",
+    "node-pty": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.30.3",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2",
+    "xterm": "^5.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.3",

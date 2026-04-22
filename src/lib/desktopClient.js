@@ -254,3 +254,81 @@ export async function relaunchApp() {
   }
   return bridge.relaunch();
 }
+
+export async function openTerminalSession(options = {}) {
+  const bridge = getBridge();
+  if (!bridge?.openTerminalSession) {
+    throw new Error('Terminal sessions are unavailable in this runtime.');
+  }
+  return bridge.openTerminalSession(options);
+}
+
+export async function writeTerminalInput(sessionId, input) {
+  const bridge = getBridge();
+  if (!bridge?.writeTerminalInput) {
+    throw new Error('Terminal sessions are unavailable in this runtime.');
+  }
+  return bridge.writeTerminalInput(sessionId, input);
+}
+
+export async function resizeTerminal(sessionId, cols, rows) {
+  const bridge = getBridge();
+  if (!bridge?.resizeTerminal) {
+    throw new Error('Terminal sessions are unavailable in this runtime.');
+  }
+  return bridge.resizeTerminal(sessionId, cols, rows);
+}
+
+export async function closeTerminalSession(sessionId) {
+  const bridge = getBridge();
+  if (!bridge?.closeTerminalSession) {
+    throw new Error('Terminal sessions are unavailable in this runtime.');
+  }
+  return bridge.closeTerminalSession(sessionId);
+}
+
+export async function listTerminalSessions() {
+  const bridge = getBridge();
+  if (!bridge?.listTerminalSessions) {
+    return [];
+  }
+  return bridge.listTerminalSessions();
+}
+
+export function onTerminalOutput(callback) {
+  const bridge = getBridge();
+  if (!bridge?.onTerminalOutput) {
+    return () => {};
+  }
+  return bridge.onTerminalOutput(callback);
+}
+
+export function onTerminalExit(callback) {
+  const bridge = getBridge();
+  if (!bridge?.onTerminalExit) {
+    return () => {};
+  }
+  return bridge.onTerminalExit(callback);
+}
+
+export function onTerminalAudit(callback) {
+  const bridge = getBridge();
+  if (!bridge?.onTerminalAudit) {
+    return () => {};
+  }
+  return bridge.onTerminalAudit(callback);
+}
+
+export async function resolvePeerTopology(input = {}) {
+  const bridge = getBridge();
+  if (!bridge?.resolvePeerTopology) {
+    return {
+      localNode: null,
+      points: [],
+      regionSummary: [],
+      routes: [],
+      resolvedAt: Date.now(),
+    };
+  }
+  return bridge.resolvePeerTopology(input);
+}

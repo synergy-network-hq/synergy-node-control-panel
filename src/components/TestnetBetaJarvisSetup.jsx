@@ -1590,12 +1590,98 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             </div>
 
             <div className="jarvis-chat-controls">
+              {promptConfig.hint && !hidePromptHint ? (
+                <div className="jarvis-choice-hint">
+                  <p>{promptConfig.hint}</p>
+                </div>
+              ) : null}
+
+              {promptConfig.kind === 'select' ? (
+                <form className="jarvis-choice-select" onSubmit={submitSelect}>
+                  <div className="jarvis-choice-header">
+                    <strong>Choose an option</strong>
+                    {promptConfig.hint ? <span>{promptConfig.hint}</span> : null}
+                  </div>
+                  <div className="jarvis-choice-select-row">
+                    <select value={selectValue} onChange={(event) => setSelectValue(event.target.value)} disabled={running}>
+                      {promptConfig.options.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <SNRGButton as="button" type="submit" variant="purple" size="sm" disabled={running || !selectValue}>
+                      Choose
+                    </SNRGButton>
+                  </div>
+                </form>
+              ) : null}
+
+              {promptConfig.kind === 'choices' ? (
+                <div className="jarvis-choice-list jarvis-choice-list-utility">
+                  {promptConfig.hint ? (
+                    <div className="jarvis-choice-header">
+                      <strong>Quick choices</strong>
+                      <span>{promptConfig.hint}</span>
+                    </div>
+                  ) : null}
+                  <div className="jarvis-choice-list-utility-row">
+                    {promptConfig.options.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className="jarvis-choice-pill"
+                        disabled={running}
+                        onClick={() => void submitChoice(option.value, option.label)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {promptConfig.kind === 'package' ? (
+                <div className="jarvis-choice-list jarvis-choice-list-utility">
+                  <div className="jarvis-choice-header">
+                    <strong>Package controls</strong>
+                    <span>{promptConfig.hint}</span>
+                  </div>
+                  <div className="jarvis-choice-list-utility-row">
+                    <button
+                      type="button"
+                      className="jarvis-choice-pill"
+                      disabled={running}
+                      onClick={() => void submitChoice('select package', 'Select Package')}
+                    >
+                      {promptConfig.packagePath ? 'Choose Different Package' : 'Select Package'}
+                    </button>
+                    <button
+                      type="button"
+                      className="jarvis-choice-pill"
+                      disabled={running || !promptConfig.packagePath}
+                      onClick={() => void submitChoice('import package', 'Import Package')}
+                    >
+                      Import Package
+                    </button>
+                    <button
+                      type="button"
+                      className="jarvis-choice-pill"
+                      disabled={running}
+                      onClick={() => void submitChoice('restart', 'Restart Setup')}
+                    >
+                      Restart Setup
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <form className="jarvis-chat-form" onSubmit={submitChat}>
                 <input
                   type="text"
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  placeholder="Type your reply here"
+                  placeholder={promptConfig.placeholder || 'Type your reply here'}
                   disabled={chatInputLocked}
                 />
                 <SNRGButton as="button" type="submit" variant="blue" size="sm" disabled={chatInputLocked || !input.trim()}>

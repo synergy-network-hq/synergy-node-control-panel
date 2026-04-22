@@ -142,6 +142,8 @@ MANAGEMENT_HOST_VAR="${MACHINE_KEY_UPPER}_MANAGEMENT_HOST"
 SSH_USER_VAR="${MACHINE_KEY_UPPER}_SSH_USER"
 SSH_PORT_VAR="${MACHINE_KEY_UPPER}_SSH_PORT"
 SSH_KEY_VAR="${MACHINE_KEY_UPPER}_SSH_KEY"
+SSH_PASSWORD_VAR="${MACHINE_KEY_UPPER}_SSH_PASSWORD"
+REMOTE_PLATFORM_VAR="${MACHINE_KEY_UPPER}_REMOTE_PLATFORM"
 REMOTE_DIR_VAR="${MACHINE_KEY_UPPER}_REMOTE_DIR"
 PUBLIC_IP_VAR="${MACHINE_KEY_UPPER}_PUBLIC_IP"
 CANONICAL_NODE_SLOT_ID="$(canonical_node_slot_id "$NODE_SLOT_ID")"
@@ -172,11 +174,25 @@ if [[ -z "$SSH_PORT" ]]; then
 fi
 
 SSH_KEY="$(resolve_var "$SSH_KEY_VAR")"
-if [[ -z "$SSH_KEY" ]]; then
+SSH_KEY_FROM_NODE=0
+if [[ -n "$SSH_KEY" ]]; then
+  SSH_KEY_FROM_NODE=1
+else
   SSH_KEY="${SYNERGY_TESTBETA_SSH_KEY:-}"
 fi
+SSH_PASSWORD="$(resolve_var "$SSH_PASSWORD_VAR")"
+if [[ -z "$SSH_PASSWORD" ]]; then
+  SSH_PASSWORD="${SYNERGY_TESTBETA_SSH_PASSWORD:-}"
+fi
+if [[ -n "$SSH_PASSWORD" && "$SSH_KEY_FROM_NODE" -eq 0 ]]; then
+  SSH_KEY=""
+fi
 REMOTE_NODE_DIR="$(resolve_var "$REMOTE_DIR_VAR")"
-REMOTE_PLATFORM="$(normalize_remote_platform "$(inventory_operating_system)")"
+REMOTE_PLATFORM="$(resolve_var "$REMOTE_PLATFORM_VAR")"
+if [[ -z "$REMOTE_PLATFORM" ]]; then
+  REMOTE_PLATFORM="$(inventory_operating_system)"
+fi
+REMOTE_PLATFORM="$(normalize_remote_platform "$REMOTE_PLATFORM")"
 if [[ -z "$REMOTE_NODE_DIR" ]]; then
   if [[ "$REMOTE_PLATFORM" == "windows" ]]; then
     REMOTE_NODE_DIR="C:/Synergy/$CANONICAL_NODE_SLOT_ID"
@@ -248,8 +264,8 @@ if is_local_host_token "$HOST" || { [[ -n "$MANAGEMENT_HOST" ]] && is_local_host
 fi
 
 HOST_CANDIDATES=()
-append_unique_host_candidate "$HOST"
 append_unique_host_candidate "$MANAGEMENT_HOST"
+append_unique_host_candidate "$HOST"
 append_unique_host_candidate "$PUBLIC_IP"
 
 if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
@@ -260,7 +276,6 @@ if [[ "$IS_LOCAL_TARGET" -eq 1 ]]; then
 fi
 
 SSH_ARGS=(
-  -o BatchMode=yes
   -o StrictHostKeyChecking=accept-new
   -o ConnectTimeout=8
   -o ConnectionAttempts=1
@@ -269,12 +284,23 @@ SSH_ARGS=(
   -p "$SSH_PORT"
 )
 SCP_ARGS=(
-  -o BatchMode=yes
   -o StrictHostKeyChecking=accept-new
   -o ConnectTimeout=8
   -o ConnectionAttempts=1
   -P "$SSH_PORT"
 )
+
+if [[ -n "$SSH_PASSWORD" ]]; then
+  SSH_ARGS=( -o BatchMode=no "${SSH_ARGS[@]}" )
+  SCP_ARGS=( -o BatchMode=no "${SCP_ARGS[@]}" )
+  if ! command -v sshpass >/dev/null 2>&1; then
+    echo "sshpass is required when SSH_PASSWORD is configured for $NODE_SLOT_ID." >&2
+    exit 1
+  fi
+else
+  SSH_ARGS=( -o BatchMode=yes "${SSH_ARGS[@]}" )
+  SCP_ARGS=( -o BatchMode=yes "${SCP_ARGS[@]}" )
+fi
 
 if [[ -n "$SSH_KEY" ]]; then
   SSH_ARGS+=( -i "$SSH_KEY" )
@@ -298,16 +324,28 @@ ssh_run() {
   for candidate in "${HOST_CANDIDATES[@]}"; do
     target="${SSH_USER}@${candidate}"
     if [[ "$stdin_payload" == "__NO_STDIN__" ]]; then
-      if ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd"; then
+      if [[ -n "$SSH_PASSWORD" ]]; then
+        if SSHPASS="$SSH_PASSWORD" sshpass -e ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd"; then
+          ACTIVE_REMOTE_HOST="$candidate"
+          REMOTE_TARGET="$target"
+          return 0
+        fi
+      elif ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd"; then
         ACTIVE_REMOTE_HOST="$candidate"
         REMOTE_TARGET="$target"
         return 0
       fi
     else
-      if ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd" <<<"$stdin_payload"; then
-        ACTIVE_REMOTE_HOST="$candidate"
-        REMOTE_TARGET="$target"
-        return 0
+      if [[ -n "$SSH_PASSWORD" ]]; then
+        if SSHPASS="$SSH_PASSWORD" sshpass -e ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd" <<<"$stdin_payload"; then
+          ACTIVE_REMOTE_HOST="$candidate"
+          REMOTE_TARGET="$target"
+          return 0
+        fi
+      elif ssh "${SSH_ARGS[@]}" "$target" "$remote_cmd" <<<"$stdin_payload"; then
+          ACTIVE_REMOTE_HOST="$candidate"
+          REMOTE_TARGET="$target"
+          return 0
       fi
     fi
   done
@@ -322,10 +360,16 @@ scp_to_remote() {
 
   for candidate in "${HOST_CANDIDATES[@]}"; do
     target="${SSH_USER}@${candidate}"
-    if scp "${SCP_ARGS[@]}" "$local_path" "${target}:$remote_path"; then
-      ACTIVE_REMOTE_HOST="$candidate"
-      REMOTE_TARGET="$target"
-      return 0
+    if [[ -n "$SSH_PASSWORD" ]]; then
+      if SSHPASS="$SSH_PASSWORD" sshpass -e scp "${SCP_ARGS[@]}" "$local_path" "${target}:$remote_path"; then
+        ACTIVE_REMOTE_HOST="$candidate"
+        REMOTE_TARGET="$target"
+        return 0
+      fi
+    elif scp "${SCP_ARGS[@]}" "$local_path" "${target}:$remote_path"; then
+        ACTIVE_REMOTE_HOST="$candidate"
+        REMOTE_TARGET="$target"
+        return 0
     fi
   done
 
@@ -339,10 +383,16 @@ scp_from_remote() {
 
   for candidate in "${HOST_CANDIDATES[@]}"; do
     target="${SSH_USER}@${candidate}"
-    if scp "${SCP_ARGS[@]}" "${target}:$remote_path" "$local_path"; then
-      ACTIVE_REMOTE_HOST="$candidate"
-      REMOTE_TARGET="$target"
-      return 0
+    if [[ -n "$SSH_PASSWORD" ]]; then
+      if SSHPASS="$SSH_PASSWORD" sshpass -e scp "${SCP_ARGS[@]}" "${target}:$remote_path" "$local_path"; then
+        ACTIVE_REMOTE_HOST="$candidate"
+        REMOTE_TARGET="$target"
+        return 0
+      fi
+    elif scp "${SCP_ARGS[@]}" "${target}:$remote_path" "$local_path"; then
+        ACTIVE_REMOTE_HOST="$candidate"
+        REMOTE_TARGET="$target"
+        return 0
     fi
   done
 
@@ -395,7 +445,9 @@ deploy_installer_bundle() {
   fi
 
   local archive
-  archive="$(mktemp "/tmp/${NODE_SLOT_ID}-installer.XXXXXX.tgz")"
+  archive="$(mktemp "/tmp/${NODE_SLOT_ID}-installer.XXXXXX")"
+  rm -f "$archive"
+  archive="${archive}.tgz"
   tar -C "$INSTALLER_DIR" -czf "$archive" .
 
   local remote_archive
@@ -413,11 +465,30 @@ Remove-Item -Path \$remoteArchive -Force -ErrorAction SilentlyContinue
 Write-Host 'Installer deployed to $REMOTE_NODE_DIR'
 "
   else
+    local ssh_password_literal
+    ssh_password_literal="$(shell_escape "$SSH_PASSWORD")"
     remote_run_script "
 set -euo pipefail
-mkdir -p '$REMOTE_NODE_DIR'
-tar -xzf '$remote_archive' -C '$REMOTE_NODE_DIR'
-rm -f '$remote_archive'
+SUDO_PASSWORD=${ssh_password_literal:-''}
+run_remote_sudo() {
+  if [[ \"\$(id -u)\" -eq 0 ]]; then
+    \"\$@\"
+    return
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo 'sudo is required to deploy into $REMOTE_NODE_DIR' >&2
+    exit 1
+  fi
+  if [[ -n \"\$SUDO_PASSWORD\" ]]; then
+    printf '%s\n' \"\$SUDO_PASSWORD\" | sudo -S -p '' \"\$@\"
+  else
+    sudo \"\$@\"
+  fi
+}
+run_remote_sudo mkdir -p '$REMOTE_NODE_DIR'
+run_remote_sudo tar -xzf '$remote_archive' -C '$REMOTE_NODE_DIR'
+run_remote_sudo rm -f '$remote_archive'
+run_remote_sudo chown -R \"\$(id -un):\$(id -gn)\" '$REMOTE_NODE_DIR'
 chmod +x '$REMOTE_NODE_DIR/install_and_start.sh' '$REMOTE_NODE_DIR/nodectl.sh' || true
 echo 'Installer deployed to $REMOTE_NODE_DIR'
 "

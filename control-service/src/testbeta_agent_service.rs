@@ -1013,18 +1013,128 @@ fn sync_workspace_installer(workspace_root: &Path, install: &NodeInstall) -> Res
     copy_directory_force(&source, &install.install_dir)
 }
 
+#[cfg(not(target_os = "windows"))]
+fn read_pid_cmdline(pid: &str) -> Option<String> {
+    let proc_path = PathBuf::from(format!("/proc/{pid}/cmdline"));
+    if proc_path.is_file() {
+        let bytes = fs::read(proc_path).ok()?;
+        let joined = bytes
+            .split(|byte| *byte == 0)
+            .filter(|part| !part.is_empty())
+            .map(|part| String::from_utf8_lossy(part).to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !joined.is_empty() {
+            return Some(joined);
+        }
+    }
+
+    let output = ProcessCommand::new("ps")
+        .args(["-p", pid, "-o", "command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_pid_cwd(pid: &str) -> Option<PathBuf> {
+    let proc_path = PathBuf::from(format!("/proc/{pid}/cwd"));
+    if proc_path.exists() {
+        return fs::read_link(proc_path).ok();
+    }
+
+    let output = ProcessCommand::new("lsof")
+        .args(["-a", "-p", pid, "-d", "cwd", "-Fn"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix('n'))
+        .map(PathBuf::from)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn pid_matches_install(install: &NodeInstall, pid: &str) -> bool {
+    let Some(cmdline) = read_pid_cmdline(pid) else {
+        return false;
+    };
+    if !cmdline.contains("synergy-testbeta") || cmdline.contains("synergy-testbeta-agent") {
+        return false;
+    }
+
+    let config_path = install
+        .install_dir
+        .join("config/node.toml")
+        .to_string_lossy()
+        .to_string();
+    if cmdline.contains(&config_path) {
+        return true;
+    }
+
+    if !cmdline.contains("--config config/node.toml") {
+        return false;
+    }
+
+    read_pid_cwd(pid)
+        .map(|cwd| cwd == install.install_dir)
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn matching_node_pids(install: &NodeInstall) -> Vec<String> {
+    let mut matches = Vec::new();
+    let pid_file = install.install_dir.join("data/node.pid");
+    if let Ok(contents) = fs::read_to_string(&pid_file) {
+        let pid = contents.trim();
+        if !pid.is_empty() && pid_matches_install(install, pid) {
+            matches.push(pid.to_string());
+            return matches;
+        }
+    }
+
+    let Ok(output) = ProcessCommand::new("pgrep")
+        .args(["-f", "synergy-testbeta"])
+        .output()
+    else {
+        return matches;
+    };
+    if !output.status.success() {
+        return matches;
+    }
+
+    for pid in String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|pid| !pid.is_empty())
+    {
+        if pid_matches_install(install, pid) {
+            matches.push(pid.to_string());
+        }
+    }
+
+    matches
+}
+
 /// Checks if a node process is actually running, independent of PID files.
-/// Uses OS-level process enumeration to detect processes whose command line
-/// contains this node's install directory path.
+/// Detects both correctly launched processes with absolute config paths and
+/// older relative-path launches whose working directory is the install root.
 fn is_node_process_running(install: &NodeInstall) -> bool {
     #[cfg(not(target_os = "windows"))]
     {
-        let path = install.install_dir.to_string_lossy().to_string();
-        // pgrep -f returns 0 if any matching process found, 1 if none.
-        match ProcessCommand::new("pgrep").args(["-f", &path]).output() {
-            Ok(output) => output.status.success(),
-            Err(_) => false,
-        }
+        !matching_node_pids(install).is_empty()
     }
 
     #[cfg(target_os = "windows")]
@@ -1057,12 +1167,16 @@ fn is_node_process_running(install: &NodeInstall) -> bool {
 fn force_kill_node_processes(install: &NodeInstall) {
     #[cfg(not(target_os = "windows"))]
     {
-        let path = install.install_dir.to_string_lossy().to_string();
-        // Kill any process whose command line contains the install dir path.
-        // This precisely targets THIS node's binary without disturbing other nodes.
-        let _ = ProcessCommand::new("pkill").args(["-f", &path]).output();
-        // Give the OS a moment to reap the process before we delete chain data.
+        let live_pids = matching_node_pids(install);
+        for pid in &live_pids {
+            let _ = ProcessCommand::new("kill").args(["-TERM", pid]).output();
+        }
         std::thread::sleep(std::time::Duration::from_millis(1500));
+
+        for pid in matching_node_pids(install) {
+            let _ = ProcessCommand::new("kill").args(["-KILL", &pid]).output();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     #[cfg(target_os = "windows")]

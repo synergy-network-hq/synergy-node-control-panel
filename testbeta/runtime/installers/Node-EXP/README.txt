@@ -1,4 +1,4 @@
-Synergy Lean 15 Testnet-Beta Installer
+Synergy Testnet-Beta Installer
 ================================
 
 Node Slot: Node-EXP

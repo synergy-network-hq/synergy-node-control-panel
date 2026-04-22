@@ -3,12 +3,12 @@ import Layout from './components/Layout';
 import NetworkMonitorNodePage from './components/NetworkMonitorNodePage';
 import TestnetBetaNodeDetail from './components/TestnetBetaNodeDetail';
 import HelpArticlesPage from './components/HelpArticlesPage';
-import SettingsPage from './components/SettingsPage';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
 import TestnetBetaJarvisSetup from './components/TestnetBetaJarvisSetup';
 import TestnetBetaDashboard from './components/TestnetBetaDashboard';
 import ControlPanelConnectivityPage from './components/control-panel/ControlPanelConnectivityPage';
 import ControlPanelLogsPage from './components/control-panel/ControlPanelLogsPage';
+import ControlPanelOperationsPage from './components/control-panel/ControlPanelOperationsPage';
 import ControlPanelRewardsPage from './components/control-panel/ControlPanelRewardsPage';
 import { ControlPanelProvider } from './components/control-panel/ControlPanelProvider';
 import { Navigate, Route, Routes } from 'react-router-dom';
@@ -182,7 +182,7 @@ function App() {
             <Route path="/connectivity" element={<ControlPanelConnectivityPage />} />
             <Route path="/logs" element={<ControlPanelLogsPage />} />
             <Route path="/rewards" element={<ControlPanelRewardsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<ControlPanelOperationsPage />} />
             <Route path="/node/:nodeId" element={<TestnetBetaNodeDetail />} />
             <Route path="/monitor/:nodeSlotId" element={<NetworkMonitorNodePage />} />
             <Route path="/help" element={<HelpArticlesPage />} />

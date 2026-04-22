@@ -6,6 +6,9 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const { createPtyManager } = require('./pty-manager.cjs');
+const { setupTerminalIpc } = require('./ipc/terminal-ipc.cjs');
+const { setupRuntimeInspectorIpc } = require('./ipc/runtime-inspector-ipc.cjs');
 const repoRoot = path.resolve(__dirname, '..');
 const appIconPngPath = path.join(repoRoot, 'control-service', 'icons', 'icon.png');
 
@@ -14,6 +17,23 @@ let helpWindow = null;
 let controlServiceProcess = null;
 let controlServiceConfig = null;
 const SERVICE_INVOKE_RETRY_DELAYS_MS = [0, 160, 320, 560];
+const terminalManager = createPtyManager({
+  onOutput(payload) {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('terminal:output', payload);
+    });
+  },
+  onExit(payload) {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('terminal:exit', payload);
+    });
+  },
+  onAudit(payload) {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      window.webContents.send('terminal:audit', payload);
+    });
+  },
+});
 
 function getRendererEntry(hash = '/') {
   if (process.env.ELECTRON_START_URL) {
@@ -428,6 +448,9 @@ function setupIpc() {
     console.log('[auto-updater] install-update (quitAndInstall) requested by renderer');
     autoUpdater.quitAndInstall(false, true);
   });
+
+  setupTerminalIpc(ipcMain, terminalManager);
+  setupRuntimeInspectorIpc(ipcMain);
 }
 
 app.on('window-all-closed', () => {
@@ -437,6 +460,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  terminalManager.closeAllSessions();
   if (controlServiceProcess) {
     controlServiceProcess.kill();
     controlServiceProcess = null;

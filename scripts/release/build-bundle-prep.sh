@@ -114,6 +114,266 @@ sync_canonical_runtime_assets() {
   echo "Using committed canonical Testnet-Beta installer templates"
 }
 
+resolve_explorer_root() {
+  local candidate=""
+  local candidates=()
+
+  if [[ -n "${SYNERGY_TESTBETA_EXPLORER_APP_ROOT:-}" ]]; then
+    candidates+=("${SYNERGY_TESTBETA_EXPLORER_APP_ROOT}")
+  fi
+
+  candidates+=(
+    "$ROOT_DIR/../explorer-app"
+    "$ROOT_DIR/../../explorer-app"
+    "$ROOT_DIR/../../../explorer-app"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -d "$candidate" ]]; then
+      (cd "$candidate" && pwd)
+      return 0
+    fi
+  done
+
+  echo "Atlas explorer source not found. Checked: ${candidates[*]}" >&2
+  return 1
+}
+
+sync_atlas_runtime_bundle() {
+  local explorer_root node_exp_bundle frontend_dist_root
+  explorer_root="$(resolve_explorer_root)"
+  node_exp_bundle="$ROOT_DIR/testbeta/runtime/installers/Node-EXP/explorer-app"
+  frontend_dist_root="$node_exp_bundle/dist"
+
+  echo "Building Atlas runtime from $explorer_root"
+  npm ci --prefix "$explorer_root"
+  npm run build --prefix "$explorer_root"
+
+  for package_dir in "$explorer_root/backend" "$explorer_root/indexer"; do
+    npm ci --prefix "$package_dir"
+    npm run build --prefix "$package_dir"
+    npm prune --omit=dev --prefix "$package_dir"
+  done
+
+  rm -rf "$node_exp_bundle"
+  mkdir -p "$node_exp_bundle/backend" "$node_exp_bundle/indexer"
+
+  rsync -a --delete \
+    --exclude '.DS_Store' \
+    "$explorer_root/dist/" \
+    "$frontend_dist_root/"
+
+  for service_dir in backend indexer; do
+    mkdir -p "$node_exp_bundle/$service_dir"
+    rsync -a --delete \
+      --exclude '.DS_Store' \
+      --exclude '.env' \
+      "$explorer_root/$service_dir/dist/" \
+      "$node_exp_bundle/$service_dir/dist/"
+    rsync -a --delete \
+      --exclude '.DS_Store' \
+      "$explorer_root/$service_dir/migrations/" \
+      "$node_exp_bundle/$service_dir/migrations/"
+    rsync -a --delete \
+      --exclude '.DS_Store' \
+      "$explorer_root/$service_dir/node_modules/" \
+      "$node_exp_bundle/$service_dir/node_modules/"
+    mkdir -p "$node_exp_bundle/$service_dir/scripts"
+    cp "$explorer_root/$service_dir/package.json" "$node_exp_bundle/$service_dir/package.json"
+    cp "$explorer_root/$service_dir/package-lock.json" "$node_exp_bundle/$service_dir/package-lock.json"
+    cp "$explorer_root/$service_dir/.env.example" "$node_exp_bundle/$service_dir/.env.example"
+    cp "$explorer_root/$service_dir/scripts/migrate.js" "$node_exp_bundle/$service_dir/scripts/migrate.js"
+  done
+}
+
+render_public_service_nginx_configs() {
+  local rpc_bundle explorer_bundle
+  local rpc_host rpc_ws_host rpc_port ws_port
+  local explorer_host atlas_api_host indexer_ws_host atlas_api_port indexer_ws_port explorer_static_root
+
+  rpc_bundle="$ROOT_DIR/testbeta/runtime/installers/Node-RPC"
+  explorer_bundle="$ROOT_DIR/testbeta/runtime/installers/Node-EXP"
+
+  # shellcheck disable=SC1090
+  source "$rpc_bundle/node.env"
+  rpc_host="${HOSTNAME}"
+  rpc_ws_host="${RPC_WS_HOSTNAME:-testbeta-core-ws.synergy-network.io}"
+  rpc_port="${RPC_PORT}"
+  ws_port="${WS_PORT}"
+
+  cat > "$rpc_bundle/nginx.conf" <<EOF
+# Canonical Testnet-Beta RPC gateway reverse proxy.
+# Deploy this file on the public RPC host and enable it in nginx.
+
+upstream testbeta_rpc_http {
+  server 127.0.0.1:${rpc_port};
+}
+
+upstream testbeta_rpc_ws {
+  server 127.0.0.1:${ws_port};
+}
+
+server {
+  listen 80;
+  server_name ${rpc_host} ${rpc_ws_host};
+  location ^~ /.well-known/acme-challenge/ {
+    root /var/www/letsencrypt;
+    default_type "text/plain";
+    try_files \$uri =404;
+  }
+  return 301 https://\$host\$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${rpc_host};
+  ssl_certificate /etc/letsencrypt/live/${rpc_host}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${rpc_host}/privkey.pem;
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+  location = /healthz {
+    return 200 "ok\n";
+  }
+
+  location / {
+    proxy_pass http://testbeta_rpc_http;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 60s;
+    add_header Access-Control-Allow-Origin *;
+    add_header Access-Control-Allow-Methods "GET, POST, OPTIONS";
+    add_header Access-Control-Allow-Headers "Content-Type";
+  }
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${rpc_ws_host};
+  ssl_certificate /etc/letsencrypt/live/${rpc_host}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${rpc_host}/privkey.pem;
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+  location / {
+    proxy_pass http://testbeta_rpc_ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_read_timeout 3600s;
+  }
+}
+EOF
+
+  # shellcheck disable=SC1090
+  source "$explorer_bundle/node.env"
+  explorer_host="${EXPLORER_UI_HOSTNAME:-${HOSTNAME}}"
+  atlas_api_host="${ATLAS_API_HOSTNAME:-testbeta-atlas-api.synergy-network.io}"
+  indexer_ws_host="${INDEXER_WS_HOSTNAME:-testbeta-indexer.synergy-network.io}"
+  atlas_api_port="${EXPLORER_API_PORT:-3020}"
+  indexer_ws_port="${INDEXER_WS_PORT:-${WS_PORT}}"
+  explorer_static_root="${EXPLORER_STATIC_ROOT:-/opt/synergy/testbeta/indexer-explorer/explorer-app/dist}"
+
+  cat > "$explorer_bundle/nginx.conf" <<EOF
+# Canonical Testnet-Beta Atlas and explorer reverse proxy.
+# Deploy this file on the public explorer host and enable it in nginx.
+
+upstream testbeta_atlas_api {
+  server 127.0.0.1:${atlas_api_port};
+}
+
+upstream testbeta_indexer_ws {
+  server 127.0.0.1:${indexer_ws_port};
+}
+
+server {
+  listen 80;
+  server_name ${explorer_host} ${atlas_api_host} ${indexer_ws_host};
+  location ^~ /.well-known/acme-challenge/ {
+    root /var/www/letsencrypt;
+    default_type "text/plain";
+    try_files \$uri =404;
+  }
+  return 301 https://\$host\$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${explorer_host};
+  ssl_certificate /etc/letsencrypt/live/${explorer_host}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${explorer_host}/privkey.pem;
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+  root ${explorer_static_root};
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://testbeta_atlas_api;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 60s;
+  }
+
+  location = /healthz {
+    proxy_pass http://testbeta_atlas_api/healthz;
+  }
+
+  location = /readyz {
+    proxy_pass http://testbeta_atlas_api/readyz;
+  }
+
+  location / {
+    try_files \$uri \$uri/ /index.html;
+  }
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${atlas_api_host};
+  ssl_certificate /etc/letsencrypt/live/${explorer_host}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${explorer_host}/privkey.pem;
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+  location / {
+    proxy_pass http://testbeta_atlas_api;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 60s;
+  }
+}
+
+server {
+  listen 443 ssl http2;
+  server_name ${indexer_ws_host};
+  ssl_certificate /etc/letsencrypt/live/${explorer_host}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${explorer_host}/privkey.pem;
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+  location / {
+    proxy_pass http://testbeta_indexer_ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_read_timeout 3600s;
+  }
+}
+EOF
+}
+
 # Ensure Unix platform binaries are executable
 for binary_path in \
   "$ROOT_DIR/binaries/synergy-testbeta-darwin-arm64" \
@@ -128,6 +388,8 @@ ensure_version_alignment
 sync_platform_binaries
 refresh_platform_binary_checksums
 sync_canonical_runtime_assets
+sync_atlas_runtime_bundle
+render_public_service_nginx_configs
 ./scripts/release/generate-workspace-manifest.sh
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 ./scripts/release/validate-bundled-assets.sh
 

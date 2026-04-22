@@ -215,11 +215,11 @@ if network.get("bootstrap_dns_records") != []:
     errors.append("runtime_config.network.bootstrap_dns_records must be empty for bundled validator packages")
 
 expected_consensus = {
-    "min_validators": 5,
+    "min_validators": 3,
     "validator_vote_threshold": 4,
     "validator_cluster_size": 5,
     "status_ready_gate_enabled": True,
-    "status_ready_min_validators": 5,
+    "status_ready_min_validators": 3,
     "status_ready_genesis_grace_secs": 0,
     "allow_genesis_status_bypass": False,
     "mesh_settle_secs": 15,
@@ -268,5 +268,58 @@ if errors:
         print(error, file=sys.stderr)
     raise SystemExit(1)
 PY
+
+required_atlas_paths=(
+  "testbeta/runtime/installers/Node-RPC/nginx.conf"
+  "testbeta/runtime/installers/Node-EXP/nginx.conf"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/dist/index.html"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/dist/assets"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/backend/dist"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/backend/scripts/migrate.js"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/backend/migrations"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/backend/node_modules/fastify/package.json"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/dist"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/scripts/migrate.js"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/migrations"
+  "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/node_modules/pg/package.json"
+)
+
+for required_path in "${required_atlas_paths[@]}"; do
+  if [[ ! -e "$required_path" ]]; then
+    echo "Missing bundled Atlas/runtime asset: $required_path" >&2
+    exit 1
+  fi
+done
+
+if ! rg -q '^DATABASE_URL=postgres://synergy:synergy@127\.0\.0\.1:5432/synergy_explorer\?sslmode=disable$' "testbeta/runtime/installers/Node-EXP/node.env"; then
+  echo "Bundled Node-EXP node.env is missing the canonical DATABASE_URL" >&2
+  exit 1
+fi
+
+if ! rg -q '^INDEXER_WS_HOSTNAME=testbeta-indexer\.synergy-network\.io$' "testbeta/runtime/installers/Node-EXP/node.env"; then
+  echo "Bundled Node-EXP node.env is missing the canonical INDEXER_WS_HOSTNAME" >&2
+  exit 1
+fi
+
+if ! rg -q 'server_name testbeta-core-rpc\.synergy-network\.io' "testbeta/runtime/installers/Node-RPC/nginx.conf"; then
+  echo "Bundled Node-RPC nginx.conf is missing the canonical RPC hostname" >&2
+  exit 1
+fi
+
+if ! rg -q 'server_name testbeta-core-ws\.synergy-network\.io' "testbeta/runtime/installers/Node-RPC/nginx.conf"; then
+  echo "Bundled Node-RPC nginx.conf is missing the canonical WS hostname" >&2
+  exit 1
+fi
+
+for expected_host in \
+  'testbeta-explorer.synergy-network.io' \
+  'testbeta-atlas-api.synergy-network.io' \
+  'testbeta-indexer.synergy-network.io'
+do
+  if ! rg -q "server_name ${expected_host}" "testbeta/runtime/installers/Node-EXP/nginx.conf"; then
+    echo "Bundled Node-EXP nginx.conf is missing ${expected_host}" >&2
+    exit 1
+  fi
+done
 
 echo "Bundled assets validated."

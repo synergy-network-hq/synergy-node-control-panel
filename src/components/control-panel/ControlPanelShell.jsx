@@ -18,6 +18,7 @@ import {
   nodeSyncPercent,
   statusTone,
 } from './controlPanelModel';
+import DeveloperTerminalDock from './DeveloperTerminalDock';
 import { ModeSwitcher, StatusPill } from './ControlPanelShared';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
@@ -43,7 +44,7 @@ function updateButtonLabel(updateState) {
 function pageMetaFor(pathname, viewMode, selectedNode) {
   if (pathname.startsWith('/connectivity')) {
     return {
-      title: 'Connectivity',
+      title: viewMode === 'basic' ? 'Connections' : viewMode === 'advanced' ? 'Connectivity' : 'P2P',
       description: viewMode === 'basic'
         ? 'See who your node is talking to and whether the network path looks healthy.'
         : 'Inspect mesh reachability, peer routing, and bootstrap health.',
@@ -55,7 +56,7 @@ function pageMetaFor(pathname, viewMode, selectedNode) {
 
   if (pathname.startsWith('/logs')) {
     return {
-      title: 'System Logs',
+      title: viewMode === 'basic' ? 'Activity' : viewMode === 'advanced' ? 'Logs' : 'Runtime Logs',
       description: viewMode === 'basic'
         ? 'Jarvis distills the day into the moments that matter.'
         : 'Filter runtime events, source health, and raw developer traces.',
@@ -67,7 +68,7 @@ function pageMetaFor(pathname, viewMode, selectedNode) {
 
   if (pathname.startsWith('/rewards')) {
     return {
-      title: 'Rewards',
+      title: viewMode === 'basic' ? 'Earnings' : viewMode === 'advanced' ? 'Rewards' : 'Rewards + Ledger',
       description: viewMode === 'basic'
         ? 'See what this node has earned and what is still pending.'
         : 'Validator rewards, payout history, and economics telemetry.',
@@ -79,7 +80,7 @@ function pageMetaFor(pathname, viewMode, selectedNode) {
 
   if (pathname.startsWith('/node/')) {
     return {
-      title: selectedNode?.display_label || 'Node Details',
+      title: selectedNode?.display_label || (viewMode === 'basic' ? 'My Node' : viewMode === 'advanced' ? 'Node Details' : 'Validator Detail'),
       description: viewMode === 'basic'
         ? 'Health, rewards, and a plain-language explanation of how this node is doing.'
         : 'Identity, readiness, configuration, and operator controls for the selected node.',
@@ -91,9 +92,11 @@ function pageMetaFor(pathname, viewMode, selectedNode) {
 
   if (pathname.startsWith('/settings')) {
     return {
-      title: 'Settings',
-      description: 'Machine-level controls, environment preferences, and destructive actions live here.',
-      jarvis: 'Settings is still using the existing control-service surface. I have kept it accessible while the new operator workspace rolls out.',
+      title: viewMode === 'basic' ? 'Tools' : viewMode === 'advanced' ? 'Operations' : 'Local Ops',
+      description: 'Machine-level controls, environment preferences, and controlled operations live here.',
+      jarvis: viewMode === 'basic'
+        ? 'This page keeps maintenance safe and guided.'
+        : 'This is the local operations surface for workspace visibility, machine checks, and action history.',
     };
   }
 
@@ -136,6 +139,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     setSelectedNodeId,
     setViewMode,
     viewMode,
+    viewProfile,
   } = useControlPanel();
 
   const [appVersion, setAppVersion] = useState('');
@@ -370,7 +374,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     }
 
     if (/terminal/.test(normalized)) {
-      pushJarvisMessage('assistant', 'The on-demand terminal is available inside Jarvis setup right now. A panel-wide terminal drawer is planned next.');
+      pushJarvisMessage('assistant', 'Opening the developer dock is the fastest way to work from a real terminal session.');
       return;
     }
 
@@ -378,20 +382,20 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
   };
 
   const navigationItems = [
-    { to: '/', label: 'Dashboard', icon: 'space_dashboard', end: true },
-    { to: defaultNode ? `/node/${defaultNode.id}` : '', label: 'Node Details', icon: 'dns', disabled: !defaultNode },
-    { to: '/connectivity', label: 'Connectivity', icon: 'hub' },
-    { to: '/logs', label: 'System Logs', icon: 'receipt_long' },
-    { to: '/rewards', label: 'Rewards', icon: 'savings' },
-    { to: '/help', label: 'Documentation', icon: 'menu_book', disabled: true },
+    { to: '/', key: 'dashboard', label: viewProfile.navLabels.dashboard, icon: 'space_dashboard', end: true },
+    { to: defaultNode ? `/node/${defaultNode.id}` : '', key: 'details', label: viewProfile.navLabels.details, icon: 'dns', disabled: !defaultNode },
+    { to: '/connectivity', key: 'connectivity', label: viewProfile.navLabels.connectivity, icon: 'hub' },
+    { to: '/logs', key: 'logs', label: viewProfile.navLabels.logs, icon: 'receipt_long' },
+    { to: '/rewards', key: 'rewards', label: viewProfile.navLabels.rewards, icon: 'savings' },
+    { to: '/settings', key: 'settings', label: viewProfile.navLabels.settings, icon: 'build' },
   ];
 
   const isNavigationItemActive = (item) => {
-    if (item.label === 'Dashboard') {
+    if (item.key === 'dashboard') {
       return location.pathname === '/';
     }
 
-    if (item.label === 'Node Details') {
+    if (item.key === 'details') {
       return location.pathname.startsWith('/node/');
     }
 
@@ -433,6 +437,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
                 <br />
                 Control Panel
               </strong>
+              <span className="cp-brand-mode-line">{viewProfile.label} workspace</span>
               <div className="cp-sidebar-brand-badges">
                 <StatusPill tone={networkChipTone} live>
                   Network {networkStats.publicRpcOnline ? 'healthy' : 'checking'}
@@ -448,10 +453,9 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
             {navigationItems.map((item) => (
               item.disabled ? (
                 <button
-                  key={item.label}
+                  key={item.key}
                   type="button"
                   className="cp-nav-link is-disabled"
-                  data-soon={item.label === 'Documentation' ? 'true' : undefined}
                   disabled
                 >
                   <span className="material-icons" aria-hidden="true">{item.icon}</span>
@@ -459,11 +463,11 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
                 </button>
               ) : (
                 <NavLink
-                  key={item.label}
+                  key={item.key}
                   to={item.to}
                   end={item.end}
                   onClick={() => {
-                    if (item.label === 'Node Details' && defaultNode) {
+                    if (item.key === 'details' && defaultNode) {
                       setSelectedNodeId(defaultNode.id);
                     }
                   }}
@@ -531,6 +535,20 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
         <div className="cp-main-shell">
           <header className="cp-topbar">
             <div className="cp-topbar-copy">
+              <div className="cp-topbar-statusbar">
+                <div className="cp-topbar-statuscopy">
+                  <span className="cp-eyebrow">Environment</span>
+                  <strong>Testnet-Beta</strong>
+                </div>
+                <div className="cp-topbar-statuscopy">
+                  <span className="cp-eyebrow">Selected Node</span>
+                  <strong>{selectedNode?.display_label || 'None selected'}</strong>
+                </div>
+                <div className="cp-topbar-statuscopy">
+                  <span className="cp-eyebrow">Health</span>
+                  <strong>{selectedNode ? nodeRuntimeLabel(selectedNodeLive) : 'Watching fleet'}</strong>
+                </div>
+              </div>
               <img src={ecosystemHeaderGifSrc} alt="Synergy ecosystem" className="cp-topbar-gif" />
             </div>
 
@@ -538,6 +556,11 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
               <button type="button" className="cp-icon-button" onClick={() => void refresh()}>
                 <span className="material-icons" aria-hidden="true">refresh</span>
               </button>
+              {viewProfile.showCommandPalette ? (
+                <button type="button" className="cp-update-button" onClick={() => setJarvisOpen(true)}>
+                  Command Palette
+                </button>
+              ) : null}
               <button type="button" className="cp-icon-button" onClick={() => navigate('/settings')}>
                 <span className="material-icons" aria-hidden="true">settings</span>
               </button>
@@ -561,6 +584,8 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
               {children}
             </section>
           </main>
+
+          <DeveloperTerminalDock />
         </div>
       </div>
 

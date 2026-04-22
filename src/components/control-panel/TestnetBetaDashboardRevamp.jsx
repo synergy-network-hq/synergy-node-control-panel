@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { invoke, openPath } from '../../lib/desktopClient';
+import { openPath, resolvePeerTopology, invoke } from '../../lib/desktopClient';
 import { SNRGButton } from '../../styles/SNRGButton';
 import { useControlPanel } from './ControlPanelProvider';
 import {
-  buildTopologyModel,
   formatNumber,
   formatPercent,
   formatRuntimeDuration,
@@ -31,6 +30,13 @@ import {
   StatusPill,
   TopologyMap,
 } from './ControlPanelShared';
+import HealthTrendChart from './charts/HealthTrendChart';
+import PeerTrendChart from './charts/PeerTrendChart';
+import ResourceTrendChart from './charts/ResourceTrendChart';
+import PeerGlobe from './PeerGlobe';
+import PeerGlobeLegend from './PeerGlobeLegend';
+import ActionAuditStream from './ActionAuditStream';
+import JsonInspectorPanel from './JsonInspectorPanel';
 import {
   boostSyncAction,
   registerWithSeedsAction,
@@ -38,8 +44,138 @@ import {
   runNodeControlAction,
 } from './controlPanelActions';
 
+function sliceByTimeRange(points = [], timeRange = '6h') {
+  const durationMs = {
+    '30m': 30 * 60 * 1000,
+    '1h': 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+  }[timeRange] || 6 * 60 * 60 * 1000;
+  const cutoff = Date.now() - durationMs;
+  return points.filter((point) => Number(point?.at) >= cutoff);
+}
+
+function buildBootstrapPeerRecords(liveStatus) {
+  return safeArray(liveStatus?.bootnodes).map((entry, index) => ({
+    id: entry?.host || `bootnode-${index}`,
+    address: `${entry?.host || 'bootstrap'}:${entry?.port || 5622}`,
+    publicAddress: `${entry?.host || 'bootstrap'}:${entry?.port || 5622}`,
+    version: 'bootstrap',
+    lastSeen: entry?.reachable ? Date.now() : Date.now() - 90_000,
+    latencyMs: Number(entry?.latency_ms) || null,
+    direction: 'outbound',
+  }));
+}
+
+function buildSeverityBins(entries = []) {
+  const buckets = new Map();
+  safeArray(entries).forEach((entry) => {
+    const at = new Date(entry?.timestamp_utc || Date.now());
+    at.setSeconds(0, 0);
+    const key = at.getTime();
+    const current = buckets.get(key) || { id: `bin-${key}`, at: key, info: 0, warn: 0, error: 0 };
+    const level = String(entry?.level || 'INFO').toUpperCase();
+    if (level === 'ERROR') current.error += 1;
+    else if (level === 'WARN') current.warn += 1;
+    else current.info += 1;
+    buckets.set(key, current);
+  });
+  return Array.from(buckets.values()).sort((left, right) => left.at - right.at);
+}
+
+function buildPrimaryAction(selectedNodeLive) {
+  if (!selectedNodeLive?.is_running) {
+    return { kind: 'start', label: 'Start node', tone: 'lime' };
+  }
+  if ((Number(selectedNodeLive?.sync_gap) || 0) > 48) {
+    return { kind: 'boost', label: 'View next step', tone: 'blue' };
+  }
+  return { kind: 'refresh', label: 'Reconnect', tone: 'blue' };
+}
+
+function buildChecklist({ selectedNodeLive, networkStats, activityItems }) {
+  const hasWarnings = activityItems.some((item) => item.tone === 'warn' || item.tone === 'bad');
+  return [
+    {
+      id: 'runtime',
+      label: selectedNodeLive?.is_running ? 'Node runtime is online' : 'Start the node runtime',
+      detail: selectedNodeLive?.is_running
+        ? 'The control panel can see the process heartbeat.'
+        : 'The process is stopped right now.',
+      done: selectedNodeLive?.is_running === true,
+    },
+    {
+      id: 'sync',
+      label: (Number(selectedNodeLive?.sync_gap) || 0) <= 32 ? 'Keep sync within range' : 'Wait for sync to complete',
+      detail: (Number(selectedNodeLive?.sync_gap) || 0) <= 32
+        ? 'The node is keeping up with the live chain.'
+        : `${formatNumber(selectedNodeLive?.sync_gap)} blocks remain before the node is fully caught up.`,
+      done: (Number(selectedNodeLive?.sync_gap) || 0) <= 32,
+    },
+    {
+      id: 'network',
+      label: networkStats.healthyBootnodes > 0 ? 'Network entry points are reachable' : 'Check network connection',
+      detail: networkStats.healthyBootnodes > 0
+        ? `${formatNumber(networkStats.healthyBootnodes)} bootstrap services are responding.`
+        : 'Bootstrap reachability is failing, so peer discovery will stall.',
+      done: networkStats.healthyBootnodes > 0,
+    },
+    {
+      id: 'logs',
+      label: hasWarnings ? 'Review the recent warnings' : 'No urgent warnings are active',
+      detail: hasWarnings
+        ? 'Read the important moments feed before taking the next action.'
+        : 'The recent activity feed looks routine.',
+      done: !hasWarnings,
+    },
+  ];
+}
+
+function renderChecklist(items) {
+  return (
+    <div className="cp-guidance-checklist">
+      {items.map((item) => (
+        <article key={item.id} className={`cp-guidance-step ${item.done ? 'is-complete' : ''}`}>
+          <div className="cp-guidance-marker">{item.done ? '✓' : String(items.indexOf(item) + 1)}</div>
+          <div>
+            <strong>{item.label}</strong>
+            <p>{item.detail}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function dashboardMetrics(selectedNode, selectedNodeLive, networkStats, liveStatus) {
+  return [
+    {
+      label: 'Node status',
+      value: nodeRuntimeLabel(selectedNodeLive),
+      detail: nodeBlockHeightDetail(selectedNodeLive, liveStatus),
+      tone: nodeRuntimeTone(selectedNodeLive),
+      icon: 'monitor_heart',
+    },
+    {
+      label: 'Network connection',
+      value: `${formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers)} peers`,
+      detail: networkStats.healthyBootnodes > 0 ? 'Discovery path is active' : 'Discovery path needs attention',
+      tone: networkStats.healthyBootnodes > 0 ? 'cyan' : 'warn',
+      icon: 'hub',
+    },
+    {
+      label: 'Rewards status',
+      value: selectedNode?.role_display_name ? roleTypeLabel(selectedNode.role_display_name) : 'Waiting',
+      detail: 'Open Earnings for payout and participation detail',
+      tone: 'purple',
+      icon: 'savings',
+    },
+  ];
+}
+
 export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
   const {
+    actionAudit,
     error,
     liveStatus,
     loading,
@@ -47,33 +183,57 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
     networkStats,
     nodes,
     nodeLiveById,
+    recordAction,
     refresh,
     selectedNode,
     selectedNodeLive,
     selectedRole,
     setSelectedNodeId,
-    validatorNodesByAddress,
+    telemetryHistory,
+    timeRange,
+    setTimeRange,
     viewMode,
+    viewProfile,
   } = useControlPanel();
 
   const [actionBusy, setActionBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [nodeLogBundle, setNodeLogBundle] = useState(null);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [bootstrapTopology, setBootstrapTopology] = useState({
+    points: [],
+    regionSummary: [],
+    routes: [],
+  });
 
   useEffect(() => {
     if (!notice) {
       return undefined;
     }
 
-    const timer = window.setTimeout(() => {
-      setNotice('');
-    }, 3200);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
+    const timer = window.setTimeout(() => setNotice(''), 3600);
+    return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTopology = async () => {
+      const topology = await resolvePeerTopology({
+        peers: buildBootstrapPeerRecords(liveStatus),
+        localNode: selectedNode,
+        bootnodes: liveStatus?.bootnodes,
+      });
+      if (!cancelled) {
+        setBootstrapTopology(topology);
+      }
+    };
+
+    void loadTopology();
+    return () => {
+      cancelled = true;
+    };
+  }, [liveStatus, selectedNode]);
 
   useEffect(() => {
     if (!selectedNode) {
@@ -83,18 +243,15 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
     }
 
     let cancelled = false;
-
     const loadLogs = async () => {
       if (!cancelled) {
         setLogsLoading(true);
       }
-
       try {
         const bundle = await invoke('testbeta_get_node_logs', {
           nodeId: selectedNode.id,
-          lines: 140,
+          lines: viewMode === 'developer' ? 220 : 120,
         });
-
         if (!cancelled) {
           setNodeLogBundle(bundle || null);
         }
@@ -110,15 +267,12 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
     };
 
     void loadLogs();
-    const intervalId = window.setInterval(() => {
-      void loadLogs();
-    }, 5000);
-
+    const intervalId = window.setInterval(loadLogs, viewMode === 'developer' ? 3000 : 5000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [selectedNode]);
+  }, [selectedNode, viewMode]);
 
   const handleAction = async (kind) => {
     if (!selectedNode) {
@@ -128,62 +282,102 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
     setActionBusy(kind);
     try {
       let message = '';
-
-      if (kind === 'restart') {
+      if (kind === 'start') {
+        const result = await runNodeControlAction({ node: selectedNode, network, action: 'start' });
+        message = result.message;
+      } else if (kind === 'restart') {
         message = await restartNodeAction({ node: selectedNode, network });
       } else if (kind === 'boost') {
         message = await boostSyncAction(selectedNode.id);
-      } else if (kind === 'register') {
+      } else if (kind === 'refresh') {
         message = await registerWithSeedsAction(selectedNode.id);
       } else {
-        const result = await runNodeControlAction({
-          node: selectedNode,
-          network,
-          action: kind,
-        });
+        const result = await runNodeControlAction({ node: selectedNode, network, action: kind });
         message = result.message;
       }
 
+      recordAction({
+        title: `${kind} action`,
+        detail: message,
+        status: 'good',
+        source: 'dashboard',
+        command: kind,
+      });
       setNotice(message);
       await refresh({ silent: true });
     } catch (actionError) {
-      setNotice(String(actionError));
+      const detail = String(actionError);
+      recordAction({
+        title: `${kind} action failed`,
+        detail,
+        status: 'bad',
+        source: 'dashboard',
+        command: kind,
+      });
+      setNotice(detail);
     } finally {
       setActionBusy('');
     }
   };
 
-  const healthSummary = useMemo(
-    () => networkHealthSummary(liveStatus),
-    [liveStatus],
+  const healthSummary = useMemo(() => networkHealthSummary(liveStatus), [liveStatus]);
+  const nodeHistory = useMemo(
+    () => sliceByTimeRange(telemetryHistory.byNodeId?.[selectedNode?.id] || [], timeRange),
+    [selectedNode?.id, telemetryHistory.byNodeId, timeRange],
   );
-
+  const networkHistory = useMemo(
+    () => sliceByTimeRange(telemetryHistory.network || [], timeRange),
+    [telemetryHistory.network, timeRange],
+  );
   const activityItems = useMemo(
-    () => safeArray(nodeLogBundle?.entries)
-      .slice(-6)
-      .reverse()
-      .map((entry) => simplifyLogEntry(entry, viewMode)),
+    () => safeArray(nodeLogBundle?.entries).slice(-10).reverse().map((entry) => simplifyLogEntry(entry, viewMode)),
     [nodeLogBundle?.entries, viewMode],
   );
-
-  const topologyModel = useMemo(
-    () => buildTopologyModel({
-      selectedNode,
-      selectedNodeLive,
-      liveStatus,
-      validatorNodesByAddress,
-      nodeLiveById,
-      viewMode,
-    }),
-    [liveStatus, nodeLiveById, selectedNode, selectedNodeLive, validatorNodesByAddress, viewMode],
+  const criticalEvents = useMemo(
+    () => activityItems.filter((item) => item.tone === 'warn' || item.tone === 'bad'),
+    [activityItems],
   );
-
+  const checklistItems = useMemo(
+    () => buildChecklist({ selectedNodeLive, networkStats, activityItems }),
+    [activityItems, networkStats, selectedNodeLive],
+  );
+  const primaryAction = buildPrimaryAction(selectedNodeLive);
   const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
+  const heroNarrative = selectedNode
+    ? (viewMode === 'basic'
+      ? `${selectedNode.display_label || 'Your node'} is ${nodeRuntimeLabel(selectedNodeLive).toLowerCase()}. ${healthSummary.detail}`
+      : `${selectedNode.display_label || 'Selected node'} is ${nodeRuntimeLabel(selectedNodeLive).toLowerCase()} with ${formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers)} visible peers.`)
+    : 'Provision a node to populate the dashboard.';
 
-  const overviewBars = useMemo(() => ([
+  const basicMetrics = dashboardMetrics(selectedNode, selectedNodeLive, networkStats, liveStatus);
+  const chartSeries = [
+    {
+      key: 'peers',
+      label: 'Peer count',
+      tone: 'cyan',
+      values: nodeHistory.map((entry) => ({ at: entry.at, value: entry.localPeerCount })),
+    },
+    {
+      key: 'syncLag',
+      label: 'Sync lag',
+      tone: 'warn',
+      values: nodeHistory.map((entry) => ({ at: entry.at, value: entry.syncGap })),
+    },
+    {
+      key: 'score',
+      label: 'Health score',
+      tone: 'purple',
+      values: nodeHistory.map((entry) => ({ at: entry.at, value: entry.score })),
+    },
+  ];
+  const healthSeries = nodeHistory.map((entry) => ({
+    at: entry.at,
+    value: entry.isRunning ? Math.max(10, 100 - Math.min(90, entry.syncGap)) : 0,
+  }));
+  const signalBars = [
     {
       id: 'sync',
-      label: viewMode === 'basic' ? 'Sync progress' : 'Chain sync',
+      label: 'Sync',
       value: formatPercent(syncPercent, 0),
       detail: nodeBlockHeightDetail(selectedNodeLive, liveStatus),
       numericValue: syncPercent,
@@ -191,43 +385,30 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
     },
     {
       id: 'peers',
-      label: viewMode === 'basic' ? 'Connected nodes' : 'Visible peers',
+      label: 'Peers',
       value: formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers),
-      detail: 'Live peer sessions seen by this node',
+      detail: 'Visible sessions',
       numericValue: Number(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers ?? 0),
       tone: 'cyan',
     },
     {
       id: 'score',
-      label: 'Synergy score',
+      label: 'Score',
       value: formatScore(selectedNodeLive?.synergy_score),
-      detail: selectedNodeLive?.synergy_score_status || 'Waiting for live telemetry',
+      detail: selectedNodeLive?.synergy_score_status || 'Waiting for telemetry',
       numericValue: Number(selectedNodeLive?.synergy_score ?? 0),
       tone: 'purple',
     },
     {
-      id: 'bootnodes',
-      label: viewMode === 'basic' ? 'Bootstrap relays' : 'Bootstrap reachability',
-      value: `${formatNumber(networkStats.healthyBootnodes)}/${formatNumber(networkStats.totalBootnodes)}`,
-      detail: 'Healthy relays answering the latest probe',
-      numericValue: Number(networkStats.healthyBootnodes || 0),
-      tone: networkStats.healthyBootnodes === networkStats.totalBootnodes ? 'good' : 'warn',
+      id: 'runtime',
+      label: 'Uptime',
+      value: formatRuntimeDuration(selectedNodeLive?.process_uptime_secs),
+      detail: selectedNodeLive?.is_running ? 'Process heartbeat is healthy' : 'Process is stopped',
+      numericValue: Number(selectedNodeLive?.process_uptime_secs ?? 0),
+      tone: selectedNodeLive?.is_running ? 'good' : 'warn',
     },
-  ]), [
-    liveStatus,
-    networkStats.healthyBootnodes,
-    networkStats.totalBootnodes,
-    networkStats.totalPeers,
-    selectedNodeLive,
-    syncPercent,
-    viewMode,
-  ]);
-
-  const dashboardCopy = selectedNode
-    ? (viewMode === 'basic'
-      ? 'Your node at a glance: health, progress, network connections, and today’s important events.'
-      : 'Live node state, operator actions, topology, and telemetry in a single control surface.')
-    : 'Provision a node to populate the control panel with live network telemetry.';
+  ];
+  const severityBins = useMemo(() => buildSeverityBins(nodeLogBundle?.entries), [nodeLogBundle?.entries]);
 
   if (!loading && !nodes.length) {
     return (
@@ -243,16 +424,25 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
   return (
     <div className="cp-page-stack">
       <SectionHeader
-        eyebrow={viewMode === 'basic' ? 'Basic View' : viewMode === 'expert' ? 'Expert View' : 'Developer View'}
-        title={viewMode === 'basic' ? 'Node Overview' : viewMode === 'expert' ? 'Operations Overview' : 'Runtime Telemetry'}
-        copy={dashboardCopy}
+        eyebrow={viewProfile.label}
+        title={viewProfile.navLabels.dashboard}
+        copy={heroNarrative}
         actions={(
           <>
+            <div className="cp-chip-row">
+              {['30m', '1h', '6h', '24h'].map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`cp-chip cp-chip-button ${timeRange === option ? 'is-active' : ''}`}
+                  onClick={() => setTimeRange(option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
             <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>
               Refresh
-            </SNRGButton>
-            <SNRGButton variant="blue" size="sm" onClick={onLaunchSetup}>
-              Jarvis Setup
             </SNRGButton>
           </>
         )}
@@ -264,213 +454,310 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
         </div>
       ) : null}
 
-      <div className="cp-node-selector">
-        {nodes.map((node) => {
-          const nodeLive = nodeLiveById[node.id] || null;
-          const active = selectedNode?.id === node.id;
-          return (
-            <button
-              key={node.id}
-              type="button"
-              className={`cp-node-chip ${active ? 'is-active' : ''}`}
-              onClick={() => setSelectedNodeId(node.id)}
-            >
-              <span>{node.display_label || roleTypeLabel(node.role_display_name)}</span>
-              <strong>{nodeRuntimeLabel(nodeLive)}</strong>
-            </button>
-          );
-        })}
-      </div>
-
       {selectedNode ? (
-        <div className="cp-dashboard-grid">
-          <div className="cp-dashboard-main">
-            <PanelCard
-              className="cp-hero-panel"
-              eyebrow={selectedRole?.class_name || 'Node'}
-              title={selectedNode.display_label || roleTypeLabel(selectedNode.role_display_name)}
-              detail={selectedNode.public_host || selectedNode.workspace_directory || 'Private workspace ready'}
-              action={(
-                <StatusPill tone={nodeRuntimeTone(selectedNodeLive)}>
-                  {nodeRuntimeLabel(selectedNodeLive)}
-                </StatusPill>
-              )}
-            >
-              <div className="cp-hero-layout">
-                <div className="cp-hero-copy">
-                  <h2>{healthSummary.title}</h2>
-                  <p>
-                    {viewMode === 'basic'
-                      ? 'Jarvis is surfacing the essentials first: whether the node is healthy, how far behind it is, and whether the network path is stable.'
-                      : 'This pane keeps the operator actions and the live node state in the same frame so you can recover quickly without context switching.'}
-                  </p>
-                  <div className="cp-stat-strip">
-                    <div>
-                      <span>Runtime</span>
+        <>
+          {viewMode === 'basic' ? (
+            <div className="cp-dashboard-grid">
+              <div className="cp-dashboard-main">
+                <PanelCard
+                  className="cp-health-banner"
+                  eyebrow="Overview"
+                  title={healthSummary.title}
+                  detail={healthSummary.detail}
+                  action={<StatusPill tone={healthSummary.tone}>{nodeRuntimeLabel(selectedNodeLive)}</StatusPill>}
+                >
+                  <div className="cp-health-banner-body">
+                    <p>{heroNarrative}</p>
+                    <SNRGButton
+                      variant={primaryAction.tone}
+                      size="sm"
+                      disabled={Boolean(actionBusy)}
+                      onClick={() => void handleAction(primaryAction.kind)}
+                    >
+                      {actionBusy === primaryAction.kind ? 'Working...' : primaryAction.label}
+                    </SNRGButton>
+                  </div>
+                </PanelCard>
+
+                <div className="cp-metric-grid cp-metric-grid-dashboard">
+                  {basicMetrics.map((metric) => (
+                    <MetricCard key={metric.label} {...metric} />
+                  ))}
+                </div>
+
+                <HealthTrendChart
+                  title="Is my node keeping up?"
+                  detail="A simple read on block-following and sync health."
+                  data={healthSeries}
+                  tone={nodeRuntimeTone(selectedNodeLive)}
+                />
+
+                <PanelCard title="Next steps checklist" detail="The safest next actions for this node right now.">
+                  {renderChecklist(checklistItems)}
+                </PanelCard>
+
+                <ActivityFeed
+                  title="Recent important moments"
+                  detail={logsLoading ? 'Refreshing important activity...' : 'Natural-language highlights from the node workspace.'}
+                  items={activityItems}
+                />
+              </div>
+
+              <div className="cp-dashboard-side">
+                <JarvisCard
+                  mode={viewMode}
+                  title="What this means"
+                  message={heroNarrative}
+                  chips={[
+                    nodeRuntimeLabel(selectedNodeLive),
+                    `${formatPercent(syncPercent, 0)} sync`,
+                    `${formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers)} peers`,
+                  ]}
+                />
+
+                <PanelCard title="Quick facts" detail="A short operator summary.">
+                  <div className="cp-definition-list">
+                    <div className="cp-definition-item">
+                      <span>Uptime</span>
                       <strong>{formatRuntimeDuration(selectedNodeLive?.process_uptime_secs)}</strong>
                     </div>
-                    <div>
-                      <span>Block height</span>
-                      <strong>{formatNumber(nodeBlockHeightValue(selectedNodeLive, liveStatus))}</strong>
+                    <div className="cp-definition-item">
+                      <span>Last update</span>
+                      <strong>{selectedNode?.updated_at_utc ? new Date(selectedNode.updated_at_utc).toLocaleString() : 'Unknown'}</strong>
                     </div>
-                    <div>
-                      <span>Peers</span>
-                      <strong>{formatNumber(selectedNodeLive?.local_peer_count)}</strong>
+                    <div className="cp-definition-item">
+                      <span>Current role</span>
+                      <strong>{roleTypeLabel(selectedNode.role_display_name)}</strong>
+                    </div>
+                    <div className="cp-definition-item">
+                      <span>Connection count</span>
+                      <strong>{formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers)} visible peers</strong>
                     </div>
                   </div>
-                </div>
-                <div className="cp-action-stack">
-                  <SNRGButton
-                    variant="lime"
-                    size="sm"
-                    disabled={actionBusy === 'start' || !selectedNode}
-                    onClick={() => void handleAction('start')}
-                  >
-                    {actionBusy === 'start' ? 'Starting...' : 'Start Node'}
-                  </SNRGButton>
-                  <SNRGButton
-                    variant="purple"
-                    size="sm"
-                    disabled={actionBusy === 'restart' || !selectedNode}
-                    onClick={() => void handleAction('restart')}
-                  >
-                    {actionBusy === 'restart' ? 'Restarting...' : 'Restart'}
-                  </SNRGButton>
-                  <SNRGButton
-                    variant="blue"
-                    size="sm"
-                    disabled={actionBusy === 'boost' || !selectedNode}
-                    onClick={() => void handleAction('boost')}
-                  >
-                    {actionBusy === 'boost' ? 'Boosting...' : 'Boost Sync'}
-                  </SNRGButton>
-                  <SNRGButton
-                    variant="blue"
-                    size="sm"
-                    onClick={() => openPath(selectedNode.workspace_directory)}
-                  >
-                    Open Workspace
-                  </SNRGButton>
-                  <SNRGButton
-                    as={Link}
-                    to={`/node/${selectedNode.id}`}
-                    variant="blue"
-                    size="sm"
-                  >
-                    Node Details
-                  </SNRGButton>
-                </div>
-              </div>
-            </PanelCard>
+                </PanelCard>
 
-            <div className="cp-metric-grid cp-metric-grid-dashboard">
-              <MetricCard
-                label="Runtime state"
-                value={nodeRuntimeLabel(selectedNodeLive)}
-                detail={selectedNodeLive?.local_rpc_status || 'Control-service heartbeat is active.'}
-                tone={nodeRuntimeTone(selectedNodeLive)}
-                icon="monitor_heart"
-              />
-              <MetricCard
-                label={viewMode === 'basic' ? 'Network height' : 'Public chain tip'}
-                value={formatNumber(networkStats.publicChainHeight)}
-                detail={networkStats.publicChainHeightSource === 'validator-mesh'
-                  ? 'Public RPC unavailable, using validator mesh height'
-                  : 'Most recent public chain height'}
-                tone="cyan"
-                icon="data_usage"
-              />
-              <MetricCard
-                label="Role"
-                value={roleTypeLabel(selectedNode.role_display_name)}
-                detail={selectedRole?.authority_plane || selectedRole?.summary || 'Role-bound runtime'}
-                tone="purple"
-                icon="account_tree"
-              />
-              <MetricCard
-                label="Score"
-                value={formatScore(selectedNodeLive?.synergy_score)}
-                detail={selectedNodeLive?.synergy_score_status || 'Waiting for score telemetry'}
-                tone="good"
-                icon="auto_graph"
-              />
+                <PanelCard
+                  title="Peer regions"
+                  detail="A small preview of where your node can currently see bootstrap entry points."
+                  action={<SNRGButton as={Link} to="/connectivity" variant="blue" size="sm">Open Connections</SNRGButton>}
+                >
+                  <PeerGlobe
+                    points={bootstrapTopology.points}
+                    routes={bootstrapTopology.routes}
+                    regionSummary={bootstrapTopology.regionSummary}
+                    mode="basic"
+                  />
+                  <PeerGlobeLegend />
+                </PanelCard>
+              </div>
             </div>
-
-            <MetricBars
-              title={viewMode === 'basic' ? 'Today at a glance' : 'Operational signal bars'}
-              detail={viewMode === 'basic'
-                ? 'These bars turn technical telemetry into a few simple operator signals.'
-                : 'A compact readout of sync, peer count, score, and bootstrap health.'}
-              items={overviewBars}
-            />
-
-            <TopologyMap
-              title={viewMode === 'basic' ? 'Network map' : 'Peer topology'}
-              detail={viewMode === 'basic'
-                ? 'Your node in the middle, connected peers around it.'
-                : 'Peer sessions clustered around the selected node.'}
-              model={topologyModel}
-              action={(
-                <SNRGButton as={Link} to="/connectivity" variant="blue" size="sm">
-                  Open Connectivity
-                </SNRGButton>
-              )}
-            />
-          </div>
-
-          <div className="cp-dashboard-side">
-            <JarvisCard
-              mode={viewMode}
-              title={viewMode === 'basic' ? 'What Jarvis sees' : 'Operator guidance'}
-              message={viewMode === 'basic'
-                ? `Your node is ${nodeRuntimeLabel(selectedNodeLive).toLowerCase()}. If you only do one thing from here, watch the sync bar and the activity feed below.`
-                : `${healthSummary.detail} Jarvis will eventually execute direct actions here, but today the focus is a clear command surface that explains what is happening.`}
-              chips={[
-                nodeRuntimeLabel(selectedNodeLive),
-                `${formatNumber(selectedNodeLive?.local_peer_count ?? 0)} peers`,
-                `${formatPercent(syncPercent, 0)} sync`,
-              ]}
-              footer="Type “Genesis setup” in Jarvis to return to the conversational provisioning flow."
-            />
-
-            <ActivityFeed
-              title={viewMode === 'basic' ? 'Daily activity' : 'Recent events'}
-              detail={logsLoading ? 'Updating live event feed…' : 'Fresh from the selected node workspace.'}
-              items={activityItems}
-              emptyMessage="No log events have arrived yet."
-            />
-
-            <PanelCard
-              title="Quick controls"
-              detail="Common recovery actions stay one click away."
-            >
-              <div className="cp-button-grid">
-                <SNRGButton
-                  variant="blue"
-                  size="sm"
-                  disabled={actionBusy === 'register' || !selectedNode}
-                  onClick={() => void handleAction('register')}
-                >
-                  {actionBusy === 'register' ? 'Registering...' : 'Re-register'}
-                </SNRGButton>
-                <SNRGButton
-                  variant="purple"
-                  size="sm"
-                  disabled={actionBusy === 'stop' || !selectedNode}
-                  onClick={() => void handleAction('stop')}
-                >
-                  {actionBusy === 'stop' ? 'Stopping...' : 'Stop Node'}
-                </SNRGButton>
-                <SNRGButton as={Link} to="/logs" variant="blue" size="sm">
-                  Open Logs
-                </SNRGButton>
-                <SNRGButton as={Link} to="/connectivity" variant="blue" size="sm">
-                  Peer Map
-                </SNRGButton>
+          ) : viewMode === 'advanced' ? (
+            <>
+              <div className="cp-node-selector">
+                {nodes.map((node) => (
+                  <button
+                    key={node.id}
+                    type="button"
+                    className={`cp-node-chip ${selectedNode?.id === node.id ? 'is-active' : ''}`}
+                    onClick={() => setSelectedNodeId(node.id)}
+                  >
+                    <span>{node.display_label || roleTypeLabel(node.role_display_name)}</span>
+                    <strong>{nodeRuntimeLabel(nodeLiveById[node.id] || null)}</strong>
+                  </button>
+                ))}
               </div>
-            </PanelCard>
-          </div>
-        </div>
+
+              <div className="cp-dashboard-grid">
+                <div className="cp-dashboard-main">
+                  <PanelCard
+                    className="cp-hero-panel"
+                    eyebrow="Operational summary"
+                    title={selectedNode.display_label || roleTypeLabel(selectedNode.role_display_name)}
+                    detail={selectedRole?.authority_plane || 'Operator workspace'}
+                    action={<StatusPill tone={nodeRuntimeTone(selectedNodeLive)}>{nodeRuntimeLabel(selectedNodeLive)}</StatusPill>}
+                  >
+                    <div className="cp-hero-layout">
+                      <div className="cp-hero-copy">
+                        <h2>Fast operational view</h2>
+                        <p>{heroNarrative}</p>
+                      </div>
+                      <div className="cp-action-stack">
+                        <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('refresh')}>Reconnect peers</SNRGButton>
+                        <SNRGButton variant="purple" size="sm" onClick={() => openPath(selectedNode.workspace_directory)}>Open workspace</SNRGButton>
+                        <SNRGButton as={Link} to="/logs" variant="blue" size="sm">Open logs</SNRGButton>
+                      </div>
+                    </div>
+                  </PanelCard>
+
+                  <div className="cp-metric-grid cp-metric-grid-dashboard">
+                    <MetricCard label="Health" value={nodeRuntimeLabel(selectedNodeLive)} detail={healthSummary.detail} tone={nodeRuntimeTone(selectedNodeLive)} icon="monitor_heart" />
+                    <MetricCard label="Active peers" value={formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers)} detail="Visible from the selected node" tone="cyan" icon="hub" />
+                    <MetricCard label="Sync lag" value={`${formatNumber(selectedNodeLive?.sync_gap ?? 0)} blocks`} detail={nodeBlockHeightDetail(selectedNodeLive, liveStatus)} tone={nodeRuntimeTone(selectedNodeLive)} icon="sync" />
+                    <MetricCard label="Reward status" value={formatScore(selectedNodeLive?.synergy_score)} detail="Open Rewards for payout detail" tone="purple" icon="savings" />
+                    <MetricCard label="RPC" value={networkStats.publicRpcOnline ? 'Online' : 'Checking'} detail="Public chain visibility" tone={networkStats.publicRpcOnline ? 'good' : 'warn'} icon="lan" />
+                    <MetricCard label="Last action" value={actionAudit[0]?.title || 'None yet'} detail={actionAudit[0]?.detail || 'No recent machine actions'} tone={actionAudit[0]?.status || 'neutral'} icon="bolt" />
+                  </div>
+
+                  <PeerTrendChart title="Operational trend panel" detail="Peer count, sync lag, and score across the selected time range." series={chartSeries} />
+
+                  <PanelCard
+                    title="Topology summary"
+                    detail="Compact interactive preview of regional peer posture."
+                    action={<SNRGButton as={Link} to="/connectivity" variant="blue" size="sm">Open Connectivity</SNRGButton>}
+                  >
+                    <PeerGlobe
+                      points={bootstrapTopology.points}
+                      routes={bootstrapTopology.routes}
+                      regionSummary={bootstrapTopology.regionSummary}
+                      mode="advanced"
+                    />
+                    <PeerGlobeLegend />
+                  </PanelCard>
+
+                  <PanelCard title="Alerts and anomalies" detail="The loudest operational signals right now.">
+                    <div className="cp-alert-stack">
+                      {(criticalEvents.length ? criticalEvents : [{
+                        id: 'steady-state',
+                        title: 'No unresolved warnings',
+                        detail: 'The recent event stream looks steady for the selected node.',
+                        tone: 'good',
+                        time: 'now',
+                      }]).map((item) => (
+                        <article key={item.id} className={`cp-alert-item tone-${item.tone || 'neutral'}`}>
+                          <strong>{item.title}</strong>
+                          <p>{item.detail}</p>
+                          <small>{item.time}</small>
+                        </article>
+                      ))}
+                    </div>
+                  </PanelCard>
+
+                  <MetricBars title="Quick diagnostics" detail="Operator checks for connection quality, score, runtime, and bootstrap reachability." items={signalBars} />
+                </div>
+
+                <div className="cp-dashboard-side">
+                  <JarvisCard
+                    mode={viewMode}
+                    title="Operator guidance"
+                    message={criticalEvents.length
+                      ? 'The recent warning trail suggests you should review the logs and connectivity views before taking destructive actions.'
+                      : 'The node looks stable. Use the trend panel and diagnostics cluster to confirm there is no hidden drift.'}
+                    chips={[
+                      `${formatNumber(criticalEvents.length)} anomalies`,
+                      `${formatNumber(actionAudit.length)} recent actions`,
+                      `${timeRange} window`,
+                    ]}
+                  />
+
+                  <PanelCard title="Recent actions" detail="Machine actions performed in this workspace.">
+                    <ActionAuditStream entries={actionAudit.slice(0, 6)} emptyMessage="No dashboard actions have been recorded yet." />
+                  </PanelCard>
+
+                  <PanelCard title="Quick tools" detail="Jump straight into deeper operational surfaces.">
+                    <div className="cp-button-grid">
+                      <SNRGButton as={Link} to={`/node/${selectedNode.id}`} variant="blue" size="sm">Node details</SNRGButton>
+                      <SNRGButton as={Link} to="/connectivity" variant="purple" size="sm">Refresh topology</SNRGButton>
+                      <SNRGButton as={Link} to="/rewards" variant="blue" size="sm">Open rewards</SNRGButton>
+                      <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('boost')}>Open diagnostics</SNRGButton>
+                    </div>
+                  </PanelCard>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="cp-dashboard-grid">
+              <div className="cp-dashboard-main">
+                <PanelCard
+                  className="cp-hero-panel"
+                  eyebrow="Runtime"
+                  title={selectedNode.display_label || roleTypeLabel(selectedNode.role_display_name)}
+                  detail={selectedNode.workspace_directory || 'Workspace pending'}
+                  action={<StatusPill tone={nodeRuntimeTone(selectedNodeLive)} live>{nodeRuntimeLabel(selectedNodeLive)}</StatusPill>}
+                >
+                  <div className="cp-hero-layout">
+                    <div className="cp-hero-copy">
+                      <h2>Dense telemetry cockpit</h2>
+                      <p>{heroNarrative}</p>
+                    </div>
+                    <div className="cp-action-stack">
+                      <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>Reload snapshot</SNRGButton>
+                      <SNRGButton variant="purple" size="sm" onClick={() => openPath(`${selectedNode.workspace_directory}/logs`)}>Open logs folder</SNRGButton>
+                      <SNRGButton variant="blue" size="sm" onClick={() => openPath(selectedNode.workspace_directory)}>Open workspace</SNRGButton>
+                      <SNRGButton variant="blue" size="sm" onClick={() => recordAction({
+                        title: 'Copied raw status JSON',
+                        detail: 'Use the raw inspector panel to copy the live payload.',
+                        status: 'info',
+                        source: 'runtime',
+                      })}>Copy raw status JSON</SNRGButton>
+                    </div>
+                  </div>
+                </PanelCard>
+
+                <div className="cp-metric-grid cp-metric-grid-dashboard cp-metric-grid-dense">
+                  <MetricCard label="Head height" value={formatNumber(nodeBlockHeightValue(selectedNodeLive, liveStatus))} detail="Local runtime head" tone={nodeRuntimeTone(selectedNodeLive)} icon="data_usage" />
+                  <MetricCard label="Peer count" value={formatNumber(selectedNodeLive?.local_peer_count)} detail="Inbound + outbound sessions" tone="cyan" icon="hub" />
+                  <MetricCard label="Sync lag" value={`${formatNumber(selectedNodeLive?.sync_gap ?? 0)} blocks`} detail="Gap to best visible network height" tone="warn" icon="sync" />
+                  <MetricCard label="Score" value={formatScore(selectedNodeLive?.synergy_score)} detail={selectedNodeLive?.synergy_score_status || 'Telemetry pending'} tone="purple" icon="auto_graph" />
+                  <MetricCard label="RPC latency" value={selectedNodeLive?.local_rpc_ready === false ? 'Starting' : 'Ready'} detail={selectedNodeLive?.local_rpc_status || 'Local RPC status'} tone={selectedNodeLive?.local_rpc_ready === false ? 'warn' : 'good'} icon="lan" />
+                  <MetricCard label="Uptime" value={formatRuntimeDuration(selectedNodeLive?.process_uptime_secs)} detail="Process uptime" tone="good" icon="schedule" />
+                  <MetricCard label="Event throughput" value={`${formatNumber(severityBins.slice(-1)[0]?.info ?? 0)} / min`} detail="Latest log bucket" tone="cyan" icon="timeline" />
+                  <MetricCard label="Last action latency" value={actionAudit[0] ? 'Captured' : 'Waiting'} detail={actionAudit[0]?.title || 'No recorded action yet'} tone={actionAudit[0]?.status || 'neutral'} icon="bolt" />
+                </div>
+
+                <PeerTrendChart title="Telemetry chart stack" detail="Runtime, network, and sync traces derived from the live polling loop." series={chartSeries} />
+
+                <div className="cp-split-grid">
+                  <ResourceTrendChart title="Machine diagnostics" detail="Resource traces surfaced by the runtime snapshot." data={nodeHistory} />
+                  <PanelCard title="Protocol snapshot" detail="Bootstraps, regions, and route posture for the selected runtime.">
+                    <PeerGlobe
+                      points={bootstrapTopology.points}
+                      routes={bootstrapTopology.routes}
+                      regionSummary={bootstrapTopology.regionSummary}
+                      mode="developer"
+                    />
+                    <PeerGlobeLegend />
+                  </PanelCard>
+                </div>
+
+                <PanelCard title="Action audit stream" detail="Raw local actions with source and timing.">
+                  <ActionAuditStream entries={actionAudit.slice(0, 10)} emptyMessage="The runtime action stream is quiet right now." />
+                </PanelCard>
+              </div>
+
+              <div className="cp-dashboard-side">
+                <JsonInspectorPanel
+                  title="Raw inspector"
+                  value={{
+                    selectedNode,
+                    selectedNodeLive,
+                    networkStats,
+                  }}
+                  emptyMessage="Runtime state will appear here after the first snapshot."
+                />
+
+                <PanelCard title="Subsystem health" detail="Key runtime planes for the selected node.">
+                  <div className="cp-metric-grid">
+                    <MetricCard label="P2P" value={formatNumber(selectedNodeLive?.local_peer_count)} detail="Visible sessions" tone="cyan" icon="hub" />
+                    <MetricCard label="RPC" value={selectedNodeLive?.local_rpc_ready === false ? 'Starting' : 'Ready'} detail={selectedNodeLive?.local_rpc_status || 'Waiting'} tone={selectedNodeLive?.local_rpc_ready === false ? 'warn' : 'good'} icon="lan" />
+                    <MetricCard label="Control-service" value="Online" detail="Desktop bridge is live" tone="good" icon="developer_board" />
+                    <MetricCard label="Log pipeline" value={logsLoading ? 'Updating' : 'Ready'} detail={`${formatNumber(safeArray(nodeLogBundle?.entries).length)} entries buffered`} tone={logsLoading ? 'warn' : 'good'} icon="receipt_long" />
+                  </div>
+                </PanelCard>
+
+                <JarvisCard
+                  mode={viewMode}
+                  title="Developer guidance"
+                  message="Use the dock for shell and RPC work, the audit stream for action receipts, and the raw inspector when two subsystems disagree."
+                  chips={[
+                    `${formatNumber(actionAudit.length)} local actions`,
+                    `${formatNumber(nodeHistory.length)} samples`,
+                    `${timeRange} retained`,
+                  ]}
+                />
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <EmptyPanel
           title="Waiting for node selection"

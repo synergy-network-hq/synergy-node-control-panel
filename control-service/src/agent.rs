@@ -760,12 +760,13 @@ fn install_agent_systemd_user(workspace_root: &Path, binary_path: &Path) -> Resu
     })?;
 
     let service_path = systemd_dir.join("synergy-testbeta-agent.service");
+    // systemd unit directives expect raw absolute paths, not shell-quoted strings.
     let service = format!(
         "[Unit]\nDescription=Synergy Testnet-Beta Agent\nAfter=network-online.target\n\n[Service]\nExecStart={} serve --workspace {} --port {}\nRestart=always\nRestartSec=2\nWorkingDirectory={}\n\n[Install]\nWantedBy=default.target\n",
-        shell_argument(binary_path),
-        shell_argument(workspace_root),
+        binary_path.display(),
+        workspace_root.display(),
         TESTBETA_AGENT_PORT,
-        shell_argument(workspace_root),
+        workspace_root.display(),
     );
     fs::write(&service_path, service).map_err(|error| {
         format!(

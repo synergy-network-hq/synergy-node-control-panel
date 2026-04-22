@@ -61,9 +61,8 @@ build_runtime_env_args() {
   local strict_allowlist="$3"
   local allowed_validators="$4"
   local rpc_bind_address="$5"
-  local configured_network_id="$6"
-  local configured_chain_id="$7"
-  local config_path="$8"
+  local configured_chain_id="$6"
+  local config_path="$7"
   local bind_ip="${BIND_IP:-}"
   local public_host="${NODE_PUBLIC_HOST:-${HOSTNAME:-${HOST:-}}}"
   local p2p_port_value="${P2P_PORT:-${SYNERGY_P2P_PORT:-}}"
@@ -118,7 +117,6 @@ build_runtime_env_args() {
     SYNERGY_STRICT_VALIDATOR_ALLOWLIST="$strict_allowlist"
     SYNERGY_ALLOWED_VALIDATOR_ADDRESSES="$allowed_validators"
     SYNERGY_RPC_BIND_ADDRESS="$rpc_bind_address"
-    SYNERGY_NETWORK_ID="$configured_network_id"
     SYNERGY_CHAIN_ID="$configured_chain_id"
     SYNERGY_CONFIG_PATH="$config_path"
     SYNERGY_PROJECT_ROOT="$BASE_DIR"
@@ -257,25 +255,84 @@ open_ports() {
   fi
 }
 
-is_running() {
+read_pid_cmdline() {
+  local pid="$1"
+  if [[ -r "/proc/$pid/cmdline" ]]; then
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true
+    return 0
+  fi
+
+  ps -p "$pid" -o command= 2>/dev/null || true
+}
+
+read_pid_cwd() {
+  local pid="$1"
+  if [[ -L "/proc/$pid/cwd" ]]; then
+    readlink "/proc/$pid/cwd" 2>/dev/null || true
+    return 0
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+    return 0
+  fi
+
+  return 1
+}
+
+pid_matches_node() {
+  local pid="$1"
+  local cmdline config_path cwd
+  [[ -n "${pid:-}" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+
+  cmdline="$(read_pid_cmdline "$pid")"
+  [[ "$cmdline" == *"synergy-testbeta"* ]] || return 1
+  [[ "$cmdline" != *"synergy-testbeta-agent"* ]] || return 1
+
+  config_path="$BASE_DIR/config/node.toml"
+  if [[ "$cmdline" == *"$config_path"* ]]; then
+    return 0
+  fi
+
+  if [[ "$cmdline" != *"--config config/node.toml"* ]]; then
+    return 1
+  fi
+
+  cwd="$(read_pid_cwd "$pid")"
+  [[ "$cwd" == "$BASE_DIR" ]]
+}
+
+find_live_pids() {
+  local pid
+
   if [[ -f "$PID_FILE" ]]; then
-    local pid
-    pid="$(cat "$PID_FILE")"
-    if kill -0 "$pid" 2>/dev/null; then
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if pid_matches_node "$pid"; then
+      printf '%s\n' "$pid"
       return 0
     fi
   fi
 
-  local config_path live_pid
-  config_path="$BASE_DIR/config/node.toml"
-  if command -v pgrep >/dev/null 2>&1; then
-    live_pid="$(pgrep -f -o "$config_path" 2>/dev/null || true)"
+  command -v pgrep >/dev/null 2>&1 || return 1
+  while IFS= read -r pid; do
+    if pid_matches_node "$pid"; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(pgrep -f "synergy-testbeta" 2>/dev/null || true)
+}
+
+is_running() {
+  local live_pid
+
+  while IFS= read -r live_pid; do
     if [[ -n "$live_pid" ]]; then
       echo "$live_pid" > "$PID_FILE"
       return 0
     fi
-  fi
+  done < <(find_live_pids)
 
+  rm -f "$PID_FILE"
   return 1
 }
 
@@ -307,8 +364,6 @@ run_prestart_sync() {
   rpc_bind_address="${SYNERGY_RPC_BIND_ADDRESS:-${RPC_BIND_ADDRESS:-}}"
   local configured_chain_id
   configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338639}}"
-  local configured_network_id
-  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
   build_runtime_env_args \
@@ -317,7 +372,6 @@ run_prestart_sync() {
     "$strict_allowlist" \
     "$allowed_validators" \
     "$rpc_bind_address" \
-    "$configured_network_id" \
     "$configured_chain_id" \
     "$config_path"
 
@@ -382,8 +436,6 @@ start_node() {
   rpc_bind_address="${SYNERGY_RPC_BIND_ADDRESS:-${RPC_BIND_ADDRESS:-}}"
   local configured_chain_id
   configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-338639}}"
-  local configured_network_id
-  configured_network_id="${SYNERGY_NETWORK_ID:-${NETWORK_ID:-synergy-testnet-beta}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
   build_runtime_env_args \
@@ -392,7 +444,6 @@ start_node() {
     "$strict_allowlist" \
     "$allowed_validators" \
     "$rpc_bind_address" \
-    "$configured_network_id" \
     "$configured_chain_id" \
     "$config_path"
   if [[ -z "$validator_address" ]]; then
