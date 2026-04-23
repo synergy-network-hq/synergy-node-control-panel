@@ -37,7 +37,7 @@ const TESTNET_BETA_DISCOVERY_PORT: u16 = 5680;
 const TESTNET_BETA_METRICS_PORT: u16 = 6030;
 const TESTNET_BETA_PUBLIC_RPC_ENDPOINT: &str = "https://testbeta-core-rpc.synergy-network.io";
 const TESTNET_BETA_PUBLIC_WS_ENDPOINT: &str = "wss://testbeta-core-ws.synergy-network.io";
-const TESTNET_BETA_BOOTSTRAP_DNS_RECORD: &str = "_dnsaddr.bootstrap.synergyvps.xyz";
+const TESTNET_BETA_BOOTSTRAP_DNS_RECORD: &str = "_dnsaddr.bootstrap.synergynode.xyz";
 const TESTNET_BETA_MAX_CLOCK_SKEW_MS: i64 = 500;
 const TOKEN_SYMBOL: &str = "SNRG";
 const TOKEN_DECIMALS: u32 = 9;
@@ -1324,8 +1324,11 @@ async fn deregister_node_from_seeds(
         .seed_servers
         .iter()
         .map(|seed| {
-            let url = format!("http://{}:{}/peers/deregister", seed.host, seed.port);
-            client.post(&url).json(&payload).send()
+            let client = client.clone();
+            let payload = payload.clone();
+            async move {
+                let _ = post_seed_json(&client, seed, "/peers/deregister", &payload).await;
+            }
         })
         .collect::<Vec<_>>();
 
@@ -2194,43 +2197,49 @@ async fn check_bootstrap_endpoint(
     endpoint: TestnetBetaBootstrapEndpoint,
 ) -> TestnetBetaEndpointLiveStatus {
     let started = Instant::now();
-    let result = timeout(
-        Duration::from_secs(3),
-        TcpStream::connect((endpoint.host.as_str(), endpoint.port)),
-    )
-    .await;
+    let mut attempts = Vec::new();
 
-    match result {
-        Ok(Ok(_stream)) => TestnetBetaEndpointLiveStatus {
-            kind: endpoint.kind,
-            host: endpoint.host,
-            ip_address: endpoint.ip_address,
-            port: endpoint.port,
-            status: "online".to_string(),
-            detail: "TCP handshake completed.".to_string(),
-            reachable: true,
-            latency_ms: Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+    for host in endpoint_host_candidates(&endpoint, false) {
+        match timeout(
+            Duration::from_secs(3),
+            TcpStream::connect((host.as_str(), endpoint.port)),
+        )
+        .await
+        {
+            Ok(Ok(_stream)) => {
+                return TestnetBetaEndpointLiveStatus {
+                    kind: endpoint.kind,
+                    host: endpoint.host,
+                    ip_address: endpoint.ip_address,
+                    port: endpoint.port,
+                    status: "online".to_string(),
+                    detail: format!("TCP handshake completed via {host}."),
+                    reachable: true,
+                    latency_ms: Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+                };
+            }
+            Ok(Err(error)) => {
+                attempts.push(format!("{host}: TCP connection failed: {error}"));
+            }
+            Err(_) => {
+                attempts.push(format!("{host}: timed out during TCP connection"));
+            }
+        }
+    }
+
+    TestnetBetaEndpointLiveStatus {
+        kind: endpoint.kind,
+        host: endpoint.host,
+        ip_address: endpoint.ip_address,
+        port: endpoint.port,
+        status: "offline".to_string(),
+        detail: if attempts.is_empty() {
+            "No usable bootstrap endpoints were available.".to_string()
+        } else {
+            attempts.join(" | ")
         },
-        Ok(Err(error)) => TestnetBetaEndpointLiveStatus {
-            kind: endpoint.kind,
-            host: endpoint.host,
-            ip_address: endpoint.ip_address,
-            port: endpoint.port,
-            status: "offline".to_string(),
-            detail: format!("TCP connection failed: {error}"),
-            reachable: false,
-            latency_ms: None,
-        },
-        Err(_) => TestnetBetaEndpointLiveStatus {
-            kind: endpoint.kind,
-            host: endpoint.host,
-            ip_address: endpoint.ip_address,
-            port: endpoint.port,
-            status: "offline".to_string(),
-            detail: "Timed out during TCP connection.".to_string(),
-            reachable: false,
-            latency_ms: None,
-        },
+        reachable: false,
+        latency_ms: None,
     }
 }
 
@@ -2239,40 +2248,44 @@ async fn check_seed_endpoint(
     endpoint: TestnetBetaBootstrapEndpoint,
 ) -> TestnetBetaEndpointLiveStatus {
     let started = Instant::now();
-    let url = format!("http://{}:{}/healthz", endpoint.host, endpoint.port);
-    let response = client.get(url).send().await;
+    let mut attempts = Vec::new();
 
-    match response {
-        Ok(response) if response.status().is_success() => TestnetBetaEndpointLiveStatus {
-            kind: endpoint.kind,
-            host: endpoint.host,
-            ip_address: endpoint.ip_address,
-            port: endpoint.port,
-            status: "online".to_string(),
-            detail: "Seed health endpoint responded.".to_string(),
-            reachable: true,
-            latency_ms: Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+    for url in seed_service_urls(&endpoint, "/healthz") {
+        match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => {
+                return TestnetBetaEndpointLiveStatus {
+                    kind: endpoint.kind,
+                    host: endpoint.host,
+                    ip_address: endpoint.ip_address,
+                    port: endpoint.port,
+                    status: "online".to_string(),
+                    detail: format!("Seed health endpoint responded via {url}."),
+                    reachable: true,
+                    latency_ms: Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
+                };
+            }
+            Ok(response) => {
+                attempts.push(format!("{url}: HTTP {}", response.status()));
+            }
+            Err(error) => {
+                attempts.push(format!("{url}: {error}"));
+            }
+        }
+    }
+
+    TestnetBetaEndpointLiveStatus {
+        kind: endpoint.kind,
+        host: endpoint.host,
+        ip_address: endpoint.ip_address,
+        port: endpoint.port,
+        status: "offline".to_string(),
+        detail: if attempts.is_empty() {
+            "No usable seed endpoints were available.".to_string()
+        } else {
+            attempts.join(" | ")
         },
-        Ok(response) => TestnetBetaEndpointLiveStatus {
-            kind: endpoint.kind,
-            host: endpoint.host,
-            ip_address: endpoint.ip_address,
-            port: endpoint.port,
-            status: "offline".to_string(),
-            detail: format!("Seed health endpoint returned HTTP {}.", response.status()),
-            reachable: false,
-            latency_ms: None,
-        },
-        Err(error) => TestnetBetaEndpointLiveStatus {
-            kind: endpoint.kind,
-            host: endpoint.host,
-            ip_address: endpoint.ip_address,
-            port: endpoint.port,
-            status: "offline".to_string(),
-            detail: format!("Seed health request failed: {error}"),
-            reachable: false,
-            latency_ms: None,
-        },
+        reachable: false,
+        latency_ms: None,
     }
 }
 
@@ -4032,21 +4045,11 @@ async fn query_seed_peer_count(
     let mut unique_peers = HashMap::new();
     let mut reachable_seed_count = 0usize;
 
-    let seed_payloads = join_all(seed_servers.iter().map(|seed| async move {
-        let url = format!("http://{}:{}/peers", seed.host, seed.port);
-        let response = match client.get(&url).send().await {
-            Ok(response) if response.status().is_success() => response,
-            Ok(_) => return None,
-            Err(_) => return None,
-        };
-
-        let payload: Value = match response.json().await {
-            Ok(payload) => payload,
-            Err(_) => return None,
-        };
-
-        payload.get("peers").and_then(Value::as_array).cloned()
-    }))
+    let seed_payloads = join_all(
+        seed_servers
+            .iter()
+            .map(|seed| async move { fetch_seed_peers(client, seed).await }),
+    )
     .await;
 
     for peers in seed_payloads.into_iter().flatten() {
@@ -4101,18 +4104,8 @@ async fn verify_node_seed_registration(
     let mut registered_count = 0usize;
 
     for seed in seed_servers {
-        let url = format!("http://{}:{}/peers", seed.host, seed.port);
-        let response = match client.get(&url).send().await {
-            Ok(r) if r.status().is_success() => r,
-            _ => continue,
-        };
-        let payload: Value = match response.json().await {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-        let peers = match payload.get("peers").and_then(Value::as_array) {
-            Some(p) => p,
-            None => continue,
+        let Some(peers) = fetch_seed_peers(client, seed).await else {
+            continue;
         };
         let found = peers.iter().any(|peer| {
             let matches_node_id = peer
@@ -4141,24 +4134,14 @@ async fn fetch_all_seed_peer_dial_targets(
     let mut unique_dials: HashMap<String, (Option<DateTime<Utc>>, String)> = HashMap::new();
 
     for seed in seed_servers {
-        let url = format!("http://{}:{}/peers", seed.host, seed.port);
-        let response = match client.get(&url).send().await {
-            Ok(r) if r.status().is_success() => r,
-            _ => continue,
-        };
-        let payload: Value = match response.json().await {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-        let peers = match payload.get("peers").and_then(Value::as_array) {
-            Some(p) => p,
-            None => continue,
+        let Some(peers) = fetch_seed_peers(client, seed).await else {
+            continue;
         };
         for peer in peers {
-            if current_node.is_some_and(|node| seed_peer_matches_node(peer, node)) {
+            if current_node.is_some_and(|node| seed_peer_matches_node(&peer, node)) {
                 continue;
             }
-            record_seed_peer_dial_target(&mut unique_dials, peer);
+            record_seed_peer_dial_target(&mut unique_dials, &peer);
         }
     }
 
@@ -5511,9 +5494,9 @@ fn canonical_testnet_beta_validator_addresses() -> Result<Vec<String>, String> {
 }
 
 fn is_canonical_genesis_validator_address(node_address: &str) -> bool {
-    canonical_testnet_beta_validator_peers().iter().any(|entry| {
-        entry.address.eq_ignore_ascii_case(node_address.trim())
-    })
+    canonical_testnet_beta_validator_peers()
+        .iter()
+        .any(|entry| entry.address.eq_ignore_ascii_case(node_address.trim()))
 }
 
 fn validator_uses_private_mesh(role_id: &str, node_address: &str) -> bool {
@@ -6229,6 +6212,107 @@ fn normalize_public_host_candidate(value: &str) -> Option<String> {
     Some(trimmed)
 }
 
+fn normalize_endpoint_host(value: &str) -> Option<String> {
+    let trimmed = value
+        .trim()
+        .trim_matches('[')
+        .trim_matches(']')
+        .trim_end_matches('.')
+        .trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn endpoint_host_candidates(
+    endpoint: &TestnetBetaBootstrapEndpoint,
+    prefer_ip_address: bool,
+) -> Vec<String> {
+    let ordered = if prefer_ip_address {
+        [&endpoint.ip_address, &endpoint.host]
+    } else {
+        [&endpoint.host, &endpoint.ip_address]
+    };
+    let mut candidates = Vec::new();
+    for value in ordered {
+        let Some(normalized) = normalize_endpoint_host(value) else {
+            continue;
+        };
+        if !candidates.iter().any(|existing| existing == &normalized) {
+            candidates.push(normalized);
+        }
+    }
+    candidates
+}
+
+fn preferred_seed_service_host(endpoint: &TestnetBetaBootstrapEndpoint) -> Option<String> {
+    endpoint_host_candidates(endpoint, true).into_iter().next()
+}
+
+fn seed_service_urls(endpoint: &TestnetBetaBootstrapEndpoint, path: &str) -> Vec<String> {
+    let normalized_path = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    endpoint_host_candidates(endpoint, true)
+        .into_iter()
+        .map(|host| format!("http://{host}:{}{}", endpoint.port, normalized_path))
+        .collect()
+}
+
+async fn fetch_seed_peers(
+    client: &Client,
+    seed: &TestnetBetaBootstrapEndpoint,
+) -> Option<Vec<Value>> {
+    for url in seed_service_urls(seed, "/peers") {
+        let response = match client.get(&url).send().await {
+            Ok(response) if response.status().is_success() => response,
+            Ok(_) => continue,
+            Err(_) => continue,
+        };
+
+        let payload: Value = match response.json().await {
+            Ok(payload) => payload,
+            Err(_) => continue,
+        };
+
+        if let Some(peers) = payload.get("peers").and_then(Value::as_array).cloned() {
+            return Some(peers);
+        }
+    }
+
+    None
+}
+
+async fn post_seed_json(
+    client: &Client,
+    seed: &TestnetBetaBootstrapEndpoint,
+    path: &str,
+    payload: &(impl Serialize + ?Sized),
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for url in seed_service_urls(seed, path) {
+        match client.post(&url).json(payload).send().await {
+            Ok(response) if response.status().is_success() => return Ok(()),
+            Ok(response) => {
+                errors.push(format!("{url}: HTTP {}", response.status()));
+            }
+            Err(error) => {
+                errors.push(format!("{url}: {error}"));
+            }
+        }
+    }
+
+    Err(if errors.is_empty() {
+        format!("No usable seed endpoints were available for {path}.")
+    } else {
+        errors.join("; ")
+    })
+}
+
 #[derive(Debug, Serialize)]
 struct SeedPeerRegistration {
     node_id: String,
@@ -6338,10 +6422,8 @@ async fn register_node_with_seeds_async(
 
     let mut errors = Vec::new();
     for seed in &network_profile.seed_servers {
-        let url = format!("http://{}:{}/peers/register", seed.host, seed.port);
-        let result = client.post(&url).json(&payload).send().await;
-        if let Err(error) = result {
-            errors.push(format!("{}: {}", url, error));
+        if let Err(error) = post_seed_json(&client, seed, "/peers/register", &payload).await {
+            errors.push(error);
         }
     }
 
@@ -6389,9 +6471,9 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
         TestnetBetaBootstrapEndpoint {
             kind: host_prefix.to_string(),
             host: if is_seed {
-                "seed1.synergyvps.xyz".to_string()
+                "seed1.synergynode.xyz".to_string()
             } else {
-                "bootnode1.synergyvps.xyz".to_string()
+                "bootnode1.synergynode.xyz".to_string()
             },
             ip_address: "170.64.187.206".to_string(),
             port,
@@ -6400,9 +6482,9 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
         TestnetBetaBootstrapEndpoint {
             kind: host_prefix.to_string(),
             host: if is_seed {
-                "seed2.synergyvps.xyz".to_string()
+                "seed2.synergynode.xyz".to_string()
             } else {
-                "bootnode2.synergyvps.xyz".to_string()
+                "bootnode2.synergynode.xyz".to_string()
             },
             ip_address: "146.190.210.121".to_string(),
             port,
@@ -6411,9 +6493,9 @@ fn bootstrap_endpoints(kind: &str) -> Vec<TestnetBetaBootstrapEndpoint> {
         TestnetBetaBootstrapEndpoint {
             kind: host_prefix.to_string(),
             host: if is_seed {
-                "seed3.synergyvps.xyz".to_string()
+                "seed3.synergynode.xyz".to_string()
             } else {
-                "bootnode3.synergyvps.xyz".to_string()
+                "bootnode3.synergynode.xyz".to_string()
             },
             ip_address: "157.245.226.240".to_string(),
             port,
@@ -7352,8 +7434,8 @@ fn build_node_toml(
         node_id.to_string()
     };
     let canonical_validator_peers = canonical_testnet_beta_validator_peers();
-    let use_static_validator_mesh =
-        validator_uses_private_mesh(&role.id, node_address) && !canonical_validator_peers.is_empty();
+    let use_static_validator_mesh = validator_uses_private_mesh(&role.id, node_address)
+        && !canonical_validator_peers.is_empty();
     let sentry_upstreams = if role_uses_sentry_upstreams(&role.id) {
         canonical_sentry_public_dial_targets_for_role(&role.id)
     } else {
@@ -7383,7 +7465,12 @@ fn build_node_toml(
         network_profile
             .bootnodes
             .iter()
-            .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
+            .filter_map(|entry| {
+                endpoint_host_candidates(entry, false)
+                    .into_iter()
+                    .next()
+                    .map(|host| format!("\"{host}:{}\"", entry.port))
+            })
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -7393,7 +7480,10 @@ fn build_node_toml(
         network_profile
             .seed_servers
             .iter()
-            .map(|entry| format!("\"http://{}:{}\"", entry.host, entry.port))
+            .filter_map(|entry| {
+                preferred_seed_service_host(entry)
+                    .map(|host| format!("\"http://{host}:{}\"", entry.port))
+            })
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -7529,7 +7619,12 @@ fn build_peers_toml_with_additional(
         network_profile
             .bootnodes
             .iter()
-            .map(|entry| format!("\"{}:{}\"", entry.host, entry.port))
+            .filter_map(|entry| {
+                endpoint_host_candidates(entry, false)
+                    .into_iter()
+                    .next()
+                    .map(|host| format!("\"{host}:{}\"", entry.port))
+            })
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -7539,7 +7634,10 @@ fn build_peers_toml_with_additional(
         network_profile
             .seed_servers
             .iter()
-            .map(|entry| format!("\"http://{}:{}\"", entry.host, entry.port))
+            .filter_map(|entry| {
+                preferred_seed_service_host(entry)
+                    .map(|host| format!("\"http://{host}:{}\"", entry.port))
+            })
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -7982,14 +8080,20 @@ mod tests {
                 .and_then(|section| section.get("bootnodes"))
                 .and_then(toml::Value::as_array)
                 .expect("bootnodes array should exist");
-            assert!(!bootnodes.is_empty(), "validator node.toml should use bootnodes");
+            assert!(
+                !bootnodes.is_empty(),
+                "validator node.toml should use bootnodes"
+            );
 
             let seeds = node_value
                 .get("network")
                 .and_then(|section| section.get("seed_servers"))
                 .and_then(toml::Value::as_array)
                 .expect("seed_servers array should exist");
-            assert!(!seeds.is_empty(), "validator node.toml should use seed servers");
+            assert!(
+                !seeds.is_empty(),
+                "validator node.toml should use seed servers"
+            );
 
             let dns_records = node_value
                 .get("network")
@@ -8171,14 +8275,12 @@ mod tests {
                     .and_then(toml::Value::as_bool),
                 Some(false)
             );
-            assert!(
-                node_value
-                    .get("network")
-                    .and_then(|section| section.get("bootnodes"))
-                    .and_then(toml::Value::as_array)
-                    .expect("bootnodes array should exist")
-                    .is_empty()
-            );
+            assert!(node_value
+                .get("network")
+                .and_then(|section| section.get("bootnodes"))
+                .and_then(toml::Value::as_array)
+                .expect("bootnodes array should exist")
+                .is_empty());
             assert_eq!(
                 node_value
                     .get("network")

@@ -1,6 +1,6 @@
 import { fetchSeedPeerTargets, readTextFile, writeTextFile } from './desktopClient';
 
-const BOOTSTRAP_DNS_RECORD = '_dnsaddr.bootstrap.synergyvps.xyz';
+const BOOTSTRAP_DNS_RECORD = '_dnsaddr.bootstrap.synergynode.xyz';
 const PORT_SETTINGS_STORAGE_KEY = 'synergy:testbeta:port-settings:v1';
 const TESTNET_ENDPOINTS = {
   coreRpc: 'https://testbeta-core-rpc.synergy-network.io',
@@ -337,6 +337,52 @@ function replaceNginxUpstreamPort(contents, upstreamName, port) {
   return String(contents || '').replace(pattern, `$1${port}$3`);
 }
 
+function normalizeBootstrapHost(value) {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replace(/\.+$/, '');
+  return normalized || null;
+}
+
+function bootstrapEndpointHost(endpoint, options = {}) {
+  if (typeof endpoint === 'string') {
+    return normalizeBootstrapHost(endpoint);
+  }
+
+  const preferIpAddress = Boolean(options?.preferIpAddress);
+  const candidates = preferIpAddress
+    ? [endpoint?.ip_address, endpoint?.host]
+    : [endpoint?.host, endpoint?.ip_address];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeBootstrapHost(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
+function bootnodeDialTargets(networkProfile) {
+  const bootnodes = Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : [];
+  return bootnodes
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return entry;
+      }
+      const host = bootstrapEndpointHost(entry);
+      const port = parsePortValue(entry?.port);
+      if (!host || port == null) {
+        return null;
+      }
+      return `${host}:${port}`;
+    })
+    .filter(Boolean);
+}
+
 function seedServerUrls(networkProfile) {
   const seeds = Array.isArray(networkProfile?.seed_servers) ? networkProfile.seed_servers : [];
   return seeds
@@ -349,8 +395,10 @@ function seedServerUrls(networkProfile) {
         return seed.url;
       }
 
-      if (seed?.host && seed?.port) {
-        return `http://${seed.host}:${seed.port}`;
+      const host = bootstrapEndpointHost(seed, { preferIpAddress: true });
+      const port = parsePortValue(seed?.port);
+      if (host && port != null) {
+        return `http://${host}:${port}`;
       }
 
       return null;
@@ -578,8 +626,7 @@ async function resolveEffectiveNodePortSettings(node, settings) {
 
 export function buildPeersToml(networkProfile, additionalDialTargets = [], options = {}) {
   const explicitOnly = Boolean(options?.explicitOnly);
-  const bootnodes = (explicitOnly ? [] : (Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : []))
-    .map((entry) => `${entry.host}:${entry.port}`);
+  const bootnodes = explicitOnly ? [] : bootnodeDialTargets(networkProfile);
   const seeds = (explicitOnly ? [] : seedServerUrls(networkProfile)).map((entry) => {
     const trimmed = String(entry).trim().replace(/\/+$/, '');
     return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
@@ -754,11 +801,7 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
     ? { targets: [], failures: [] }
     : await fetchSeedPeerTargets(seedServerUrls(networkProfile));
   const bootnodeTargets = new Set(
-    normalizeDialTargets(
-      (Array.isArray(networkProfile?.bootnodes) ? networkProfile.bootnodes : []).map(
-        (entry) => `${entry.host}:${entry.port}`,
-      ),
-    ),
+    normalizeDialTargets(bootnodeDialTargets(networkProfile)),
   );
 
   // Build the set of self-addresses to exclude from dial targets.  We need to

@@ -25,7 +25,7 @@ function listMigrationFiles() {
     }
     return fs
         .readdirSync(migrationsDir)
-        .filter((f) => f.endsWith('.sql'))
+        .filter((f) => f.endsWith('.sql') && !f.startsWith('.') && !f.startsWith('._'))
         .sort();
 }
 async function getAppliedMigrations(pool) {

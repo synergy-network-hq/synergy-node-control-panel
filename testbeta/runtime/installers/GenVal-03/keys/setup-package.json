@@ -932,19 +932,19 @@
         "bootnodes": [
           {
             "label": "bootnode1",
-            "host": "bootnode1.synergyvps.xyz",
+            "host": "bootnode1.synergynode.xyz",
             "ip_address": "170.64.187.206",
             "port": 5620
           },
           {
             "label": "bootnode2",
-            "host": "bootnode2.synergyvps.xyz",
+            "host": "bootnode2.synergynode.xyz",
             "ip_address": "146.190.210.121",
             "port": 5620
           },
           {
             "label": "bootnode3",
-            "host": "bootnode3.synergyvps.xyz",
+            "host": "bootnode3.synergynode.xyz",
             "ip_address": "157.245.226.240",
             "port": 5620
           }
@@ -952,19 +952,19 @@
         "seed_servers": [
           {
             "label": "seed1",
-            "host": "seed1.synergyvps.xyz",
+            "host": "seed1.synergynode.xyz",
             "ip_address": "170.64.187.206",
             "port": 5621
           },
           {
             "label": "seed2",
-            "host": "seed2.synergyvps.xyz",
+            "host": "seed2.synergynode.xyz",
             "ip_address": "146.190.210.121",
             "port": 5621
           },
           {
             "label": "seed3",
-            "host": "seed3.synergyvps.xyz",
+            "host": "seed3.synergynode.xyz",
             "ip_address": "157.245.226.240",
             "port": 5621
           }
@@ -1008,7 +1008,7 @@
           ]
         },
         "dns": {
-          "bootstrap_txt": "_dnsaddr.bootstrap.synergyvps.xyz"
+          "bootstrap_txt": "_dnsaddr.bootstrap.synergynode.xyz"
         }
       },
       "ports": {
