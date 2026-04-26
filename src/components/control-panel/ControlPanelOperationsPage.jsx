@@ -128,6 +128,7 @@ function buildIssueList({ opsError, snapshot, agent, updateStatus, selectedNodeL
 export default function ControlPanelOperationsPage() {
   const {
     actionAudit,
+    error,
     network,
     recordAction,
     refresh,
