@@ -291,8 +291,18 @@ SCP_ARGS=(
 )
 
 if [[ -n "$SSH_PASSWORD" ]]; then
-  SSH_ARGS=( -o BatchMode=no "${SSH_ARGS[@]}" )
-  SCP_ARGS=( -o BatchMode=no "${SCP_ARGS[@]}" )
+  SSH_ARGS=(
+    -o BatchMode=no
+    -o PreferredAuthentications=password,keyboard-interactive
+    -o PubkeyAuthentication=no
+    "${SSH_ARGS[@]}"
+  )
+  SCP_ARGS=(
+    -o BatchMode=no
+    -o PreferredAuthentications=password,keyboard-interactive
+    -o PubkeyAuthentication=no
+    "${SCP_ARGS[@]}"
+  )
   if ! command -v sshpass >/dev/null 2>&1; then
     echo "sshpass is required when SSH_PASSWORD is configured for $NODE_SLOT_ID." >&2
     exit 1

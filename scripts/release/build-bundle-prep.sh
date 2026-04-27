@@ -104,6 +104,82 @@ refresh_platform_binary_checksums() {
   done
 }
 
+sha256_for_file() {
+  local file_path="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file_path" | awk '{print $1}'
+  else
+    sha256sum "$file_path" | awk '{print $1}'
+  fi
+}
+
+write_bundle_binary_status() {
+  local bundle_dir="$1"
+  local linux_path="$bundle_dir/bin/synergy-testbeta-linux-amd64"
+  local darwin_path="$bundle_dir/bin/synergy-testbeta-darwin-arm64"
+  local windows_path="$bundle_dir/bin/synergy-testbeta-windows-amd64.exe"
+
+  cat > "$bundle_dir/BINARY_STATUS.txt" <<EOF
+Synergy Testnet-Beta Binary Status
+============================
+
+Linux Binary
+------------
+Path: ./bin/synergy-testbeta-linux-amd64
+SHA-256: $(sha256_for_file "$linux_path")
+
+Darwin Binary
+-------------
+Path: ./bin/synergy-testbeta-darwin-arm64
+SHA-256: $(sha256_for_file "$darwin_path")
+
+Windows Binary
+--------------
+Path: ./bin/synergy-testbeta-windows-amd64.exe
+SHA-256: $(sha256_for_file "$windows_path")
+
+Interpretation
+--------------
+- These checksums reflect the exact bundled binaries shipped in this installer.
+EOF
+}
+
+sync_bundle_binary_payload() {
+  local bundle_dir="$1"
+  local bin_dir="$bundle_dir/bin"
+
+  mkdir -p "$bin_dir"
+  cp "$ROOT_DIR/binaries/synergy-testbeta-linux-amd64" "$bin_dir/synergy-testbeta-linux-amd64"
+  cp "$ROOT_DIR/binaries/synergy-testbeta-darwin-arm64" "$bin_dir/synergy-testbeta-darwin-arm64"
+  cp "$ROOT_DIR/binaries/synergy-testbeta-windows-amd64.exe" "$bin_dir/synergy-testbeta-windows-amd64.exe"
+  chmod +x "$bin_dir/synergy-testbeta-linux-amd64" "$bin_dir/synergy-testbeta-darwin-arm64"
+  write_bundle_binary_status "$bundle_dir"
+}
+
+sync_installer_bundle_binaries() {
+  local installer_root="$ROOT_DIR/testbeta/runtime/installers"
+  local bundle_dir
+
+  [[ -d "$installer_root" ]] || return 0
+  echo "Syncing runtime binaries into installer bundles"
+  for bundle_dir in "$installer_root"/*; do
+    [[ -d "$bundle_dir" ]] || continue
+    sync_bundle_binary_payload "$bundle_dir"
+  done
+}
+
+sync_bootstrap_bundle_binaries() {
+  local bootstrap_root="$ROOT_DIR/../bootstrap-bundles"
+  local bundle_dir
+
+  [[ -d "$bootstrap_root" ]] || return 0
+  echo "Syncing runtime binaries into bootstrap bundles"
+  for bundle_dir in "$bootstrap_root"/bootnode*; do
+    [[ -d "$bundle_dir" ]] || continue
+    sync_bundle_binary_payload "$bundle_dir"
+  done
+}
+
 sync_canonical_runtime_assets() {
   echo "Syncing canonical runtime genesis"
   ./scripts/testbeta/generate-testbeta-genesis.sh
@@ -388,6 +464,8 @@ ensure_version_alignment
 sync_platform_binaries
 refresh_platform_binary_checksums
 sync_canonical_runtime_assets
+sync_installer_bundle_binaries
+sync_bootstrap_bundle_binaries
 sync_atlas_runtime_bundle
 render_public_service_nginx_configs
 ./scripts/release/generate-workspace-manifest.sh

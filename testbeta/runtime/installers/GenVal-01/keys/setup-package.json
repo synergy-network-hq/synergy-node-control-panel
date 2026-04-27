@@ -96,9 +96,15 @@
         },
         {
           "address": "synw1y9vkp3pfdq88vs32v5378dvq23py2k9kkavm",
-          "amount_nwei": "2500000000000000000",
+          "amount_nwei": "2499999998000000000",
           "locked": false,
           "name": "Faucet"
+        },
+        {
+          "address": "synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra",
+          "amount_nwei": "2000000000",
+          "locked": false,
+          "name": "Genesis Validator 1 Launch Sponsor"
         },
         {
           "address": "synw1qjkshj3t6whfsckefry58z9wtpqv8nxnh4ze",
@@ -130,11 +136,15 @@
         },
         {
           "address": "synw1y9vkp3pfdq88vs32v5378dvq23py2k9kkavm",
-          "balance_nwei": "2500000000000000000"
+          "balance_nwei": "2499999998000000000"
         },
         {
           "address": "synw1ktxszhz4w3y0tpf6nq2lxf3xkym5sy62jdzc",
           "balance_nwei": "0"
+        },
+        {
+          "address": "synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra",
+          "balance_nwei": "2000000000"
         },
         {
           "address": "synw1qjkshj3t6whfsckefry58z9wtpqv8nxnh4ze",
@@ -457,16 +467,16 @@
         "extra_data": "synergy-network/genesis/testbeta/v1",
         "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
         "receipts_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
-        "state_root": "f6150202e72351d94bff05381b707b4bf2687331a89ffb94803151a4a01730a4",
+        "state_root": "c4182b29d7c8cb416bf5b20af4b5605a0e8a62387319574245f15074aa2e9fdc",
         "timestamp": 1775044800,
         "transactions_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
       },
       "integrity": {
-        "allocation_hash": "15f9f1c90504ec8714dfe11c15a3acd7f7a7ff82eedfab327b020e96a8099f69",
+        "allocation_hash": "27eda48c7fe67c8266fdd8c7a7c7012faa8549a222ceb2295e89c14cf5e8a64c",
         "contract_hash": "0d4338cb925ccbb404099cd8ceef631ff222ab453502f9547b3079f59327167d",
-        "genesis_hash": "ce86a742a3f46b372f25d12be96e2ac47e68c6dd28a9773af7157275a7a14101",
+        "genesis_hash": "f838a1ff39d9dcac47c3b22492f1636d88cc9238f9034706db3f5144d3cd96c9",
         "signed_by": [],
-        "state_root": "f6150202e72351d94bff05381b707b4bf2687331a89ffb94803151a4a01730a4",
+        "state_root": "c4182b29d7c8cb416bf5b20af4b5605a0e8a62387319574245f15074aa2e9fdc",
         "validator_hash": "4680f495d1ec54cc3e7f23e418ff06f2a6cb48e7d0f6262be747ff838196ab8b"
       },
       "modules": {
