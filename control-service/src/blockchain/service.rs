@@ -185,9 +185,9 @@ impl BlockchainService {
             None => {
                 // Fallback to the published Testnet-Beta bootstrap set.
                 Ok(vec![
-                    "bootnode1.synergyvps.xyz:5620".to_string(),
-                    "bootnode2.synergyvps.xyz:5620".to_string(),
-                    "bootnode3.synergyvps.xyz:5620".to_string(),
+                    "bootnode1.synergynode.xyz:5620".to_string(),
+                    "bootnode2.synergynode.xyz:5620".to_string(),
+                    "bootnode3.synergynode.xyz:5620".to_string(),
                 ])
             }
         }

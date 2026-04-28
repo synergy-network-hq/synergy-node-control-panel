@@ -6248,7 +6248,7 @@ fn endpoint_host_candidates(
 }
 
 fn preferred_seed_service_host(endpoint: &TestnetBetaBootstrapEndpoint) -> Option<String> {
-    endpoint_host_candidates(endpoint, true).into_iter().next()
+    endpoint_host_candidates(endpoint, false).into_iter().next()
 }
 
 fn seed_service_urls(endpoint: &TestnetBetaBootstrapEndpoint, path: &str) -> Vec<String> {
@@ -6257,7 +6257,7 @@ fn seed_service_urls(endpoint: &TestnetBetaBootstrapEndpoint, path: &str) -> Vec
     } else {
         format!("/{path}")
     };
-    endpoint_host_candidates(endpoint, true)
+    endpoint_host_candidates(endpoint, false)
         .into_iter()
         .map(|host| format!("http://{host}:{}{}", endpoint.port, normalized_path))
         .collect()
@@ -8094,6 +8094,18 @@ mod tests {
                 !seeds.is_empty(),
                 "validator node.toml should use seed servers"
             );
+            let seed_urls = seeds
+                .iter()
+                .filter_map(toml::Value::as_str)
+                .collect::<Vec<_>>();
+            assert!(
+                seed_urls.contains(&"http://seed1.synergynode.xyz:5621"),
+                "validator node.toml should prefer the public seed hostname over stale manifest IPs"
+            );
+            assert!(
+                seed_urls.iter().all(|url| !url.contains("170.64.187.206")),
+                "validator node.toml should not pin seed1 to the stale manifest IP"
+            );
 
             let dns_records = node_value
                 .get("network")
@@ -8204,6 +8216,14 @@ mod tests {
                 .and_then(toml::Value::as_array)
                 .expect("global.seed_servers should exist");
             assert!(!peer_seeds.is_empty());
+            let peer_seed_urls = peer_seeds
+                .iter()
+                .filter_map(toml::Value::as_str)
+                .collect::<Vec<_>>();
+            assert!(
+                peer_seed_urls.contains(&"http://seed1.synergynode.xyz:5621"),
+                "peers.toml should prefer the public seed hostname over stale manifest IPs"
+            );
 
             let peer_persistent_peers = peers_value
                 .get("global")

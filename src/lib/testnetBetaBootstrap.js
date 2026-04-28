@@ -395,7 +395,7 @@ function seedServerUrls(networkProfile) {
         return seed.url;
       }
 
-      const host = bootstrapEndpointHost(seed, { preferIpAddress: true });
+      const host = bootstrapEndpointHost(seed);
       const port = parsePortValue(seed?.port);
       if (host && port != null) {
         return `http://${host}:${port}`;
