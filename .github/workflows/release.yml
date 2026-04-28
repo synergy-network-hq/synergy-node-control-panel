@@ -161,6 +161,15 @@ jobs:
       - name: Stage Electron runtime bundle
         run: node scripts/electron/prepare-runtime.mjs
 
+      - name: Remove non-portable bundled service bin shims
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_root="testbeta/runtime/installers/Node-EXP/explorer-app"
+          if [[ -d "$bundle_root" ]]; then
+            find "$bundle_root" -path '*/node_modules/.bin' -type d -prune -exec rm -rf {} +
+          fi
+
       - name: Clear stale packaged artifacts
         shell: bash
         run: rm -rf electron-dist

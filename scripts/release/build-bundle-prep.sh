@@ -252,6 +252,7 @@ sync_atlas_runtime_bundle() {
       "$node_exp_bundle/$service_dir/migrations/"
     rsync -a --delete \
       --exclude '.DS_Store' \
+      --exclude '.bin' \
       "$explorer_root/$service_dir/node_modules/" \
       "$node_exp_bundle/$service_dir/node_modules/"
     mkdir -p "$node_exp_bundle/$service_dir/scripts"
