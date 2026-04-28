@@ -59,12 +59,18 @@ jobs:
 
       - name: Checkout Testnet-Beta node source
         shell: bash
+        env:
+          TESTNET_BETA_REPO_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
         run: |
           set -euo pipefail
 
-          # This repo is public; clone it directly so release builds do not
-          # depend on a PAT that may be missing or have stale permissions.
-          git clone \
+          if [[ -z "${TESTNET_BETA_REPO_TOKEN:-}" ]]; then
+            echo "RELEASES_REPO_TOKEN is required to checkout synergy-network-hq/testnet-beta." >&2
+            exit 1
+          fi
+
+          auth_header="$(printf 'x-access-token:%s' "$TESTNET_BETA_REPO_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" clone \
             --depth 1 \
             --branch "${TESTNET_BETA_REF}" \
             --single-branch \
