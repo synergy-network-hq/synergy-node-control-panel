@@ -4,7 +4,7 @@ Synergy Testnet-Beta Binary Status
 Linux Binary
 ------------
 Path: ./bin/synergy-testbeta-linux-amd64
-SHA-256: 6bb16da4798cf6b09038badf9d398fe9dc8b3c9d68ac15f9ef0f1b2b942bc2e0
+SHA-256: 6f971ce5525cbc5f422630fda5083d6f0b2f8b649979f038b92742cb38478a22
 
 Darwin Binary
 -------------

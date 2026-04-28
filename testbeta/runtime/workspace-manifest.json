@@ -1,7 +1,7 @@
 {
-  "workspace_resource_version": "9.0.10+eab12e777f0c",
-  "app_version": "9.0.10",
-  "bundle_digest": "eab12e777f0c1953aef0f624e40ff64c94ba0a19f3439eb5a433a94ec19d77c7",
+  "workspace_resource_version": "9.0.11+86dffaa0ab24",
+  "app_version": "9.0.11",
+  "bundle_digest": "86dffaa0ab24ab08d2f17785cdd8af882de691fa157654680727b4bfdbe0d36a",
   "platform_binaries": [
     "binaries/synergy-testbeta-darwin-arm64",
     "binaries/synergy-testbeta-linux-amd64",
@@ -31,7 +31,7 @@
   ],
   "checksums": {
     "binaries/synergy-testbeta-darwin-arm64": "9a30b6c3d88c2ba3f019c8567545d507cdc3ee22c289ad4b7dc05a92b0bf6337",
-    "binaries/synergy-testbeta-linux-amd64": "6bb16da4798cf6b09038badf9d398fe9dc8b3c9d68ac15f9ef0f1b2b942bc2e0",
+    "binaries/synergy-testbeta-linux-amd64": "6f971ce5525cbc5f422630fda5083d6f0b2f8b649979f038b92742cb38478a22",
     "binaries/synergy-testbeta-windows-amd64.exe": "e2977213c16abd5e482331b355a850ffb040106c94c97564f2d3e36671e2d38a"
   }
 }

@@ -54,6 +54,93 @@ function isContinueValue(value) {
   return /^(continue|yes|ok|proceed|use default|provision node)$/i.test(String(value || '').trim());
 }
 
+function isPublicIpv4Address(host) {
+  const segments = String(host || '').split('.');
+  if (segments.length !== 4) return false;
+  const values = segments.map((segment) => {
+    if (!/^\d+$/.test(segment)) return null;
+    const value = Number.parseInt(segment, 10);
+    return value >= 0 && value <= 255 ? value : null;
+  });
+  if (values.some((value) => value === null)) return false;
+
+  const [first, second, third] = values;
+  if (first === 0 || first === 10 || first === 127 || first >= 224) return false;
+  if (first === 100 && second >= 64 && second <= 127) return false;
+  if (first === 169 && second === 254) return false;
+  if (first === 172 && second >= 16 && second <= 31) return false;
+  if (first === 192 && second === 0 && third === 0) return false;
+  if (first === 192 && second === 0 && third === 2) return false;
+  if (first === 192 && second === 168) return false;
+  if (first === 198 && (second === 18 || second === 19)) return false;
+  if (first === 198 && second === 51 && third === 100) return false;
+  if (first === 203 && second === 0 && third === 113) return false;
+  return true;
+}
+
+function normalizePublicHostInput(value) {
+  let candidate = String(value || '').trim();
+  if (!candidate) return '';
+
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
+    try {
+      candidate = new URL(candidate).hostname;
+    } catch {
+      return '';
+    }
+  }
+
+  candidate = candidate
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replace(/\.+$/, '')
+    .trim()
+    .toLowerCase();
+
+  if (candidate.includes('/') || candidate.includes('@') || candidate.includes(' ')) {
+    return '';
+  }
+
+  if (candidate.includes(':') && !/^[0-9a-f:]+$/i.test(candidate)) {
+    const [hostPart, portPart] = candidate.split(':');
+    if (!/^\d+$/.test(portPart || '')) return '';
+    candidate = hostPart;
+  }
+
+  if (isPublicIpv4Address(candidate)) return candidate;
+  if (/^[0-9a-f:]+$/i.test(candidate) && candidate.includes(':')) {
+    const lowered = candidate.toLowerCase();
+    if (
+      lowered === '::1'
+      || lowered === '::'
+      || lowered.startsWith('fe80:')
+      || lowered.startsWith('fc')
+      || lowered.startsWith('fd')
+    ) {
+      return '';
+    }
+    return candidate;
+  }
+
+  if (
+    candidate === 'localhost'
+    || candidate.endsWith('.local')
+    || !candidate.includes('.')
+    || !/^[a-z0-9.-]+$/.test(candidate)
+    || candidate.startsWith('.')
+    || candidate.endsWith('.')
+  ) {
+    return '';
+  }
+
+  return candidate;
+}
+
+function roleRequiresPublicEndpoint(roleId, setupMode) {
+  if (setupMode === 'ceremony') return false;
+  return REMOTE_DEPLOYMENT_ROLES.has(String(roleId || '').trim().toLowerCase());
+}
+
 function suggestedDirectory(homeDirectory, roleId) {
   const base = String(homeDirectory || '~').replace(/[\\/]+$/, '');
   return `${base}/.synergy/testnet-beta/nodes/${sanitizeSlug(roleId || 'node')}-workspace`;
@@ -182,7 +269,7 @@ const promptKindsWithSelections = new Set(['select_ceremony_package']);
 // Roles that are designed to run on a dedicated public server rather than the
 // user's own machine.  For these roles the setup wizard asks for the server IP
 // before provisioning so it can be baked into node.toml and nginx.conf.
-const REMOTE_DEPLOYMENT_ROLES = new Set(['rpc_gateway', 'indexer']);
+const REMOTE_DEPLOYMENT_ROLES = new Set(['validator', 'rpc_gateway', 'indexer']);
 const SETUP_ALLOWED_ROLE_IDS = new Set([
   'validator',
   'witness',
@@ -435,7 +522,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       try {
         const response = await fetch(endpoint, { cache: 'no-store' });
         if (!response.ok) continue;
-        const value = (await response.text()).trim();
+        const value = normalizePublicHostInput(await response.text());
         if (value) return value;
       } catch {
         // Try the next endpoint.
@@ -1127,23 +1214,13 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           pauseMs: 1800,
         },
         {
-          text: 'Generating the node wallet now.',
+          text: 'Take a quick look at the computer details. If they look right, continue. If not, refresh and I will check again.',
           typingMs: 1500,
-          pauseMs: 1600,
-        },
-        {
-          text: 'Writing the runtime configuration and peer list.',
-          typingMs: 1700,
-          pauseMs: 1700,
-        },
-        {
-          text: 'Preparing the required 5,000 SNRG stake.',
-          typingMs: 1600,
-          pauseMs: 1600,
+          pauseMs: 220,
         },
       ]);
 
-      await runProvision();
+      setPhase('review_device');
       return;
     }
 
@@ -1210,9 +1287,12 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           const detectedNote = detected
             ? `I detected this machine's IP as ${detected}.`
             : "I couldn't auto-detect an IP for this machine.";
+          const hostPrompt = selectedRoleId === 'validator' && setupMode !== 'ceremony'
+            ? 'This validator must advertise a public P2P endpoint so seeds and peers can reach it. '
+            : 'This role is built to run on a dedicated public server. ';
           await queueJarvisMessage(
-            `${detectedNote} This role is built to run on a dedicated public server. ` +
-            `Enter that server's IP address now (e.g. 74.208.227.23), or choose "Use Detected" to keep the value above.`,
+            `${detectedNote} ${hostPrompt}` +
+            'Enter the public IP address or DNS name for this machine, or choose "Use Detected" to keep the value above.',
           );
           setPhase(setupMode === 'ceremony' ? 'confirm_ceremony_public_host' : 'confirm_public_host');
         } else {
@@ -1229,14 +1309,30 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     }
 
     if (phase === 'confirm_public_host' || phase === 'confirm_ceremony_public_host') {
+      const requiresPublicEndpoint = roleRequiresPublicEndpoint(selectedRoleId, setupMode);
+      let nextPublicHost = '';
+
       if (!/^use[\s-]*detected$/i.test(trimmedValue) && trimmedValue) {
-        setPublicHost(trimmedValue);
-        await queueJarvisMessage(`Server IP set to ${trimmedValue}. This will be written into the runtime config for this node.`);
+        nextPublicHost = normalizePublicHostInput(trimmedValue);
+        if (!nextPublicHost) {
+          await queueJarvisMessage('Enter a publicly routable IP address or DNS name for this validator. Private, localhost, and malformed addresses cannot join public consensus.');
+          return;
+        }
+        setPublicHost(nextPublicHost);
+        await queueJarvisMessage(`Public endpoint set to ${nextPublicHost}. This will be written into the runtime config for this node.`);
       } else {
+        nextPublicHost = normalizePublicHostInput(publicHost);
+        if (requiresPublicEndpoint && !nextPublicHost) {
+          await queueJarvisMessage('I do not have a usable public endpoint yet. Enter the validator public IP address or DNS name before provisioning.');
+          return;
+        }
+        if (nextPublicHost) {
+          setPublicHost(nextPublicHost);
+        }
         await queueJarvisMessage(
-          publicHost
-            ? `Using auto-detected IP: ${publicHost}.`
-            : 'No IP available. You can update the runtime config manually after setup.',
+          nextPublicHost
+            ? `Using public endpoint: ${nextPublicHost}.`
+            : 'No public endpoint was set for this non-validator role.',
         );
       }
       await queueJarvisMessage(

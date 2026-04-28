@@ -1685,17 +1685,38 @@ pub async fn testbeta_setup_node(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| node_identity.wallet.address.clone());
-    // Use the caller-supplied public host (remote server IP) if provided;
-    // otherwise fall back to automatic detection via ipify / ifconfig.
-    let detected_public_host = match input
+    // Use the caller-supplied public host when provided. Do not silently fall
+    // back to auto-detection when an explicit public endpoint is malformed.
+    let public_host_override = input
         .public_host
         .as_deref()
-        .and_then(normalize_public_host_candidate)
-    {
-        Some(override_host) => Some(override_host),
-        None => detect_public_host().await,
-    };
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let detected_public_host =
+        match public_host_override {
+            Some(raw_host) => Some(normalize_public_host_candidate(raw_host).ok_or_else(|| {
+                format!("Invalid public host for {}: {raw_host}", role.display_name)
+            })?),
+            None => detect_public_host().await,
+        };
     let validator_mesh_only = validator_uses_private_mesh(&role.id, &effective_node_address);
+    if role.id == "validator" && !validator_mesh_only {
+        match detected_public_host.as_deref() {
+            Some(host) if is_publicly_routable_host(host) => {}
+            Some(host) => {
+                return Err(format!(
+                    "Non-genesis validators require a publicly routable IP address or DNS name. '{}' is not usable for public consensus discovery.",
+                    host
+                ));
+            }
+            None => {
+                return Err(
+                    "Non-genesis validators require a publicly routable IP address or DNS name before provisioning."
+                        .to_string(),
+                );
+            }
+        }
+    }
     let funding_manifest = TestnetBetaFundingManifest {
         id: format!("fund-{}", Uuid::new_v4().simple()),
         source_wallet: network_profile.treasury_wallet.address.clone(),
@@ -6192,8 +6213,32 @@ async fn detect_public_host() -> Option<String> {
 }
 
 fn normalize_public_host_candidate(value: &str) -> Option<String> {
-    let trimmed = value.trim().to_ascii_lowercase();
+    let mut trimmed = value.trim().to_ascii_lowercase();
     if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some((_, rest)) = trimmed.split_once("://") {
+        trimmed = rest
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or_default()
+            .to_string();
+    }
+
+    if trimmed.starts_with('[') {
+        let closing = trimmed.find(']')?;
+        trimmed = trimmed[1..closing].to_string();
+    } else if trimmed.matches(':').count() == 1 {
+        if let Some((host, port)) = trimmed.rsplit_once(':') {
+            if port.chars().all(|ch| ch.is_ascii_digit()) {
+                trimmed = host.to_string();
+            }
+        }
+    }
+
+    let trimmed = trimmed.trim().trim_end_matches('.').to_string();
+    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('@') {
         return None;
     }
 
@@ -6210,6 +6255,45 @@ fn normalize_public_host_candidate(value: &str) -> Option<String> {
     }
 
     Some(trimmed)
+}
+
+fn is_publicly_routable_host(value: &str) -> bool {
+    let Some(host) = normalize_public_host_candidate(value) else {
+        return false;
+    };
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(addr) => {
+                let [first, second, third, _] = addr.octets();
+                first != 0
+                    && first != 10
+                    && first != 127
+                    && first < 224
+                    && !(first == 100 && (64..=127).contains(&second))
+                    && !(first == 169 && second == 254)
+                    && !(first == 172 && (16..=31).contains(&second))
+                    && !(first == 192 && second == 0 && third == 0)
+                    && !(first == 192 && second == 0 && third == 2)
+                    && !(first == 192 && second == 168)
+                    && !(first == 198 && (second == 18 || second == 19))
+                    && !(first == 198 && second == 51 && third == 100)
+                    && !(first == 203 && second == 0 && third == 113)
+            }
+            IpAddr::V6(addr) => {
+                let segments = addr.segments();
+                let first = segments[0];
+                !addr.is_loopback()
+                    && !addr.is_unspecified()
+                    && (first & 0xffc0) != 0xfe80
+                    && (first & 0xfe00) != 0xfc00
+                    && (first & 0xff00) != 0xff00
+                    && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+            }
+        };
+    }
+
+    host != "localhost" && !host.ends_with(".local")
 }
 
 fn normalize_endpoint_host(value: &str) -> Option<String> {
@@ -7992,12 +8076,12 @@ mod tests {
             seed_registry_peer_key(&json!({
                 "node_id": "node-a",
                 "wallet_address": "wallet-a",
-                "public_host": "203.0.113.10",
+                "public_host": "93.184.216.37",
                 "p2p_port": 5622,
-                "dial": "203.0.113.10:5622"
+                "dial": "93.184.216.37:5622"
             }))
             .expect("dial target should resolve"),
-            "203.0.113.10:5622"
+            "93.184.216.37:5622"
         );
     }
 
@@ -8018,7 +8102,7 @@ mod tests {
     fn setup_node_writes_non_genesis_validator_bootstrap_inputs() {
         with_temp_home(|_| {
             let _public_host =
-                EnvVarGuard::set_path("SYNERGY_TESTBETA_PUBLIC_HOST", Path::new("203.0.113.10"));
+                EnvVarGuard::set_path("SYNERGY_TESTBETA_PUBLIC_HOST", Path::new("93.184.216.37"));
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
             let result = runtime
                 .block_on(testbeta_setup_node(TestnetBetaSetupInput {
@@ -8065,7 +8149,7 @@ mod tests {
                     .get("p2p")
                     .and_then(|section| section.get("public_address"))
                     .and_then(toml::Value::as_str),
-                Some("203.0.113.10:5622")
+                Some("93.184.216.37:5622")
             );
             assert_eq!(
                 node_value
@@ -8250,6 +8334,72 @@ mod tests {
             let state = testbeta_get_state().expect("state should load from test temp home");
             assert_eq!(state.summary.total_nodes, 1);
             assert_eq!(state.nodes[0].role_id, "validator");
+        });
+    }
+
+    #[test]
+    fn setup_node_rejects_invalid_public_host_override_for_non_genesis_validator() {
+        with_temp_home(|_| {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let error = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Invalid Validator".to_string()),
+                    intended_directory: None,
+                    public_host: Some("not a host".to_string()),
+                    node_address_override: None,
+                    skip_canonical_manifests: false,
+                }))
+                .expect_err("invalid public host should fail before provisioning");
+
+            assert!(
+                error.contains("Invalid public host"),
+                "unexpected error: {error}"
+            );
+        });
+    }
+
+    #[test]
+    fn setup_node_rejects_private_public_host_for_non_genesis_validator() {
+        with_temp_home(|_| {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let error = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Private Validator".to_string()),
+                    intended_directory: None,
+                    public_host: Some("10.69.0.20".to_string()),
+                    node_address_override: None,
+                    skip_canonical_manifests: false,
+                }))
+                .expect_err("private validator host should fail before provisioning");
+
+            assert!(
+                error.contains("publicly routable"),
+                "unexpected error: {error}"
+            );
+        });
+    }
+
+    #[test]
+    fn setup_node_rejects_reserved_public_host_for_non_genesis_validator() {
+        with_temp_home(|_| {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let error = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Reserved Validator".to_string()),
+                    intended_directory: None,
+                    public_host: Some("203.0.113.20".to_string()),
+                    node_address_override: None,
+                    skip_canonical_manifests: false,
+                }))
+                .expect_err("reserved validator host should fail before provisioning");
+
+            assert!(
+                error.contains("publicly routable"),
+                "unexpected error: {error}"
+            );
         });
     }
 
@@ -8498,7 +8648,7 @@ public_address = "62.146.182.207:5622"
                     role_id: "validator".to_string(),
                     display_label: Some("Validator Import Staging".to_string()),
                     intended_directory: None,
-                    public_host: None,
+                    public_host: Some("93.184.216.34".to_string()),
                     node_address_override: None,
                     skip_canonical_manifests: true,
                 }))
@@ -9135,7 +9285,7 @@ esac
                     role_id: "validator".to_string(),
                     display_label: Some("Validator Test".to_string()),
                     intended_directory: None,
-                    public_host: None,
+                    public_host: Some("93.184.216.35".to_string()),
                     node_address_override: None,
                     skip_canonical_manifests: false,
                 }))
@@ -9280,7 +9430,7 @@ EOF
                     role_id: "validator".to_string(),
                     display_label: Some("Validator A".to_string()),
                     intended_directory: None,
-                    public_host: None,
+                    public_host: Some("93.184.216.36".to_string()),
                     node_address_override: None,
                     skip_canonical_manifests: false,
                 }))

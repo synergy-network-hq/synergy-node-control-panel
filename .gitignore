@@ -39,6 +39,7 @@ control-service/testbeta-agent/Cargo.lock
 .synergy/
 synergy-testbeta
 templates.zip
+testbeta/runtime/installers/GenVal-*/config/launch-block1-transaction.json
 
 # OS files
 .DS_Store
