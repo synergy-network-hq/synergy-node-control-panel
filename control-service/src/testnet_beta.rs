@@ -1744,10 +1744,20 @@ pub async fn testbeta_setup_node(
 
     let role_overlay = role_overlay_for(&role.id);
     let port_slot = next_available_port_slot(&registry.nodes);
+    let public_validator_upstreams = if role.id == "validator" && !validator_mesh_only {
+        canonical_public_validator_dial_targets()
+    } else {
+        Vec::new()
+    };
     let peers_contents = if validator_mesh_only {
         build_peers_toml_with_additional(
             &network_profile,
             &canonical_validator_dial_targets(&effective_node_address),
+        )
+    } else if !public_validator_upstreams.is_empty() {
+        build_peers_toml_with_public_validator_upstreams(
+            &network_profile,
+            &public_validator_upstreams,
         )
     } else if role_uses_sentry_upstreams(&role.id) {
         build_peers_toml_with_additional(
@@ -5989,6 +5999,16 @@ fn canonical_sentry_public_dial_targets_for_role(role_id: &str) -> Vec<String> {
     targets
 }
 
+fn canonical_public_validator_dial_targets() -> Vec<String> {
+    let mut targets = canonical_sentry_peers()
+        .into_iter()
+        .map(|entry| format!("{}:{}", entry.public_host, entry.port))
+        .collect::<Vec<_>>();
+    targets.sort();
+    targets.dedup();
+    targets
+}
+
 fn render_toml_string_array(values: &[String]) -> String {
     values
         .iter()
@@ -7520,6 +7540,11 @@ fn build_node_toml(
     let canonical_validator_peers = canonical_testnet_beta_validator_peers();
     let use_static_validator_mesh = validator_uses_private_mesh(&role.id, node_address)
         && !canonical_validator_peers.is_empty();
+    let public_validator_upstreams = if role.id == "validator" && !use_static_validator_mesh {
+        canonical_public_validator_dial_targets()
+    } else {
+        Vec::new()
+    };
     let sentry_upstreams = if role_uses_sentry_upstreams(&role.id) {
         canonical_sentry_public_dial_targets_for_role(&role.id)
     } else {
@@ -7578,12 +7603,16 @@ fn build_node_toml(
     };
     let additional_dial_targets = if use_static_validator_mesh {
         canonical_validator_dial_targets_toml(&canonical_validator_peers, node_address)
+    } else if !public_validator_upstreams.is_empty() {
+        render_toml_string_array(&public_validator_upstreams)
     } else if use_sentry_upstreams {
         render_toml_string_array(&sentry_upstreams)
     } else {
         String::new()
     };
     let persistent_peers = if use_static_validator_mesh {
+        additional_dial_targets.clone()
+    } else if !public_validator_upstreams.is_empty() {
         additional_dial_targets.clone()
     } else {
         String::new()
@@ -7610,6 +7639,8 @@ fn build_node_toml(
     };
     let bootstrap_note = if use_static_validator_mesh {
         "Validator nodes dial the private WireGuard validator mesh immediately through additional_dial_targets and persistent_peers."
+    } else if !public_validator_upstreams.is_empty() {
+        "Public non-genesis validators use bootnodes, dnsaddr records, seed services, and the public sentry relayer pair so they can sync before joining consensus."
     } else if use_sentry_upstreams {
         "Public edge nodes pin their upstreams to the public sentry pair and do not dial validators directly."
     } else {
@@ -7689,14 +7720,29 @@ fn role_supports_validator_registration(role_id: &str) -> bool {
 }
 
 fn build_peers_toml(network_profile: &TestnetBetaNetworkProfile) -> String {
-    build_peers_toml_with_additional(network_profile, &[])
+    build_peers_toml_with_options(network_profile, &[], false)
 }
 
 fn build_peers_toml_with_additional(
     network_profile: &TestnetBetaNetworkProfile,
     additional_dial_targets: &[String],
 ) -> String {
-    let use_explicit_upstreams = !additional_dial_targets.is_empty();
+    build_peers_toml_with_options(network_profile, additional_dial_targets, true)
+}
+
+fn build_peers_toml_with_public_validator_upstreams(
+    network_profile: &TestnetBetaNetworkProfile,
+    additional_dial_targets: &[String],
+) -> String {
+    build_peers_toml_with_options(network_profile, additional_dial_targets, false)
+}
+
+fn build_peers_toml_with_options(
+    network_profile: &TestnetBetaNetworkProfile,
+    additional_dial_targets: &[String],
+    explicit_upstreams: bool,
+) -> String {
+    let use_explicit_upstreams = explicit_upstreams && !additional_dial_targets.is_empty();
     let bootnodes = if use_explicit_upstreams {
         String::new()
     } else {
@@ -7787,8 +7833,9 @@ fn build_node_readme(
             "## Validator mesh\n- Private validator peers: {validator_mesh}\n- Public bootstrap endpoints: disabled for validator workspaces\n\nThe generated validator configuration is wired for the private WireGuard mesh immediately.\n"
         )
     } else if role.id == "validator" {
+        let public_validator_upstreams = canonical_public_validator_dial_targets().join(", ");
         format!(
-            "## Validator bootstrap\n- Bootnodes: {}\n- Seeds: {}\n- DNS bootstrap records: `{}`\n\nThe generated validator configuration uses public bootstrap first so a non-genesis validator can sync the chain before auto-registering into consensus.\n",
+            "## Validator bootstrap\n- Public sentry relayers: {public_validator_upstreams}\n- Bootnodes: {}\n- Seeds: {}\n- DNS bootstrap records: `{}`\n\nThe generated validator configuration uses public sentry relayers plus public bootstrap so a non-genesis validator can sync the chain before auto-registering into consensus.\n",
             network_profile
                 .bootnodes
                 .iter()
@@ -8206,16 +8253,25 @@ mod tests {
                 .and_then(|section| section.get("additional_dial_targets"))
                 .and_then(toml::Value::as_array)
                 .expect("additional_dial_targets array should exist");
+            let additional_dial_target_values = additional_dial_targets
+                .iter()
+                .filter_map(toml::Value::as_str)
+                .collect::<Vec<_>>();
             assert!(
-                additional_dial_targets.is_empty(),
-                "non-genesis validator node.toml should start without hardcoded additional dial targets"
+                additional_dial_target_values.contains(&"relay1.synergynode.xyz:5622")
+                    && additional_dial_target_values.contains(&"relay2.synergynode.xyz:5622"),
+                "non-genesis validator node.toml should pin the public sentry relayers for sync"
             );
             let persistent_peers = node_value
                 .get("network")
                 .and_then(|section| section.get("persistent_peers"))
                 .and_then(toml::Value::as_array)
                 .expect("persistent_peers array should exist");
-            assert!(persistent_peers.is_empty());
+            let persistent_peer_values = persistent_peers
+                .iter()
+                .filter_map(toml::Value::as_str)
+                .collect::<Vec<_>>();
+            assert_eq!(persistent_peer_values, additional_dial_target_values);
             assert_eq!(
                 node_value
                     .get("consensus")
@@ -8321,7 +8377,15 @@ mod tests {
                 .and_then(|section| section.get("persistent_peers"))
                 .and_then(toml::Value::as_array)
                 .expect("global.persistent_peers should exist");
-            assert!(peer_persistent_peers.is_empty());
+            let peer_persistent_values = peer_persistent_peers
+                .iter()
+                .filter_map(toml::Value::as_str)
+                .collect::<Vec<_>>();
+            assert!(
+                peer_persistent_values.contains(&"relay1.synergynode.xyz:5622")
+                    && peer_persistent_values.contains(&"relay2.synergynode.xyz:5622"),
+                "peers.toml should pin the public sentry relayers for non-genesis validators"
+            );
 
             assert_eq!(
                 peers_value

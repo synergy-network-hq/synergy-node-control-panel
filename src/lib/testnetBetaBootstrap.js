@@ -20,6 +20,10 @@ const SENTRY_UPSTREAMS = Object.freeze({
   indexer: ['relay1.synergynode.xyz:5622', 'relay2.synergynode.xyz:5622'],
   observer: ['relay1.synergynode.xyz:5622', 'relay2.synergynode.xyz:5622'],
 });
+const PUBLIC_VALIDATOR_UPSTREAMS = Object.freeze([
+  'relay1.synergynode.xyz:5622',
+  'relay2.synergynode.xyz:5622',
+]);
 
 const TESTNET_BETA_DEFAULT_PORT_SETTINGS = Object.freeze({
   p2p: 5622,
@@ -791,6 +795,7 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
   const isValidator = roleId === 'validator';
   const validatorMeshOnly = usesStaticValidatorMesh(node);
   const sentryTargets = Array.isArray(SENTRY_UPSTREAMS[roleId]) ? SENTRY_UPSTREAMS[roleId] : [];
+  const publicValidatorTargets = isValidator && !validatorMeshOnly ? PUBLIC_VALIDATOR_UPSTREAMS : [];
   const useExplicitOnly = validatorMeshOnly || sentryTargets.length > 0;
 
   const activePorts = await readTestnetBetaNodePortSettings(node)
@@ -833,7 +838,7 @@ export async function refreshTestnetBetaBootstrapConfig(node, networkProfile) {
     ? normalizeDialTargets(validatorTargets).filter((target) => !selfTargets.has(target))
     : sentryTargets.length > 0
       ? normalizeDialTargets(sentryTargets).filter((target) => !selfTargets.has(target))
-      : normalizeDialTargets(targets).filter(
+      : normalizeDialTargets([...publicValidatorTargets, ...targets]).filter(
         (target) => !bootnodeTargets.has(target) && !selfTargets.has(target),
       );
 
