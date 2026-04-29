@@ -8226,6 +8226,13 @@ mod tests {
             assert_eq!(
                 node_value
                     .get("consensus")
+                    .and_then(|section| section.get("validator_cluster_size"))
+                    .and_then(toml::Value::as_integer),
+                Some(TESTNET_BETA_VALIDATOR_CLUSTER_SIZE as i64)
+            );
+            assert_eq!(
+                node_value
+                    .get("consensus")
                     .and_then(|section| section.get("status_ready_gate_enabled"))
                     .and_then(toml::Value::as_bool),
                 Some(TESTNET_BETA_STATUS_READY_GATE_ENABLED)
