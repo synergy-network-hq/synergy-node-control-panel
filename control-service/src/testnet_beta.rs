@@ -961,7 +961,11 @@ pub async fn testbeta_node_control(
 
     match action.as_str() {
         "start" => {
-            if is_running && local_rpc_ready {
+            let mut launch_notices = Vec::new();
+            let chain_state_requires_reset =
+                workspace_chain_state_requires_canonical_reset(&workspace_directory)?;
+
+            if is_running && local_rpc_ready && !chain_state_requires_reset {
                 return Ok(TestnetBetaNodeControlResult {
                     node_id: node.id,
                     action,
@@ -970,7 +974,15 @@ pub async fn testbeta_node_control(
                 });
             }
 
-            if is_running && !local_rpc_ready {
+            if is_running && chain_state_requires_reset {
+                let _ =
+                    run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await;
+                let killed = force_kill_workspace_processes(&workspace_directory)?;
+                eprintln!(
+                    "Warning: stopped {} before rebuilding stale chain state. Cleared {killed} lingering process(es).",
+                    node.display_label
+                );
+            } else if is_running && !local_rpc_ready {
                 let killed = force_kill_workspace_processes(&workspace_directory)?;
                 eprintln!(
                     "Warning: removed {killed} stale Testnet-Beta process(es) before restarting {}.",
@@ -983,6 +995,10 @@ pub async fn testbeta_node_control(
                     "Warning: could not refresh launch manifests for {}: {e}",
                     node.display_label
                 );
+            }
+            if let Some(message) = repair_workspace_chain_state_if_needed(&workspace_directory)? {
+                eprintln!("Warning: {message}");
+                launch_notices.push(message);
             }
             if let Err(error) = ensure_workspace_bootstrap_topology(
                 &config_path,
@@ -1036,7 +1052,14 @@ pub async fn testbeta_node_control(
                 node_id: node.id,
                 action: "start".to_string(),
                 status: "ok".to_string(),
-                message: "Node is online and running in its workspace.".to_string(),
+                message: if launch_notices.is_empty() {
+                    "Node is online and running in its workspace.".to_string()
+                } else {
+                    format!(
+                        "{} Node is online and rebuilding sync from the active network.",
+                        launch_notices.join(" ")
+                    )
+                },
             })
         }
         "stop" => {
@@ -1093,6 +1116,7 @@ pub async fn testbeta_node_control(
         }
         "sync" => {
             if role_supports_validator_registration(&node.role_id) {
+                let mut launch_notices = Vec::new();
                 if is_running {
                     let _ =
                         run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory)
@@ -1105,6 +1129,11 @@ pub async fn testbeta_node_control(
                         "Warning: could not refresh launch manifests for {}: {e}",
                         node.display_label
                     );
+                }
+                if let Some(message) = repair_workspace_chain_state_if_needed(&workspace_directory)?
+                {
+                    eprintln!("Warning: {message}");
+                    launch_notices.push(message);
                 }
                 if let Err(error) = ensure_workspace_bootstrap_topology(
                     &config_path,
@@ -1161,10 +1190,18 @@ pub async fn testbeta_node_control(
                     node_id: node.id,
                     action: "sync".to_string(),
                     status: "ok".to_string(),
-                    message: "Validator rejoin completed. Validator nodes use restart-based peer rejoin instead of offline fast-sync.".to_string(),
+                    message: if launch_notices.is_empty() {
+                        "Validator rejoin completed. Validator nodes use restart-based peer rejoin instead of offline fast-sync.".to_string()
+                    } else {
+                        format!(
+                            "{} Validator rejoin started against the active network genesis.",
+                            launch_notices.join(" ")
+                        )
+                    },
                 });
             }
 
+            let mut launch_notices = Vec::new();
             if is_running {
                 let _ =
                     run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory).await;
@@ -1176,6 +1213,10 @@ pub async fn testbeta_node_control(
                     "Warning: could not refresh launch manifests for {}: {e}",
                     node.display_label
                 );
+            }
+            if let Some(message) = repair_workspace_chain_state_if_needed(&workspace_directory)? {
+                eprintln!("Warning: {message}");
+                launch_notices.push(message);
             }
             if let Err(error) = ensure_workspace_bootstrap_topology(
                 &config_path,
@@ -1228,7 +1269,14 @@ pub async fn testbeta_node_control(
                 node_id: node.id,
                 action: "sync".to_string(),
                 status: "ok".to_string(),
-                message: "Node fast-sync completed and the runtime is back online.".to_string(),
+                message: if launch_notices.is_empty() {
+                    "Node fast-sync completed and the runtime is back online.".to_string()
+                } else {
+                    format!(
+                        "{} Node fast-sync restarted from the active network genesis.",
+                        launch_notices.join(" ")
+                    )
+                },
             })
         }
         other => Err(format!("Unsupported Testnet-Beta node action: {other}")),
@@ -3752,6 +3800,97 @@ fn workspace_manifest_chain_id(workspace_directory: &Path) -> Result<u64, String
     .ok_or_else(|| "Workspace operational manifest is missing chain_id.".to_string())
 }
 
+fn first_block_hash_from_chain_value(value: &Value) -> Option<String> {
+    fn block_hash(value: &Value) -> Option<String> {
+        value
+            .get("hash")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|hash| !hash.is_empty())
+            .map(str::to_string)
+    }
+
+    if let Some(blocks) = value.as_array() {
+        return blocks.first().and_then(block_hash);
+    }
+
+    for key in ["chain", "blocks"] {
+        if let Some(blocks) = value.get(key).and_then(Value::as_array) {
+            if let Some(hash) = blocks.first().and_then(block_hash) {
+                return Some(hash);
+            }
+        }
+    }
+
+    block_hash(value)
+}
+
+fn workspace_chain_file_genesis_hash(workspace_directory: &Path) -> Result<Option<String>, String> {
+    let chain_path = workspace_directory.join("data").join("chain.json");
+    if !chain_path.is_file() {
+        return Ok(None);
+    }
+
+    Ok(first_block_hash_from_chain_value(&read_json_value(
+        &chain_path,
+    )?))
+}
+
+fn workspace_chain_state_requires_canonical_reset(
+    workspace_directory: &Path,
+) -> Result<bool, String> {
+    let Some(actual_genesis_hash) = workspace_chain_file_genesis_hash(workspace_directory)? else {
+        return Ok(false);
+    };
+    let expected_genesis_hash = canonical_testnet_beta_genesis_hash()?;
+    Ok(!actual_genesis_hash.eq_ignore_ascii_case(&expected_genesis_hash))
+}
+
+fn repair_workspace_chain_state_if_needed(
+    workspace_directory: &Path,
+) -> Result<Option<String>, String> {
+    let expected_genesis_hash = workspace_genesis_hash(workspace_directory)
+        .or_else(|_| canonical_testnet_beta_genesis_hash())?;
+    let Some(actual_genesis_hash) = workspace_chain_file_genesis_hash(workspace_directory)? else {
+        return Ok(None);
+    };
+
+    if actual_genesis_hash.eq_ignore_ascii_case(&expected_genesis_hash) {
+        return Ok(None);
+    }
+
+    let data_directory = workspace_directory.join("data");
+    let mut removed_paths = Vec::new();
+    for relative in [
+        "chain",
+        "chain.json",
+        "token_state.json",
+        "validator_registry.json",
+        "consensus_proposals",
+        "testbeta15",
+        ".reset_flag",
+    ] {
+        remove_path_if_exists(&data_directory.join(relative), &mut removed_paths)?;
+    }
+
+    let message = format!(
+        "Local chain state reset because block 0 used genesis {}, but the active Testnet-Beta genesis is {}.",
+        actual_genesis_hash, expected_genesis_hash
+    );
+    append_workspace_control_log(
+        workspace_directory,
+        "WARN",
+        &message,
+        Some(json!({
+            "actual_chain_genesis_hash": actual_genesis_hash,
+            "expected_genesis_hash": expected_genesis_hash,
+            "removed_paths": removed_paths,
+        })),
+    );
+
+    Ok(Some(message))
+}
+
 async fn measure_clock_skew_ms(client: &Client) -> Option<i64> {
     for endpoint in [
         TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
@@ -3801,6 +3940,19 @@ async fn validate_workspace_launch_preflight(
             )),
             Err(error) => failures.push(error),
         },
+        Err(error) => failures.push(error),
+    }
+
+    match workspace_chain_file_genesis_hash(workspace_directory) {
+        Ok(Some(actual)) => match workspace_genesis_hash(workspace_directory) {
+            Ok(expected) if actual.eq_ignore_ascii_case(&expected) => {}
+            Ok(expected) => failures.push(format!(
+                "Workspace chain data genesis mismatch. Expected {}, got {}. Restart sync so stale chain state can be rebuilt.",
+                expected, actual
+            )),
+            Err(error) => failures.push(error),
+        },
+        Ok(None) => {}
         Err(error) => failures.push(error),
     }
 
@@ -8031,6 +8183,59 @@ mod tests {
             .map(PathBuf::from)
             .find(|path| path.file_name().and_then(|value| value.to_str()) == Some(file_name))
             .unwrap_or_else(|| panic!("missing {file_name} in generated config paths"))
+    }
+
+    #[test]
+    fn repair_workspace_chain_state_removes_wrong_genesis_data() {
+        let temp = TempDir::new().expect("temp workspace");
+        let workspace = temp.path();
+        let config_dir = workspace.join("config");
+        let data_dir = workspace.join("data");
+        fs::create_dir_all(&config_dir).expect("config dir");
+        fs::create_dir_all(data_dir.join("chain")).expect("chain dir");
+        fs::create_dir_all(data_dir.join("testbeta15")).expect("legacy chain dir");
+
+        write_json_file(
+            &config_dir.join("genesis.json"),
+            &json!({
+                "integrity": {
+                    "genesis_hash": "active-genesis"
+                }
+            }),
+        )
+        .expect("genesis should write");
+        write_json_file(
+            &data_dir.join("chain.json"),
+            &json!([
+                {
+                    "block_index": 0,
+                    "hash": "stale-genesis"
+                }
+            ]),
+        )
+        .expect("chain should write");
+        write_json_file(
+            &data_dir.join("token_state.json"),
+            &json!({ "stale": true }),
+        )
+        .expect("token state should write");
+        write_json_file(
+            &data_dir.join("validator_registry.json"),
+            &json!({ "stale": true }),
+        )
+        .expect("validator registry should write");
+
+        let message = repair_workspace_chain_state_if_needed(workspace)
+            .expect("repair should succeed")
+            .expect("repair should run");
+
+        assert!(message.contains("stale-genesis"));
+        assert!(!data_dir.join("chain.json").exists());
+        assert!(!data_dir.join("token_state.json").exists());
+        assert!(!data_dir.join("validator_registry.json").exists());
+        assert!(!data_dir.join("chain").exists());
+        assert!(!data_dir.join("testbeta15").exists());
+        assert!(workspace.join("logs").join("control-service.log").exists());
     }
 
     #[test]

@@ -85,6 +85,78 @@ jobs:
         with:
           node-version: 20
 
+      - name: Validate Testnet-Beta genesis alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          (async () => {
+            const publicRpc = 'https://testbeta-core-rpc.synergy-network.io';
+            const readHash = (filePath) => {
+              const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+              const hash = payload?.integrity?.genesis_hash;
+              if (!hash) {
+                throw new Error(`${filePath} is missing integrity.genesis_hash`);
+              }
+              return String(hash).trim().toLowerCase();
+            };
+
+            const sourceHash = readHash('testnet-beta-source/config/genesis.json');
+            const bundledHash = readHash('testbeta/runtime/configs/genesis/genesis.json');
+            if (sourceHash !== bundledHash) {
+              throw new Error(`Bundled genesis does not match testnet-beta source. source=${sourceHash} bundled=${bundledHash}`);
+            }
+
+            const request = async () => {
+              const response = await fetch(publicRpc, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  jsonrpc: '2.0',
+                  method: 'synergy_getBlockByNumber',
+                  params: [0],
+                  id: 1,
+                }),
+              });
+              if (!response.ok) {
+                throw new Error(`public RPC returned HTTP ${response.status}`);
+              }
+              const payload = await response.json();
+              const liveHash = String(payload?.result?.hash || '').trim().toLowerCase();
+              if (!liveHash) {
+                throw new Error(`public RPC block 0 response did not include a hash: ${JSON.stringify(payload).slice(0, 400)}`);
+              }
+              return liveHash;
+            };
+
+            let liveHash = '';
+            let lastError;
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              try {
+                liveHash = await request();
+                break;
+              } catch (error) {
+                lastError = error;
+                await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+              }
+            }
+
+            if (!liveHash) {
+              throw lastError || new Error('Unable to read live public genesis hash');
+            }
+            if (liveHash !== bundledHash) {
+              throw new Error(`Bundled genesis does not match live Testnet-Beta block 0. live=${liveHash} bundled=${bundledHash}`);
+            }
+
+            console.log(`Testnet-Beta genesis alignment OK: ${bundledHash}`);
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
