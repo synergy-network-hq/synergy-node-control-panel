@@ -1,12 +1,17 @@
 import { useMemo, useState } from 'react';
 import { SNRGButton } from '../../styles/SNRGButton';
+import { invoke } from '../../lib/desktopClient';
 import { useControlPanel } from './ControlPanelProvider';
 import {
+  effectiveLocalChainHeight,
   formatNumber,
+  formatPercent,
+  formatRuntimeDuration,
   nodeRuntimeLabel,
   nodeRuntimeTone,
   nodeSyncPercent,
 } from './controlPanelModel';
+import { runNodeControlAction } from './controlPanelActions';
 import {
   JarvisCard,
   MetricCard,
@@ -22,9 +27,13 @@ function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
 }
 
-function buildLiveMetrics(feature, selectedNodeLive, liveStatus, networkStats) {
+const SYNC_READY_GAP = 32;
+
+function buildLiveMetrics(selectedNodeLive, liveStatus, networkStats) {
   const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
-  const liveCards = [
+  const localHeight = effectiveLocalChainHeight(selectedNodeLive);
+  const networkHeight = selectedNodeLive?.best_network_height ?? liveStatus?.public_chain_height ?? networkStats.publicChainHeight;
+  return [
     {
       label: 'Selected node',
       value: nodeRuntimeLabel(selectedNodeLive),
@@ -39,9 +48,119 @@ function buildLiveMetrics(feature, selectedNodeLive, liveStatus, networkStats) {
       tone: syncPercent >= 99 ? 'good' : syncPercent >= 80 ? 'warn' : 'bad',
       icon: 'sync',
     },
+    {
+      label: 'Local height',
+      value: formatNumber(localHeight),
+      detail: `Network tip ${formatNumber(networkHeight)}`,
+      tone: selectedNodeLive?.is_running ? 'cyan' : 'neutral',
+      icon: 'layers',
+    },
+    {
+      label: 'Local RPC',
+      value: selectedNodeLive?.local_rpc_ready ? 'Ready' : selectedNodeLive?.is_running ? 'Starting' : 'Offline',
+      detail: selectedNodeLive?.rpc_endpoint || liveStatus?.public_rpc_endpoint || 'RPC status unavailable',
+      tone: selectedNodeLive?.local_rpc_ready ? 'good' : selectedNodeLive?.is_running ? 'warn' : 'bad',
+      icon: 'terminal',
+    },
+    {
+      label: 'Peers',
+      value: formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers),
+      detail: `${formatNumber(selectedNodeLive?.connected_validator_count ?? 0)} validator peer(s) visible`,
+      tone: Number(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers) > 0 ? 'good' : 'warn',
+      icon: 'lan',
+    },
+    {
+      label: 'Runtime',
+      value: selectedNodeLive?.is_running ? 'Running' : 'Stopped',
+      detail: formatRuntimeDuration(selectedNodeLive?.process_uptime_secs),
+      tone: selectedNodeLive?.is_running ? 'good' : 'bad',
+      icon: 'monitor_heart',
+    },
   ];
+}
 
-  return [...liveCards, ...feature.metrics].slice(0, 6);
+function buildLiveQuestions(selectedNodeLive, liveStatus, networkStats) {
+  const syncGap = Number(selectedNodeLive?.sync_gap);
+  const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
+  const rpcReady = selectedNodeLive?.local_rpc_ready === true;
+  const running = selectedNodeLive?.is_running === true;
+  const safe = running && rpcReady && (!Number.isFinite(syncGap) || syncGap <= SYNC_READY_GAP);
+
+  return [
+    {
+      label: 'Am I safe?',
+      value: safe ? 'Safe to operate' : running ? 'Wait for sync' : 'Runtime stopped',
+      tone: safe ? 'good' : running ? 'warn' : 'bad',
+      icon: safe ? 'health_and_safety' : 'warning',
+    },
+    {
+      label: 'Am I participating correctly?',
+      value: running && syncPercent >= 99.5 ? 'At chain head' : `${formatPercent(syncPercent, 0)} synced`,
+      tone: running && syncPercent >= 99.5 ? 'good' : 'warn',
+      icon: 'how_to_reg',
+    },
+    {
+      label: 'What should I do next?',
+      value: running ? 'Watch live state' : 'Start chain sync',
+      tone: running ? 'cyan' : 'warn',
+      icon: running ? 'visibility' : 'play_arrow',
+    },
+  ];
+}
+
+function buildLiveChecklist(selectedNodeLive) {
+  const syncGap = Number(selectedNodeLive?.sync_gap);
+  return [
+    {
+      label: 'Workspace exists',
+      detail: selectedNodeLive?.workspace_ready ? 'Node workspace is present on this machine.' : 'Workspace has not been reported by the runtime service.',
+      done: selectedNodeLive?.workspace_ready === true,
+      tone: selectedNodeLive?.workspace_ready ? 'good' : 'bad',
+    },
+    {
+      label: 'Configuration file present',
+      detail: selectedNodeLive?.config_ready ? 'node.toml is available for the selected node.' : 'The selected node has no readable node.toml yet.',
+      done: selectedNodeLive?.config_ready === true,
+      tone: selectedNodeLive?.config_ready ? 'good' : 'bad',
+    },
+    {
+      label: 'Wallet and identity present',
+      detail: selectedNodeLive?.wallet_ready ? 'Local key material exists in the workspace.' : 'Wallet material was not reported for this node.',
+      done: selectedNodeLive?.wallet_ready === true,
+      tone: selectedNodeLive?.wallet_ready ? 'good' : 'bad',
+    },
+    {
+      label: 'Runtime responding',
+      detail: selectedNodeLive?.local_rpc_status || 'No runtime status is available yet.',
+      done: selectedNodeLive?.is_running === true && selectedNodeLive?.local_rpc_ready !== false,
+      tone: selectedNodeLive?.local_rpc_ready ? 'good' : selectedNodeLive?.is_running ? 'warn' : 'bad',
+    },
+    {
+      label: 'Chain caught up',
+      detail: Number.isFinite(syncGap) ? `${formatNumber(syncGap)} block gap to best visible network height.` : 'Waiting for local and network chain height data.',
+      done: Number.isFinite(syncGap) && syncGap <= SYNC_READY_GAP,
+      tone: Number.isFinite(syncGap) && syncGap <= SYNC_READY_GAP ? 'good' : 'warn',
+    },
+  ];
+}
+
+function buildLiveTableRows(nodes, liveStatus) {
+  const liveNodes = Array.isArray(liveStatus?.nodes) ? liveStatus.nodes : [];
+  if (!liveNodes.length) {
+    return [];
+  }
+
+  return liveNodes.map((entry) => {
+    const node = nodes.find((candidate) => candidate.id === entry.node_id);
+    const localHeight = effectiveLocalChainHeight(entry);
+    return [
+      node?.display_label || entry.node_id || 'Node',
+      nodeRuntimeLabel(entry),
+      formatNumber(localHeight),
+      Number.isFinite(Number(entry?.sync_gap)) ? `${formatNumber(entry.sync_gap)} blocks` : 'Waiting',
+      formatNumber(entry?.local_peer_count ?? 0),
+    ];
+  });
 }
 
 function FeatureQuestionStrip({ questions }) {
@@ -85,13 +204,21 @@ function FeatureTable({ title, columns, rows }) {
         <div className="cp-feature-table-row cp-feature-table-head">
           {columns.map((column) => <span key={column}>{column}</span>)}
         </div>
-        {rows.map((row) => (
+        {rows.length ? rows.map((row) => (
           <div key={row.join('-')} className="cp-feature-table-row">
             {row.map((cell, index) => (
               <span key={`${cell}-${index}`} className={index === 0 ? 'is-primary' : ''}>{cell}</span>
             ))}
           </div>
-        ))}
+        )) : (
+          <div className="cp-feature-table-row">
+            <span className="is-primary">No live runtime rows available</span>
+            <span>Start chain sync</span>
+            <span>Waiting</span>
+            <span>Waiting</span>
+            <span>0</span>
+          </div>
+        )}
       </div>
     </PanelCard>
   );
@@ -276,13 +403,62 @@ function GenericVisual({ type }) {
   );
 }
 
+function LiveRuntimeVisual({ feature, selectedNodeLive, liveStatus, networkStats }) {
+  const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
+  const localHeight = effectiveLocalChainHeight(selectedNodeLive);
+  const networkHeight = selectedNodeLive?.best_network_height ?? liveStatus?.public_chain_height ?? networkStats.publicChainHeight;
+  const isProtocolSpecific = ['dag', 'consensus', 'transactions', 'governance'].includes(feature.key);
+
+  return (
+    <div className="cp-feature-visual cp-feature-live-runtime">
+      <div className="cp-feature-live-chain">
+        <span style={{ width: `${Math.max(2, Math.min(100, syncPercent))}%` }}></span>
+      </div>
+      <div className="cp-feature-live-steps">
+        <article className={selectedNodeLive?.workspace_ready ? 'is-complete' : ''}>
+          <span className="material-icons" aria-hidden="true">folder_open</span>
+          <strong>Workspace</strong>
+          <small>{selectedNodeLive?.workspace_ready ? 'Ready' : 'Missing'}</small>
+        </article>
+        <article className={selectedNodeLive?.is_running ? 'is-complete' : ''}>
+          <span className="material-icons" aria-hidden="true">play_circle</span>
+          <strong>Runtime</strong>
+          <small>{selectedNodeLive?.is_running ? 'Running' : 'Stopped'}</small>
+        </article>
+        <article className={selectedNodeLive?.local_rpc_ready ? 'is-complete' : ''}>
+          <span className="material-icons" aria-hidden="true">terminal</span>
+          <strong>RPC</strong>
+          <small>{selectedNodeLive?.local_rpc_ready ? 'Ready' : 'Waiting'}</small>
+        </article>
+        <article className={syncPercent >= 99.5 ? 'is-complete' : ''}>
+          <span className="material-icons" aria-hidden="true">sync</span>
+          <strong>Chain</strong>
+          <small>{formatPercent(syncPercent, 0)}</small>
+        </article>
+      </div>
+      <div className="cp-feature-live-heights">
+        <span>Local {formatNumber(localHeight)}</span>
+        <span>Network {formatNumber(networkHeight)}</span>
+      </div>
+      {isProtocolSpecific ? (
+        <p className="cp-feature-live-limited">
+          The runtime is not exposing dedicated {feature.label} telemetry yet, so this screen shows live node, RPC, peer, and chain-sync data instead of fabricated protocol metrics.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ControlPanelFeaturePage({ screenKey }) {
   const feature = getFeatureScreenByKey(screenKey);
   const {
     actionAudit,
     liveStatus,
+    network,
     networkStats,
+    nodes,
     recordAction,
+    refresh,
     selectedNode,
     selectedNodeLive,
     viewMode,
@@ -291,32 +467,90 @@ export default function ControlPanelFeaturePage({ screenKey }) {
   const [localView, setLocalView] = useState('local');
 
   const liveMetrics = useMemo(
-    () => (feature ? buildLiveMetrics(feature, selectedNodeLive, liveStatus, networkStats) : []),
+    () => (feature ? buildLiveMetrics(selectedNodeLive, liveStatus, networkStats) : []),
     [feature, liveStatus, networkStats, selectedNodeLive],
+  );
+  const liveQuestions = useMemo(
+    () => buildLiveQuestions(selectedNodeLive, liveStatus, networkStats),
+    [liveStatus, networkStats, selectedNodeLive],
+  );
+  const liveChecklist = useMemo(
+    () => buildLiveChecklist(selectedNodeLive),
+    [selectedNodeLive],
+  );
+  const liveRows = useMemo(
+    () => buildLiveTableRows(nodes, liveStatus),
+    [liveStatus, nodes],
   );
 
   if (!feature) {
     return null;
   }
 
-  const handleAction = (action) => {
-    const detail = `${action.label} opened for ${feature.title}.`;
-    setNotice(detail);
-    recordAction({
-      title: action.label,
-      detail,
-      status: 'info',
-      source: feature.key,
-      command: action.id,
-      payload: {
-        screen: feature.key,
-        nodeId: selectedNode?.id || null,
-        viewMode,
-      },
-    });
+  const handleAction = async (action) => {
+    if (!selectedNode && action.requiresNode !== false) {
+      setNotice('No node is selected.');
+      return;
+    }
+
+    try {
+      let detail = '';
+      if (action.id === 'refresh-live-state') {
+        await refresh({ silent: false });
+        detail = 'Live state refreshed from the control service.';
+      } else if (action.id === 'start-chain-sync') {
+        const response = await runNodeControlAction({ node: selectedNode, network, action: 'start' });
+        detail = response?.message || 'Node start requested.';
+        await refresh({ silent: true });
+      } else if (action.id === 'stop-node') {
+        const response = await runNodeControlAction({ node: selectedNode, network, action: 'stop' });
+        detail = response?.message || 'Node stop requested.';
+        await refresh({ silent: true });
+      } else if (action.id === 'run-readiness-check') {
+        const report = await invoke('testbeta_get_node_readiness', { nodeId: selectedNode.id });
+        detail = `Readiness ${report?.overall_status || 'unknown'}: ${formatNumber(report?.ready_count)} of ${formatNumber(report?.total_count)} checks passing.`;
+      } else {
+        detail = `${action.label} is visible in the product map, but no runtime command exists for it yet. It was not executed.`;
+      }
+
+      setNotice(detail);
+      recordAction({
+        title: action.label,
+        detail,
+        status: action.id.startsWith('stop') ? 'warn' : 'info',
+        source: feature.key,
+        command: action.id,
+        payload: {
+          screen: feature.key,
+          nodeId: selectedNode?.id || null,
+          viewMode,
+        },
+      });
+    } catch (error) {
+      const detail = String(error);
+      setNotice(detail);
+      recordAction({
+        title: `${action.label} failed`,
+        detail,
+        status: 'error',
+        source: feature.key,
+        command: action.id,
+        payload: {
+          screen: feature.key,
+          nodeId: selectedNode?.id || null,
+          viewMode,
+        },
+      });
+    }
   };
 
   const modeCopy = feature.modeCopy?.[viewMode] || feature.description;
+  const runtimeActions = [
+    { id: 'refresh-live-state', label: 'Refresh Live State', variant: 'blue', requiresNode: false },
+    { id: 'start-chain-sync', label: selectedNodeLive?.is_running ? 'Resume Chain Sync' : 'Start Chain Sync', variant: 'purple' },
+    { id: 'run-readiness-check', label: 'Run Readiness Check', variant: 'lime' },
+    { id: 'stop-node', label: 'Stop Node', variant: 'red' },
+  ];
 
   return (
     <div className="cp-page-stack cp-feature-page">
@@ -347,7 +581,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
 
       {notice ? <div className="cp-inline-notice">{notice}</div> : null}
 
-      <FeatureQuestionStrip questions={feature.questions} />
+      <FeatureQuestionStrip questions={liveQuestions} />
 
       <div className="cp-dashboard-grid cp-feature-grid">
         <div className="cp-dashboard-main">
@@ -358,7 +592,12 @@ export default function ControlPanelFeaturePage({ screenKey }) {
             detail={`Current mode: ${viewMode}. Runtime status: ${nodeRuntimeLabel(selectedNodeLive)}.`}
             action={<StatusPill tone={nodeRuntimeTone(selectedNodeLive)} live>{nodeRuntimeLabel(selectedNodeLive)}</StatusPill>}
           >
-            <GenericVisual type={feature.visual} />
+            <LiveRuntimeVisual
+              feature={feature}
+              selectedNodeLive={selectedNodeLive}
+              liveStatus={liveStatus}
+              networkStats={networkStats}
+            />
           </PanelCard>
 
           <div className="cp-metric-grid cp-metric-grid-dashboard">
@@ -368,15 +607,16 @@ export default function ControlPanelFeaturePage({ screenKey }) {
           </div>
 
           <div className="cp-split-grid">
-            <FeatureChecklist title={feature.checklistTitle} items={feature.checklist} />
-            <PanelCard title="Operator action center" detail="Actions record an audit entry and keep dangerous workflows explicit.">
+            <FeatureChecklist title="Live readiness checklist" items={liveChecklist} />
+            <PanelCard title="Operator action center" detail="These buttons call the control service. Product-map actions without a runtime command are not faked.">
               <div className="cp-feature-action-grid">
-                {feature.actions.map((action) => (
+                {runtimeActions.map((action) => (
                   <SNRGButton
                     key={action.id}
                     variant={action.variant}
                     size="sm"
-                    onClick={() => handleAction(action)}
+                    onClick={() => void handleAction(action)}
+                    disabled={!selectedNode && action.requiresNode !== false}
                   >
                     {action.label}
                   </SNRGButton>
@@ -384,12 +624,16 @@ export default function ControlPanelFeaturePage({ screenKey }) {
               </div>
               <div className="cp-feature-runtime-note">
                 <span className="material-icons" aria-hidden="true">info</span>
-                <p>Node-specific execution hooks can be attached here without changing the screen layout.</p>
+                <p>Unavailable protocol-specific commands are shown as unavailable instead of returning dummy success.</p>
               </div>
             </PanelCard>
           </div>
 
-          <FeatureTable title={feature.tableTitle} columns={feature.tableColumns} rows={feature.tableRows} />
+          <FeatureTable
+            title="Live runtime rows"
+            columns={['Node', 'Runtime', 'Local height', 'Gap', 'Peers']}
+            rows={liveRows}
+          />
 
           <DangerWorkflow
             danger={feature.danger}

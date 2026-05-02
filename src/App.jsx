@@ -12,6 +12,7 @@ import ControlPanelFeaturePage from './components/control-panel/ControlPanelFeat
 import ControlPanelLogsPage from './components/control-panel/ControlPanelLogsPage';
 import ControlPanelRewardsPage from './components/control-panel/ControlPanelRewardsPage';
 import { ControlPanelProvider } from './components/control-panel/ControlPanelProvider';
+import NodeSyncGateModal from './components/control-panel/NodeSyncGateModal';
 import { FEATURE_ROUTES } from './components/control-panel/controlPanelFeatureScreens';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { fetchTestnetBetaLiveStatus, fetchTestnetBetaState } from './lib/testnetBetaPageData';
@@ -20,6 +21,19 @@ const SPLASH_DURATION_MS = 4800;
 const SPLASH_FADE_OUT_MS = 720;
 const POST_SPLASH_FADE_IN_DELAY_MS = 80;
 const SETUP_DEFERRED_SESSION_KEY = 'snrg.setup.deferred';
+const SETUP_SYNC_GATE_SESSION_KEY = 'snrg.setup.syncGateNodeId';
+
+function setupNodeIdFromPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return '';
+  }
+  return String(
+    payload.syncNodeId
+      || payload.nodeId
+      || payload.node?.id
+      || '',
+  ).trim();
+}
 
 function App() {
   const [progress, setProgress] = useState(0);
@@ -33,6 +47,12 @@ function App() {
       return false;
     }
     return window.sessionStorage.getItem(SETUP_DEFERRED_SESSION_KEY) === '1';
+  });
+  const [pendingSyncNodeId, setPendingSyncNodeId] = useState(() => {
+    if (typeof window === 'undefined') {
+      return '';
+    }
+    return window.sessionStorage.getItem(SETUP_SYNC_GATE_SESSION_KEY) || '';
   });
 
   useEffect(() => {
@@ -129,13 +149,20 @@ function App() {
     };
   }, [splashPhase]);
 
-  const handleSetupComplete = () => {
+  const handleSetupComplete = (payload = {}) => {
+    const syncNodeId = setupNodeIdFromPayload(payload);
     setManualSetupActive(false);
     setSetupComplete(true);
     setSetupStateReady(true);
     setSetupDeferred(false);
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
+      if (syncNodeId) {
+        window.sessionStorage.setItem(SETUP_SYNC_GATE_SESSION_KEY, syncNodeId);
+      }
+    }
+    if (syncNodeId) {
+      setPendingSyncNodeId(syncNodeId);
     }
   };
 
@@ -153,8 +180,17 @@ function App() {
     setSetupComplete(false);
     setSetupStateReady(true);
     setSetupDeferred(false);
+    setPendingSyncNodeId('');
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
+      window.sessionStorage.removeItem(SETUP_SYNC_GATE_SESSION_KEY);
+    }
+  };
+
+  const handleSyncGateComplete = () => {
+    setPendingSyncNodeId('');
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(SETUP_SYNC_GATE_SESSION_KEY);
     }
   };
 
@@ -178,6 +214,7 @@ function App() {
   } else {
     nextScreen = (
       <ControlPanelProvider>
+        <NodeSyncGateModal nodeId={pendingSyncNodeId} onComplete={handleSyncGateComplete} />
         <Layout onLaunchSetup={handleLaunchSetup}>
           <Routes>
             <Route path="/" element={<TestnetBetaDashboard onLaunchSetup={handleLaunchSetup} />} />

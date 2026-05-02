@@ -613,6 +613,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   }, [navigate, onComplete, onDefer, queueJarvisMessages, resetMessageQueue]);
 
   const finishCeremonySetup = useCallback(async () => {
+    const syncNodeId = ceremonyImportResult?.node?.id || provisionResult?.node?.id || '';
     resetMessageQueue();
     await queueJarvisMessages([
       {
@@ -621,17 +622,24 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         pauseMs: 220,
       },
       {
-        text: 'I am sending you to the dashboard now. Once those ports are forwarded on this machine, the validator will be reachable on its assigned Testnet-Beta surface.',
+        text: 'I am sending you to the sync gate now. The validator will start catching up before dashboard operations are enabled.',
         typingMs: 980,
       },
     ]);
 
     if (typeof onComplete === 'function') {
-      onComplete();
+      onComplete({ syncNodeId });
     }
     clearTestnetBetaDashboardCache();
     navigate('/');
-  }, [navigate, onComplete, queueJarvisMessages, resetMessageQueue]);
+  }, [
+    ceremonyImportResult?.node?.id,
+    navigate,
+    onComplete,
+    provisionResult?.node?.id,
+    queueJarvisMessages,
+    resetMessageQueue,
+  ]);
 
   const refreshState = useCallback(async (announce = false) => {
     const data = await invoke('testbeta_get_state');
@@ -892,7 +900,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           addTerminalLine('info', `Electron bootstrap refresh skipped: ${String(bootstrapError)}`);
         }
 
-        addTerminalLine('info', 'Ceremony import finished. The workspace is configured but the node remains stopped until you start it manually.');
+        addTerminalLine('info', 'Ceremony import finished. The workspace is configured and will enter the mandatory sync gate after port forwarding confirmation.');
 
         await queueJarvisMessages([
           {
@@ -905,7 +913,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             typingMs: 1060,
           },
           {
-            text: 'Before I send you to the dashboard, forward the assigned ports for this machine. After that, start the node manually from the dashboard when you are ready.',
+            text: 'Before I send you to the sync gate, forward the assigned ports for this machine. After that I will start the runtime and watch chain sync before dashboard operations are enabled.',
             typingMs: 1180,
           },
         ]);
@@ -1018,7 +1026,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           `Electron bootstrap refresh skipped: ${String(bootstrapError)}`,
         );
       }
-      addTerminalLine('info', 'Provisioning finished. The workspace is configured but the node remains stopped until you start it manually.');
+      addTerminalLine('info', 'Provisioning finished. The workspace is configured and will enter the mandatory sync gate now.');
 
       await queueJarvisMessages([
         {
@@ -1027,14 +1035,14 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           pauseMs: 220,
         },
         {
-          text: 'I created the private workspace and prepared the node wallet. Start the node manually from the dashboard when you are ready to join the bootstrap network.',
+          text: 'I created the private workspace and prepared the node wallet. Next I will start the runtime and watch chain sync before dashboard operations are enabled.',
           typingMs: 980,
         },
       ]);
 
       await refreshState(false);
       if (typeof onComplete === 'function') {
-        onComplete();
+        onComplete({ syncNodeId: result?.node?.id || '' });
       }
       clearTestnetBetaDashboardCache();
       navigate('/');
