@@ -2,7 +2,7 @@ export const PANEL_VIEW_MODES = ['basic', 'advanced', 'developer'];
 
 export const BASIC_PROFILE = {
   id: 'basic',
-  label: 'Basic',
+  label: 'Beginner',
   navLabels: {
     dashboard: 'Overview',
     details: 'My Node',
@@ -68,7 +68,7 @@ export const ADVANCED_PROFILE = {
 
 export const DEVELOPER_PROFILE = {
   id: 'developer',
-  label: 'Developer',
+  label: 'Expert',
   navLabels: {
     dashboard: 'Runtime',
     details: 'Validator Detail',
@@ -136,4 +136,3 @@ export function isModeAtLeast(mode, minimumMode) {
 export function modeLabel(mode) {
   return getViewProfile(mode).label;
 }
-

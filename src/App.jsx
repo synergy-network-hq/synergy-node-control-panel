@@ -8,9 +8,11 @@ import TestnetBetaJarvisSetup from './components/TestnetBetaJarvisSetup';
 import TestnetBetaDashboard from './components/TestnetBetaDashboard';
 import SettingsPage from './components/SettingsPage';
 import ControlPanelConnectivityPage from './components/control-panel/ControlPanelConnectivityPage';
+import ControlPanelFeaturePage from './components/control-panel/ControlPanelFeaturePage';
 import ControlPanelLogsPage from './components/control-panel/ControlPanelLogsPage';
 import ControlPanelRewardsPage from './components/control-panel/ControlPanelRewardsPage';
 import { ControlPanelProvider } from './components/control-panel/ControlPanelProvider';
+import { FEATURE_ROUTES } from './components/control-panel/controlPanelFeatureScreens';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { fetchTestnetBetaLiveStatus, fetchTestnetBetaState } from './lib/testnetBetaPageData';
 
@@ -183,6 +185,13 @@ function App() {
             <Route path="/logs" element={<ControlPanelLogsPage />} />
             <Route path="/rewards" element={<ControlPanelRewardsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            {FEATURE_ROUTES.map((screen) => (
+              <Route
+                key={screen.key}
+                path={screen.path}
+                element={<ControlPanelFeaturePage screenKey={screen.key} />}
+              />
+            ))}
             <Route path="/node/:nodeId" element={<TestnetBetaNodeDetail />} />
             <Route path="/monitor/:nodeSlotId" element={<NetworkMonitorNodePage />} />
             <Route path="/help" element={<HelpArticlesPage />} />

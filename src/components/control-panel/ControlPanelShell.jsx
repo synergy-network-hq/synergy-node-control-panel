@@ -20,6 +20,11 @@ import {
 } from './controlPanelModel';
 import DeveloperTerminalDock from './DeveloperTerminalDock';
 import { ModeSwitcher, StatusPill } from './ControlPanelShared';
+import {
+  FEATURE_SCREEN_GROUPS,
+  featureNavItemsForGroup,
+  getFeatureScreenByPathname,
+} from './controlPanelFeatureScreens';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
 const MAX_NODE_SLOTS = 4;
@@ -42,6 +47,15 @@ function updateButtonLabel(updateState) {
 }
 
 function pageMetaFor(pathname, viewMode, selectedNode) {
+  const featureScreen = getFeatureScreenByPathname(pathname);
+  if (featureScreen) {
+    return {
+      title: featureScreen.title,
+      description: featureScreen.modeCopy?.[viewMode] || featureScreen.description,
+      jarvis: featureScreen.jarvis,
+    };
+  }
+
   if (pathname.startsWith('/connectivity')) {
     return {
       title: viewMode === 'basic' ? 'Connections' : viewMode === 'advanced' ? 'Connectivity' : 'P2P',
@@ -158,6 +172,11 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     [location.pathname, selectedNode, viewMode],
   );
   const defaultNode = selectedNode || nodes[0] || null;
+
+  useEffect(() => {
+    document.querySelector('.cp-main-content')?.scrollTo({ top: 0, left: 0 });
+    document.querySelector('.cp-sidebar')?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname]);
 
   useEffect(() => {
     let disposed = false;
@@ -335,6 +354,13 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     setJarvisOpen(true);
 
     const normalized = value.toLowerCase();
+    const featureHit = FEATURE_SCREEN_GROUPS
+      .flatMap((group) => featureNavItemsForGroup(group.id))
+      .find((screen) => (
+        normalized.includes(screen.label.toLowerCase())
+        || normalized.includes(screen.key.toLowerCase())
+        || normalized.includes(screen.title.toLowerCase().split(' ')[0])
+      ));
 
     if (/genesis[\s-]*setup|open setup|start setup|setup wizard/.test(normalized)) {
       pushJarvisMessage('assistant', 'Opening the Jarvis setup flow now.');
@@ -359,6 +385,12 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     if (/log|event|warning|error/.test(normalized)) {
       pushJarvisMessage('assistant', 'Opening the log workspace. Basic mode will keep the language simple, while Developer mode keeps the raw trail.');
       navigate('/logs');
+      return;
+    }
+
+    if (featureHit) {
+      pushJarvisMessage('assistant', `Opening ${featureHit.title}.`);
+      navigate(featureHit.path);
       return;
     }
 
@@ -388,6 +420,19 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     { to: '/logs', key: 'logs', label: viewProfile.navLabels.logs, icon: 'receipt_long' },
     { to: '/rewards', key: 'rewards', label: viewProfile.navLabels.rewards, icon: 'savings' },
     { to: '/settings', key: 'settings', label: viewProfile.navLabels.settings, icon: 'build' },
+  ];
+  const navigationGroups = [
+    { id: 'core', label: 'Core', items: navigationItems },
+    ...FEATURE_SCREEN_GROUPS.map((group) => ({
+      id: group.id,
+      label: group.label,
+      items: featureNavItemsForGroup(group.id).map((screen) => ({
+        to: screen.path,
+        key: screen.key,
+        label: screen.label,
+        icon: screen.icon,
+      })),
+    })),
   ];
 
   const isNavigationItemActive = (item) => {
@@ -450,33 +495,38 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
           </div>
 
           <nav className="cp-sidebar-nav" aria-label="Primary">
-            {navigationItems.map((item) => (
-              item.disabled ? (
-                <button
-                  key={item.key}
-                  type="button"
-                  className="cp-nav-link is-disabled"
-                  disabled
-                >
-                  <span className="material-icons" aria-hidden="true">{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              ) : (
-                <NavLink
-                  key={item.key}
-                  to={item.to}
-                  end={item.end}
-                  onClick={() => {
-                    if (item.key === 'details' && defaultNode) {
-                      setSelectedNodeId(defaultNode.id);
-                    }
-                  }}
-                  className={joinClasses('cp-nav-link', isNavigationItemActive(item) && 'is-active')}
-                >
-                  <span className="material-icons" aria-hidden="true">{item.icon}</span>
-                  <span>{item.label}</span>
-                </NavLink>
-              )
+            {navigationGroups.map((group) => (
+              <div key={group.id} className="cp-nav-group">
+                <span className="cp-nav-group-label">{group.label}</span>
+                {group.items.map((item) => (
+                  item.disabled ? (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className="cp-nav-link is-disabled"
+                      disabled
+                    >
+                      <span className="material-icons" aria-hidden="true">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </button>
+                  ) : (
+                    <NavLink
+                      key={item.key}
+                      to={item.to}
+                      end={item.end}
+                      onClick={() => {
+                        if (item.key === 'details' && defaultNode) {
+                          setSelectedNodeId(defaultNode.id);
+                        }
+                      }}
+                      className={joinClasses('cp-nav-link', isNavigationItemActive(item) && 'is-active')}
+                    >
+                      <span className="material-icons" aria-hidden="true">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </NavLink>
+                  )
+                ))}
+              </div>
             ))}
           </nav>
 
