@@ -93,7 +93,11 @@ jobs:
           const fs = require('node:fs');
 
           (async () => {
-            const publicRpc = 'https://testbeta-core-rpc.synergy-network.io';
+            const publicRpcs = [
+              'https://testbeta-core-rpc.synergy-network.io',
+              'http://testbeta-core-rpc.synergy-network.io:5640',
+              'http://195.26.241.95:5640',
+            ];
             const readHash = (filePath) => {
               const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
               const hash = payload?.integrity?.genesis_hash;
@@ -109,10 +113,11 @@ jobs:
               throw new Error(`Bundled genesis does not match testnet-beta source. source=${sourceHash} bundled=${bundledHash}`);
             }
 
-            const request = async () => {
+            const request = async (publicRpc) => {
               const response = await fetch(publicRpc, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
+                signal: AbortSignal.timeout(8000),
                 body: JSON.stringify({
                   jsonrpc: '2.0',
                   method: 'synergy_getBlockByNumber',
@@ -133,13 +138,20 @@ jobs:
 
             let liveHash = '';
             let lastError;
-            for (let attempt = 1; attempt <= 3; attempt += 1) {
-              try {
-                liveHash = await request();
+            for (const publicRpc of publicRpcs) {
+              for (let attempt = 1; attempt <= 2; attempt += 1) {
+                try {
+                  liveHash = await request(publicRpc);
+                  console.log(`Read live genesis hash from ${publicRpc}`);
+                  break;
+                } catch (error) {
+                  lastError = error;
+                  console.warn(`Genesis probe failed for ${publicRpc} on attempt ${attempt}: ${error.message}`);
+                  await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+                }
+              }
+              if (liveHash) {
                 break;
-              } catch (error) {
-                lastError = error;
-                await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
               }
             }
 
