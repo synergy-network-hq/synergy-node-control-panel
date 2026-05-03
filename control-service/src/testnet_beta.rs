@@ -1777,7 +1777,7 @@ pub async fn testbeta_setup_node(
         note: if validator_mesh_only {
             "Provisioning does not block on bootstrap reachability. Generated genesis validator workspaces are wired for the private WireGuard validator mesh immediately.".to_string()
         } else if role.id == "validator" {
-            "Provisioning does not block on bootstrap reachability. Generated validator workspaces use public bootnodes, dnsaddr bootstrap records, and seed services so non-genesis validators can sync before joining consensus.".to_string()
+            "Provisioning does not block on bootstrap reachability. Generated validator workspaces use public bootnodes, dnsaddr bootstrap records, and seed services so non-genesis validators can sync without automatically joining consensus.".to_string()
         } else if role_uses_sentry_upstreams(&role.id) {
             "Provisioning does not block on bootstrap reachability. Generated public-edge workspaces are pinned to the sentry upstreams instead of dialing validators directly.".to_string()
         } else {
@@ -2102,7 +2102,7 @@ pub async fn testbeta_setup_node(
         connectivity_status: if validator_mesh_only {
             "Private validator mesh configured. Node will dial the canonical WireGuard validator peers on startup.".to_string()
         } else if role.id == "validator" {
-            "Bootstrap configured. Node will use hardcoded bootnodes, dnsaddr bootstrap records, and seed services before joining validator consensus.".to_string()
+            "Bootstrap configured. Node will use hardcoded bootnodes, dnsaddr bootstrap records, and seed services while validator signing remains disabled until explicit activation.".to_string()
         } else {
             "Bootstrap configured. Node will use hardcoded bootnodes, dnsaddr bootstrap records, and seed services on startup.".to_string()
         },
@@ -2156,7 +2156,7 @@ pub async fn testbeta_setup_node(
                 if validator_mesh_only {
                     "Start the node with the generated workspace; it will dial the private WireGuard validator mesh immediately.".to_string()
                 } else if role.id == "validator" {
-                    "Start the node with the generated workspace; it will sync from public bootstrap first and auto-register when the node is ready to join consensus.".to_string()
+                    "Start the node with the generated workspace; it will sync from public bootstrap first, with validator auto-registration disabled until an explicit activation workflow is run.".to_string()
                 } else {
                     "Start the node with the generated workspace; multi-source peer discovery is configured from bootnodes, dnsaddr, and seed services.".to_string()
                 },
@@ -4159,22 +4159,20 @@ fn ensure_workspace_bootstrap_topology(
         if let Some(node_table) = root.get_mut("node").and_then(toml::Value::as_table_mut) {
             node_table.insert(
                 "auto_register_validator".to_string(),
-                toml::Value::Boolean(!validator_mesh_only),
+                toml::Value::Boolean(false),
             );
             node_table.insert(
                 "strict_validator_allowlist".to_string(),
-                toml::Value::Boolean(validator_mesh_only),
+                toml::Value::Boolean(true),
             );
             node_table.insert(
                 "allowed_validator_addresses".to_string(),
-                toml::Value::Array(if validator_mesh_only {
+                toml::Value::Array(
                     canonical_testnet_beta_validator_addresses()?
                         .into_iter()
                         .map(toml::Value::String)
-                        .collect()
-                } else {
-                    Vec::new()
-                }),
+                        .collect(),
+                ),
             );
         }
     }
@@ -7769,22 +7767,18 @@ fn build_node_toml(
     } else {
         String::new()
     };
-    let auto_register_validator = if role.id == "validator" && !use_static_validator_mesh {
-        "true"
-    } else {
-        "false"
-    };
+    let auto_register_validator = "false";
     let enable_discovery = if use_static_validator_mesh || use_sentry_upstreams {
         "false"
     } else {
         "true"
     };
-    let strict_validator_allowlist = if use_static_validator_mesh {
+    let strict_validator_allowlist = if role.id == "validator" {
         "true"
     } else {
         "false"
     };
-    let allowed_validator_addresses = if use_static_validator_mesh {
+    let allowed_validator_addresses = if role.id == "validator" {
         canonical_validator_allowlist(&canonical_validator_peers)
     } else {
         "[]".to_string()
@@ -7792,7 +7786,7 @@ fn build_node_toml(
     let bootstrap_note = if use_static_validator_mesh {
         "Validator nodes dial the private WireGuard validator mesh immediately through additional_dial_targets and persistent_peers."
     } else if !public_validator_upstreams.is_empty() {
-        "Public non-genesis validators use bootnodes, dnsaddr records, seed services, and the public sentry relayer pair so they can sync before joining consensus."
+        "Public non-genesis validators use bootnodes, dnsaddr records, seed services, and the public sentry relayer pair so they can sync while signing stays disabled until explicit activation."
     } else if use_sentry_upstreams {
         "Public edge nodes pin their upstreams to the public sentry pair and do not dial validators directly."
     } else {
@@ -7987,7 +7981,7 @@ fn build_node_readme(
     } else if role.id == "validator" {
         let public_validator_upstreams = canonical_public_validator_dial_targets().join(", ");
         format!(
-            "## Validator bootstrap\n- Public sentry relayers: {public_validator_upstreams}\n- Bootnodes: {}\n- Seeds: {}\n- DNS bootstrap records: `{}`\n\nThe generated validator configuration uses public sentry relayers plus public bootstrap so a non-genesis validator can sync the chain before auto-registering into consensus.\n",
+            "## Validator bootstrap\n- Public sentry relayers: {public_validator_upstreams}\n- Bootnodes: {}\n- Seeds: {}\n- DNS bootstrap records: `{}`\n\nThe generated validator configuration uses public sentry relayers plus public bootstrap so a non-genesis validator can sync the chain while validator auto-registration and signing remain disabled until explicit activation.\n",
             network_profile
                 .bootnodes
                 .iter()
@@ -8408,7 +8402,30 @@ mod tests {
                     .get("node")
                     .and_then(|section| section.get("auto_register_validator"))
                     .and_then(toml::Value::as_bool),
+                Some(false)
+            );
+            assert_eq!(
+                node_value
+                    .get("node")
+                    .and_then(|section| section.get("strict_validator_allowlist"))
+                    .and_then(toml::Value::as_bool),
                 Some(true)
+            );
+            let validator_allowlist = node_value
+                .get("node")
+                .and_then(|section| section.get("allowed_validator_addresses"))
+                .and_then(toml::Value::as_array)
+                .expect("validator allowlist should exist");
+            assert!(
+                !validator_allowlist.is_empty(),
+                "validator node.toml should carry the canonical genesis validator allowlist"
+            );
+            assert!(
+                !validator_allowlist
+                    .iter()
+                    .filter_map(toml::Value::as_str)
+                    .any(|address| address == result.node.node_address),
+                "new non-genesis validators must not auto-activate themselves into the live validator set"
             );
 
             let bootnodes = node_value

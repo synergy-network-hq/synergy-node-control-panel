@@ -34,7 +34,12 @@ publish:
 mac:
   category: public.app-category.developer-tools
   icon: control-service/icons/icon.icns
-  identity: null
+  forceCodeSigning: true
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
   artifactName: "Synergy.Node.Control.Panel-${version}-${arch}.${ext}"
   target:
     - dmg

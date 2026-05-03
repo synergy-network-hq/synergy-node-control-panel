@@ -35,7 +35,7 @@ Go to [**Releases**](https://github.com/synergy-network-hq/synergy-node-control-
 
 1. Download the `.dmg` file from the latest release.
 2. Open the DMG and drag **Synergy Node Control Panel** into your Applications folder.
-3. **Important:** macOS will block the app on first launch because it is not notarized by Apple. See [macOS Gatekeeper troubleshooting](#macos-the-app-is-damaged-or-cant-be-opened) below — you must run a terminal command before the app will open.
+3. Launch **Synergy Node Control Panel** from Applications. Current macOS builds are Developer ID signed and notarized.
 
 ### Windows
 
@@ -65,7 +65,7 @@ Go to [**Releases**](https://github.com/synergy-network-hq/synergy-node-control-
 
 ### macOS: "The app is damaged and can't be opened" / app blocked by Gatekeeper
 
-This is the most common issue on macOS. Because the app is not signed with an Apple Developer certificate, macOS Gatekeeper quarantines the app and refuses to open it. You will see one of these messages:
+Current macOS builds are Developer ID signed and notarized. If Gatekeeper still blocks an app, first confirm that you installed the current release from the official release page. Older unsigned builds can show one of these messages:
 
 - *"Synergy Node Control Panel.app is damaged and can't be opened. You should move it to the Trash."*
 - *"Synergy Node Control Panel.app can't be opened because Apple cannot check it for malicious software."*
