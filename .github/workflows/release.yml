@@ -258,10 +258,21 @@ jobs:
         shell: bash
         run: rm -rf electron-dist
 
+      - name: Verify macOS signing and notarization inputs
+        if: matrix.artifact_name == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "${secret_name} is required for the signed macOS release build." >&2
+              exit 1
+            fi
+          done
+          echo "macOS signing and notarization inputs are present."
+
       - name: Build installer
         shell: bash
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: ${{ matrix.build_cmd }}
 
       - name: Remove duplicate builder-debug.yml from artifacts

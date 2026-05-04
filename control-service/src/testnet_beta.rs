@@ -2139,6 +2139,8 @@ pub async fn testbeta_setup_node(
     #[cfg(not(test))]
     register_node_with_seeds_best_effort(&network_profile, &node_record).await;
 
+    let funding_step_address = node_record.node_address.clone();
+
     Ok(TestnetBetaSetupResult {
         node: node_record,
         network_profile,
@@ -2146,7 +2148,10 @@ pub async fn testbeta_setup_node(
         next_steps: {
             let mut steps = vec![
                 "Review the generated node.toml, peers.toml, and aegis.toml overlays in the isolated workspace.".to_string(),
-                "Wire the treasury signing path when ready so the reserved 5,000 SNRG stake can move from manifest to execution.".to_string(),
+                format!(
+                    "Fund and bond the validator stake with scripts/testbeta/fund-validator-stake.sh {} 5000 after the node wallet is available.",
+                    funding_step_address
+                ),
                 format!(
                     "Public host detection: {}.",
                     detected_public_host
