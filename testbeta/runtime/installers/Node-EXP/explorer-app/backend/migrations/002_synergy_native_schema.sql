@@ -48,6 +48,7 @@ CREATE TABLE validators_current (
   blocks_produced BIGINT,
   uptime_percentage DOUBLE PRECISION,
   cluster_id TEXT,
+  cluster_address TEXT,
   last_active BIGINT,
   status TEXT,
   role_hint TEXT,

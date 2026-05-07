@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Fund a post-genesis validator with the required 5,000 SNRG stake and, when a
+# Fund a post-genesis validator with the required 50,000 SNRG stake and, when a
 # validator-local RPC is available, submit the staking transaction from that wallet.
 
 RPC_ENDPOINT="${SYNERGY_RPC_ENDPOINT:-https://testbeta-core-rpc.synergy-network.io}"
 STAKE_RPC_ENDPOINT="${SYNERGY_STAKE_RPC_ENDPOINT:-http://127.0.0.1:5640}"
 FAUCET_ADDRESS="${SYNERGY_FAUCET_ADDRESS:-synw1zp7cxme7xm838663yrd43lxtxlw0ck90z4am}"
 TOKEN_SYMBOL="${SYNERGY_TOKEN_SYMBOL:-SNRG}"
-AMOUNT_SNRG="${2:-5000}"
+AMOUNT_SNRG="${2:-50000}"
 
 rpc() {
   local endpoint="$1"

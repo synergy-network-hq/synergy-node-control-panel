@@ -215,11 +215,11 @@ if network.get("bootstrap_dns_records") != []:
     errors.append("runtime_config.network.bootstrap_dns_records must be empty for bundled validator packages")
 
 expected_consensus = {
-    "min_validators": 3,
+    "min_validators": 4,
     "validator_vote_threshold": 4,
     "validator_cluster_size": 5,
     "status_ready_gate_enabled": True,
-    "status_ready_min_validators": 3,
+    "status_ready_min_validators": 4,
     "status_ready_genesis_grace_secs": 0,
     "allow_genesis_status_bypass": False,
     "mesh_settle_secs": 15,
@@ -234,7 +234,7 @@ for key, expected in expected_consensus.items():
 
 expected_p2p = {
     "enable_discovery": False,
-    "heartbeat_interval": 10,
+    "heartbeat_interval": 5,
     "bootstrap_refresh_secs": 3600,
 }
 for key, expected in expected_p2p.items():

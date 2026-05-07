@@ -1197,11 +1197,11 @@
       "bootstrap_dns_records": []
     },
     "consensus": {
-      "min_validators": 3,
+      "min_validators": 4,
       "validator_vote_threshold": 4,
       "max_validators": 5,
       "status_ready_gate_enabled": true,
-      "status_ready_min_validators": 3,
+      "status_ready_min_validators": 4,
       "status_ready_genesis_grace_secs": 0,
       "allow_genesis_status_bypass": false,
       "mesh_settle_secs": 15,
@@ -1213,7 +1213,7 @@
     },
     "p2p": {
       "enable_discovery": false,
-      "heartbeat_interval": 10,
+      "heartbeat_interval": 5,
       "bootstrap_refresh_secs": 3600,
       "public_address": "10.69.0.5:5622"
     },

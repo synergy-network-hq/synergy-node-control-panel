@@ -16,6 +16,7 @@ const rpc = {
     fallback: cfg.synergyCoreRpcFallbackUrl,
 };
 const RESET_RATE_LIMIT_MS = 60 * 1000;
+const NWEI_PER_SNRG = 1000000000n;
 let lastResetRequestAt = 0;
 const app = Fastify({
     logger: {
@@ -50,6 +51,31 @@ function parseLimitPage(q) {
     const page = Math.max(1, Number(q.page || 1));
     const offset = (page - 1) * limit;
     return { limit, page, offset };
+}
+function parseBigInt(value) {
+    if (value === null || value === undefined || value === '')
+        return 0n;
+    const normalized = String(value).trim();
+    if (!/^-?\d+$/.test(normalized))
+        return 0n;
+    return BigInt(normalized);
+}
+function formatWholeNumber(value) {
+    const text = value.toString();
+    return text.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function formatSnrgAmount(valueNwei) {
+    const raw = parseBigInt(valueNwei);
+    const whole = raw / NWEI_PER_SNRG;
+    const fraction = raw % NWEI_PER_SNRG;
+    if (fraction === 0n)
+        return `${formatWholeNumber(whole)} SNRG`;
+    const decimals = fraction.toString().padStart(9, '0').replace(/0+$/, '');
+    return `${formatWholeNumber(whole)}.${decimals} SNRG`;
+}
+function numberFrom(value) {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
 }
 function getRequesterIp(req) {
     const forwarded = req.headers?.['x-forwarded-for'];
@@ -277,7 +303,7 @@ app.register(async (api) => {
     api.get('/validators', async (req) => {
         const { limit, page, offset } = parseLimitPage(req.query);
         const res = await pool.query(`SELECT address, name, stake_amount, synergy_score, blocks_produced, uptime_percentage,
-              cluster_id, last_active, status, role_hint
+              cluster_id, cluster_address, last_active, status, role_hint
          FROM validators_current
         ORDER BY synergy_score DESC NULLS LAST, stake_amount::numeric DESC NULLS LAST, address ASC
         LIMIT $1 OFFSET $2`, [limit, offset]);
@@ -312,6 +338,77 @@ app.register(async (api) => {
             stakingInfo,
             walletBalanceNwei: String(walletBalance || 0),
             recentTransactions: recentTransactions.rows,
+        };
+    });
+    api.get('/tokens', async () => {
+        const [tokenStatsResult, networkStats, transfers24hRes, recentTransfersRes, topHoldersRes, distinctHoldersRes] = await Promise.all([
+            rpcCallWithFallback(rpc, 'synergy_getTokenStats', ['SNRG']).catch(() => null),
+            rpcCallWithFallback(rpc, 'synergy_getNetworkStats').catch(() => null),
+            pool.query(`SELECT COUNT(*)::text AS count
+           FROM transactions t
+           JOIN blocks b ON b.number = t.block_number
+          WHERE t.amount_nwei IS NOT NULL
+            AND t.amount_nwei::numeric > 0
+            AND b.timestamp >= NOW() - INTERVAL '24 hours'`),
+            pool.query(`SELECT t.hash AS tx_hash, t.block_number AS block_height,
+                t.sender_address AS from, t.receiver_address AS to,
+                t.amount_nwei AS amount, t.fee_nwei AS fee,
+                EXTRACT(EPOCH FROM b.timestamp)::bigint::text AS timestamp
+           FROM transactions t
+           JOIN blocks b ON b.number = t.block_number
+          WHERE t.amount_nwei IS NOT NULL
+            AND t.amount_nwei::numeric > 0
+          ORDER BY t.block_number DESC, t.tx_index DESC NULLS LAST
+          LIMIT 25`),
+            pool.query(`SELECT COALESCE(name, 'Validator') AS label, address, stake_amount AS amount_nwei
+           FROM validators_current
+          WHERE stake_amount IS NOT NULL
+          ORDER BY stake_amount::numeric DESC, address ASC
+          LIMIT 5`),
+            pool.query(`SELECT COUNT(DISTINCT address)::text AS count
+           FROM (
+             SELECT sender_address AS address FROM transactions WHERE sender_address IS NOT NULL
+             UNION
+             SELECT receiver_address AS address FROM transactions WHERE receiver_address IS NOT NULL
+           ) addresses`),
+        ]);
+        const statsArray = Array.isArray(tokenStatsResult)
+            ? tokenStatsResult
+            : tokenStatsResult
+                ? [tokenStatsResult]
+                : [];
+        const snrgStats = statsArray.find((item) => String(item.symbol || '').toUpperCase() === 'SNRG') || statsArray[0] || null;
+        const totalSupplyNwei = snrgStats?.total_supply ?? networkStats?.total_supply ?? '0';
+        const holders = numberFrom(snrgStats?.holders) || numberFrom(distinctHoldersRes.rows[0]?.count);
+        const transfers24h = numberFrom(transfers24hRes.rows[0]?.count);
+        const topHolderStakeTotal = topHoldersRes.rows.reduce((sum, row) => sum + parseBigInt(row.amount_nwei), 0n);
+        return {
+            totalHolders: holders,
+            totalTransfers24h: transfers24h,
+            items: [
+                {
+                    symbol: 'SNRG',
+                    name: 'Synergy Testnet Token',
+                    category: 'Native testnet beta token',
+                    summary: 'Native Synergy Testnet-Beta asset used for balances, transfers, fees, staking, and validator onboarding.',
+                    priceUsd: '0.00 USD',
+                    change24h: '0.00%',
+                    holders,
+                    transferCount24h: transfers24h,
+                    circulatingSupply: formatSnrgAmount(totalSupplyNwei),
+                    contractAddress: null,
+                    topHolders: topHoldersRes.rows.map((holder, index) => {
+                        const amount = parseBigInt(holder.amount_nwei);
+                        const allocationPercent = topHolderStakeTotal > 0n ? Number((amount * 10000n) / topHolderStakeTotal) / 100 : 0;
+                        return {
+                            label: holder.label || `Holder ${index + 1}`,
+                            address: holder.address,
+                            allocationPercent,
+                        };
+                    }),
+                    recentTransfers: recentTransfersRes.rows,
+                },
+            ],
         };
     });
     // ── Contracts ────────────────────────────────────────────────────────────────

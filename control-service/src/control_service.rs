@@ -17,14 +17,17 @@ use crate::monitor::{
     MonitorOperatorInput, MonitorSshBindingInput, MonitorSshProfileInput,
 };
 use crate::testnet_beta::{
-    testbeta_boost_sync, testbeta_erase_local_machine_data, testbeta_force_peer_connect,
-    testbeta_get_catalog, testbeta_get_chain_blocks, testbeta_get_device_profile,
-    testbeta_get_live_status, testbeta_get_node_logs, testbeta_get_node_readiness,
-    testbeta_get_state, testbeta_import_ceremony_package, testbeta_inspect_ceremony_package,
-    testbeta_node_control, testbeta_remove_node, testbeta_run_register_with_seeds,
-    testbeta_setup_node, TestnetBetaEraseNodeDataInput, TestnetBetaForcePeerConnectInput,
+    testbeta_activate_validator, testbeta_boost_sync, testbeta_erase_local_machine_data,
+    testbeta_force_peer_connect, testbeta_get_catalog, testbeta_get_chain_blocks,
+    testbeta_get_device_profile, testbeta_get_live_status, testbeta_get_node_logs,
+    testbeta_get_node_readiness, testbeta_get_state,
+    testbeta_get_validator_activation_preflight, testbeta_import_ceremony_package,
+    testbeta_inspect_ceremony_package, testbeta_node_control, testbeta_remove_node,
+    testbeta_run_register_with_seeds, testbeta_setup_node, testbeta_stake_validator,
+    TestnetBetaEraseNodeDataInput, TestnetBetaForcePeerConnectInput,
     TestnetBetaImportCeremonyPackageInput, TestnetBetaInspectCeremonyPackageInput,
     TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
+    TestnetBetaValidatorActivateInput, TestnetBetaValidatorStakeInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -197,6 +200,22 @@ struct TestnetBetaReadinessArgs {
 #[serde(rename_all = "camelCase")]
 struct TestnetBetaBoostSyncArgs {
     node_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaValidatorActivationPreflightArgs {
+    node_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaValidatorStakeArgs {
+    input: TestnetBetaValidatorStakeInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaValidatorActivateArgs {
+    input: TestnetBetaValidatorActivateInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -458,6 +477,18 @@ async fn dispatch_command(
         "testbeta_boost_sync" => {
             let args: TestnetBetaBoostSyncArgs = parse_args(request.args)?;
             to_value(testbeta_boost_sync(&state.app_context, args.node_id).await?)
+        }
+        "testbeta_get_validator_activation_preflight" => {
+            let args: TestnetBetaValidatorActivationPreflightArgs = parse_args(request.args)?;
+            to_value(testbeta_get_validator_activation_preflight(args.node_id).await?)
+        }
+        "testbeta_stake_validator" => {
+            let args: TestnetBetaValidatorStakeArgs = parse_args(request.args)?;
+            to_value(testbeta_stake_validator(args.input).await?)
+        }
+        "testbeta_activate_validator" => {
+            let args: TestnetBetaValidatorActivateArgs = parse_args(request.args)?;
+            to_value(testbeta_activate_validator(args.input).await?)
         }
         "testbeta_force_peer_connect" => {
             let args: TestnetBetaForcePeerConnectArgs = parse_args(request.args)?;

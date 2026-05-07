@@ -42,13 +42,13 @@ const TESTNET_BETA_MAX_CLOCK_SKEW_MS: i64 = 500;
 const TOKEN_SYMBOL: &str = "SNRG";
 const TOKEN_DECIMALS: u32 = 9;
 const TOKEN_SCALE: u64 = 1_000_000_000;
-const MINIMUM_STAKE_SNRG: u64 = 5_000;
+const MINIMUM_STAKE_SNRG: u64 = 50_000;
 const TREASURY_SUPPLY_SNRG: u64 = 100_000_000;
 const FAUCET_SUPPLY_SNRG: u64 = 4_000_000_000;
 const TESTNET_BETA_BLOCK_TIME_SECS: usize = 2;
-const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 3;
+const TESTNET_BETA_MIN_GENESIS_VALIDATORS: usize = 4;
 const TESTNET_BETA_STATUS_READY_GATE_ENABLED: bool = true;
-const TESTNET_BETA_STATUS_READY_MIN_VALIDATORS: usize = 3;
+const TESTNET_BETA_STATUS_READY_MIN_VALIDATORS: usize = 4;
 const TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS: usize = 0;
 const TESTNET_BETA_ALLOW_GENESIS_STATUS_BYPASS: bool = false;
 const TESTNET_BETA_MESH_SETTLE_SECS: usize = 15;
@@ -61,6 +61,7 @@ const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
 const TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED: bool = false;
 const TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS: usize = 3600;
+const TESTNET_BETA_P2P_HEARTBEAT_INTERVAL_SECS: usize = 5;
 const TESTNET_BETA_VALIDATOR_STATE_SYNC_BEFORE_JOIN: bool = true;
 
 static NODE_LIVE_CACHE: Lazy<Mutex<HashMap<String, CachedNodeLiveSnapshot>>> =
@@ -343,6 +344,46 @@ pub struct NodeReadinessReport {
     pub checks: Vec<NodeReadinessCheck>,
     pub ready_count: usize,
     pub total_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorActivationPreflightResult {
+    pub node_id: String,
+    pub generated_at_utc: String,
+    pub can_stake: bool,
+    pub can_activate: bool,
+    pub balance_nwei: Option<u64>,
+    pub staked_balance_nwei: Option<u64>,
+    pub required_stake_snrg: u64,
+    pub required_stake_nwei: u64,
+    pub checks: Vec<NodeReadinessCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaValidatorStakeInput {
+    pub node_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount_snrg: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaValidatorActivateInput {
+    pub node_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount_snrg: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorLifecycleTxResult {
+    pub node_id: String,
+    pub status: String,
+    pub tx_hash: Option<String>,
+    pub message: String,
+    pub preflight: ValidatorActivationPreflightResult,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1498,6 +1539,310 @@ pub async fn testbeta_get_node_readiness(node_id: String) -> Result<NodeReadines
     Ok(report)
 }
 
+pub async fn testbeta_get_validator_activation_preflight(
+    node_id: String,
+) -> Result<ValidatorActivationPreflightResult, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {node_id}"))?;
+    build_validator_activation_preflight(&state, &node).await
+}
+
+pub async fn testbeta_stake_validator(
+    input: TestnetBetaValidatorStakeInput,
+) -> Result<ValidatorLifecycleTxResult, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == input.node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
+    let amount_snrg = input.amount_snrg.unwrap_or(MINIMUM_STAKE_SNRG);
+    let preflight = build_validator_activation_preflight(&state, &node).await?;
+    if !preflight.can_stake && preflight.staked_balance_nwei.unwrap_or(0) < preflight.required_stake_nwei {
+        return Err("Validator wallet does not have enough liquid SNRG to bond the required stake.".to_string());
+    }
+
+    let rpc_endpoint = rpc_endpoint_for_workspace(&node)?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    let response = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_stakeTokens",
+        json!([node.node_address, node.node_address, TOKEN_SYMBOL, amount_snrg]),
+    )
+    .await?;
+    let tx_hash = parse_lifecycle_tx_hash(&response)?;
+    let refreshed = build_validator_activation_preflight(&state, &node).await?;
+
+    Ok(ValidatorLifecycleTxResult {
+        node_id: node.id,
+        status: "submitted".to_string(),
+        tx_hash: Some(tx_hash.clone()),
+        message: format!(
+            "Submitted validator stake transaction {tx_hash}. Wait for it to be included, then run activation preflight."
+        ),
+        preflight: refreshed,
+    })
+}
+
+pub async fn testbeta_activate_validator(
+    input: TestnetBetaValidatorActivateInput,
+) -> Result<ValidatorLifecycleTxResult, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == input.node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
+    let amount_snrg = input.amount_snrg.unwrap_or(MINIMUM_STAKE_SNRG);
+    let preflight = build_validator_activation_preflight(&state, &node).await?;
+    if !preflight.can_activate {
+        return Err("Validator activation preflight is not passing yet. Sync the node and bond the required stake before activation.".to_string());
+    }
+
+    let rpc_endpoint = rpc_endpoint_for_workspace(&node)?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    let display_name = input
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(node.display_label.as_str());
+    let response = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_activateValidator",
+        json!([node.node_address, display_name, amount_snrg]),
+    )
+    .await?;
+    let tx_hash = parse_lifecycle_tx_hash(&response)?;
+    let refreshed = build_validator_activation_preflight(&state, &node).await?;
+
+    Ok(ValidatorLifecycleTxResult {
+        node_id: node.id,
+        status: "submitted".to_string(),
+        tx_hash: Some(tx_hash.clone()),
+        message: format!(
+            "Submitted validator activation transaction {tx_hash}. The validator joins consensus after this transaction is included and synced by the validator set."
+        ),
+        preflight: refreshed,
+    })
+}
+
+async fn build_validator_activation_preflight(
+    state: &TestnetBetaState,
+    node: &TestnetBetaProvisionedNode,
+) -> Result<ValidatorActivationPreflightResult, String> {
+    let required_stake_nwei = MINIMUM_STAKE_SNRG * TOKEN_SCALE;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    let public_chain_height = query_public_chain_height(&client).await.ok();
+    let live = build_node_live_status(&client, node, public_chain_height).await;
+    let readiness =
+        build_node_readiness_report(&client, node, &live, &state.network_profile.seed_servers)
+            .await;
+    let rpc_endpoint = rpc_endpoint_for_workspace(node)?;
+    let balance_nwei = query_rpc_u64_or_none(
+        &client,
+        &rpc_endpoint,
+        "synergy_getBalance",
+        json!([node.node_address]),
+    )
+    .await;
+    let staked_balance_nwei = query_rpc_u64_or_none(
+        &client,
+        &rpc_endpoint,
+        "synergy_getStakedBalance",
+        json!([node.node_address, TOKEN_SYMBOL]),
+    )
+    .await;
+
+    let role_ok = role_supports_validator_registration(&node.role_id);
+    let validator_mesh_only = provisioned_node_uses_private_validator_mesh(node);
+    let public_host_ok = validator_mesh_only
+        || node
+            .public_host
+            .as_deref()
+            .map(is_publicly_routable_host)
+            .unwrap_or(false);
+    let sync_gap_ok = live.sync_gap.map(|gap| gap <= 32).unwrap_or(false);
+    let rpc_ok = live.is_running && live.local_rpc_ready;
+    let peer_ok = live.local_peer_count.unwrap_or(0) > 0;
+    let seed_ok = live.seed_registered;
+    let liquid = balance_nwei.unwrap_or(0);
+    let staked = staked_balance_nwei.unwrap_or(0);
+
+    let mut checks = readiness.checks;
+    checks.push(preflight_check(
+        "validator-role",
+        "Validator role",
+        role_ok,
+        "This workspace is configured as a validator.",
+        "Select or provision a validator workspace before staking.",
+    ));
+    checks.push(preflight_check(
+        "public-endpoint",
+        "Public P2P endpoint",
+        public_host_ok,
+        "The validator has a publicly routable endpoint or is a canonical genesis mesh validator.",
+        "Set a public IP/DNS name and open the validator P2P port before activation.",
+    ));
+    checks.push(preflight_check(
+        "local-rpc",
+        "Local RPC ready",
+        rpc_ok,
+        "The local validator RPC is running and reachable.",
+        "Start or rejoin the validator and wait for RPC readiness.",
+    ));
+    checks.push(preflight_check(
+        "sync-gap",
+        "Synced near chain head",
+        sync_gap_ok,
+        "The validator is close enough to the public chain head for activation.",
+        "Wait for sync or run Bootstrap before activating.",
+    ));
+    checks.push(preflight_check(
+        "peers-visible",
+        "Peers visible",
+        peer_ok,
+        "The validator has live peer visibility.",
+        "Check firewall/P2P reachability and peer bootstrap before activation.",
+    ));
+    checks.push(preflight_check(
+        "seed-registration",
+        "Seed registration",
+        seed_ok,
+        "Seed servers have a registration for this validator.",
+        "Run Re-register so public peers can discover this validator.",
+    ));
+    checks.push(preflight_check(
+        "liquid-balance",
+        "Wallet funding",
+        liquid >= required_stake_nwei || staked >= required_stake_nwei,
+        "The validator wallet has enough SNRG available or already bonded.",
+        "Send 50,000 SNRG to the validator wallet from Synergy Wallet, then refresh.",
+    ));
+    checks.push(preflight_check(
+        "bonded-stake",
+        "Bonded stake",
+        staked >= required_stake_nwei,
+        "The validator wallet has the required bonded stake.",
+        "Run Stake Validator after wallet funding is visible.",
+    ));
+
+    let can_stake = role_ok && rpc_ok && liquid >= required_stake_nwei;
+    let can_activate = role_ok
+        && public_host_ok
+        && rpc_ok
+        && sync_gap_ok
+        && peer_ok
+        && seed_ok
+        && staked >= required_stake_nwei;
+
+    Ok(ValidatorActivationPreflightResult {
+        node_id: node.id.clone(),
+        generated_at_utc: Utc::now().to_rfc3339(),
+        can_stake,
+        can_activate,
+        balance_nwei,
+        staked_balance_nwei,
+        required_stake_snrg: MINIMUM_STAKE_SNRG,
+        required_stake_nwei,
+        checks,
+    })
+}
+
+fn rpc_endpoint_for_workspace(node: &TestnetBetaProvisionedNode) -> Result<String, String> {
+    let config_path = PathBuf::from(&node.workspace_directory)
+        .join("config")
+        .join("node.toml");
+    parse_testbeta_rpc_endpoint(&config_path).ok_or_else(|| {
+        format!(
+            "Could not resolve local RPC endpoint from {}",
+            config_path.display()
+        )
+    })
+}
+
+fn preflight_check(
+    id: &str,
+    label: &str,
+    pass: bool,
+    detail: &str,
+    suggestion: &str,
+) -> NodeReadinessCheck {
+    NodeReadinessCheck {
+        id: id.to_string(),
+        label: label.to_string(),
+        status: if pass { "pass" } else { "fail" }.to_string(),
+        detail: detail.to_string(),
+        suggestion: (!pass).then(|| suggestion.to_string()),
+    }
+}
+
+async fn query_rpc_u64_or_none(
+    client: &Client,
+    endpoint: &str,
+    method: &str,
+    params: Value,
+) -> Option<u64> {
+    query_rpc_value(client, endpoint, method, params)
+        .await
+        .ok()
+        .and_then(parse_rpc_balance_u64)
+}
+
+fn parse_rpc_balance_u64(value: Value) -> Option<u64> {
+    parse_rpc_u64(value.clone()).ok().or_else(|| {
+        [
+            "balance",
+            "amount",
+            "staked",
+            "staked_balance",
+            "stakedBalance",
+            TOKEN_SYMBOL,
+        ]
+        .iter()
+        .find_map(|key| value.get(*key).cloned().and_then(|entry| parse_rpc_u64(entry).ok()))
+    })
+}
+
+fn parse_lifecycle_tx_hash(value: &Value) -> Result<String, String> {
+    let success = value
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !success {
+        return Err(value
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("Validator lifecycle transaction failed.")
+            .to_string());
+    }
+
+    value
+        .get("tx_hash")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "RPC response did not include a transaction hash.".to_string())
+}
+
 pub async fn testbeta_boost_sync(
     app_context: &AppContext,
     node_id: String,
@@ -2139,8 +2484,6 @@ pub async fn testbeta_setup_node(
     #[cfg(not(test))]
     register_node_with_seeds_best_effort(&network_profile, &node_record).await;
 
-    let funding_step_address = node_record.node_address.clone();
-
     Ok(TestnetBetaSetupResult {
         node: node_record,
         network_profile,
@@ -2148,10 +2491,7 @@ pub async fn testbeta_setup_node(
         next_steps: {
             let mut steps = vec![
                 "Review the generated node.toml, peers.toml, and aegis.toml overlays in the isolated workspace.".to_string(),
-                format!(
-                    "Fund and bond the validator stake with scripts/testbeta/fund-validator-stake.sh {} 5000 after the node wallet is available.",
-                    funding_step_address
-                ),
+                "Fund the validator wallet with 50,000 SNRG, then use the in-app Stake and Activate Validator actions after the node is synced.".to_string(),
                 format!(
                     "Public host detection: {}.",
                     detected_public_host
@@ -4156,7 +4496,10 @@ fn ensure_workspace_bootstrap_topology(
     if validator_mesh_only || use_sentry_upstreams {
         if let Some(p2p) = root.get_mut("p2p").and_then(toml::Value::as_table_mut) {
             p2p.insert("enable_discovery".to_string(), toml::Value::Boolean(false));
-            p2p.insert("heartbeat_interval".to_string(), toml::Value::Integer(10));
+            p2p.insert(
+                "heartbeat_interval".to_string(),
+                toml::Value::Integer(TESTNET_BETA_P2P_HEARTBEAT_INTERVAL_SECS as i64),
+            );
         }
     }
 
@@ -4186,7 +4529,7 @@ fn ensure_workspace_bootstrap_topology(
         .map_err(|error| format!("Failed to serialize {}: {error}", config_path.display()))?;
     write_file(config_path, &rendered)?;
 
-    if is_validator {
+    if validator_mesh_only {
         let peers_contents = build_peers_toml_with_additional(
             network_profile,
             &canonical_validator_dial_targets(&node.node_address),
@@ -7810,7 +8153,7 @@ fn build_node_toml(
     let cors_origins = if is_public_rpc_role { r#"["*"]"# } else { "[]" };
 
     format!(
-        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\npersistent_peers = [{persistent_peers}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = {block_time_secs}\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = {block_time_secs}\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nstatus_ready_gate_enabled = {status_ready_gate_enabled}\nstatus_ready_min_validators = {status_ready_min_validators}\nstatus_ready_genesis_grace_secs = {status_ready_genesis_grace_secs}\nallow_genesis_status_bypass = {allow_genesis_status_bypass}\nmesh_settle_secs = {mesh_settle_secs}\nleader_timeout_secs = {leader_timeout_secs}\nvote_timeout_secs = {vote_timeout_secs}\nblock_timeout_secs = {block_timeout_secs}\npenalization_enabled = {penalization_enabled}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = 10\nbootstrap_refresh_secs = {bootstrap_refresh_secs}\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"0.0.0.0:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
+        "[identity]\nnode_id = \"{config_node_id}\"\nrole = \"{role_id}\"\nrole_display = \"{role_display}\"\nenvironment = \"{environment_id}\"\ndisplay_environment = \"{display_name}\"\naddress = \"{node_address}\"\nlabel = \"{display_label}\"\n\n[network]\nid = {chain_id}\nname = \"{chain_name}\"\nchain_name = \"{chain_name}\"\nchain_id = {chain_id}\np2p_port = {p2p_port}\nrpc_port = {rpc_port}\nws_port = {ws_port}\np2p_listen = \"0.0.0.0:{p2p_port}\"\nbootnodes = [{bootnodes}]\nseed_servers = [{seeds}]\nbootstrap_dns_records = [{bootstrap_dns_records}]\nadditional_dial_targets = [{additional_dial_targets}]\npersistent_peers = [{persistent_peers}]\nquic = true\nmax_peers = 128\nbootstrap_connectivity_required = false\nbootstrap_mode = \"multi-source-signed\"\n{public_host_line}\n[blockchain]\nblock_time = {block_time_secs}\nmax_gas_limit = \"0x2fefd8\"\nchain_id = {chain_id}\n\n[consensus]\nalgorithm = \"Proof of Synergy\"\nblock_time_secs = {block_time_secs}\nepoch_length = {epoch_length}\nmin_validators = {min_validators}\nvalidator_cluster_size = {validator_cluster_size}\nvalidator_vote_threshold = {validator_vote_threshold}\nmax_validators = {max_validators}\nstatus_ready_gate_enabled = {status_ready_gate_enabled}\nstatus_ready_min_validators = {status_ready_min_validators}\nstatus_ready_genesis_grace_secs = {status_ready_genesis_grace_secs}\nallow_genesis_status_bypass = {allow_genesis_status_bypass}\nmesh_settle_secs = {mesh_settle_secs}\nleader_timeout_secs = {leader_timeout_secs}\nvote_timeout_secs = {vote_timeout_secs}\nblock_timeout_secs = {block_timeout_secs}\npenalization_enabled = {penalization_enabled}\nsynergy_score_decay_rate = 0.05\nvrf_enabled = true\nvrf_seed_epoch_interval = 1000\nmax_synergy_points_per_epoch = 100\nmax_tasks_per_validator = 10\n\n[consensus.reward_weighting]\ntask_accuracy = 0.5\nuptime = 0.3\ncollaboration = 0.2\n\n[logging]\nlog_level = \"debug\"\nlog_file = \"{log_path}\"\nenable_console = true\nmax_file_size = 10485760\nmax_files = 5\n\n[rpc]\nbind_address = \"{rpc_bind_address}\"\nenable_http = true\nhttp_port = {rpc_port}\nenable_ws = true\nws_port = {ws_port}\nenable_grpc = true\ngrpc_port = {rpc_port}\ncors_enabled = {cors_enabled}\ncors_origins = {cors_origins}\n\n[p2p]\nlisten_address = \"0.0.0.0:{p2p_port}\"\npublic_address = \"{runtime_public_address}\"\nnode_name = \"{config_node_id}\"\nenable_discovery = {enable_discovery}\ndiscovery_port = {discovery_port}\nheartbeat_interval = {heartbeat_interval_secs}\nbootstrap_refresh_secs = {bootstrap_refresh_secs}\n\n[storage]\ndatabase = \"rocksdb\"\nengine = \"rocksdb\"\npath = \"{data_path}\"\nmode = \"role-bounded\"\nenable_pruning = false\npruning_interval = 86400\n\n[node]\nbootstrap_only = false\nauto_register_validator = {auto_register_validator}\nvalidator_address = \"{node_address}\"\nstrict_validator_allowlist = {strict_validator_allowlist}\nallowed_validator_addresses = {allowed_validator_addresses}\n\n[telemetry]\nmetrics_bind = \"0.0.0.0:{metrics_port}\"\nstructured_logs = true\nlog_level = \"debug\"\n\n[policy]\nallow_remote_admin = false\nrequire_signed_updates = true\nquarantine_on_policy_failure = true\nquarantine_on_key_role_mismatch = true\nconnectivity_fail_mode = \"warn-and-continue\"\n\n[wallet]\nreward_address = \"{node_address}\"\nsponsored_stake_snrg = \"{sponsored_stake_snrg}\"\nsponsored_stake_nwei = \"{sponsored_stake_nwei}\"\ntreasury_wallet = \"{treasury_wallet}\"\nstake_vault_wallet = \"{stake_wallet}\"\n[bootstrap]\nstatus = \"configured\"\nnote = \"{bootstrap_note}\"\n\n{role_overlay}",
         role_id = role.id,
         role_display = role.display_name,
         environment_id = TESTNET_BETA_ENVIRONMENT_ID,
@@ -7858,6 +8201,7 @@ fn build_node_toml(
         block_timeout_secs = TESTNET_BETA_BLOCK_TIMEOUT_SECS,
         penalization_enabled = TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED,
         bootstrap_refresh_secs = TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS,
+        heartbeat_interval_secs = TESTNET_BETA_P2P_HEARTBEAT_INTERVAL_SECS,
         sponsored_stake_snrg = format_amount(MINIMUM_STAKE_SNRG),
         sponsored_stake_nwei = amount_to_nwei_string(MINIMUM_STAKE_SNRG),
         treasury_wallet = network_profile.treasury_wallet.address,

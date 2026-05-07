@@ -37,12 +37,12 @@ chain_id = 338639
 algorithm = "Proof of Synergy"
 block_time_secs = 2
 epoch_length = 1000
-min_validators = 3
+min_validators = 4
 validator_cluster_size = 5
 validator_vote_threshold = 4
 max_validators = 5
 status_ready_gate_enabled = true
-status_ready_min_validators = 3
+status_ready_min_validators = 4
 status_ready_genesis_grace_secs = 0
 allow_genesis_status_bypass = false
 mesh_settle_secs = 15
@@ -81,13 +81,13 @@ cors_origins = []
 
 [p2p]
 listen_address = "0.0.0.0:5626"
-public_address = "testbeta-core-rpc.synergy-network.io:5626"
+public_address = "genesisrpc.synergynode.xyz:5626"
 node_name = "genesisrpc"
 enable_discovery = false
 discovery_port = 5686
 discovery_listen_address = "0.0.0.0:5686"
-discovery_public_address = "testbeta-core-rpc.synergy-network.io:5686"
-heartbeat_interval = 10
+discovery_public_address = "genesisrpc.synergynode.xyz:5686"
+heartbeat_interval = 5
 bootstrap_refresh_secs = 3600
 
 [storage]

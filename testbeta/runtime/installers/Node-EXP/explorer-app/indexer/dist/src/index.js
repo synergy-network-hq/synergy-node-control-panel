@@ -178,8 +178,8 @@ async function refreshValidatorSnapshot() {
     for (const validator of validators) {
         await pool.query(`INSERT INTO validators_current (
          address, name, stake_amount, synergy_score, blocks_produced,
-         uptime_percentage, cluster_id, last_active, status, role_hint, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`, [
+         uptime_percentage, cluster_id, cluster_address, last_active, status, role_hint, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())`, [
             normalizeAddress(validator.address),
             validator.name || null,
             validator.stake_amount == null ? null : String(validator.stake_amount),
@@ -187,6 +187,7 @@ async function refreshValidatorSnapshot() {
             validator.blocks_produced == null ? null : String(validator.blocks_produced),
             parsePercent(validator.uptime),
             validator.cluster_id == null ? null : String(validator.cluster_id),
+            normalizeAddress(validator.cluster_address),
             validator.last_active == null ? null : String(validator.last_active),
             'active',
             'validator',

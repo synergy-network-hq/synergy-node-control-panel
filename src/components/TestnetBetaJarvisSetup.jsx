@@ -156,7 +156,7 @@ function suggestedCeremonyDirectory(homeDirectory, roleId) {
 
 function formatStake(value) {
   const text = String(value ?? '').trim();
-  if (!text) return '5,000 SNRG';
+  if (!text) return '50,000 SNRG';
   const number = Number.parseFloat(text);
   if (!Number.isFinite(number)) return text;
   if (Number.isInteger(number)) return `${number.toLocaleString()} SNRG`;
@@ -1368,7 +1368,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           setDirectoryChoice(trimmedValue);
         }
       }
-      await queueJarvisMessage('Everything is ready. I will create the private folder, generate the node wallet, write the setup files, and prepare the required 5,000 SNRG stake for this node.');
+      await queueJarvisMessage('Everything is ready. I will create the private folder, generate the node wallet, write the setup files, and prepare the required 50,000 SNRG stake for this node.');
       setPhase('ready_provision');
       return;
     }
@@ -1852,7 +1852,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
               </div>
               <div className="jarvis-status-row">
                 <span>Minimum stake</span>
-                <strong>{formatStake(networkProfile?.funding_manifests?.[0]?.amount_snrg || '5000')}</strong>
+                <strong>{formatStake(networkProfile?.funding_manifests?.[0]?.amount_snrg || '50000')}</strong>
               </div>
             </div>
             <div className="jarvis-plan-list">

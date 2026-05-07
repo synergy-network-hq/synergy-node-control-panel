@@ -263,6 +263,25 @@ export default function TestnetBetaNodeDetailRevamp() {
         message = await boostSyncAction(node.id);
       } else if (kind === 'register') {
         message = await registerWithSeedsAction(node.id);
+      } else if (kind === 'activation-preflight') {
+        const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: node.id });
+        const ready = result?.canActivate ? 'ready for activation' : 'not ready for activation';
+        message = `Validator preflight is ${ready}. Stake ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.`;
+      } else if (kind === 'stake-validator') {
+        const result = await invoke('testbeta_stake_validator', {
+          input: {
+            nodeId: node.id,
+          },
+        });
+        message = result?.message || `Validator stake submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
+      } else if (kind === 'activate-validator') {
+        const result = await invoke('testbeta_activate_validator', {
+          input: {
+            nodeId: node.id,
+            displayName: node.display_label || node.role_display_name || 'Validator',
+          },
+        });
+        message = result?.message || `Validator activation submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else {
         const result = await runNodeControlAction({
           node,
@@ -367,6 +386,7 @@ export default function TestnetBetaNodeDetailRevamp() {
     value: entry.isRunning ? Math.max(8, 100 - Math.min(90, entry.syncGap)) : 0,
   }));
   const recentEvents = actionAudit.slice(0, 8);
+  const isValidatorNode = String(node?.role_id || '').trim().toLowerCase() === 'validator';
 
   if (!node) {
     return (
@@ -424,6 +444,19 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'restart'} onClick={() => void handleAction('restart')}>
                   {actionBusy === 'restart' ? 'Restarting…' : 'Restart'}
                 </SNRGButton>
+                {isValidatorNode ? (
+                  <>
+                    <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>
+                      Preflight
+                    </SNRGButton>
+                    <SNRGButton variant="green" size="sm" disabled={actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator')}>
+                      Stake
+                    </SNRGButton>
+                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'activate-validator'} onClick={() => void handleAction('activate-validator')}>
+                      Activate
+                    </SNRGButton>
+                  </>
+                ) : null}
                 <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>
                   Refresh
                 </SNRGButton>
@@ -525,6 +558,13 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="orange" size="sm" disabled={actionBusy === 'restart'} onClick={() => void handleAction('restart')}>Restart</SNRGButton>
                 <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'rejoin'} onClick={() => void handleAction('rejoin')}>Bootstrap / reconnect</SNRGButton>
                 <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'register'} onClick={() => void handleAction('register')}>Re-register</SNRGButton>
+                {isValidatorNode ? (
+                  <>
+                    <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>Activation Preflight</SNRGButton>
+                    <SNRGButton variant="green" size="sm" disabled={actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator')}>Stake Validator</SNRGButton>
+                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'activate-validator'} onClick={() => void handleAction('activate-validator')}>Activate Validator</SNRGButton>
+                  </>
+                ) : null}
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Open logs</SNRGButton>
                 <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>Refresh</SNRGButton>
               </div>
@@ -643,6 +683,13 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="orange" size="sm" onClick={() => void handleAction('restart')}>Restart</SNRGButton>
                 <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('rejoin')}>Bootstrap</SNRGButton>
                 <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('register')}>Re-register</SNRGButton>
+                {isValidatorNode ? (
+                  <>
+                    <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>Activation Preflight</SNRGButton>
+                    <SNRGButton variant="green" size="sm" disabled={actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator')}>Stake Validator</SNRGButton>
+                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'activate-validator'} onClick={() => void handleAction('activate-validator')}>Activate Validator</SNRGButton>
+                  </>
+                ) : null}
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(node.workspace_directory)}>Open workspace</SNRGButton>
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Tail logs</SNRGButton>
               </div>

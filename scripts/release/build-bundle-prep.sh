@@ -190,6 +190,160 @@ sync_canonical_runtime_assets() {
   echo "Using committed canonical Testnet-Beta installer templates"
 }
 
+sync_installer_bundle_configs() {
+  local configs_root="$ROOT_DIR/testbeta/runtime/configs"
+  local installers_root="$ROOT_DIR/testbeta/runtime/installers"
+  local config_path
+  local node_id
+  local bundle_dir
+
+  [[ -d "$configs_root" && -d "$installers_root" ]] || return 0
+
+  echo "Syncing rendered node configs into installer bundles"
+  for config_path in "$configs_root"/*.toml; do
+    [[ -f "$config_path" ]] || continue
+    node_id="$(basename "$config_path" .toml)"
+    bundle_dir="$installers_root/$node_id"
+    [[ -d "$bundle_dir" ]] || continue
+    mkdir -p "$bundle_dir/config"
+    cp "$config_path" "$bundle_dir/config/node.toml"
+  done
+
+  python3 - <<'PY' "$ROOT_DIR"
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+installers_root = root / "testbeta/runtime/installers"
+
+def parse_value(raw):
+    raw = raw.strip()
+    if raw in ("true", "false"):
+        return raw == "true"
+    if raw.startswith('"') and raw.endswith('"'):
+        return raw[1:-1]
+    if raw.startswith("[") and raw.endswith("]"):
+        body = raw[1:-1].strip()
+        if not body:
+            return []
+        values = []
+        current = []
+        in_string = False
+        escaped = False
+        for char in body:
+            if escaped:
+                current.append(char)
+                escaped = False
+                continue
+            if char == "\\" and in_string:
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if char == "," and not in_string:
+                values.append("".join(current).strip())
+                current = []
+                continue
+            current.append(char)
+        values.append("".join(current).strip())
+        return values
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+def parse_node_toml(path):
+    parsed = {}
+    section = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped.strip("[]")
+            parsed.setdefault(section, {})
+            continue
+        if "=" not in stripped or section is None:
+            continue
+        key, value = stripped.split("=", 1)
+        parsed.setdefault(section, {})[key.strip()] = parse_value(value)
+    return parsed
+
+consensus_keys = [
+    "min_validators",
+    "validator_vote_threshold",
+    "max_validators",
+    "status_ready_gate_enabled",
+    "status_ready_min_validators",
+    "status_ready_genesis_grace_secs",
+    "allow_genesis_status_bypass",
+    "mesh_settle_secs",
+    "leader_timeout_secs",
+    "vote_timeout_secs",
+    "block_timeout_secs",
+    "validator_cluster_size",
+    "penalization_enabled",
+]
+p2p_keys = [
+    "enable_discovery",
+    "heartbeat_interval",
+    "bootstrap_refresh_secs",
+    "public_address",
+]
+network_keys = [
+    "additional_dial_targets",
+    "persistent_peers",
+    "bootnodes",
+    "seed_servers",
+    "bootstrap_dns_records",
+]
+node_keys = [
+    "auto_register_validator",
+    "validator_address",
+    "strict_validator_allowlist",
+    "allowed_validator_addresses",
+]
+validator_keys = [
+    "participation",
+    "verify_quorum_certificates",
+    "state_sync_before_join",
+]
+
+for package_path in sorted(installers_root.glob("GenVal-*/keys/setup-package.json")):
+    node_toml = package_path.parents[1] / "config/node.toml"
+    if not node_toml.exists():
+        continue
+
+    config = parse_node_toml(node_toml)
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    runtime = package.setdefault("runtime_config", {})
+
+    consensus = config.get("consensus", {})
+    runtime["consensus"] = {key: consensus[key] for key in consensus_keys if key in consensus}
+
+    p2p = config.get("p2p", {})
+    runtime["p2p"] = {key: p2p[key] for key in p2p_keys if key in p2p}
+
+    network = config.get("network", {})
+    runtime["network"] = {key: network.get(key, []) for key in network_keys}
+
+    node = config.get("node", {})
+    runtime["node"] = {key: node[key] for key in node_keys if key in node}
+
+    validator = config.get("validator", {})
+    existing_validator = runtime.get("validator") or {}
+    runtime["validator"] = {
+        key: validator.get(key, existing_validator.get(key))
+        for key in validator_keys
+        if key in validator or key in existing_validator
+    }
+
+    package_path.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
 resolve_explorer_root() {
   local candidate=""
   local candidates=()
@@ -465,6 +619,7 @@ ensure_version_alignment
 sync_platform_binaries
 refresh_platform_binary_checksums
 sync_canonical_runtime_assets
+sync_installer_bundle_configs
 sync_installer_bundle_binaries
 sync_bootstrap_bundle_binaries
 sync_atlas_runtime_bundle
