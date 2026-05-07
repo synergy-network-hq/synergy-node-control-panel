@@ -1,6 +1,6 @@
 {
   "name": "synergy-node-control-panel",
-  "version": "10.1.6",
+  "version": "10.1.7",
   "description": "Synergy Node Control Panel",
   "author": "Synergy Network <support@synergy-network.io>",
   "type": "module",

@@ -206,7 +206,11 @@ jobs:
 
           for binary in binaries/synergy-testbeta-*; do
             if [[ -f "$binary" && "$binary" != *.sha256 ]]; then
-              digest="$(sha256sum "$binary" | awk '{print $1}')"
+              if command -v sha256sum >/dev/null 2>&1; then
+                digest="$(sha256sum "$binary" | awk '{print $1}')"
+              else
+                digest="$(shasum -a 256 "$binary" | awk '{print $1}')"
+              fi
               printf "%s  %s\n" "$digest" "$(basename "$binary")" > "${binary}.sha256"
             fi
           done
