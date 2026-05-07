@@ -204,6 +204,13 @@ jobs:
               ;;
           esac
 
+          for binary in binaries/synergy-testbeta-*; do
+            if [[ -f "$binary" && "$binary" != *.sha256 ]]; then
+              digest="$(sha256sum "$binary" | awk '{print $1}')"
+              printf "%s  %s\n" "$digest" "$(basename "$binary")" > "${binary}.sha256"
+            fi
+          done
+
       - name: Regenerate workspace manifest for bundled binaries
         shell: bash
         run: bash scripts/release/generate-workspace-manifest.sh

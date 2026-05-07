@@ -90,6 +90,7 @@ refresh_platform_binary_checksums() {
   local binary_path
 
   for binary_path in \
+    "$ROOT_DIR/binaries/synergy-testbeta-darwin-arm64" \
     "$ROOT_DIR/binaries/synergy-testbeta-macos-arm64" \
     "$ROOT_DIR/binaries/synergy-testbeta-linux-amd64" \
     "$ROOT_DIR/binaries/synergy-testbeta-windows-amd64.exe"

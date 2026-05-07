@@ -38,6 +38,24 @@ for binary_path in "${windows_binaries[@]}"; do
   fi
 done
 
+for binary_path in "${unix_binaries[@]}" "${windows_binaries[@]}"; do
+  checksum_path="${binary_path}.sha256"
+  if [[ ! -f "$checksum_path" ]]; then
+    echo "Missing platform binary checksum: $checksum_path" >&2
+    exit 1
+  fi
+  expected="$(awk '{print $1}' "$checksum_path")"
+  if command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$binary_path" | awk '{print $1}')"
+  else
+    actual="$(sha256sum "$binary_path" | awk '{print $1}')"
+  fi
+  if [[ "$expected" != "$actual" ]]; then
+    echo "Checksum mismatch for $binary_path: expected $expected got $actual" >&2
+    exit 1
+  fi
+done
+
 # --- Workspace manifest --------------------------------------------------------
 if [[ ! -f "testbeta/runtime/workspace-manifest.json" ]]; then
   echo "Missing workspace manifest: testbeta/runtime/workspace-manifest.json" >&2
