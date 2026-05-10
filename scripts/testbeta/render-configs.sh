@@ -17,7 +17,7 @@ TESTBETA_EPOCH_LENGTH="${TESTBETA_EPOCH_LENGTH:-1000}"
 TESTBETA_MIN_VALIDATORS="${TESTBETA_MIN_VALIDATORS:-4}"
 TESTBETA_VALIDATOR_CLUSTER_SIZE="${TESTBETA_VALIDATOR_CLUSTER_SIZE:-5}"
 TESTBETA_VALIDATOR_VOTE_THRESHOLD="${TESTBETA_VALIDATOR_VOTE_THRESHOLD:-4}"
-TESTBETA_MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-5}"
+TESTBETA_MAX_VALIDATORS="${TESTBETA_MAX_VALIDATORS:-100}"
 TESTBETA_STATUS_READY_GATE_ENABLED="${TESTBETA_STATUS_READY_GATE_ENABLED:-true}"
 TESTBETA_STATUS_READY_MIN_VALIDATORS="${TESTBETA_STATUS_READY_MIN_VALIDATORS:-4}"
 TESTBETA_STATUS_READY_GENESIS_GRACE_SECS="${TESTBETA_STATUS_READY_GENESIS_GRACE_SECS:-0}"
@@ -118,11 +118,11 @@ resolve_public_p2p_port() {
   fi
 
   case "$validator_address" in
-    synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra) echo "5622" ;;
-    synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu) echo "5622" ;;
-    synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu) echo "5622" ;;
-    synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49) echo "5622" ;;
-    synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46) echo "5622" ;;
+    synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs) echo "5622" ;;
+    synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt) echo "5622" ;;
+    synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re) echo "5622" ;;
+    synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5) echo "5622" ;;
+    synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f) echo "5622" ;;
     *) echo "$default_port" ;;
   esac
 }
@@ -486,8 +486,8 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port
   inventory_public_ip="$public_ip"
   inventory_local_ip="$local_ip"
   validator_address="$(testbeta_first_nonempty \
-    "$(testbeta_env_value "$source_env_file" "NODE_WALLET" || true)" \
     "$(lookup_node_address "$node_slot_id")" \
+    "$(testbeta_env_value "$source_env_file" "NODE_WALLET" || true)" \
   )"
   if [[ -z "$validator_address" ]]; then
     echo "Missing validator address mapping for ${node_slot_id} in ${NODE_ADDRESSES_FILE}" >&2

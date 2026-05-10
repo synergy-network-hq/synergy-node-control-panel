@@ -9049,7 +9049,7 @@ mod tests {
     fn setup_node_honors_node_address_override() {
         with_temp_home(|_| {
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-            let override_address = "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49".to_string();
+            let override_address = "synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5".to_string();
             let result = runtime
                 .block_on(testbeta_setup_node(TestnetBetaSetupInput {
                     role_id: "validator".to_string(),
@@ -9067,7 +9067,7 @@ mod tests {
                 .expect("node.toml should exist");
             assert!(
                 node_toml
-                    .contains("validator_address = \"synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49\""),
+                    .contains("validator_address = \"synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5\""),
                 "node.toml should be rendered with the override address"
             );
             assert!(
@@ -9723,7 +9723,7 @@ public_address = "62.146.182.207:5622"
                 },
                 "runtime_identity": {
                     "label": "Genesis Validator 4",
-                    "address": "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49",
+                    "address": "synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5",
                     "address_type": "synv1",
                     "algorithm": "ed25519",
                     "created_at": Utc::now().to_rfc3339(),
@@ -9986,7 +9986,7 @@ esac
             let config_path = config_dir.join("node.toml");
             fs::write(
                 &config_path,
-                "[rpc]\nhttp_port = 5640\n\n[node]\nvalidator_address = \"synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49\"\n",
+                "[rpc]\nhttp_port = 5640\n\n[node]\nvalidator_address = \"synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5\"\n",
             )
             .expect("config should write");
 
@@ -10010,11 +10010,11 @@ if [ "${{SYNERGY_CONFIG_PATH:-}}" != "{config}" ]; then
   echo "missing config env" >&2
   exit 1
 fi
-if [ "${{SYNERGY_VALIDATOR_ADDRESS:-}}" != "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49" ]; then
+if [ "${{SYNERGY_VALIDATOR_ADDRESS:-}}" != "synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5" ]; then
   echo "missing validator env" >&2
   exit 1
 fi
-if [ "${{NODE_ADDRESS:-}}" != "synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49" ]; then
+if [ "${{NODE_ADDRESS:-}}" != "synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5" ]; then
   echo "missing node address env" >&2
   exit 1
 fi
@@ -10055,7 +10055,7 @@ EOF
                 "config env should be passed through to runner"
             );
             assert!(
-                env_dump.contains("synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49"),
+                env_dump.contains("synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5"),
                 "validator identity env should be passed through to runner"
             );
         });

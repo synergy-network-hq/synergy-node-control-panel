@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v10.1.8 - 2026-05-10
+
+- Enabled activated non-genesis validators to enter the consensus membership instead of being capped out by the five-genesis-validator release configuration.
+- Hardened validator activation so a synced non-genesis validator can start consensus after its activation transaction is applied, while genesis validators skip the public join sync gate.
+- Regenerated and validated the bundled Testnet-Beta runtime assets, setup packages, and operator guide for the non-genesis validator funding, staking, and activation flow.
+
 ## v8.0.18 - 2026-04-14
 
 - Aligned the bundled validator generator and runtime assets around the private WireGuard validator mesh so canonical setup packages and rendered validator configs stop drifting apart.

@@ -102,7 +102,7 @@ async function resetIndexedChainState() {
     const previousBlockHeight = previousBlockHeightRes.rows[0]?.max ? Number(previousBlockHeightRes.rows[0].max) : 0;
     await pool.query('BEGIN');
     try {
-        await pool.query('TRUNCATE TABLE transactions, blocks, validators_current, network_snapshots RESTART IDENTITY CASCADE');
+        await pool.query('TRUNCATE TABLE transactions, blocks, validators_current, network_snapshots, contracts RESTART IDENTITY CASCADE');
         await pool.query('COMMIT');
     }
     catch (error) {
@@ -255,6 +255,18 @@ app.register(async (api) => {
         const tx = txRes.rows[0];
         return {
             hash: tx.hash,
+            block_number: tx.block_number,
+            block_timestamp: tx.block_timestamp,
+            tx_index: tx.tx_index,
+            sender_address: tx.sender_address,
+            receiver_address: tx.receiver_address,
+            amount_nwei: tx.amount_nwei,
+            fee_nwei: tx.fee_nwei,
+            nonce: tx.nonce,
+            data: tx.data,
+            status: tx.status,
+            signature_algorithm: tx.signature_algorithm,
+            timestamp_unix: tx.timestamp_unix,
             blockNumber: tx.block_number,
             blockTimestamp: tx.block_timestamp,
             txIndex: tx.tx_index,
@@ -262,9 +274,6 @@ app.register(async (api) => {
             receiver: tx.receiver_address,
             amountNwei: tx.amount_nwei,
             feeNwei: tx.fee_nwei,
-            nonce: tx.nonce,
-            data: tx.data,
-            status: tx.status,
             signatureAlgorithm: tx.signature_algorithm,
             timestampUnix: tx.timestamp_unix,
             indexed: true,

@@ -138,7 +138,7 @@ grep -nE 'Handshake received|Received status|Peer disconnected|Failed to dial pe
 Example for validator `#5`:
 
 ```bash
-grep -n 'synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46' "$LOG" | tail -n 80
+grep -n 'synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f' "$LOG" | tail -n 80
 ```
 
 ## Show Listening Processes On Validator Ports

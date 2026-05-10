@@ -14,6 +14,7 @@ Superseded or one-off material lives in `archive/`.
 - `developer/testnet-beta-validator-debug-cheatsheet-windows.md`: live validator debug commands for Windows PowerShell
 - `developer/testnet-beta-validator-update-workflow.md`: source-of-truth and regeneration workflow for validator config changes
 - `operator/firewall-privilege-escalation.md`: sudo / `pkexec` notes for installer-driven firewall changes
+- `operator/non-genesis-validator-control-panel-setup.md`: step-by-step setup, funding, staking, and activation process for a non-genesis validator
 - `operator/public-testing-readiness-checklist.md`: production-readiness checklist before outside testers use the control panel
 - `reference/address-format.md`: Synergy address and node-address format reference
 

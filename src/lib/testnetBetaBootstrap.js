@@ -9,11 +9,11 @@ const TESTNET_ENDPOINTS = {
   sxcpApi: 'https://testbeta-sxcp-api.synergy-network.io',
 };
 const CANONICAL_VALIDATOR_PEERS = Object.freeze([
-  { address: 'synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra', host: '10.69.0.1', port: 5622 },
-  { address: 'synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu', host: '10.69.0.2', port: 5622 },
-  { address: 'synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu', host: '10.69.0.3', port: 5622 },
-  { address: 'synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49', host: '10.69.0.4', port: 5622 },
-  { address: 'synv11mvlgy72uq7kuh200qnxv67zrqjugz267k46', host: '10.69.0.5', port: 5622 },
+  { address: 'synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs', host: '10.69.0.1', port: 5622 },
+  { address: 'synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt', host: '10.69.0.2', port: 5622 },
+  { address: 'synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re', host: '10.69.0.3', port: 5622 },
+  { address: 'synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5', host: '10.69.0.4', port: 5622 },
+  { address: 'synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f', host: '10.69.0.5', port: 5622 },
 ]);
 const SENTRY_UPSTREAMS = Object.freeze({
   rpc_gateway: ['relay1.synergynode.xyz:5622', 'relay2.synergynode.xyz:5622'],

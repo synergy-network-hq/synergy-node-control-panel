@@ -296,7 +296,13 @@ while IFS=, read -r node_slot_id node_alias _ role node_type address_class _ _ _
   node_key_dir="$KEY_DIR/$node_slot_id"
   setup_package_file="$(resolve_setup_package_file "$node_slot_id" "$node_type" "$role" "$node_alias" || true)"
 
-  if [[ -n "$setup_package_file" && -f "$setup_package_file" ]]; then
+  if [[ -f "$node_key_dir/private.key" && "$FORCE" != "true" ]]; then
+    if [[ ! -f "$node_key_dir/public.key" ]]; then
+      echo "Skipping $node_slot_id (existing key directory is missing public.key). Use --force to regenerate." >&2
+      continue
+    fi
+    echo "Reusing existing keys for $node_slot_id"
+  elif [[ -n "$setup_package_file" && -f "$setup_package_file" ]]; then
     rm -rf "$node_key_dir"
     mkdir -p "$node_key_dir"
     populate_identity_from_setup_package \
@@ -308,12 +314,6 @@ while IFS=, read -r node_slot_id node_alias _ role node_type address_class _ _ _
       "$node_type" \
       "$address_class"
     echo "Loaded canonical identity for $node_slot_id from $(basename "$setup_package_file")"
-  elif [[ -f "$node_key_dir/private.key" && "$FORCE" != "true" ]]; then
-    if [[ ! -f "$node_key_dir/public.key" ]]; then
-      echo "Skipping $node_slot_id (existing key directory is missing public.key). Use --force to regenerate." >&2
-      continue
-    fi
-    echo "Reusing existing keys for $node_slot_id"
   else
     rm -rf "$node_key_dir"
     mkdir -p "$node_key_dir"

@@ -35,6 +35,16 @@ function normalizeHash(value) {
         return null;
     return String(value).trim().toLowerCase();
 }
+function asStringNumber(value) {
+    if (value === null || value === undefined || value === '')
+        return null;
+    return String(value);
+}
+function serializePayload(value) {
+    if (value === null || value === undefined || value === '')
+        return null;
+    return typeof value === 'string' ? value : JSON.stringify(value);
+}
 function timestampIso(value) {
     const numeric = Number(value || 0);
     if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -117,6 +127,11 @@ async function upsertBlock(block) {
     ]);
 }
 async function upsertTransaction(transaction, block, index) {
+    const txHash = normalizeHash(transaction.hash || transaction.tx_hash);
+    if (!txHash) {
+        logger.warn({ block: block.block_index, index, transaction }, 'Skipping transaction without hash');
+        return;
+    }
     await pool.query(`INSERT INTO transactions (
        hash, block_number, tx_index, sender_address, receiver_address, amount_nwei, fee_nwei,
        nonce, data, status, signature_algorithm, timestamp_unix
@@ -133,18 +148,18 @@ async function upsertTransaction(transaction, block, index) {
        status = EXCLUDED.status,
        signature_algorithm = EXCLUDED.signature_algorithm,
        timestamp_unix = EXCLUDED.timestamp_unix`, [
-        normalizeHash(transaction.hash),
+        txHash,
         block.block_index.toString(),
-        transaction.transaction_index ?? index,
-        normalizeAddress(transaction.sender || transaction.from),
-        normalizeAddress(transaction.receiver || transaction.to),
-        transaction.amount == null ? null : String(transaction.amount),
-        transaction.fee == null ? null : String(transaction.fee),
+        transaction.transaction_index ?? transaction.tx_index ?? index,
+        normalizeAddress(transaction.sender_address || transaction.sender || transaction.from),
+        normalizeAddress(transaction.receiver_address || transaction.receiver || transaction.to),
+        asStringNumber(transaction.amount_nwei ?? transaction.amount),
+        asStringNumber(transaction.fee_nwei ?? transaction.fee),
         transaction.nonce ?? null,
-        transaction.data ?? null,
+        serializePayload(transaction.data),
         transaction.status || 'confirmed',
-        transaction.signature_algorithm || null,
-        transaction.timestamp == null ? null : String(transaction.timestamp),
+        transaction.signature_algorithm || transaction.signatureAlgorithm || null,
+        asStringNumber(transaction.timestamp_unix ?? transaction.timestamp),
     ]);
 }
 async function fetchTransactionsForBlock(block) {

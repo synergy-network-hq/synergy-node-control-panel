@@ -3,8 +3,8 @@
 bootnodes = []
 seed_servers = []
 bootstrap_dns_records = []
-additional_dial_targets = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@10.69.0.1:5622", "snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@10.69.0.2:5622", "snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@10.69.0.3:5622", "snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@10.69.0.4:5622"]
-persistent_peers = ["snr://synv114cvu472rkdgpmzvkj70zk9tu8cqqlu4x9ra@10.69.0.1:5622", "snr://synv11wrj74dnkc802jfl4e7j7jd2azj2zk2eqvgu@10.69.0.2:5622", "snr://synv11v2r4gnp5py3ae5ft6646lxpqphdv58k8tyu@10.69.0.3:5622", "snr://synv118u0v2gxn4zew5j886hwz32tkaujsvhykf49@10.69.0.4:5622"]
+additional_dial_targets = ["snr://synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs@10.69.0.1:5622", "snr://synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt@10.69.0.2:5622", "snr://synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re@10.69.0.3:5622", "snr://synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5@10.69.0.4:5622"]
+persistent_peers = ["snr://synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs@10.69.0.1:5622", "snr://synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt@10.69.0.2:5622", "snr://synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re@10.69.0.3:5622", "snr://synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5@10.69.0.4:5622"]
 
 [testbeta]
 core_rpc = "https://testbeta-core-rpc.synergy-network.io"
