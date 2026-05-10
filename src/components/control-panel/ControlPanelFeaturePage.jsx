@@ -22,6 +22,12 @@ import {
 import ActionAuditStream from './ActionAuditStream';
 import JsonInspectorPanel from './JsonInspectorPanel';
 import { getFeatureScreenByKey } from './controlPanelFeatureScreens';
+import {
+  boostSyncAction,
+  registerWithSeedsAction,
+  rejoinNetworkAction,
+  restartNodeAction,
+} from './controlPanelActions';
 
 function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
@@ -449,6 +455,45 @@ function LiveRuntimeVisual({ feature, selectedNodeLive, liveStatus, networkStats
   );
 }
 
+function buildRuntimeActionsForFeature(featureKey, selectedNodeLive) {
+  const startAction = {
+    id: 'start-chain-sync',
+    label: selectedNodeLive?.is_running ? 'Resume Chain Sync' : 'Start Chain Sync',
+    variant: 'purple',
+  };
+  const common = {
+    refresh: { id: 'refresh-live-state', label: 'Refresh Live State', variant: 'blue', requiresNode: false },
+    readiness: { id: 'run-readiness-check', label: 'Run Readiness Check', variant: 'lime' },
+    logs: { id: 'inspect-recent-logs', label: 'Inspect Recent Logs', variant: 'blue' },
+    stop: { id: 'stop-node', label: 'Stop Node', variant: 'red' },
+    restart: { id: 'restart-node', label: 'Restart Runtime', variant: 'purple' },
+    boost: { id: 'boost-sync', label: 'Boost Sync', variant: 'lime' },
+    register: { id: 'register-seeds', label: 'Re-register Seeds', variant: 'blue' },
+    rejoin: { id: 'rejoin-network', label: 'Rejoin Network', variant: 'purple' },
+    preflight: { id: 'activation-preflight', label: 'Activation Preflight', variant: 'lime' },
+    stake: { id: 'stake-validator', label: 'Stake Validator', variant: 'purple' },
+    activate: { id: 'activate-validator', label: 'Activate Validator', variant: 'blue' },
+  };
+
+  const actionMap = {
+    alerts: [common.refresh, common.readiness, common.logs],
+    validator: [common.preflight, common.stake, common.activate, common.register],
+    security: [common.readiness, common.logs, common.refresh],
+    identity: [common.readiness, common.preflight, common.logs],
+    consensus: [common.refresh, common.readiness, common.register, startAction],
+    dag: [common.refresh, common.logs, common.boost],
+    transactions: [common.logs, common.readiness, common.refresh],
+    governance: [common.refresh, common.preflight, common.logs],
+    storage: [common.readiness, common.logs, common.refresh],
+    api: [common.refresh, common.readiness, common.logs],
+    maintenance: [common.restart, common.rejoin, common.boost, common.stop],
+    fleet: [common.refresh, common.rejoin, common.register],
+    compliance: [common.readiness, common.logs, common.refresh],
+  };
+
+  return actionMap[featureKey] || [common.refresh, startAction, common.readiness, common.stop];
+}
+
 export default function ControlPanelFeaturePage({ screenKey }) {
   const feature = getFeatureScreenByKey(screenKey);
   const {
@@ -506,11 +551,52 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         const response = await runNodeControlAction({ node: selectedNode, network, action: 'stop' });
         detail = response?.message || 'Node stop requested.';
         await refresh({ silent: true });
+      } else if (action.id === 'restart-node') {
+        detail = await restartNodeAction({ node: selectedNode, network });
+        await refresh({ silent: true });
+      } else if (action.id === 'boost-sync') {
+        detail = await boostSyncAction(selectedNode.id);
+        await refresh({ silent: true });
+      } else if (action.id === 'register-seeds') {
+        detail = await registerWithSeedsAction(selectedNode.id);
+        await refresh({ silent: true });
+      } else if (action.id === 'rejoin-network') {
+        detail = await rejoinNetworkAction({ node: selectedNode, network });
+        await refresh({ silent: true });
       } else if (action.id === 'run-readiness-check') {
         const report = await invoke('testbeta_get_node_readiness', { nodeId: selectedNode.id });
         detail = `Readiness ${report?.overall_status || 'unknown'}: ${formatNumber(report?.ready_count)} of ${formatNumber(report?.total_count)} checks passing.`;
+      } else if (action.id === 'inspect-recent-logs') {
+        const bundle = await invoke('testbeta_get_node_logs', { nodeId: selectedNode.id, lines: 40 });
+        const entries = Array.isArray(bundle?.entries) ? bundle.entries : [];
+        const latest = entries[entries.length - 1];
+        detail = entries.length
+          ? `Loaded ${formatNumber(entries.length)} log entries. Latest: ${latest?.level || 'INFO'} ${latest?.message || latest?.raw || 'runtime event'}.`
+          : 'No recent log entries were returned for the selected node.';
+      } else if (action.id === 'activation-preflight') {
+        const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: selectedNode.id });
+        const canActivate = result?.canActivate === true || result?.can_activate === true;
+        const ready = canActivate ? 'ready for activation' : 'not ready for activation';
+        detail = `Validator preflight is ${ready}. Stake ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.`;
+      } else if (action.id === 'stake-validator') {
+        if (selectedNode?.role_id !== 'validator') {
+          throw new Error('Stake Validator is only available on validator nodes.');
+        }
+        const result = await invoke('testbeta_stake_validator', { input: { nodeId: selectedNode.id } });
+        detail = result?.message || `Validator stake submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
+      } else if (action.id === 'activate-validator') {
+        if (selectedNode?.role_id !== 'validator') {
+          throw new Error('Activate Validator is only available on validator nodes.');
+        }
+        const result = await invoke('testbeta_activate_validator', {
+          input: {
+            nodeId: selectedNode.id,
+            displayName: selectedNode.display_label || selectedNode.role_display_name || 'Validator',
+          },
+        });
+        detail = result?.message || `Validator activation submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else {
-        detail = `${action.label} is visible in the product map, but no runtime command exists for it yet. It was not executed.`;
+        throw new Error(`${action.label} is not wired to a runtime command.`);
       }
 
       setNotice(detail);
@@ -545,12 +631,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
   };
 
   const modeCopy = feature.modeCopy?.[viewMode] || feature.description;
-  const runtimeActions = [
-    { id: 'refresh-live-state', label: 'Refresh Live State', variant: 'blue', requiresNode: false },
-    { id: 'start-chain-sync', label: selectedNodeLive?.is_running ? 'Resume Chain Sync' : 'Start Chain Sync', variant: 'purple' },
-    { id: 'run-readiness-check', label: 'Run Readiness Check', variant: 'lime' },
-    { id: 'stop-node', label: 'Stop Node', variant: 'red' },
-  ];
+  const runtimeActions = buildRuntimeActionsForFeature(feature.key, selectedNodeLive);
 
   return (
     <div className="cp-page-stack cp-feature-page">
@@ -608,7 +689,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
 
           <div className="cp-split-grid">
             <FeatureChecklist title="Live readiness checklist" items={liveChecklist} />
-            <PanelCard title="Operator action center" detail="These buttons call the control service. Product-map actions without a runtime command are not faked.">
+            <PanelCard title={`${feature.label} action center`} detail="These controls call real control-service commands or return a clear runtime error.">
               <div className="cp-feature-action-grid">
                 {runtimeActions.map((action) => (
                   <SNRGButton

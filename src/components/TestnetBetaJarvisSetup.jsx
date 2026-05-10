@@ -1035,7 +1035,9 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           pauseMs: 220,
         },
         {
-          text: 'I created the private workspace and prepared the node wallet. Next I will start the runtime and watch chain sync before dashboard operations are enabled.',
+          text: selectedRole.id === 'validator'
+            ? 'I created this validator workspace directly on this machine, including the node wallet, runtime config, bootstrap manifest, and funding manifest. No separate setup package was needed for this standard flow.'
+            : 'I created the private workspace and prepared the node wallet. Next I will start the runtime and watch chain sync before dashboard operations are enabled.',
           typingMs: 980,
         },
       ]);
@@ -1368,7 +1370,11 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           setDirectoryChoice(trimmedValue);
         }
       }
-      await queueJarvisMessage('Everything is ready. I will create the private folder, generate the node wallet, write the setup files, and prepare the required 50,000 SNRG stake for this node.');
+      await queueJarvisMessage(
+        selectedRoleId === 'validator'
+          ? 'Everything is ready. I will create the private folder, generate the validator wallet, write the setup files, and prepare the funding manifest for the required 50,000 SNRG stake. You will still fund, stake, and activate from the validator detail page after sync.'
+          : 'Everything is ready. I will create the private folder, generate the node wallet, write the setup files, and prepare the funding manifest for this node.',
+      );
       setPhase('ready_provision');
       return;
     }

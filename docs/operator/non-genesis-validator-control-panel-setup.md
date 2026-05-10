@@ -4,19 +4,31 @@ This guide explains how to bring a new validator onto Testnet-Beta after genesis
 
 The current validator lifecycle in the control panel is:
 
-1. Install or import a validator workspace.
+1. Let Jarvis create a validator workspace on the target machine, or import a package that was prepared elsewhere.
 2. Start the node and let it sync close to chain head.
 3. Register the node with the seed servers.
 4. Fund the validator address with liquid SNRG.
 5. Bond the required validator stake.
 6. Activate the validator so it can join consensus.
 
+## Jarvis Workspace Creation vs Setup Packages
+
+For a normal new non-genesis validator, Jarvis creates the needed workspace during initial setup. You do not need to manually create or import a setup package first.
+
+Use the normal Jarvis setup flow when you are sitting on the machine that will run the validator:
+
+1. Choose the `validator` role.
+2. Provide the validator's public IP address or DNS name.
+3. Confirm the workspace folder.
+4. Let Jarvis create the node wallet, `node.toml`, `peers.toml`, bootstrap manifest, funding manifest, and local workspace files.
+
+A setup package is only needed when the validator identity and config were generated somewhere else and must be imported into this machine. That is the genesis/ceremony style flow. The five genesis validator packages under the bundled runtime are examples of that import flow, and they must not be reused for a new public validator.
+
 ## Prerequisites
 
 - A current Synergy Node Control Panel build.
 - A machine with a stable public IP or DNS name.
-- A validator setup package for the new non-genesis validator.
-- Open inbound P2P on the validator port shown in the setup package.
+- Open inbound P2P on the validator port shown by Jarvis. The default public validator P2P port is `5622` unless the setup flow assigns another port.
 - Enough SNRG in the faucet or funding wallet to send the required stake.
 - Access to the public RPC endpoint: `https://testbeta-core-rpc.synergy-network.io`.
 
@@ -48,17 +60,32 @@ For a Linux validator installed by the current packages, the managed workspace i
 ~/.synergy/testnet-beta/nodes/validator-workspace
 ```
 
-## 2. Install Or Import The Validator Workspace
+## 2. Create Or Import The Validator Workspace
+
+### Standard Jarvis Flow
 
 1. Open Synergy Node Control Panel.
 2. Go to the setup or node installation flow.
-3. Select the validator setup package for the new validator.
-4. Install the selected node slot.
-5. Open the node detail page for that validator.
-6. Confirm the role is `validator`.
-7. Confirm the node address starts with `synv1`.
+3. Choose `validator`.
+4. Review the detected machine details.
+5. Enter the public IP address or DNS name that other peers can reach.
+6. Confirm the workspace folder.
+7. Choose `Provision Node`.
+8. Open the node detail page for that validator.
+9. Confirm the role is `validator`.
+10. Confirm the node address starts with `synv1`.
 
-Do not reuse one of the five genesis validator packages for a new validator. A new non-genesis validator needs its own validator identity and setup package.
+### Package Import Flow
+
+Use this only when an approved package already exists.
+
+1. Open Synergy Node Control Panel.
+2. Choose the package import or ceremony setup flow.
+3. Select the approved setup package JSON for this machine.
+4. Import the package.
+5. Confirm the role, address, ports, and public endpoint before starting the node.
+
+Do not reuse one of the five genesis validator packages for a new validator. A new non-genesis validator needs its own validator identity. Jarvis creates that identity in the standard flow; an imported package must contain a separate identity that was generated specifically for that new validator.
 
 ## 3. Start And Sync
 

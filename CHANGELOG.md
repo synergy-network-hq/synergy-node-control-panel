@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v11.0.0 - 2026-05-10
+
+- Clarified Jarvis setup so normal non-genesis validator provisioning creates the workspace directly on the validator machine and does not require importing a setup package first.
+- Updated the help center and operator guide with the current non-genesis validator sequence: provision, sync, seed-register, fund, stake, and activate.
+- Replaced the mirrored feature-screen action sets with screen-specific runtime actions and corrected validator activation preflight readiness handling in the dashboard and node detail views.
+
 ## v10.1.8 - 2026-05-10
 
 - Enabled activated non-genesis validators to enter the consensus membership instead of being capped out by the five-genesis-validator release configuration.

@@ -265,7 +265,8 @@ export default function TestnetBetaNodeDetailRevamp() {
         message = await registerWithSeedsAction(node.id);
       } else if (kind === 'activation-preflight') {
         const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: node.id });
-        const ready = result?.canActivate ? 'ready for activation' : 'not ready for activation';
+        const canActivate = result?.canActivate === true || result?.can_activate === true;
+        const ready = canActivate ? 'ready for activation' : 'not ready for activation';
         message = `Validator preflight is ${ready}. Stake ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.`;
       } else if (kind === 'stake-validator') {
         const result = await invoke('testbeta_stake_validator', {

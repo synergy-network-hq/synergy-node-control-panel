@@ -22,6 +22,15 @@ function slugifyHeading(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+const NON_GENESIS_VALIDATOR_STEPS = [
+  'Open Jarvis setup on the machine that will run the validator.',
+  'Choose the validator role. Jarvis creates the workspace directly; a separate setup package is not required for the normal flow.',
+  'Enter the public IP address or DNS name that peers can reach, then confirm the workspace folder.',
+  'Provision the node, open the validator detail page, and confirm the generated address starts with synv1.',
+  'Start the node, re-register with seed servers, and wait until sync lag is 32 blocks or less.',
+  'Fund the validator address with at least 50,000 SNRG, run Activation Preflight, then stake and activate the validator.',
+];
+
 function HelpArticlesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -193,43 +202,46 @@ function HelpArticlesPage() {
 
       <div className="help-brief-grid">
         <article className="help-brief-card">
-          <span className="help-brief-label">Bootstrap Sequence</span>
-          <strong className="help-brief-title">Machine access is external to the panel</strong>
+          <span className="help-brief-label">Validator Setup</span>
+          <strong className="help-brief-title">Jarvis creates new validator workspaces</strong>
           <p>
-            The control panel assumes machine access is already in place. Use bindings,
-            {' '}
-            <code>status</code>
-            {' '}
-            and RPC checks to validate the fleet instead of trying to manage network overlays here.
+            For a normal non-genesis validator, choose the validator role in Jarvis and enter the public endpoint.
+            Jarvis generates the wallet, config, bootstrap manifest, and workspace files on that machine.
           </p>
         </article>
         <article className="help-brief-card">
-          <span className="help-brief-label">Binding Model</span>
-          <strong className="help-brief-title">Node slots vs physical machines</strong>
+          <span className="help-brief-label">Package Imports</span>
+          <strong className="help-brief-title">Packages are for approved imports</strong>
           <p>
-            Node detail pages operate on logical
-            {' '}
-            <code>node-##</code>
-            {' '}
-            slots. Inventory rows also show the backing physical
-            {' '}
-            <code>machine-##</code>
-            {' '}
-            host for each slot.
+            Use a setup package only when the validator identity was created somewhere else. Do not reuse one of
+            the five genesis validator packages for a public non-genesis validator.
           </p>
         </article>
         <article className="help-brief-card">
-          <span className="help-brief-label">Updates</span>
-          <strong className="help-brief-title">Signed release metadata required</strong>
+          <span className="help-brief-label">Activation</span>
+          <strong className="help-brief-title">Sync, fund, stake, then activate</strong>
           <p>
-            Installed apps poll the published
+            The validator must be reachable, synced near chain head, funded at its
             {' '}
-            <code>latest.json</code>
+            <code>synv1</code>
             {' '}
-            release metadata. When a newer signed build exists, the header shows an install action.
+            address, bonded with 50,000 SNRG, and activated before it participates in consensus.
           </p>
         </article>
       </div>
+
+      <article className="help-article">
+        <h3>Set Up A New Non-Genesis Validator</h3>
+        <p>
+          Use this path when the machine is becoming a brand-new public validator. The import flow is separate
+          and should only be used for an approved package generated outside this machine.
+        </p>
+        <ol>
+          {NON_GENESIS_VALIDATOR_STEPS.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      </article>
 
       {manualSections.length > 0 ? (
         <div className="help-section-nav">
