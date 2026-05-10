@@ -1,11 +1,16 @@
 use crate::app_context::AppContext;
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use flate2::read::GzDecoder;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
+use pbkdf2::pbkdf2_hmac;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
@@ -55,7 +60,7 @@ const TESTNET_BETA_MESH_SETTLE_SECS: usize = 15;
 const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 15;
 const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 8;
 const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 30;
-const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 5;
+const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 7;
 const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 4;
 const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
@@ -434,6 +439,8 @@ pub struct TestnetBetaSetupInput {
     pub public_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_address_override: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_passphrase: Option<String>,
     #[serde(default)]
     pub skip_canonical_manifests: bool,
 }
@@ -743,6 +750,7 @@ pub async fn testbeta_import_ceremony_package(
                 .runtime_identity
                 .as_ref()
                 .map(|identity| identity.address.clone()),
+            identity_passphrase: None,
             skip_canonical_manifests: true,
         })
         .await?
@@ -1509,10 +1517,10 @@ pub async fn testbeta_run_register_with_seeds(node_id: String) -> Result<String,
         .cloned()
         .ok_or_else(|| format!("Node not found: {}", node_id))?;
 
-    register_node_with_seeds_async(&state.network_profile, &node).await?;
+    let registered_count = register_node_with_seeds_async(&state.network_profile, &node).await?;
     Ok(format!(
-        "Node '{}' registered with all configured seed servers.",
-        node.display_label
+        "Node '{}' registered with {} reachable seed server(s).",
+        node.display_label, registered_count
     ))
 }
 
@@ -1564,8 +1572,10 @@ pub async fn testbeta_stake_validator(
         .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
     let amount_snrg = input.amount_snrg.unwrap_or(MINIMUM_STAKE_SNRG);
     let preflight = build_validator_activation_preflight(&state, &node).await?;
-    if !preflight.can_stake && preflight.staked_balance_nwei.unwrap_or(0) < preflight.required_stake_nwei {
-        return Err("Validator wallet does not have enough liquid SNRG to bond the required stake.".to_string());
+    if !preflight.can_stake
+        && preflight.staked_balance_nwei.unwrap_or(0) < preflight.required_stake_nwei
+    {
+        return Err(validator_stake_preflight_error(&preflight));
     }
 
     let rpc_endpoint = rpc_endpoint_for_workspace(&node)?;
@@ -1577,7 +1587,12 @@ pub async fn testbeta_stake_validator(
         &client,
         &rpc_endpoint,
         "synergy_stakeTokens",
-        json!([node.node_address, node.node_address, TOKEN_SYMBOL, amount_snrg]),
+        json!([
+            node.node_address,
+            node.node_address,
+            TOKEN_SYMBOL,
+            amount_snrg
+        ]),
     )
     .await?;
     let tx_hash = parse_lifecycle_tx_hash(&response)?;
@@ -1592,6 +1607,34 @@ pub async fn testbeta_stake_validator(
         ),
         preflight: refreshed,
     })
+}
+
+fn validator_stake_preflight_error(preflight: &ValidatorActivationPreflightResult) -> String {
+    let priority_checks = [
+        "validator-role",
+        "local-rpc",
+        "local-signing-key",
+        "runtime-wallet-loaded",
+        "liquid-balance",
+    ];
+
+    for id in priority_checks {
+        if let Some(check) = preflight
+            .checks
+            .iter()
+            .find(|check| check.id == id && check.status != "pass")
+        {
+            return match check.suggestion.as_deref() {
+                Some(suggestion) => format!(
+                    "Validator is not ready to stake: {}. {}",
+                    check.label, suggestion
+                ),
+                None => format!("Validator is not ready to stake: {}.", check.label),
+            };
+        }
+    }
+
+    "Validator wallet does not have enough liquid SNRG to bond the required stake.".to_string()
 }
 
 pub async fn testbeta_activate_validator(
@@ -1671,6 +1714,11 @@ async fn build_validator_activation_preflight(
         json!([node.node_address, TOKEN_SYMBOL]),
     )
     .await;
+    let local_signing_key_ready = local_validator_signing_key_ready(node);
+    let runtime_wallet_ready =
+        query_runtime_wallet_ready(&client, &rpc_endpoint, &node.node_address)
+            .await
+            .unwrap_or(false);
 
     let role_ok = role_supports_validator_registration(&node.role_id);
     let validator_mesh_only = provisioned_node_uses_private_validator_mesh(node);
@@ -1738,6 +1786,20 @@ async fn build_validator_activation_preflight(
         "Send 50,000 SNRG to the validator wallet from Synergy Wallet, then refresh.",
     ));
     checks.push(preflight_check(
+        "local-signing-key",
+        "Local signing key",
+        local_signing_key_ready,
+        "The validator workspace has the local private signing key for this validator address.",
+        "Re-run setup with the validator address engine or import the correct validator identity before staking.",
+    ));
+    checks.push(preflight_check(
+        "runtime-wallet-loaded",
+        "Runtime wallet loaded",
+        runtime_wallet_ready,
+        "The running validator RPC has imported the validator wallet and can sign stake transactions.",
+        "Restart or resume chain sync after updating the Control Panel so the runtime imports keys/identity.json and keys/private.key.",
+    ));
+    checks.push(preflight_check(
         "bonded-stake",
         "Bonded stake",
         staked >= required_stake_nwei,
@@ -1745,10 +1807,16 @@ async fn build_validator_activation_preflight(
         "Run Stake Validator after wallet funding is visible.",
     ));
 
-    let can_stake = role_ok && rpc_ok && liquid >= required_stake_nwei;
+    let can_stake = role_ok
+        && rpc_ok
+        && local_signing_key_ready
+        && runtime_wallet_ready
+        && liquid >= required_stake_nwei;
     let can_activate = role_ok
         && public_host_ok
         && rpc_ok
+        && local_signing_key_ready
+        && runtime_wallet_ready
         && sync_gap_ok
         && peer_ok
         && seed_ok
@@ -1765,6 +1833,44 @@ async fn build_validator_activation_preflight(
         required_stake_nwei,
         checks,
     })
+}
+
+fn local_validator_signing_key_ready(node: &TestnetBetaProvisionedNode) -> bool {
+    let workspace = PathBuf::from(&node.workspace_directory);
+    let identity_path = workspace.join("keys").join("identity.json");
+    let private_key_path = workspace.join("keys").join("private.key");
+
+    let identity_address_matches = fs::read_to_string(identity_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<Value>(&contents).ok())
+        .and_then(|identity| {
+            identity
+                .get("address")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .map(|address| address == node.node_address)
+        .unwrap_or(false);
+
+    let private_key_present = fs::read_to_string(private_key_path)
+        .map(|contents| !contents.trim().is_empty())
+        .unwrap_or(false);
+
+    identity_address_matches && private_key_present
+}
+
+async fn query_runtime_wallet_ready(
+    client: &Client,
+    rpc_endpoint: &str,
+    address: &str,
+) -> Result<bool, String> {
+    let value =
+        query_rpc_value(client, rpc_endpoint, "synergy_getWallet", json!([address])).await?;
+    Ok(value
+        .get("address")
+        .and_then(Value::as_str)
+        .map(|wallet_address| wallet_address == address)
+        .unwrap_or(false))
 }
 
 fn rpc_endpoint_for_workspace(node: &TestnetBetaProvisionedNode) -> Result<String, String> {
@@ -1818,7 +1924,12 @@ fn parse_rpc_balance_u64(value: Value) -> Option<u64> {
             TOKEN_SYMBOL,
         ]
         .iter()
-        .find_map(|key| value.get(*key).cloned().and_then(|entry| parse_rpc_u64(entry).ok()))
+        .find_map(|key| {
+            value
+                .get(*key)
+                .cloned()
+                .and_then(|entry| parse_rpc_u64(entry).ok())
+        })
     })
 }
 
@@ -2058,6 +2169,18 @@ pub async fn testbeta_setup_node(
     let data_directory = workspace_directory.join("data");
     let manifests_directory = workspace_directory.join("manifests");
 
+    let identity_passphrase = input
+        .identity_passphrase
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if role.id == "validator" && identity_passphrase.map(str::len).unwrap_or(0) < 8 {
+        return Err(
+            "Validator setup requires an identity encryption passphrase with at least 8 characters."
+                .to_string(),
+        );
+    }
+
     for directory in [
         &workspace_directory,
         &config_directory,
@@ -2070,7 +2193,7 @@ pub async fn testbeta_setup_node(
             .map_err(|error| format!("Failed to create {}: {error}", directory.display()))?;
     }
 
-    let node_identity = generate_node_wallet(&role, &keys_directory)?;
+    let node_identity = generate_node_wallet(&role, &keys_directory, identity_passphrase)?;
     let effective_node_address = input
         .node_address_override
         .as_deref()
@@ -2078,6 +2201,7 @@ pub async fn testbeta_setup_node(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| node_identity.wallet.address.clone());
+    validate_node_address_for_role(&role, &effective_node_address)?;
     // Use the caller-supplied public host when provided. Do not silently fall
     // back to auto-detection when an explicit public endpoint is malformed.
     let public_host_override = input
@@ -7003,7 +7127,7 @@ fn read_peers_toml_additional_targets(peers_toml_path: &Path) -> Vec<String> {
 async fn register_node_with_seeds_async(
     network_profile: &TestnetBetaNetworkProfile,
     node: &TestnetBetaProvisionedNode,
-) -> Result<(), String> {
+) -> Result<usize, String> {
     let public_host = match node
         .public_host
         .as_deref()
@@ -7023,14 +7147,17 @@ async fn register_node_with_seeds_async(
         .map_err(|error| format!("Failed to build HTTP client: {error}"))?;
 
     let mut errors = Vec::new();
+    let mut registered_count = 0usize;
     for seed in &network_profile.seed_servers {
         if let Err(error) = post_seed_json(&client, seed, "/peers/register", &payload).await {
             errors.push(error);
+        } else {
+            registered_count += 1;
         }
     }
 
-    if errors.is_empty() {
-        Ok(())
+    if registered_count > 0 {
+        Ok(registered_count)
     } else {
         Err(format!(
             "Seed registration failed for {} endpoint(s): {}",
@@ -7114,46 +7241,85 @@ fn generate_wallet_files(
     fs::create_dir_all(wallet_directory)
         .map_err(|error| format!("Failed to create {}: {error}", wallet_directory.display()))?;
     let identity = generate_identity(address_type)?;
-    persist_identity(wallet_directory, label, identity)
+    persist_identity(wallet_directory, label, identity, None)
 }
 
 fn generate_node_wallet(
     role: &TestnetBetaRoleProfile,
     keys_directory: &Path,
+    identity_passphrase: Option<&str>,
 ) -> Result<GeneratedWalletFiles, String> {
-    let address_type = match role.class_id {
+    let address_type = node_address_type_for_role(role);
+
+    let label = format!("{} Reward Wallet", role.display_name);
+    let identity = generate_identity(address_type)?;
+    Ok(GeneratedWalletFiles {
+        wallet: persist_identity(keys_directory, &label, identity, identity_passphrase)?,
+    })
+}
+
+fn node_address_type_for_role(role: &TestnetBetaRoleProfile) -> AddressType {
+    match role.class_id {
         1 => AddressType::NodeClass1,
         2 => AddressType::NodeClass2,
         3 => AddressType::NodeClass3,
         4 => AddressType::NodeClass4,
         5 => AddressType::NodeClass5,
         _ => AddressType::WalletPrimary,
-    };
+    }
+}
 
-    let label = format!("{} Reward Wallet", role.display_name);
-    let identity = generate_identity(address_type)?;
-    Ok(GeneratedWalletFiles {
-        wallet: persist_identity(keys_directory, &label, identity)?,
-    })
+fn validate_node_address_for_role(
+    role: &TestnetBetaRoleProfile,
+    address: &str,
+) -> Result<(), String> {
+    let expected_prefix = node_address_type_for_role(role).prefix();
+    if address.starts_with(expected_prefix) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} requires an address with the '{}' prefix. The generated or imported address '{}' has the wrong address type.",
+            role.display_name, expected_prefix, address
+        ))
+    }
 }
 
 fn persist_identity(
     directory: &Path,
     label: &str,
     identity: SynergyIdentity,
+    identity_passphrase: Option<&str>,
 ) -> Result<TestnetBetaWalletRecord, String> {
     let public_key_path = directory.join("public.key");
     let private_key_path = directory.join("private.key");
     let metadata_path = directory.join("identity.json");
+    let encrypted_private_key_path = directory.join("private.key.enc");
+    let address_path = directory.join("address.txt");
 
     write_file(&public_key_path, identity.public_key.as_str())?;
-    write_file(&private_key_path, identity.private_key.as_str())?;
+    write_private_key_file(&private_key_path, identity.private_key.as_str())?;
+    write_file(&address_path, identity.address.as_str())?;
+    let encrypted_private_key_written = if let Some(passphrase) = identity_passphrase {
+        write_encrypted_private_key_export(
+            &encrypted_private_key_path,
+            &identity.address,
+            identity.private_key.as_str(),
+            passphrase,
+        )?;
+        true
+    } else {
+        false
+    };
     let metadata_contents = serde_json::to_string_pretty(&serde_json::json!({
         "label": label,
         "address": identity.address,
         "address_type": identity.address_type,
         "algorithm": identity.algorithm,
         "created_at": identity.created_at,
+        "public_key": identity.public_key,
+        "private_key_path": "private.key",
+        "encrypted_private_key_path": if encrypted_private_key_written { Some("private.key.enc") } else { None::<&str> },
+        "passphrase_required": encrypted_private_key_written,
     }))
     .map_err(|error| format!("Failed to serialize identity metadata: {error}"))?;
     write_file(&metadata_path, &metadata_contents)?;
@@ -7165,6 +7331,57 @@ fn persist_identity(
         public_key_path: public_key_path.to_string_lossy().to_string(),
         private_key_path: private_key_path.to_string_lossy().to_string(),
     })
+}
+
+fn write_private_key_file(path: &Path, contents: &str) -> Result<(), String> {
+    write_file(path, contents)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|error| {
+            format!(
+                "Failed to restrict private key permissions for {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn write_encrypted_private_key_export(
+    path: &Path,
+    address: &str,
+    private_key: &str,
+    passphrase: &str,
+) -> Result<(), String> {
+    let salt: [u8; 16] = rand::random();
+    let nonce: [u8; 12] = rand::random();
+    let mut key = [0u8; 32];
+    let iterations = 210_000u32;
+    pbkdf2_hmac::<Sha256>(passphrase.as_bytes(), &salt, iterations, &mut key);
+
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|error| format!("Failed to initialize validator key encryption: {error}"))?;
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce), private_key.as_bytes())
+        .map_err(|error| format!("Failed to encrypt validator private key: {error:?}"))?;
+
+    let encrypted = json!({
+        "version": 1,
+        "address": address,
+        "cipher": "AES-256-GCM",
+        "kdf": "PBKDF2-HMAC-SHA256",
+        "iterations": iterations,
+        "salt": general_purpose::STANDARD.encode(salt),
+        "nonce": general_purpose::STANDARD.encode(nonce),
+        "ciphertext": general_purpose::STANDARD.encode(ciphertext),
+        "created_at": Utc::now().to_rfc3339(),
+    });
+    let contents = serde_json::to_string_pretty(&encrypted)
+        .map_err(|error| format!("Failed to serialize encrypted private key: {error}"))?;
+    write_private_key_file(path, &contents)
 }
 
 fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
@@ -8706,6 +8923,7 @@ mod tests {
                     intended_directory: None,
                     public_host: None,
                     node_address_override: None,
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
@@ -8775,6 +8993,34 @@ mod tests {
                     .filter_map(toml::Value::as_str)
                     .any(|address| address == result.node.node_address),
                 "new non-genesis validators must not auto-activate themselves into the live validator set"
+            );
+            let workspace = PathBuf::from(&result.node.workspace_directory);
+            let identity_json = fs::read_to_string(workspace.join("keys").join("identity.json"))
+                .expect("identity.json should exist");
+            let identity_value: Value =
+                serde_json::from_str(&identity_json).expect("identity.json should parse");
+            assert_eq!(
+                identity_value.get("address").and_then(Value::as_str),
+                Some(result.node.node_address.as_str())
+            );
+            assert!(
+                identity_value
+                    .get("public_key")
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty()),
+                "identity metadata should include the validator public key"
+            );
+            assert!(
+                fs::read_to_string(workspace.join("keys").join("private.key"))
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false),
+                "validator workspace should carry the local signing private key"
+            );
+            assert!(
+                fs::read_to_string(workspace.join("keys").join("private.key.enc"))
+                    .map(|value| value.contains("AES-256-GCM"))
+                    .unwrap_or(false),
+                "validator workspace should carry an encrypted private key export"
             );
 
             let bootnodes = node_value
@@ -8980,6 +9226,29 @@ mod tests {
     }
 
     #[test]
+    fn setup_node_requires_validator_identity_passphrase() {
+        with_temp_home(|_| {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let error = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Validator Without Passphrase".to_string()),
+                    intended_directory: None,
+                    public_host: Some("93.184.216.38".to_string()),
+                    node_address_override: None,
+                    identity_passphrase: None,
+                    skip_canonical_manifests: false,
+                }))
+                .expect_err("validator setup should require passphrase");
+
+            assert!(
+                error.contains("identity encryption passphrase"),
+                "unexpected error: {error}"
+            );
+        });
+    }
+
+    #[test]
     fn setup_node_rejects_invalid_public_host_override_for_non_genesis_validator() {
         with_temp_home(|_| {
             let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
@@ -8990,6 +9259,7 @@ mod tests {
                     intended_directory: None,
                     public_host: Some("not a host".to_string()),
                     node_address_override: None,
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: false,
                 }))
                 .expect_err("invalid public host should fail before provisioning");
@@ -9012,6 +9282,7 @@ mod tests {
                     intended_directory: None,
                     public_host: Some("10.69.0.20".to_string()),
                     node_address_override: None,
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: false,
                 }))
                 .expect_err("private validator host should fail before provisioning");
@@ -9034,12 +9305,36 @@ mod tests {
                     intended_directory: None,
                     public_host: Some("203.0.113.20".to_string()),
                     node_address_override: None,
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: false,
                 }))
                 .expect_err("reserved validator host should fail before provisioning");
 
             assert!(
                 error.contains("publicly routable"),
+                "unexpected error: {error}"
+            );
+        });
+    }
+
+    #[test]
+    fn setup_node_rejects_validator_address_override_with_wallet_prefix() {
+        with_temp_home(|_| {
+            let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+            let error = runtime
+                .block_on(testbeta_setup_node(TestnetBetaSetupInput {
+                    role_id: "validator".to_string(),
+                    display_label: Some("Wrong Address Type".to_string()),
+                    intended_directory: None,
+                    public_host: Some("93.184.216.39".to_string()),
+                    node_address_override: Some("syns1walletaddresswrongtype".to_string()),
+                    identity_passphrase: Some("test-passphrase".to_string()),
+                    skip_canonical_manifests: false,
+                }))
+                .expect_err("validator address override should require synv1 prefix");
+
+            assert!(
+                error.contains("wrong address type"),
                 "unexpected error: {error}"
             );
         });
@@ -9057,6 +9352,7 @@ mod tests {
                     intended_directory: None,
                     public_host: None,
                     node_address_override: Some(override_address.clone()),
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
@@ -9292,6 +9588,7 @@ public_address = "62.146.182.207:5622"
                     intended_directory: None,
                     public_host: Some("93.184.216.34".to_string()),
                     node_address_override: None,
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: true,
                 }))
                 .expect("setup should succeed");
@@ -9929,6 +10226,7 @@ esac
                     intended_directory: None,
                     public_host: Some("93.184.216.35".to_string()),
                     node_address_override: None,
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: false,
                 }))
                 .expect("setup should succeed");
@@ -10074,6 +10372,7 @@ EOF
                     intended_directory: None,
                     public_host: Some("93.184.216.36".to_string()),
                     node_address_override: None,
+                    identity_passphrase: Some("test-passphrase".to_string()),
                     skip_canonical_manifests: false,
                 }))
                 .expect("first setup should succeed");
@@ -10084,6 +10383,7 @@ EOF
                     intended_directory: None,
                     public_host: None,
                     node_address_override: None,
+                    identity_passphrase: None,
                     skip_canonical_manifests: false,
                 }))
                 .expect("second setup should succeed");

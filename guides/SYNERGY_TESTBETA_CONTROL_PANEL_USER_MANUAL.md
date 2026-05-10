@@ -1,7 +1,7 @@
 # Synergy Node Control Panel User Manual
 
-Version: 2026-03-31
-Applies to: Synergy Node Control Panel `5.9.0` for Synergy Testnet-Beta
+Version: 2026-05-10
+Applies to: Synergy Node Control Panel `11.0.1` or newer for Synergy Testnet-Beta
 
 ## 1. Network Baseline
 
@@ -67,6 +67,8 @@ Jarvis switches into Testnet-Beta ceremony mode and prompts for the role to inst
 
 Only use the exact file assigned to the machine being provisioned.
 
+Normal non-genesis validator setup does not use this package-import flow. Use Jarvis standard setup on the validator machine instead.
+
 ## 6. What Jarvis Stages
 
 After a successful import, the workspace contains the approved Testnet-Beta launch data for that role:
@@ -100,6 +102,16 @@ For `validator` imports, Genesis Setup is the runtime owner. Do not also start a
 - Confirm the imported validator address matches the assignment from the Genesis Dashboard.
 - Confirm the workspace carries both `genesis.json` and `operational-manifest.json` before first start.
 - Start only after bootnodes and seeds are already healthy.
+
+### Non-Genesis Validator
+
+- Use Jarvis standard setup, not Genesis Setup.
+- Choose the validator role on the machine that will run the validator.
+- Enter the public IP address or DNS name that peers can reach.
+- Set an identity encryption passphrase when Jarvis asks for it.
+- Jarvis generates a validator-class `synv1` address, local signing key, encrypted key export, node config, peer config, and funding manifest.
+- Start the validator, re-register with seed servers, and let it sync near chain head before staking.
+- Fund the generated `synv1` address with at least `50,000 SNRG`, then run Activation Preflight, Stake Validator, and Activate Validator from the validator detail page.
 
 ### RPC Gateway
 

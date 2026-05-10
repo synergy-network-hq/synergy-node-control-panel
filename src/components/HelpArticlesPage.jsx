@@ -24,11 +24,12 @@ function slugifyHeading(value) {
 
 const NON_GENESIS_VALIDATOR_STEPS = [
   'Open Jarvis setup on the machine that will run the validator.',
-  'Choose the validator role. Jarvis creates the workspace directly; a separate setup package is not required for the normal flow.',
+  'Choose the validator role. Jarvis creates the workspace directly; a setup package is not required for a normal new validator.',
   'Enter the public IP address or DNS name that peers can reach, then confirm the workspace folder.',
+  'Enter an identity encryption passphrase when Jarvis asks for it. Jarvis uses the address engine to generate a validator-class synv1 address and local signing key.',
   'Provision the node, open the validator detail page, and confirm the generated address starts with synv1.',
   'Start the node, re-register with seed servers, and wait until sync lag is 32 blocks or less.',
-  'Fund the validator address with at least 50,000 SNRG, run Activation Preflight, then stake and activate the validator.',
+  'Fund the validator address with at least 50,000 SNRG, run Activation Preflight, then run Stake Validator and Activate Validator.',
 ];
 
 function HelpArticlesPage() {
@@ -205,8 +206,9 @@ function HelpArticlesPage() {
           <span className="help-brief-label">Validator Setup</span>
           <strong className="help-brief-title">Jarvis creates new validator workspaces</strong>
           <p>
-            For a normal non-genesis validator, choose the validator role in Jarvis and enter the public endpoint.
-            Jarvis generates the wallet, config, bootstrap manifest, and workspace files on that machine.
+            For a normal non-genesis validator, choose the validator role in Jarvis, enter the public endpoint,
+            and set the identity passphrase. Jarvis generates the validator address, key files, config,
+            bootstrap manifest, and workspace files on that machine.
           </p>
         </article>
         <article className="help-brief-card">

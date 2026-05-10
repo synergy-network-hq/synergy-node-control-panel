@@ -376,6 +376,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [publicHost, setPublicHost] = useState('');
   const [directoryChoice, setDirectoryChoice] = useState('');
+  const [identityPassphrase, setIdentityPassphrase] = useState('');
   const [provisionResult, setProvisionResult] = useState(null);
   const [ceremonyPackagePath, setCeremonyPackagePath] = useState('');
   const [ceremonyPackagePreview, setCeremonyPackagePreview] = useState(null);
@@ -985,6 +986,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           displayLabel: selectedRole.display_name,
           intendedDirectory: directoryChoice || null,
           publicHost: publicHost || null,
+          identityPassphrase: selectedRole.id === 'validator' ? identityPassphrase || null : null,
         },
       });
 
@@ -1067,6 +1069,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     }
   }, [
     directoryChoice,
+    identityPassphrase,
     navigate,
     onComplete,
     publicHost,
@@ -1124,6 +1127,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       setSelectedRoleId('');
       setPublicHost('');
       setDirectoryChoice('');
+      setIdentityPassphrase('');
       setProvisionResult(null);
       setCeremonyPackagePath('');
       setCeremonyPackagePreview(null);
@@ -1156,6 +1160,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       setSelectedRoleId('');
       setPublicHost('');
       setDirectoryChoice('');
+      setIdentityPassphrase('');
       setProvisionResult(null);
       setCeremonyPackagePath('');
       setCeremonyPackagePreview(null);
@@ -1209,6 +1214,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       setSetupMode('standard');
       setSelectedRoleId(nextRole.id);
       setDirectoryChoice(nextDirectory);
+      setIdentityPassphrase('');
       setCeremonyPackagePath('');
       setCeremonyImportResult(null);
 
@@ -1372,8 +1378,21 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
       }
       await queueJarvisMessage(
         selectedRoleId === 'validator'
-          ? 'Everything is ready. I will create the private folder, generate the validator wallet, write the setup files, and prepare the funding manifest for the required 50,000 SNRG stake. You will still fund, stake, and activate from the validator detail page after sync.'
+          ? 'The workspace path is set. Next, enter the validator identity encryption passphrase. Jarvis will use the address engine to generate the validator address and local signing key, then write the encrypted key export.'
           : 'Everything is ready. I will create the private folder, generate the node wallet, write the setup files, and prepare the funding manifest for this node.',
+      );
+      setPhase(selectedRoleId === 'validator' ? 'set_identity_passphrase' : 'ready_provision');
+      return;
+    }
+
+    if (phase === 'set_identity_passphrase') {
+      if (trimmedValue.length < 8) {
+        await queueJarvisMessage('Enter an identity encryption passphrase with at least 8 characters before provisioning this validator.');
+        return;
+      }
+      setIdentityPassphrase(trimmedValue);
+      await queueJarvisMessage(
+        'Everything is ready. I will create the private folder, generate the validator address and signing key, write the setup files, and prepare the funding manifest for the required 50,000 SNRG stake. You will still fund, stake, and activate from the validator detail page after sync.',
       );
       setPhase('ready_provision');
       return;
@@ -1462,7 +1481,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
     const value = input.trim();
     if (!value || running || phase === 'booting') return;
 
-    addMessage('user', value);
+    addMessage('user', phase === 'set_identity_passphrase' ? '••••••••' : value);
     setInput('');
     await handleResponseValue(value);
   }, [addMessage, handleResponseValue, input, phase, running]);
@@ -1543,6 +1562,15 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
           { value: 'use default', label: 'Use This Folder' },
         ],
         placeholder: 'Paste a different folder path or use this one',
+      };
+    }
+
+    if (phase === 'set_identity_passphrase') {
+      return {
+        kind: 'text',
+        inputType: 'password',
+        hint: 'This passphrase protects the encrypted validator key export. The runtime still keeps the local signing key inside this private workspace.',
+        placeholder: 'Enter validator identity passphrase',
       };
     }
 
@@ -1788,7 +1816,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
 
               <form className="jarvis-chat-form" onSubmit={submitChat}>
                 <input
-                  type="text"
+                  type={promptConfig.inputType || 'text'}
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   placeholder={promptConfig.placeholder || 'Type your reply here'}
