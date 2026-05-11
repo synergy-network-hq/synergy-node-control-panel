@@ -58,10 +58,10 @@ const TESTNET_BETA_STATUS_READY_GATE_ENABLED: bool = true;
 const TESTNET_BETA_STATUS_READY_MIN_VALIDATORS: usize = 4;
 const TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS: usize = 0;
 const TESTNET_BETA_ALLOW_GENESIS_STATUS_BYPASS: bool = false;
-const TESTNET_BETA_MESH_SETTLE_SECS: usize = 15;
-const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 15;
-const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 8;
-const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 30;
+const TESTNET_BETA_MESH_SETTLE_SECS: usize = 1;
+const TESTNET_BETA_LEADER_TIMEOUT_SECS: usize = 4;
+const TESTNET_BETA_VOTE_TIMEOUT_SECS: usize = 2;
+const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 6;
 const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 7;
 const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 4;
 const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
@@ -372,6 +372,21 @@ pub struct TestnetBetaValidatorStakeInput {
     pub node_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub amount_snrg: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaValidatorUnstakeInput {
+    pub node_id: String,
+    pub amount_snrg: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaValidatorTransferInput {
+    pub node_id: String,
+    pub destination_address: String,
+    pub amount_snrg: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1635,7 +1650,7 @@ pub async fn testbeta_get_rewards_data(node_id: String) -> Result<Value, String>
         telemetry_gaps.push("wallet balance RPC unavailable".to_string());
     }
 
-    let staked_balance_nwei = staked_result
+    let direct_staked_balance_nwei = staked_result
         .as_ref()
         .ok()
         .and_then(|value| parse_rpc_balance_u64(value.clone()));
@@ -1644,20 +1659,11 @@ pub async fn testbeta_get_rewards_data(node_id: String) -> Result<Value, String>
         .ok()
         .map(extract_staking_entries)
         .unwrap_or_default();
-    let staked_balance_nwei = staked_balance_nwei.or_else(|| {
-        let total = staking_entries
-            .iter()
-            .filter(|entry| {
-                entry
-                    .get("is_active")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true)
-            })
-            .filter_map(|entry| entry.get("amount").cloned())
-            .filter_map(|value| parse_rpc_u64(value).ok())
-            .sum::<u64>();
-        (total > 0).then_some(total)
-    });
+    let staking_entry_total_nwei = active_stake_total_from_entries(&staking_entries);
+    let staked_balance_nwei = direct_staked_balance_nwei
+        .filter(|amount| *amount > 0)
+        .or_else(|| (staking_entry_total_nwei > 0).then_some(staking_entry_total_nwei))
+        .or(direct_staked_balance_nwei);
     if staked_balance_nwei.is_none() {
         telemetry_gaps.push("staked balance RPC unavailable".to_string());
     }
@@ -1771,10 +1777,23 @@ pub async fn testbeta_stake_validator(
         .cloned()
         .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
     let amount_snrg = input.amount_snrg.unwrap_or(MINIMUM_STAKE_SNRG);
+    let amount_nwei = amount_snrg.saturating_mul(TOKEN_SCALE);
     let preflight = build_validator_activation_preflight(&state, &node).await?;
-    if !preflight.can_stake
-        && preflight.staked_balance_nwei.unwrap_or(0) < preflight.required_stake_nwei
+    if amount_snrg == MINIMUM_STAKE_SNRG
+        && preflight.staked_balance_nwei.unwrap_or(0) >= preflight.required_stake_nwei
     {
+        return Ok(ValidatorLifecycleTxResult {
+            node_id: node.id,
+            status: "already-bonded".to_string(),
+            tx_hash: None,
+            message: "Validator already has the required bonded stake.".to_string(),
+            preflight,
+        });
+    }
+    if !preflight.can_stake {
+        return Err(validator_stake_preflight_error(&preflight));
+    }
+    if preflight.balance_nwei.unwrap_or(0) < amount_nwei {
         return Err(validator_stake_preflight_error(&preflight));
     }
 
@@ -1805,6 +1824,112 @@ pub async fn testbeta_stake_validator(
         message: format!(
             "Submitted validator stake transaction {tx_hash}. Wait for it to be included, then run activation preflight."
         ),
+        preflight: refreshed,
+    })
+}
+
+pub async fn testbeta_unstake_validator(
+    input: TestnetBetaValidatorUnstakeInput,
+) -> Result<ValidatorLifecycleTxResult, String> {
+    if input.amount_snrg == 0 {
+        return Err("Unstake amount must be greater than zero.".to_string());
+    }
+
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == input.node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
+    let amount_nwei = input.amount_snrg.saturating_mul(TOKEN_SCALE);
+    let preflight = build_validator_activation_preflight(&state, &node).await?;
+    if preflight.staked_balance_nwei.unwrap_or(0) < amount_nwei {
+        return Err(
+            "Validator does not have enough bonded stake for that unstake amount.".to_string(),
+        );
+    }
+
+    let rpc_endpoint = rpc_endpoint_for_workspace(&node)?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    let response = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_unstakeTokens",
+        json!([
+            node.node_address,
+            node.node_address,
+            TOKEN_SYMBOL,
+            amount_nwei
+        ]),
+    )
+    .await?;
+    let message = parse_lifecycle_success_message(&response, "Validator unstake applied.")?;
+    let refreshed = build_validator_activation_preflight(&state, &node).await?;
+
+    Ok(ValidatorLifecycleTxResult {
+        node_id: node.id,
+        status: "submitted".to_string(),
+        tx_hash: None,
+        message,
+        preflight: refreshed,
+    })
+}
+
+pub async fn testbeta_transfer_validator_tokens(
+    input: TestnetBetaValidatorTransferInput,
+) -> Result<ValidatorLifecycleTxResult, String> {
+    if input.amount_snrg == 0 {
+        return Err("Transfer amount must be greater than zero.".to_string());
+    }
+    if !is_valid_address(&input.destination_address) {
+        return Err("Destination is not a valid Synergy address.".to_string());
+    }
+
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == input.node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
+    let amount_nwei = input.amount_snrg.saturating_mul(TOKEN_SCALE);
+    let preflight = build_validator_activation_preflight(&state, &node).await?;
+    if preflight.balance_nwei.unwrap_or(0) < amount_nwei {
+        return Err(
+            "Validator wallet does not have enough liquid SNRG for that withdrawal.".to_string(),
+        );
+    }
+
+    let rpc_endpoint = rpc_endpoint_for_workspace(&node)?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    let response = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_sendTokens",
+        json!([
+            node.node_address,
+            input.destination_address,
+            TOKEN_SYMBOL,
+            input.amount_snrg,
+            "validator-withdrawal"
+        ]),
+    )
+    .await?;
+    let tx_hash = parse_lifecycle_tx_hash(&response)?;
+    let refreshed = build_validator_activation_preflight(&state, &node).await?;
+
+    Ok(ValidatorLifecycleTxResult {
+        node_id: node.id,
+        status: "submitted".to_string(),
+        tx_hash: Some(tx_hash.clone()),
+        message: format!("Submitted validator withdrawal transaction {tx_hash}."),
         preflight: refreshed,
     })
 }
@@ -1908,13 +2033,28 @@ async fn build_validator_activation_preflight(
         json!([node.node_address]),
     )
     .await;
-    let staked_balance_nwei = query_rpc_u64_or_none(
+    let direct_staked_balance_nwei = query_rpc_u64_or_none(
         &client,
         &rpc_endpoint,
         "synergy_getStakedBalance",
         json!([node.node_address, TOKEN_SYMBOL]),
     )
     .await;
+    let staking_entries = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getStakingInfo",
+        json!([node.node_address]),
+    )
+    .await
+    .ok()
+    .map(|value| extract_staking_entries(&value))
+    .unwrap_or_default();
+    let staking_entry_total_nwei = active_stake_total_from_entries(&staking_entries);
+    let staked_balance_nwei = direct_staked_balance_nwei
+        .filter(|amount| *amount > 0)
+        .or_else(|| (staking_entry_total_nwei > 0).then_some(staking_entry_total_nwei))
+        .or(direct_staked_balance_nwei);
     let local_signing_key_ready = local_validator_signing_key_ready(node);
     let runtime_wallet_ready =
         query_runtime_wallet_ready(&client, &rpc_endpoint, &node.node_address)
@@ -2171,6 +2311,21 @@ fn extract_staking_entries(value: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
+fn active_stake_total_from_entries(entries: &[Value]) -> u64 {
+    entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("is_active")
+                .or_else(|| entry.get("isActive"))
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        })
+        .filter_map(|entry| entry.get("amount").cloned())
+        .filter_map(|value| parse_rpc_u64(value).ok())
+        .sum::<u64>()
+}
+
 fn reward_history_from_stakes(entries: &[Value]) -> Vec<Value> {
     entries
         .iter()
@@ -2219,6 +2374,26 @@ fn parse_lifecycle_tx_hash(value: &Value) -> Result<String, String> {
         .map(str::to_string)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "RPC response did not include a transaction hash.".to_string())
+}
+
+fn parse_lifecycle_success_message(value: &Value, default_message: &str) -> Result<String, String> {
+    let success = value
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !success {
+        return Err(value
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("Validator lifecycle operation failed.")
+            .to_string());
+    }
+
+    Ok(value
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or(default_message)
+        .to_string())
 }
 
 pub async fn testbeta_boost_sync(
@@ -2691,7 +2866,7 @@ pub async fn testbeta_setup_node(
             let explorer_host = "testbeta-explorer.synergy-network.io";
             let atlas_api_host = "testbeta-atlas-api.synergy-network.io";
             let indexer_ws_host = "testbeta-indexer.synergy-network.io";
-            let explorer_static_root = "/opt/synergy/testbeta/indexer-explorer/explorer-app/dist";
+            let explorer_static_root = "/var/www/explorer/dist";
             let atlas_api_port = 3020_u16;
             let certbot_domains =
                 format!("-d {explorer_host} -d {atlas_api_host} -d {indexer_ws_host}");
@@ -3473,6 +3648,7 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
         Some(path) => path,
         None => return Ok(()),
     };
+    repair_workspace_consensus_timing_if_needed(config_path)?;
     let ceremony_package_path = workspace_directory
         .join("manifests")
         .join("ceremony-package.json");
@@ -3499,6 +3675,110 @@ fn repair_workspace_config_if_needed(role_id: &str, config_path: &Path) -> Resul
     }
 
     Ok(())
+}
+
+fn repair_workspace_consensus_timing_if_needed(config_path: &Path) -> Result<(), String> {
+    let mut value = read_toml_value(config_path)?;
+    let root = value
+        .as_table_mut()
+        .ok_or_else(|| format!("{} must parse into a TOML table.", config_path.display()))?;
+    let mut changed = false;
+
+    let blockchain = root
+        .entry("blockchain")
+        .or_insert_with(|| toml::Value::Table(Default::default()))
+        .as_table_mut()
+        .ok_or_else(|| "[blockchain] must be a TOML table.".to_string())?;
+    changed |= set_toml_int_if_changed(
+        blockchain,
+        "block_time",
+        TESTNET_BETA_BLOCK_TIME_SECS as i64,
+    );
+
+    let consensus = root
+        .entry("consensus")
+        .or_insert_with(|| toml::Value::Table(Default::default()))
+        .as_table_mut()
+        .ok_or_else(|| "[consensus] must be a TOML table.".to_string())?;
+    for (key, expected) in [
+        ("block_time_secs", TESTNET_BETA_BLOCK_TIME_SECS as i64),
+        ("min_validators", TESTNET_BETA_MIN_GENESIS_VALIDATORS as i64),
+        (
+            "validator_cluster_size",
+            TESTNET_BETA_VALIDATOR_CLUSTER_SIZE as i64,
+        ),
+        (
+            "validator_vote_threshold",
+            TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD as i64,
+        ),
+        ("max_validators", TESTNET_BETA_MAX_VALIDATORS as i64),
+        ("mesh_settle_secs", TESTNET_BETA_MESH_SETTLE_SECS as i64),
+        (
+            "leader_timeout_secs",
+            TESTNET_BETA_LEADER_TIMEOUT_SECS as i64,
+        ),
+        ("vote_timeout_secs", TESTNET_BETA_VOTE_TIMEOUT_SECS as i64),
+        ("block_timeout_secs", TESTNET_BETA_BLOCK_TIMEOUT_SECS as i64),
+    ] {
+        changed |= set_toml_int_if_changed(consensus, key, expected);
+    }
+    changed |= set_toml_bool_if_changed(
+        consensus,
+        "status_ready_gate_enabled",
+        TESTNET_BETA_STATUS_READY_GATE_ENABLED,
+    );
+    changed |= set_toml_int_if_changed(
+        consensus,
+        "status_ready_min_validators",
+        TESTNET_BETA_STATUS_READY_MIN_VALIDATORS as i64,
+    );
+    changed |= set_toml_int_if_changed(
+        consensus,
+        "status_ready_genesis_grace_secs",
+        TESTNET_BETA_STATUS_READY_GENESIS_GRACE_SECS as i64,
+    );
+    changed |= set_toml_bool_if_changed(
+        consensus,
+        "allow_genesis_status_bypass",
+        TESTNET_BETA_ALLOW_GENESIS_STATUS_BYPASS,
+    );
+    changed |= set_toml_bool_if_changed(
+        consensus,
+        "penalization_enabled",
+        TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED,
+    );
+
+    if changed {
+        let rendered = toml::to_string_pretty(&value)
+            .map_err(|error| format!("Failed to serialize {}: {error}", config_path.display()))?;
+        write_file(config_path, &rendered)?;
+    }
+
+    Ok(())
+}
+
+fn set_toml_int_if_changed(
+    table: &mut toml::map::Map<String, toml::Value>,
+    key: &str,
+    expected: i64,
+) -> bool {
+    if table.get(key).and_then(toml::Value::as_integer) == Some(expected) {
+        return false;
+    }
+    table.insert(key.to_string(), toml::Value::Integer(expected));
+    true
+}
+
+fn set_toml_bool_if_changed(
+    table: &mut toml::map::Map<String, toml::Value>,
+    key: &str,
+    expected: bool,
+) -> bool {
+    if table.get(key).and_then(toml::Value::as_bool) == Some(expected) {
+        return false;
+    }
+    table.insert(key.to_string(), toml::Value::Boolean(expected));
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9962,6 +10242,42 @@ public_address = "62.146.182.207:5622"
             contents.contains("auto_register_validator = false"),
             "ceremony-imported validators should keep their imported auto-register setting"
         );
+    }
+
+    #[test]
+    fn repair_workspace_config_migrates_stale_consensus_timing() {
+        let temp = TempDir::new().expect("temp workspace");
+        let config_path = temp.path().join("config").join("node.toml");
+        write_file(
+            &config_path,
+            r#"[blockchain]
+block_time = 2
+
+[consensus]
+block_time_secs = 2
+min_validators = 4
+validator_cluster_size = 7
+validator_vote_threshold = 4
+max_validators = 100
+mesh_settle_secs = 15
+leader_timeout_secs = 15
+vote_timeout_secs = 8
+block_timeout_secs = 30
+"#,
+        )
+        .expect("config should write");
+
+        repair_workspace_config_if_needed("validator", &config_path).expect("repair should pass");
+
+        let repaired = read_toml_value(&config_path).expect("config should parse");
+        let consensus = repaired
+            .get("consensus")
+            .and_then(toml::Value::as_table)
+            .expect("consensus table should exist");
+        assert_eq!(consensus["mesh_settle_secs"].as_integer(), Some(1));
+        assert_eq!(consensus["leader_timeout_secs"].as_integer(), Some(4));
+        assert_eq!(consensus["vote_timeout_secs"].as_integer(), Some(2));
+        assert_eq!(consensus["block_timeout_secs"].as_integer(), Some(6));
     }
 
     #[test]

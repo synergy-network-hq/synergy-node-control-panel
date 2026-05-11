@@ -16,7 +16,6 @@ export const FEATURE_SCREEN_GROUPS = [
       'consensus',
       'dag',
       'transactions',
-      'governance',
     ],
   },
   {
@@ -27,7 +26,6 @@ export const FEATURE_SCREEN_GROUPS = [
       'api',
       'maintenance',
       'fleet',
-      'compliance',
     ],
   },
 ];
@@ -656,7 +654,10 @@ export const FEATURE_SCREENS = {
   },
 };
 
-export const FEATURE_ROUTES = Object.values(FEATURE_SCREENS);
+export const FEATURE_ROUTES = FEATURE_SCREEN_GROUPS
+  .flatMap((group) => group.items)
+  .map((key) => FEATURE_SCREENS[key])
+  .filter(Boolean);
 
 export function getFeatureScreenByKey(key) {
   return FEATURE_SCREENS[key] || null;

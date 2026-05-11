@@ -7,6 +7,7 @@ import {
   peekTestnetBetaLiveStatus,
   peekTestnetBetaState,
 } from '../lib/testnetBetaPageData';
+import { useDeveloperMode } from '../lib/developerMode';
 import {
   applyTestnetBetaPortSettings,
   formatPortSettingsForForm,
@@ -583,6 +584,7 @@ function EraseNodeDataModal({ target, busy, onConfirm, onCancel }) {
 }
 
 function SettingsPage() {
+  const [developerModeEnabled, setDeveloperModeEnabled] = useDeveloperMode();
   const [state, setState] = useState(() => peekTestnetBetaState());
   const [liveStatus, setLiveStatus] = useState(() => peekTestnetBetaLiveStatus());
   const [version, setVersion] = useState('');
@@ -1230,6 +1232,19 @@ function SettingsPage() {
                 label="Workspace Root"
                 value={formatPath(storageRoot)}
               />
+            </div>
+            <div className="settings-shell-feature-card">
+              <div className="settings-shell-feature-copy">
+                <span className="settings-shell-feature-kicker">Developer Mode</span>
+                <strong>{developerModeEnabled ? 'Enabled' : 'Hidden'}</strong>
+              </div>
+              <SNRGButton
+                variant={developerModeEnabled ? 'red' : 'purple'}
+                size="sm"
+                onClick={() => setDeveloperModeEnabled((enabled) => !enabled)}
+              >
+                {developerModeEnabled ? 'Disable Developer' : 'Enable Developer'}
+              </SNRGButton>
             </div>
             <div className="settings-shell-definition-actions">
               <SNRGButton

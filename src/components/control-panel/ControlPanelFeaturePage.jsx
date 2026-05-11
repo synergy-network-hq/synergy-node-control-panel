@@ -13,7 +13,6 @@ import {
 } from './controlPanelModel';
 import { runNodeControlAction } from './controlPanelActions';
 import {
-  JarvisCard,
   MetricCard,
   PanelCard,
   SectionHeader,
@@ -101,35 +100,6 @@ function buildLiveMetrics(selectedNodeLive, liveStatus, networkStats) {
   ];
 }
 
-function buildLiveQuestions(selectedNodeLive, liveStatus, networkStats) {
-  const syncGap = Number(selectedNodeLive?.sync_gap);
-  const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
-  const rpcReady = selectedNodeLive?.local_rpc_ready === true;
-  const running = selectedNodeLive?.is_running === true;
-  const safe = running && rpcReady && (!Number.isFinite(syncGap) || syncGap <= SYNC_READY_GAP);
-
-  return [
-    {
-      label: 'Am I safe?',
-      value: safe ? 'Safe to operate' : running ? 'Wait for sync' : 'Runtime stopped',
-      tone: safe ? 'good' : running ? 'warn' : 'bad',
-      icon: safe ? 'health_and_safety' : 'warning',
-    },
-    {
-      label: 'Am I participating correctly?',
-      value: running && syncPercent >= 99.5 ? 'At chain head' : `${formatPercent(syncPercent, 0)} synced`,
-      tone: running && syncPercent >= 99.5 ? 'good' : 'warn',
-      icon: 'how_to_reg',
-    },
-    {
-      label: 'What should I do next?',
-      value: running ? 'Watch live state' : 'Start chain sync',
-      tone: running ? 'cyan' : 'warn',
-      icon: running ? 'visibility' : 'play_arrow',
-    },
-  ];
-}
-
 function buildLiveChecklist(selectedNodeLive) {
   const syncGap = Number(selectedNodeLive?.sync_gap);
   return [
@@ -185,25 +155,9 @@ function buildLiveTableRows(nodes, liveStatus) {
   });
 }
 
-function FeatureQuestionStrip({ questions }) {
-  return (
-    <div className="cp-feature-question-strip">
-      {questions.map((item) => (
-        <article key={item.label} className={`cp-feature-question tone-${item.tone || 'neutral'}`}>
-          <span className="material-icons" aria-hidden="true">{item.icon}</span>
-          <div>
-            <small>{item.label}</small>
-            <strong>{item.value}</strong>
-          </div>
-        </article>
-      ))}
-    </div>
-  );
-}
-
 function FeatureChecklist({ title, items }) {
   return (
-    <PanelCard title={title} detail="Safety and readiness checks for this workspace.">
+    <PanelCard title={title}>
       <div className="cp-feature-checklist">
         {items.map((item) => (
           <article key={item.label} className={`cp-feature-check tone-${item.tone || 'neutral'} ${item.done ? 'is-done' : ''}`}>
@@ -221,7 +175,7 @@ function FeatureChecklist({ title, items }) {
 
 function FeatureTable({ title, columns, rows }) {
   return (
-    <PanelCard title={title} detail="Operational rows are structured for scan-first review.">
+    <PanelCard title={title}>
       <div className="cp-feature-table">
         <div className="cp-feature-table-row cp-feature-table-head">
           {columns.map((column) => <span key={column}>{column}</span>)}
@@ -429,7 +383,6 @@ function LiveRuntimeVisual({ feature, selectedNodeLive, liveStatus, networkStats
   const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
   const localHeight = effectiveLocalChainHeight(selectedNodeLive);
   const networkHeight = selectedNodeLive?.best_network_height ?? liveStatus?.public_chain_height ?? networkStats.publicChainHeight;
-  const isProtocolSpecific = ['dag', 'consensus', 'transactions', 'governance'].includes(feature.key);
 
   return (
     <div className="cp-feature-visual cp-feature-live-runtime">
@@ -462,11 +415,6 @@ function LiveRuntimeVisual({ feature, selectedNodeLive, liveStatus, networkStats
         <span>Local {formatNumber(localHeight)}</span>
         <span>Network {formatNumber(networkHeight)}</span>
       </div>
-      {isProtocolSpecific ? (
-        <p className="cp-feature-live-limited">
-          The runtime is not exposing dedicated {feature.label} telemetry yet, so this screen shows live node, RPC, peer, and chain-sync data instead of fabricated protocol metrics.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -530,10 +478,6 @@ export default function ControlPanelFeaturePage({ screenKey }) {
   const liveMetrics = useMemo(
     () => (feature ? buildLiveMetrics(selectedNodeLive, liveStatus, networkStats) : []),
     [feature, liveStatus, networkStats, selectedNodeLive],
-  );
-  const liveQuestions = useMemo(
-    () => buildLiveQuestions(selectedNodeLive, liveStatus, networkStats),
-    [liveStatus, networkStats, selectedNodeLive],
   );
   const liveChecklist = useMemo(
     () => buildLiveChecklist(selectedNodeLive),
@@ -644,7 +588,6 @@ export default function ControlPanelFeaturePage({ screenKey }) {
     }
   };
 
-  const modeCopy = feature.modeCopy?.[viewMode] || feature.description;
   const runtimeActions = buildRuntimeActionsForFeature(feature.key, selectedNodeLive);
 
   return (
@@ -652,7 +595,6 @@ export default function ControlPanelFeaturePage({ screenKey }) {
       <SectionHeader
         eyebrow={feature.eyebrow}
         title={feature.title}
-        copy={modeCopy}
         actions={(
           <>
             <StatusPill tone={feature.tone}>{feature.label}</StatusPill>
@@ -676,15 +618,12 @@ export default function ControlPanelFeaturePage({ screenKey }) {
 
       {notice ? <div className="cp-inline-notice">{notice}</div> : null}
 
-      <FeatureQuestionStrip questions={liveQuestions} />
-
       <div className="cp-dashboard-grid cp-feature-grid">
         <div className="cp-dashboard-main">
           <PanelCard
             className="cp-feature-hero"
             eyebrow={selectedNode?.display_label || 'Selected node'}
-            title={feature.description}
-            detail={`Current mode: ${viewMode}. Runtime status: ${nodeRuntimeLabel(selectedNodeLive)}.`}
+            title={nodeRuntimeLabel(selectedNodeLive)}
             action={<StatusPill tone={nodeRuntimeTone(selectedNodeLive)} live>{nodeRuntimeLabel(selectedNodeLive)}</StatusPill>}
           >
             <LiveRuntimeVisual
@@ -703,7 +642,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
 
           <div className="cp-split-grid">
             <FeatureChecklist title="Live readiness checklist" items={liveChecklist} />
-            <PanelCard title={`${feature.label} action center`} detail="These controls call real control-service commands or return a clear runtime error.">
+            <PanelCard title={`${feature.label} action center`}>
               <div className="cp-feature-action-grid">
                 {runtimeActions.map((action) => (
                   <SNRGButton
@@ -716,10 +655,6 @@ export default function ControlPanelFeaturePage({ screenKey }) {
                     {action.label}
                   </SNRGButton>
                 ))}
-              </div>
-              <div className="cp-feature-runtime-note">
-                <span className="material-icons" aria-hidden="true">info</span>
-                <p>Unavailable protocol-specific commands are shown as unavailable instead of returning dummy success.</p>
               </div>
             </PanelCard>
           </div>
@@ -737,28 +672,10 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         </div>
 
         <div className="cp-dashboard-side">
-          <JarvisCard
-            mode={viewMode}
-            title="Jarvis guidance"
-            message={feature.jarvis}
-            chips={[feature.label, selectedNode?.display_label || 'No node selected', nodeRuntimeLabel(selectedNodeLive)]}
-          />
-
-          <PanelCard title="Coverage map" detail="Spec areas represented by this screen.">
-            <div className="cp-feature-coverage-list">
-              {(feature.coverage || [
-                feature.title,
-                'Safety checks',
-                'Operator action center',
-                'Audit trail',
-              ]).map((item) => (
-                <span key={item}>{item}</span>
-              ))}
+          <PanelCard title="Recent action audit">
+            <div className="cp-panel-scroll cp-panel-scroll-tight">
+              <ActionAuditStream entries={actionAudit.slice(0, 10)} emptyMessage="No actions recorded for this session yet." />
             </div>
-          </PanelCard>
-
-          <PanelCard title="Recent action audit" detail="Privileged and guided actions recorded in this session.">
-            <ActionAuditStream entries={actionAudit.slice(0, 5)} emptyMessage="No actions recorded for this session yet." />
           </PanelCard>
 
           {viewMode === 'developer' ? (

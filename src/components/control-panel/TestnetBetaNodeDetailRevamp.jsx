@@ -26,7 +26,6 @@ import {
 import {
   ActivityFeed,
   EmptyPanel,
-  JarvisCard,
   MetricBars,
   MetricCard,
   PanelCard,
@@ -50,6 +49,8 @@ import {
   restartNodeAction,
   runNodeControlAction,
 } from './controlPanelActions';
+
+const CONNECTED_WALLET_STORAGE_KEY = 'synergy:testbeta:connected-wallet:v1';
 
 function buildExpectedConfigProfile(node, nodeLive) {
   const endpoint = localRpcEndpointForNode(node, nodeLive);
@@ -81,6 +82,54 @@ function activationPreflightMessage(result) {
   return `Validator preflight is ${ready}. Liquid ${formatNumber(result?.balance_nwei || 0)} nWei; staked ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.${blockedBy}`;
 }
 
+function readConnectedWalletAddress() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  try {
+    return window.localStorage.getItem(CONNECTED_WALLET_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeConnectedWalletAddress(address) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    if (address) {
+      window.localStorage.setItem(CONNECTED_WALLET_STORAGE_KEY, address);
+    } else {
+      window.localStorage.removeItem(CONNECTED_WALLET_STORAGE_KEY);
+    }
+  } catch {
+    // Local persistence is optional.
+  }
+}
+
+function parseSnrgAmount(value) {
+  const normalized = String(value || '').trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error('Enter a whole-number SNRG amount.');
+  }
+  const amount = Number(normalized);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new Error('Enter a positive whole-number SNRG amount.');
+  }
+  return amount;
+}
+
+function formatSnrg(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return '0';
+  }
+  return number.toLocaleString(undefined, {
+    maximumFractionDigits: 9,
+  });
+}
+
 export default function TestnetBetaNodeDetailRevamp() {
   const { nodeId } = useParams();
   const navigate = useNavigate();
@@ -110,7 +159,14 @@ export default function TestnetBetaNodeDetailRevamp() {
   const nodeLive = node ? nodeLiveById[node.id] || null : null;
 
   const [readinessReport, setReadinessReport] = useState(null);
+  const [activationReport, setActivationReport] = useState(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
+  const [rewardsData, setRewardsData] = useState(null);
+  const [walletInput, setWalletInput] = useState(() => readConnectedWalletAddress());
+  const [connectedWallet, setConnectedWallet] = useState(() => readConnectedWalletAddress());
+  const [withdrawAmountSnrg, setWithdrawAmountSnrg] = useState('');
+  const [stakeAmountSnrg, setStakeAmountSnrg] = useState('50000');
+  const [unstakeAmountSnrg, setUnstakeAmountSnrg] = useState('');
   const [localPeerInfo, setLocalPeerInfo] = useState(null);
   const [localPeerError, setLocalPeerError] = useState('');
   const [configPreview, setConfigPreview] = useState('');
@@ -156,6 +212,14 @@ export default function TestnetBetaNodeDetailRevamp() {
         if (!cancelled) {
           setReadinessReport(report);
         }
+        if (String(node.role_id || '').trim().toLowerCase() === 'validator') {
+          const preflight = await invoke('testbeta_get_validator_activation_preflight', { nodeId: node.id });
+          if (!cancelled) {
+            setActivationReport(preflight);
+          }
+        } else if (!cancelled) {
+          setActivationReport(null);
+        }
       } catch (readinessError) {
         if (!cancelled) {
           setNotice(`Readiness check failed: ${String(readinessError)}`);
@@ -172,6 +236,34 @@ export default function TestnetBetaNodeDetailRevamp() {
       void fetchReadiness(false);
     }, 15000);
 
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [node]);
+
+  useEffect(() => {
+    if (!node) {
+      setRewardsData(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const fetchRewards = async () => {
+      try {
+        const payload = await invoke('testbeta_get_rewards_data', { nodeId: node.id });
+        if (!cancelled) {
+          setRewardsData(payload);
+        }
+      } catch {
+        if (!cancelled) {
+          setRewardsData(null);
+        }
+      }
+    };
+
+    void fetchRewards();
+    const intervalId = window.setInterval(fetchRewards, 12000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -258,7 +350,7 @@ export default function TestnetBetaNodeDetailRevamp() {
     };
   }, [node, viewMode]);
 
-  const handleAction = async (kind) => {
+  const handleAction = async (kind, options = {}) => {
     if (!node) {
       return;
     }
@@ -279,12 +371,33 @@ export default function TestnetBetaNodeDetailRevamp() {
         const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: node.id });
         message = activationPreflightMessage(result);
       } else if (kind === 'stake-validator') {
+        const amountSnrg = options.amountSnrg ? parseSnrgAmount(options.amountSnrg) : undefined;
         const result = await invoke('testbeta_stake_validator', {
           input: {
             nodeId: node.id,
+            ...(amountSnrg ? { amountSnrg } : {}),
           },
         });
         message = result?.message || `Validator stake submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
+      } else if (kind === 'unstake-validator') {
+        const amountSnrg = parseSnrgAmount(options.amountSnrg);
+        const result = await invoke('testbeta_unstake_validator', {
+          input: {
+            nodeId: node.id,
+            amountSnrg,
+          },
+        });
+        message = result?.message || 'Validator unstake submitted.';
+      } else if (kind === 'withdraw-validator') {
+        const amountSnrg = parseSnrgAmount(options.amountSnrg);
+        const result = await invoke('testbeta_transfer_validator_tokens', {
+          input: {
+            nodeId: node.id,
+            destinationAddress: options.destinationAddress,
+            amountSnrg,
+          },
+        });
+        message = result?.message || `Validator transfer submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else if (kind === 'activate-validator') {
         const result = await invoke('testbeta_activate_validator', {
           input: {
@@ -311,6 +424,12 @@ export default function TestnetBetaNodeDetailRevamp() {
       });
       setNotice(message);
       await refresh({ silent: true });
+      try {
+        const payload = await invoke('testbeta_get_rewards_data', { nodeId: node.id });
+        setRewardsData(payload);
+      } catch {
+        // The action receipt is more important than refreshing optional economics telemetry.
+      }
     } catch (actionError) {
       const detail = String(actionError);
       recordAction({
@@ -323,6 +442,28 @@ export default function TestnetBetaNodeDetailRevamp() {
       setNotice(detail);
     } finally {
       setActionBusy('');
+    }
+  };
+
+  const connectWallet = () => {
+    const address = walletInput.trim();
+    if (!address) {
+      setConnectedWallet('');
+      writeConnectedWalletAddress('');
+      setNotice('Connected wallet cleared.');
+      return;
+    }
+    setConnectedWallet(address);
+    writeConnectedWalletAddress(address);
+    setNotice(`Connected wallet ${truncateMiddle(address, 10, 8)}.`);
+  };
+
+  const copyDepositAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(node.node_address);
+      setNotice('Validator deposit address copied.');
+    } catch {
+      setNotice(`Deposit address: ${node.node_address}`);
     }
   };
 
@@ -380,11 +521,12 @@ export default function TestnetBetaNodeDetailRevamp() {
     },
   ];
 
-  const readinessItems = safeArray(readinessReport?.checks).map((check) => ({
+  const activeReadinessReport = activationReport || readinessReport;
+  const readinessItems = safeArray(activeReadinessReport?.checks).map((check) => ({
     id: check.id,
     title: check.label,
     detail: `${check.detail}${check.suggestion ? ` ${check.suggestion}` : ''}`,
-    time: readinessReport?.overall_status || 'Readiness',
+    time: activeReadinessReport?.overall_status || (activationReport ? 'Activation' : 'Readiness'),
     tone: statusTone(check.status),
   }));
 
@@ -398,6 +540,13 @@ export default function TestnetBetaNodeDetailRevamp() {
   }));
   const recentEvents = actionAudit.slice(0, 8);
   const isValidatorNode = String(node?.role_id || '').trim().toLowerCase() === 'validator';
+  const readinessTitle = activationReport
+    ? `Activation checklist ${formatNumber(activationReport.checks?.filter((check) => check?.status === 'pass').length || 0)}/${formatNumber(activationReport.checks?.length || 0)}`
+    : `Readiness checklist ${formatNumber(readinessReport?.ready_count ?? 0)}/${formatNumber(readinessReport?.total_count ?? 0)}`;
+  const walletLive = rewardsData?.live || {};
+  const walletBalanceSnrg = walletLive.wallet_balance_snrg ?? 0;
+  const stakedBalanceSnrg = walletLive.staked_balance_snrg ?? 0;
+  const validatorStatus = walletLive.validator_status || 'Not active';
 
   if (!node) {
     return (
@@ -415,21 +564,6 @@ export default function TestnetBetaNodeDetailRevamp() {
       <SectionHeader
         eyebrow={viewProfile.label}
         title={viewProfile.navLabels.details}
-        copy={viewMode === 'basic'
-          ? `${node.display_label || roleTypeLabel(node.role_display_name)} is ${nodeRuntimeLabel(nodeLive).toLowerCase()}. This page keeps the next action simple and safe.`
-          : `${node.display_label || roleTypeLabel(node.role_display_name)} is the active runtime focus for readiness, identity, config, and topology.`}
-        actions={(
-          <>
-            <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>
-              Refresh
-            </SNRGButton>
-            {viewMode !== 'basic' ? (
-              <SNRGButton variant="blue" size="sm" onClick={() => openPath(node.workspace_directory)}>
-                Open Workspace
-              </SNRGButton>
-            ) : null}
-          </>
-        )}
       />
 
       {(notice || error || localPeerError || configError) ? (
@@ -452,6 +586,9 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="lime" size="sm" disabled={isRunning || actionBusy === 'start'} onClick={() => void handleAction('start')}>
                   {actionBusy === 'start' ? 'Starting…' : 'Start'}
                 </SNRGButton>
+                <SNRGButton variant="red" size="sm" disabled={!isRunning || actionBusy === 'stop'} onClick={() => void handleAction('stop')}>
+                  {actionBusy === 'stop' ? 'Stopping…' : 'Stop'}
+                </SNRGButton>
                 <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'restart'} onClick={() => void handleAction('restart')}>
                   {actionBusy === 'restart' ? 'Restarting…' : 'Restart'}
                 </SNRGButton>
@@ -468,9 +605,38 @@ export default function TestnetBetaNodeDetailRevamp() {
                     </SNRGButton>
                   </>
                 ) : null}
-                <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>
-                  Refresh
-                </SNRGButton>
+              </div>
+            </PanelCard>
+
+            <PanelCard title="Wallet + stake" action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
+              <div className="cp-metric-grid cp-metric-grid-dashboard">
+                <MetricCard label="Wallet balance" value={`${formatSnrg(walletBalanceSnrg)} SNRG`} tone="cyan" icon="wallet" />
+                <MetricCard label="Bonded stake" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
+              </div>
+              <div className="cp-wallet-control-grid">
+                <label className="cp-form-field">
+                  <span>Wallet address</span>
+                  <input value={walletInput} onChange={(event) => setWalletInput(event.target.value)} placeholder="syns..." />
+                </label>
+                <SNRGButton variant="blue" size="sm" onClick={connectWallet}>{connectedWallet ? 'Update Wallet' : 'Connect Wallet'}</SNRGButton>
+                <SNRGButton variant="lime" size="sm" onClick={copyDepositAddress}>Copy Deposit Address</SNRGButton>
+              </div>
+              <div className="cp-wallet-control-grid">
+                <label className="cp-form-field">
+                  <span>Stake SNRG</span>
+                  <input value={stakeAmountSnrg} onChange={(event) => setStakeAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="purple" size="sm" disabled={!isValidatorNode || actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator', { amountSnrg: stakeAmountSnrg })}>Stake</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Unstake SNRG</span>
+                  <input value={unstakeAmountSnrg} onChange={(event) => setUnstakeAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="red" size="sm" disabled={!isValidatorNode || actionBusy === 'unstake-validator'} onClick={() => void handleAction('unstake-validator', { amountSnrg: unstakeAmountSnrg })}>Unstake</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Withdraw SNRG</span>
+                  <input value={withdrawAmountSnrg} onChange={(event) => setWithdrawAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="blue" size="sm" disabled={!connectedWallet || actionBusy === 'withdraw-validator'} onClick={() => void handleAction('withdraw-validator', { destinationAddress: connectedWallet, amountSnrg: withdrawAmountSnrg })}>Withdraw</SNRGButton>
               </div>
             </PanelCard>
 
@@ -508,35 +674,15 @@ export default function TestnetBetaNodeDetailRevamp() {
             </PanelCard>
 
             <ActivityFeed
-              title="Readiness checklist"
+              title={readinessTitle}
               detail={readinessLoading ? 'Refreshing checks...' : 'Current workspace readiness status.'}
               items={readinessItems}
+              fixedLines={8}
             />
           </div>
 
           <div className="cp-dashboard-side">
-            <JarvisCard
-              mode={viewMode}
-              title="What this node does"
-              message={nodeRuntimeLabel(nodeLive) === 'Offline'
-                ? 'This node is not running right now. Start it, then watch the readiness list to see when it is ready to participate.'
-                : 'This node is online. Keep an eye on sync progress and peer visibility before expecting rewards.'}
-              chips={[
-                roleTypeLabel(node.role_display_name),
-                `${formatPercent(syncPercent, 0)} sync`,
-                `${formatNumber(localPeerInfo?.peerCount ?? 0)} peers`,
-              ]}
-            />
-
-            <PanelCard title="What to do if offline" detail="The safe recovery flow stays short in Basic view.">
-              <div className="cp-plan-list">
-                <p>1. Start the node from the action bar.</p>
-                <p>2. Wait for the readiness checklist to turn green.</p>
-                <p>3. Open Connections if peer count stays low.</p>
-              </div>
-            </PanelCard>
-
-            <PanelCard title="Identity summary" detail="Safe operator-facing details only.">
+            <PanelCard title="Identity">
               <div className="cp-definition-list">
                 <div className="cp-definition-item">
                   <span>Node label</span>
@@ -549,6 +695,10 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <div className="cp-definition-item">
                   <span>Wallet</span>
                   <strong>{truncateMiddle(node.node_address, 8, 6)}</strong>
+                </div>
+                <div className="cp-definition-item">
+                  <span>Connected wallet</span>
+                  <strong>{connectedWallet ? truncateMiddle(connectedWallet, 8, 6) : 'None'}</strong>
                 </div>
               </div>
             </PanelCard>
@@ -566,6 +716,7 @@ export default function TestnetBetaNodeDetailRevamp() {
             >
               <div className="cp-action-grid">
                 <SNRGButton variant="green" size="sm" disabled={isRunning || actionBusy === 'start'} onClick={() => void handleAction('start')}>Start</SNRGButton>
+                <SNRGButton variant="red" size="sm" disabled={!isRunning || actionBusy === 'stop'} onClick={() => void handleAction('stop')}>Stop</SNRGButton>
                 <SNRGButton variant="orange" size="sm" disabled={actionBusy === 'restart'} onClick={() => void handleAction('restart')}>Restart</SNRGButton>
                 <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'rejoin'} onClick={() => void handleAction('rejoin')}>Bootstrap / reconnect</SNRGButton>
                 <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'register'} onClick={() => void handleAction('register')}>Re-register</SNRGButton>
@@ -577,7 +728,36 @@ export default function TestnetBetaNodeDetailRevamp() {
                   </>
                 ) : null}
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Open logs</SNRGButton>
-                <SNRGButton variant="blue" size="sm" onClick={() => void refresh()}>Refresh</SNRGButton>
+              </div>
+            </PanelCard>
+
+            <PanelCard title="Wallet + stake" action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
+              <div className="cp-metric-grid cp-metric-grid-dashboard">
+                <MetricCard label="Wallet balance" value={`${formatSnrg(walletBalanceSnrg)} SNRG`} tone="cyan" icon="wallet" />
+                <MetricCard label="Bonded stake" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
+              </div>
+              <div className="cp-wallet-control-grid">
+                <label className="cp-form-field">
+                  <span>Wallet address</span>
+                  <input value={walletInput} onChange={(event) => setWalletInput(event.target.value)} placeholder="syns..." />
+                </label>
+                <SNRGButton variant="blue" size="sm" onClick={connectWallet}>{connectedWallet ? 'Update Wallet' : 'Connect Wallet'}</SNRGButton>
+                <SNRGButton variant="lime" size="sm" onClick={copyDepositAddress}>Copy Deposit Address</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Stake SNRG</span>
+                  <input value={stakeAmountSnrg} onChange={(event) => setStakeAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="purple" size="sm" disabled={!isValidatorNode || actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator', { amountSnrg: stakeAmountSnrg })}>Stake</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Unstake SNRG</span>
+                  <input value={unstakeAmountSnrg} onChange={(event) => setUnstakeAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="red" size="sm" disabled={!isValidatorNode || actionBusy === 'unstake-validator'} onClick={() => void handleAction('unstake-validator', { amountSnrg: unstakeAmountSnrg })}>Unstake</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Withdraw SNRG</span>
+                  <input value={withdrawAmountSnrg} onChange={(event) => setWithdrawAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="blue" size="sm" disabled={!connectedWallet || actionBusy === 'withdraw-validator'} onClick={() => void handleAction('withdraw-validator', { destinationAddress: connectedWallet, amountSnrg: withdrawAmountSnrg })}>Withdraw</SNRGButton>
               </div>
             </PanelCard>
 
@@ -631,25 +811,15 @@ export default function TestnetBetaNodeDetailRevamp() {
             </PanelCard>
 
             <ActivityFeed
-              title="Readiness health"
+              title={readinessTitle}
               detail={readinessLoading ? 'Refreshing readiness checks…' : `${formatNumber(readinessReport?.ready_count ?? 0)} checks are currently passing.`}
               items={readinessItems}
+              fixedLines={8}
             />
           </div>
 
           <div className="cp-dashboard-side">
-            <JarvisCard
-              mode={viewMode}
-              title="Control guidance"
-              message="Use the action strip for lifecycle work, the workspace artifacts panel for file access, and the topology card when peer posture looks suspicious."
-              chips={[
-                nodeRuntimeLabel(nodeLive),
-                `${formatPercent(syncPercent, 0)} sync`,
-                `${formatNumber(peerTopology.points.length)} peers`,
-              ]}
-            />
-
-            <PanelCard title="Identity card" detail="Operational identity without raw dumps.">
+            <PanelCard title="Identity">
               <div className="cp-definition-list">
                 <div className="cp-definition-item">
                   <span>Wallet</span>
@@ -667,6 +837,10 @@ export default function TestnetBetaNodeDetailRevamp() {
                   <span>Last update</span>
                   <strong>{formatTimestamp(node.updated_at_utc || node.created_at_utc)}</strong>
                 </div>
+                <div className="cp-definition-item">
+                  <span>Connected wallet</span>
+                  <strong>{connectedWallet ? truncateMiddle(connectedWallet, 10, 8) : 'None'}</strong>
+                </div>
               </div>
             </PanelCard>
 
@@ -674,8 +848,10 @@ export default function TestnetBetaNodeDetailRevamp() {
               <PeerDetailsDrawer peer={selectedPeer} mode="advanced" />
             </PanelCard>
 
-            <PanelCard title="Recent node events" detail="The latest actions and receipts tied to this machine.">
-              <ActionAuditStream entries={recentEvents} emptyMessage="No node-specific actions have been recorded yet." />
+            <PanelCard title="Recent node events">
+              <div className="cp-panel-scroll cp-panel-scroll-tight">
+                <ActionAuditStream entries={recentEvents} emptyMessage="No node-specific actions have been recorded yet." />
+              </div>
             </PanelCard>
           </div>
         </div>
@@ -691,6 +867,7 @@ export default function TestnetBetaNodeDetailRevamp() {
             >
               <div className="cp-action-grid">
                 <SNRGButton variant="green" size="sm" onClick={() => void handleAction('start')}>Start</SNRGButton>
+                <SNRGButton variant="red" size="sm" disabled={!isRunning || actionBusy === 'stop'} onClick={() => void handleAction('stop')}>Stop</SNRGButton>
                 <SNRGButton variant="orange" size="sm" onClick={() => void handleAction('restart')}>Restart</SNRGButton>
                 <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('rejoin')}>Bootstrap</SNRGButton>
                 <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('register')}>Re-register</SNRGButton>
@@ -703,6 +880,36 @@ export default function TestnetBetaNodeDetailRevamp() {
                 ) : null}
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(node.workspace_directory)}>Open workspace</SNRGButton>
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Tail logs</SNRGButton>
+              </div>
+            </PanelCard>
+
+            <PanelCard title="Wallet + stake" action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
+              <div className="cp-metric-grid cp-metric-grid-dashboard">
+                <MetricCard label="Wallet balance" value={`${formatSnrg(walletBalanceSnrg)} SNRG`} tone="cyan" icon="wallet" />
+                <MetricCard label="Bonded stake" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
+              </div>
+              <div className="cp-wallet-control-grid">
+                <label className="cp-form-field">
+                  <span>Wallet address</span>
+                  <input value={walletInput} onChange={(event) => setWalletInput(event.target.value)} placeholder="syns..." />
+                </label>
+                <SNRGButton variant="blue" size="sm" onClick={connectWallet}>{connectedWallet ? 'Update Wallet' : 'Connect Wallet'}</SNRGButton>
+                <SNRGButton variant="lime" size="sm" onClick={copyDepositAddress}>Copy Deposit Address</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Stake SNRG</span>
+                  <input value={stakeAmountSnrg} onChange={(event) => setStakeAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="purple" size="sm" disabled={!isValidatorNode || actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator', { amountSnrg: stakeAmountSnrg })}>Stake</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Unstake SNRG</span>
+                  <input value={unstakeAmountSnrg} onChange={(event) => setUnstakeAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="red" size="sm" disabled={!isValidatorNode || actionBusy === 'unstake-validator'} onClick={() => void handleAction('unstake-validator', { amountSnrg: unstakeAmountSnrg })}>Unstake</SNRGButton>
+                <label className="cp-form-field">
+                  <span>Withdraw SNRG</span>
+                  <input value={withdrawAmountSnrg} onChange={(event) => setWithdrawAmountSnrg(event.target.value)} inputMode="numeric" />
+                </label>
+                <SNRGButton variant="blue" size="sm" disabled={!connectedWallet || actionBusy === 'withdraw-validator'} onClick={() => void handleAction('withdraw-validator', { destinationAddress: connectedWallet, amountSnrg: withdrawAmountSnrg })}>Withdraw</SNRGButton>
               </div>
             </PanelCard>
 
@@ -754,7 +961,7 @@ export default function TestnetBetaNodeDetailRevamp() {
               </div>
             </PanelCard>
 
-            <PanelCard title="Raw readiness diagnostics" detail="Checks, reason codes, and suggestions from the control service.">
+            <PanelCard title={readinessTitle}>
               <ActionAuditStream
                 entries={readinessItems.map((item) => ({
                   id: item.id,
@@ -785,19 +992,10 @@ export default function TestnetBetaNodeDetailRevamp() {
             </PanelCard>
 
             <PanelCard title="Recent payloads / action receipts" detail="The newest machine actions recorded for this node.">
-              <ActionAuditStream entries={recentEvents} emptyMessage="No action receipts are available yet." />
+              <div className="cp-panel-scroll cp-panel-scroll-tight">
+                <ActionAuditStream entries={recentEvents} emptyMessage="No action receipts are available yet." />
+              </div>
             </PanelCard>
-
-            <JarvisCard
-              mode={viewMode}
-              title="Developer notes"
-              message="The workspace and config panels expose raw references on purpose. Use the bottom dock for shell, file tails, and RPC work."
-              chips={[
-                `${formatNumber(nodeHistory.length)} samples`,
-                `${formatNumber(peerTopology.points.length)} peers`,
-                `${formatNumber(actionAudit.length)} actions`,
-              ]}
-            />
           </div>
         </div>
       )}

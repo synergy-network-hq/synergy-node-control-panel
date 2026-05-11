@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { writeStoredDeveloperMode } from './developerMode';
 import {
   modeLabel as profileModeLabel,
   normalizePanelViewMode,
@@ -54,8 +53,6 @@ export function writeStoredViewMode(value) {
       // Keep dispatch behavior even if storage is unavailable.
     }
   }
-
-  writeStoredDeveloperMode(normalized === 'developer');
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(VIEW_MODE_EVENT, {

@@ -2,14 +2,13 @@ export const PANEL_VIEW_MODES = ['basic', 'advanced', 'developer'];
 
 export const BASIC_PROFILE = {
   id: 'basic',
-  label: 'Beginner',
+  label: 'Basic',
   navLabels: {
     dashboard: 'Overview',
     details: 'My Node',
     connectivity: 'Connections',
     logs: 'Activity',
     rewards: 'Earnings',
-    settings: 'Tools',
   },
   showPlainLanguageHelp: true,
   showDerivedHealthNarrative: true,
@@ -42,7 +41,6 @@ export const ADVANCED_PROFILE = {
     connectivity: 'Connectivity',
     logs: 'Logs',
     rewards: 'Rewards',
-    settings: 'Operations',
   },
   showPlainLanguageHelp: false,
   showDerivedHealthNarrative: true,
@@ -68,14 +66,13 @@ export const ADVANCED_PROFILE = {
 
 export const DEVELOPER_PROFILE = {
   id: 'developer',
-  label: 'Expert',
+  label: 'Developer',
   navLabels: {
     dashboard: 'Runtime',
     details: 'Validator Detail',
     connectivity: 'P2P',
     logs: 'Runtime Logs',
     rewards: 'Rewards + Ledger',
-    settings: 'Local Ops',
   },
   showPlainLanguageHelp: false,
   showDerivedHealthNarrative: false,

@@ -9,5 +9,6 @@ export function runtimeAsset(path) {
 }
 
 export const brandLogoSrc = runtimeAsset('branding/assets/snrg-logo.png');
+export const controlPanelBannerSrc = runtimeAsset('branding/assets/control-panel-banner.png');
 export const ecosystemHeaderGifSrc = runtimeAsset('branding/assets/ecobanner.gif');
 export const splashBrandGifSrc = runtimeAsset('branding/assets/snrg-splash.gif');

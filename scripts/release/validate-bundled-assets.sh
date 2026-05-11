@@ -169,13 +169,13 @@ if ! rg -q '^[[:space:]]*status_ready_gate_enabled[[:space:]]*=[[:space:]]*true'
   exit 1
 fi
 
-if ! rg -q '^[[:space:]]*leader_timeout_secs[[:space:]]*=[[:space:]]*15' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
-  echo "Bundled validator node.toml is missing leader_timeout_secs = 15" >&2
+if ! rg -q '^[[:space:]]*leader_timeout_secs[[:space:]]*=[[:space:]]*4' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing leader_timeout_secs = 4" >&2
   exit 1
 fi
 
-if ! rg -q '^[[:space:]]*vote_timeout_secs[[:space:]]*=[[:space:]]*8' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
-  echo "Bundled validator node.toml is missing vote_timeout_secs = 8" >&2
+if ! rg -q '^[[:space:]]*vote_timeout_secs[[:space:]]*=[[:space:]]*2' "testbeta/runtime/installers/GenVal-01/config/node.toml"; then
+  echo "Bundled validator node.toml is missing vote_timeout_secs = 2" >&2
   exit 1
 fi
 
@@ -235,15 +235,15 @@ if network.get("bootstrap_dns_records") != []:
 expected_consensus = {
     "min_validators": 4,
     "validator_vote_threshold": 4,
-    "validator_cluster_size": 5,
+    "validator_cluster_size": 7,
     "status_ready_gate_enabled": True,
     "status_ready_min_validators": 4,
     "status_ready_genesis_grace_secs": 0,
     "allow_genesis_status_bypass": False,
-    "mesh_settle_secs": 15,
-    "leader_timeout_secs": 15,
-    "vote_timeout_secs": 8,
-    "block_timeout_secs": 30,
+    "mesh_settle_secs": 1,
+    "leader_timeout_secs": 4,
+    "vote_timeout_secs": 2,
+    "block_timeout_secs": 6,
     "penalization_enabled": False,
 }
 for key, expected in expected_consensus.items():

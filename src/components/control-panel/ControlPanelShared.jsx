@@ -11,10 +11,14 @@ export function StatusPill({ tone = 'neutral', children, live = false }) {
   );
 }
 
-export function ModeSwitcher({ mode, onChange, compact = false }) {
+export function ModeSwitcher({ mode, onChange, compact = false, allowDeveloper = true }) {
+  const items = allowDeveloper
+    ? MODE_SWITCH_ITEMS
+    : MODE_SWITCH_ITEMS.filter((item) => item.id !== 'developer');
+
   return (
     <div className={`cp-mode-switcher ${compact ? 'is-compact' : ''}`}>
-      {MODE_SWITCH_ITEMS.map((item) => (
+      {items.map((item) => (
         <button
           key={item.id}
           type="button"
@@ -218,7 +222,7 @@ export function ActivityFeed({
   detail,
   items,
   emptyMessage = 'No recent events yet.',
-  fixedLines = 0,
+  fixedLines = 6,
 }) {
   return (
     <PanelCard title={title} detail={detail}>

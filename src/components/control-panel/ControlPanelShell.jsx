@@ -7,19 +7,15 @@ import {
   onUpdaterEvent,
 } from '../../lib/appUpdater';
 import { getVersion } from '../../lib/desktopClient';
-import { ecosystemHeaderGifSrc } from '../../lib/runtimeAssets';
+import { controlPanelBannerSrc } from '../../lib/runtimeAssets';
+import { useDeveloperMode } from '../../lib/developerMode';
 import { useControlPanel } from './ControlPanelProvider';
 import {
-  formatNumber,
-  formatPercent,
   formatTimestamp,
   nodeRuntimeLabel,
-  nodeRuntimeTone,
-  nodeSyncPercent,
-  statusTone,
 } from './controlPanelModel';
 import DeveloperTerminalDock from './DeveloperTerminalDock';
-import { ModeSwitcher, StatusPill } from './ControlPanelShared';
+import { ModeSwitcher } from './ControlPanelShared';
 import {
   FEATURE_SCREEN_GROUPS,
   featureNavItemsForGroup,
@@ -106,7 +102,7 @@ function pageMetaFor(pathname, viewMode, selectedNode) {
 
   if (pathname.startsWith('/settings')) {
     return {
-      title: viewMode === 'basic' ? 'Tools' : viewMode === 'advanced' ? 'Operations' : 'Local Ops',
+      title: 'Settings',
       description: 'Machine-level controls, environment preferences, and controlled operations live here.',
       jarvis: viewMode === 'basic'
         ? 'This page keeps maintenance safe and guided.'
@@ -143,11 +139,8 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
   const {
     error,
     lastUpdatedAt,
-    liveStatus,
-    networkStats,
     nodeLiveById,
     nodes,
-    refresh,
     selectedNode,
     selectedNodeLive,
     setSelectedNodeId,
@@ -156,6 +149,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     viewProfile,
   } = useControlPanel();
 
+  const [developerModeEnabled] = useDeveloperMode();
   const [appVersion, setAppVersion] = useState('');
   const [jarvisOpen, setJarvisOpen] = useState(false);
   const [jarvisInput, setJarvisInput] = useState('');
@@ -177,6 +171,12 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     document.querySelector('.cp-main-content')?.scrollTo({ top: 0, left: 0 });
     document.querySelector('.cp-sidebar')?.scrollTo({ top: 0, left: 0 });
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!developerModeEnabled && viewMode === 'developer') {
+      setViewMode('advanced');
+    }
+  }, [developerModeEnabled, setViewMode, viewMode]);
 
   useEffect(() => {
     let disposed = false;
@@ -419,7 +419,6 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     { to: '/connectivity', key: 'connectivity', label: viewProfile.navLabels.connectivity, icon: 'hub' },
     { to: '/logs', key: 'logs', label: viewProfile.navLabels.logs, icon: 'receipt_long' },
     { to: '/rewards', key: 'rewards', label: viewProfile.navLabels.rewards, icon: 'savings' },
-    { to: '/settings', key: 'settings', label: viewProfile.navLabels.settings, icon: 'build' },
   ];
   const navigationGroups = [
     { id: 'core', label: 'Core', items: navigationItems },
@@ -447,12 +446,6 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     return item.to !== '/' && location.pathname.startsWith(item.to);
   };
 
-  const networkChipTone = networkStats.publicRpcOnline ? 'good' : 'warn';
-  const syncPercent = selectedNode ? nodeSyncPercent(selectedNodeLive, liveStatus) : 0;
-  const syncLabel = selectedNode
-    ? (syncPercent >= 99.5 ? 'Synced' : `Syncing ${formatPercent(syncPercent, 0)}`)
-    : `${formatNumber(networkStats.runningNodes)} active`;
-
   const hasFooterUpdateState = ['checking', 'available', 'downloading', 'ready', 'installing', 'error'].includes(updateState.status);
   const footerMessage = hasFooterUpdateState ? updateState.message : error;
   const shellStatusMessage = footerMessage || `Last updated ${lastUpdatedAt ? formatTimestamp(lastUpdatedAt) : 'moments ago'}`;
@@ -476,22 +469,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
       <div className="cp-shell" data-cp-mode={viewMode}>
         <aside className="cp-sidebar">
           <div className="cp-sidebar-brand">
-            <div className="cp-sidebar-brand-copy">
-              <strong>
-                Node Operator
-                <br />
-                Control Panel
-              </strong>
-              <span className="cp-brand-mode-line">{viewProfile.label} workspace</span>
-              <div className="cp-sidebar-brand-badges">
-                <StatusPill tone={networkChipTone} live>
-                  Network {networkStats.publicRpcOnline ? 'healthy' : 'checking'}
-                </StatusPill>
-                <StatusPill tone={selectedNode ? statusTone(syncLabel) : 'neutral'}>
-                  {syncLabel}
-                </StatusPill>
-              </div>
-            </div>
+            <img src={controlPanelBannerSrc} alt="Synergy Network Node Control Panel" className="cp-sidebar-brand-image" />
           </div>
 
           <nav className="cp-sidebar-nav" aria-label="Primary">
@@ -577,7 +555,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
             </button>
             <div className="cp-sidebar-mode-panel">
               <span className="cp-eyebrow cp-sidebar-footer-label">Views</span>
-              <ModeSwitcher mode={viewMode} onChange={setViewMode} compact />
+              <ModeSwitcher mode={viewMode} onChange={setViewMode} compact allowDeveloper={developerModeEnabled} />
             </div>
           </div>
         </aside>
@@ -599,18 +577,9 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
                   <strong>{selectedNode ? nodeRuntimeLabel(selectedNodeLive) : 'Watching fleet'}</strong>
                 </div>
               </div>
-              <img src={ecosystemHeaderGifSrc} alt="Synergy ecosystem" className="cp-topbar-gif" />
             </div>
 
             <div className="cp-topbar-actions">
-              <button type="button" className="cp-icon-button" onClick={() => void refresh()}>
-                <span className="material-icons" aria-hidden="true">refresh</span>
-              </button>
-              {viewProfile.showCommandPalette ? (
-                <button type="button" className="cp-update-button" onClick={() => setJarvisOpen(true)}>
-                  Command Palette
-                </button>
-              ) : null}
               <button type="button" className="cp-icon-button" onClick={() => navigate('/settings')}>
                 <span className="material-icons" aria-hidden="true">settings</span>
               </button>
@@ -623,8 +592,8 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
               >
                 {updateButtonLabel(updateState)}
               </button>
-              <button type="button" className="cp-update-button cp-wallet-button" data-soon="true" disabled>
-                Connect Wallet
+              <button type="button" className="cp-update-button cp-wallet-button" onClick={() => navigate(defaultNode ? `/node/${defaultNode.id}` : '/')}>
+                Wallet
               </button>
             </div>
           </header>

@@ -1205,11 +1205,11 @@
       "status_ready_min_validators": 4,
       "status_ready_genesis_grace_secs": 0,
       "allow_genesis_status_bypass": false,
-      "mesh_settle_secs": 15,
-      "leader_timeout_secs": 15,
-      "vote_timeout_secs": 8,
-      "block_timeout_secs": 30,
-      "validator_cluster_size": 5,
+      "mesh_settle_secs": 1,
+      "leader_timeout_secs": 4,
+      "vote_timeout_secs": 2,
+      "block_timeout_secs": 6,
+      "validator_cluster_size": 7,
       "penalization_enabled": false
     },
     "p2p": {

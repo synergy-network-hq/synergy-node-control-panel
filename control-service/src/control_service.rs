@@ -24,10 +24,12 @@ use crate::testnet_beta::{
     testbeta_get_validator_activation_preflight, testbeta_import_ceremony_package,
     testbeta_inspect_ceremony_package, testbeta_node_control, testbeta_remove_node,
     testbeta_run_register_with_seeds, testbeta_setup_node, testbeta_stake_validator,
-    TestnetBetaEraseNodeDataInput, TestnetBetaForcePeerConnectInput,
-    TestnetBetaImportCeremonyPackageInput, TestnetBetaInspectCeremonyPackageInput,
-    TestnetBetaNodeControlInput, TestnetBetaRemoveNodeInput, TestnetBetaSetupInput,
-    TestnetBetaValidatorActivateInput, TestnetBetaValidatorStakeInput,
+    testbeta_transfer_validator_tokens, testbeta_unstake_validator, TestnetBetaEraseNodeDataInput,
+    TestnetBetaForcePeerConnectInput, TestnetBetaImportCeremonyPackageInput,
+    TestnetBetaInspectCeremonyPackageInput, TestnetBetaNodeControlInput,
+    TestnetBetaRemoveNodeInput, TestnetBetaSetupInput, TestnetBetaValidatorActivateInput,
+    TestnetBetaValidatorStakeInput, TestnetBetaValidatorTransferInput,
+    TestnetBetaValidatorUnstakeInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -217,6 +219,16 @@ struct TestnetBetaValidatorActivationPreflightArgs {
 #[derive(Debug, Deserialize)]
 struct TestnetBetaValidatorStakeArgs {
     input: TestnetBetaValidatorStakeInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaValidatorUnstakeArgs {
+    input: TestnetBetaValidatorUnstakeInput,
+}
+
+#[derive(Debug, Deserialize)]
+struct TestnetBetaValidatorTransferArgs {
+    input: TestnetBetaValidatorTransferInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -495,6 +507,14 @@ async fn dispatch_command(
         "testbeta_stake_validator" => {
             let args: TestnetBetaValidatorStakeArgs = parse_args(request.args)?;
             to_value(testbeta_stake_validator(args.input).await?)
+        }
+        "testbeta_unstake_validator" => {
+            let args: TestnetBetaValidatorUnstakeArgs = parse_args(request.args)?;
+            to_value(testbeta_unstake_validator(args.input).await?)
+        }
+        "testbeta_transfer_validator_tokens" => {
+            let args: TestnetBetaValidatorTransferArgs = parse_args(request.args)?;
+            to_value(testbeta_transfer_validator_tokens(args.input).await?)
         }
         "testbeta_activate_validator" => {
             let args: TestnetBetaValidatorActivateArgs = parse_args(request.args)?;

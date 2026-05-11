@@ -384,12 +384,18 @@ app.register(async (api) => {
           LIMIT 50`, [address]),
         ]);
         const stakingEntries = Array.isArray(stakingInfo) ? stakingInfo : [];
-        const stakedBalanceNwei = String(stakedBalance?.balance || stakingEntries.reduce((total, entry) => {
+        const stakingEntryTotal = stakingEntries.reduce((total, entry) => {
             if (entry?.is_active === false)
                 return total;
             return total + parseBigInt(entry?.amount);
-        }, 0n));
-        const hasStake = parseBigInt(stakedBalanceNwei) > 0n || stakingEntries.length > 0;
+        }, 0n);
+        const validatorStakeNwei = parseBigInt(validatorRpc?.stake_amount);
+        const rpcStakedBalanceNwei = parseBigInt(stakedBalance?.balance);
+        const effectiveStakeNwei = rpcStakedBalanceNwei > 0n ? rpcStakedBalanceNwei :
+            stakingEntryTotal > 0n ? stakingEntryTotal :
+                validatorStakeNwei;
+        const stakedBalanceNwei = effectiveStakeNwei.toString();
+        const hasStake = effectiveStakeNwei > 0n || stakingEntries.length > 0;
         if (!validatorRpc && !hasStake) {
             throw api.httpErrors.notFound('Validator not found');
         }
