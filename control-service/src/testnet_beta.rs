@@ -20,7 +20,9 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use synergy_address_engine::{generate_identity, AddressType, SynergyIdentity};
+use synergy_address_engine::{
+    generate_identity, is_valid_address, AddressType, SynergyIdentity, TARGET_ADDRESS_LEN,
+};
 use sysinfo::{Disks, Pid, System};
 use tar::Archive;
 use tokio::net::TcpStream;
@@ -1560,6 +1562,204 @@ pub async fn testbeta_get_validator_activation_preflight(
     build_validator_activation_preflight(&state, &node).await
 }
 
+pub async fn testbeta_get_rewards_data(node_id: String) -> Result<Value, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {node_id}"))?;
+
+    let rpc_endpoint = rpc_endpoint_for_workspace(&node)?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+
+    let balance_result = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getBalance",
+        json!([node.node_address]),
+    )
+    .await;
+    let token_balance_result = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getTokenBalance",
+        json!([node.node_address, TOKEN_SYMBOL]),
+    )
+    .await;
+    let staked_result = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getStakedBalance",
+        json!([node.node_address, TOKEN_SYMBOL]),
+    )
+    .await;
+    let staking_result = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getStakingInfo",
+        json!([node.node_address]),
+    )
+    .await;
+    let validator_result = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getValidator",
+        json!([node.node_address]),
+    )
+    .await;
+    let synergy_result = query_rpc_value(
+        &client,
+        &rpc_endpoint,
+        "synergy_getSynergyScoreBreakdown",
+        json!([node.node_address]),
+    )
+    .await;
+
+    let mut telemetry_gaps = Vec::<String>::new();
+    let wallet_balance_nwei = balance_result
+        .as_ref()
+        .ok()
+        .and_then(|value| parse_rpc_balance_u64(value.clone()))
+        .or_else(|| {
+            token_balance_result
+                .as_ref()
+                .ok()
+                .and_then(|value| parse_rpc_balance_u64(value.clone()))
+        });
+    if wallet_balance_nwei.is_none() {
+        telemetry_gaps.push("wallet balance RPC unavailable".to_string());
+    }
+
+    let staked_balance_nwei = staked_result
+        .as_ref()
+        .ok()
+        .and_then(|value| parse_rpc_balance_u64(value.clone()));
+    let staking_entries = staking_result
+        .as_ref()
+        .ok()
+        .map(extract_staking_entries)
+        .unwrap_or_default();
+    let staked_balance_nwei = staked_balance_nwei.or_else(|| {
+        let total = staking_entries
+            .iter()
+            .filter(|entry| {
+                entry
+                    .get("is_active")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true)
+            })
+            .filter_map(|entry| entry.get("amount").cloned())
+            .filter_map(|value| parse_rpc_u64(value).ok())
+            .sum::<u64>();
+        (total > 0).then_some(total)
+    });
+    if staked_balance_nwei.is_none() {
+        telemetry_gaps.push("staked balance RPC unavailable".to_string());
+    }
+
+    let historical_earned_nwei = staking_entries
+        .iter()
+        .filter_map(|entry| entry.get("rewards_earned").cloned())
+        .filter_map(|value| parse_rpc_u64(value).ok())
+        .sum::<u64>();
+    let pending_rewards_nwei = staking_entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .get("pending_rewards")
+                .or_else(|| entry.get("pendingRewards"))
+                .cloned()
+        })
+        .filter_map(|value| parse_rpc_u64(value).ok())
+        .sum::<u64>();
+
+    let validator_payload = validator_result
+        .as_ref()
+        .ok()
+        .filter(|value| !rpc_result_contains_error(value) && !value.is_null())
+        .cloned();
+    let synergy_payload = synergy_result
+        .as_ref()
+        .ok()
+        .filter(|value| !rpc_result_contains_error(value) && !value.is_null())
+        .cloned();
+    if synergy_payload.is_none() {
+        telemetry_gaps.push("synergy score RPC unavailable".to_string());
+    }
+
+    let synergy_multiplier = synergy_payload
+        .as_ref()
+        .and_then(|value| value.get("total_score"))
+        .and_then(Value::as_f64)
+        .map(|score| (score / 100.0).max(0.0));
+
+    let wallet_balance_nwei = wallet_balance_nwei.unwrap_or(0);
+    let staked_balance_nwei = staked_balance_nwei.unwrap_or(0);
+    let current_total_position_nwei = wallet_balance_nwei.saturating_add(staked_balance_nwei);
+    let validator_status = validator_payload
+        .as_ref()
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("Not active");
+    let cluster_id = validator_payload
+        .as_ref()
+        .and_then(|value| value.get("cluster_id").cloned());
+    let cluster_address = validator_payload
+        .as_ref()
+        .and_then(|value| value.get("cluster_address"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
+    Ok(json!({
+        "loaded": true,
+        "node_id": node.id,
+        "node_address": node.node_address,
+        "token_symbol": TOKEN_SYMBOL,
+        "decimals": TOKEN_DECIMALS,
+        "genesis": {
+            "loaded": false,
+            "reason": "Genesis reward baseline is not bundled with this local validator workspace."
+        },
+        "live": {
+            "wallet_balance_raw": wallet_balance_nwei.to_string(),
+            "wallet_balance_snrg": nwei_to_snrg(wallet_balance_nwei),
+            "staked_balance_raw": staked_balance_nwei.to_string(),
+            "staked_balance_snrg": nwei_to_snrg(staked_balance_nwei),
+            "current_total_position_raw": current_total_position_nwei.to_string(),
+            "current_total_position_snrg": nwei_to_snrg(current_total_position_nwei),
+            "historical_earned_raw": historical_earned_nwei.to_string(),
+            "historical_earned_snrg": nwei_to_snrg(historical_earned_nwei),
+            "pending_rewards_raw": pending_rewards_nwei.to_string(),
+            "pending_rewards_snrg": nwei_to_snrg(pending_rewards_nwei),
+            "estimated_apy": Value::Null,
+            "commission_rate": Value::Null,
+            "staking_entry_count": staking_entries.len(),
+            "reward_history": reward_history_from_stakes(&staking_entries),
+            "net_position_delta_snrg": Value::Null,
+            "synergy_multiplier": synergy_multiplier,
+            "synergy_breakdown": synergy_payload,
+            "synergy_components": synergy_payload.as_ref().and_then(|value| value.get("components").cloned()),
+            "validator": validator_payload,
+            "validator_status": validator_status,
+            "consensus_active": validator_status.eq_ignore_ascii_case("active"),
+            "cluster_id": cluster_id,
+            "cluster_address": cluster_address,
+        },
+        "telemetry": {
+            "token_balance_available": balance_result.is_ok() || token_balance_result.is_ok(),
+            "staking_info_available": staking_result.is_ok(),
+            "staked_balance_available": staked_result.is_ok(),
+            "synergy_breakdown_available": synergy_payload.is_some(),
+            "telemetry_gaps": telemetry_gaps,
+        },
+    }))
+}
+
 pub async fn testbeta_stake_validator(
     input: TestnetBetaValidatorStakeInput,
 ) -> Result<ValidatorLifecycleTxResult, String> {
@@ -1612,6 +1812,7 @@ pub async fn testbeta_stake_validator(
 fn validator_stake_preflight_error(preflight: &ValidatorActivationPreflightResult) -> String {
     let priority_checks = [
         "validator-role",
+        "canonical-validator-address",
         "local-rpc",
         "local-signing-key",
         "runtime-wallet-loaded",
@@ -1734,6 +1935,9 @@ async fn build_validator_activation_preflight(
     let seed_ok = live.seed_registered;
     let liquid = balance_nwei.unwrap_or(0);
     let staked = staked_balance_nwei.unwrap_or(0);
+    let validator_address_ok = node.node_address.starts_with("synv")
+        && node.node_address.len() == TARGET_ADDRESS_LEN
+        && is_valid_address(&node.node_address);
 
     let mut checks = readiness.checks;
     checks.push(preflight_check(
@@ -1742,6 +1946,13 @@ async fn build_validator_activation_preflight(
         role_ok,
         "This workspace is configured as a validator.",
         "Select or provision a validator workspace before staking.",
+    ));
+    checks.push(preflight_check(
+        "canonical-validator-address",
+        "Canonical validator address",
+        validator_address_ok,
+        "The validator address is a canonical 41-character Synergy Bech32m validator address.",
+        "Remove this workspace and rerun setup with the updated Control Panel so the address engine generates a full canonical validator identity.",
     ));
     checks.push(preflight_check(
         "public-endpoint",
@@ -1808,11 +2019,13 @@ async fn build_validator_activation_preflight(
     ));
 
     let can_stake = role_ok
+        && validator_address_ok
         && rpc_ok
         && local_signing_key_ready
         && runtime_wallet_ready
         && liquid >= required_stake_nwei;
     let can_activate = role_ok
+        && validator_address_ok
         && public_host_ok
         && rpc_ok
         && local_signing_key_ready
@@ -1931,6 +2144,60 @@ fn parse_rpc_balance_u64(value: Value) -> Option<u64> {
                 .and_then(|entry| parse_rpc_u64(entry).ok())
         })
     })
+}
+
+fn nwei_to_snrg(amount_nwei: u64) -> f64 {
+    amount_nwei as f64 / TOKEN_SCALE as f64
+}
+
+fn rpc_result_contains_error(value: &Value) -> bool {
+    value.get("error").is_some()
+        || value
+            .get("success")
+            .and_then(Value::as_bool)
+            .map(|success| !success)
+            .unwrap_or(false)
+}
+
+fn extract_staking_entries(value: &Value) -> Vec<Value> {
+    if let Some(entries) = value.as_array() {
+        return entries.clone();
+    }
+
+    ["entries", "stakes", "staking_entries", "stakingEntries"]
+        .iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_array))
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn reward_history_from_stakes(entries: &[Value]) -> Vec<Value> {
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let rewards = entry
+                .get("rewards_earned")
+                .cloned()
+                .and_then(|value| parse_rpc_u64(value).ok())
+                .unwrap_or(0);
+            if rewards == 0 {
+                return None;
+            }
+            let timestamp = entry
+                .get("stake_start")
+                .or_else(|| entry.get("stakeStart"))
+                .cloned()
+                .and_then(|value| parse_rpc_u64(value).ok())
+                .unwrap_or_else(|| Utc::now().timestamp().max(0) as u64);
+            Some(json!({
+                "id": format!("stake-reward-{timestamp}"),
+                "timestamp": timestamp,
+                "amount": rewards,
+                "amount_snrg": nwei_to_snrg(rewards),
+                "type": "staking",
+            }))
+        })
+        .collect()
 }
 
 fn parse_lifecycle_tx_hash(value: &Value) -> Result<String, String> {
@@ -7274,14 +7541,20 @@ fn validate_node_address_for_role(
     address: &str,
 ) -> Result<(), String> {
     let expected_prefix = node_address_type_for_role(role).prefix();
-    if address.starts_with(expected_prefix) {
-        Ok(())
-    } else {
-        Err(format!(
+    if !address.starts_with(expected_prefix) {
+        return Err(format!(
             "{} requires an address with the '{}' prefix. The generated or imported address '{}' has the wrong address type.",
             role.display_name, expected_prefix, address
-        ))
+        ));
     }
+    if address.len() != TARGET_ADDRESS_LEN || !is_valid_address(address) {
+        return Err(format!(
+            "{} generated or imported address '{}' is not a canonical {TARGET_ADDRESS_LEN}-character Synergy Bech32m address.",
+            role.display_name, address
+        ));
+    }
+
+    Ok(())
 }
 
 fn persist_identity(
@@ -8930,6 +9203,19 @@ mod tests {
 
             assert_eq!(result.node.role_id, "validator");
             assert_eq!(result.node.role_display_name, "Validator Node");
+            assert_eq!(
+                result.node.node_address.len(),
+                TARGET_ADDRESS_LEN,
+                "generated validator address must use the canonical Synergy length"
+            );
+            assert!(
+                result.node.node_address.starts_with("synv11"),
+                "validator class-1 address should include the synv1 HRP and Bech32 separator"
+            );
+            assert!(
+                is_valid_address(&result.node.node_address),
+                "generated validator address should pass Bech32m validation"
+            );
             assert!(
                 result
                     .node

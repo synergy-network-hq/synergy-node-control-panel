@@ -69,6 +69,18 @@ function buildExpectedConfigProfile(node, nodeLive) {
   ].join('\n');
 }
 
+function activationPreflightMessage(result) {
+  const canActivate = result?.canActivate === true || result?.can_activate === true;
+  const ready = canActivate ? 'ready for activation' : 'not ready for activation';
+  const failedChecks = safeArray(result?.checks)
+    .filter((check) => check?.status !== 'pass')
+    .map((check) => check?.label || check?.id)
+    .filter(Boolean)
+    .slice(0, 3);
+  const blockedBy = failedChecks.length ? ` Blocked by: ${failedChecks.join(', ')}.` : '';
+  return `Validator preflight is ${ready}. Liquid ${formatNumber(result?.balance_nwei || 0)} nWei; staked ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.${blockedBy}`;
+}
+
 export default function TestnetBetaNodeDetailRevamp() {
   const { nodeId } = useParams();
   const navigate = useNavigate();
@@ -265,9 +277,7 @@ export default function TestnetBetaNodeDetailRevamp() {
         message = await registerWithSeedsAction(node.id);
       } else if (kind === 'activation-preflight') {
         const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: node.id });
-        const canActivate = result?.canActivate === true || result?.can_activate === true;
-        const ready = canActivate ? 'ready for activation' : 'not ready for activation';
-        message = `Validator preflight is ${ready}. Stake ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.`;
+        message = activationPreflightMessage(result);
       } else if (kind === 'stake-validator') {
         const result = await invoke('testbeta_stake_validator', {
           input: {

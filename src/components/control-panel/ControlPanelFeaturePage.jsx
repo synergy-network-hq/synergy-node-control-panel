@@ -33,6 +33,22 @@ function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
 }
 
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function activationPreflightMessage(result) {
+  const canActivate = result?.canActivate === true || result?.can_activate === true;
+  const ready = canActivate ? 'ready for activation' : 'not ready for activation';
+  const failedChecks = safeArray(result?.checks)
+    .filter((check) => check?.status !== 'pass')
+    .map((check) => check?.label || check?.id)
+    .filter(Boolean)
+    .slice(0, 3);
+  const blockedBy = failedChecks.length ? ` Blocked by: ${failedChecks.join(', ')}.` : '';
+  return `Validator preflight is ${ready}. Liquid ${formatNumber(result?.balance_nwei || 0)} nWei; staked ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.${blockedBy}`;
+}
+
 const SYNC_READY_GAP = 32;
 
 function buildLiveMetrics(selectedNodeLive, liveStatus, networkStats) {
@@ -575,9 +591,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
           : 'No recent log entries were returned for the selected node.';
       } else if (action.id === 'activation-preflight') {
         const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: selectedNode.id });
-        const canActivate = result?.canActivate === true || result?.can_activate === true;
-        const ready = canActivate ? 'ready for activation' : 'not ready for activation';
-        detail = `Validator preflight is ${ready}. Stake ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.`;
+        detail = activationPreflightMessage(result);
       } else if (action.id === 'stake-validator') {
         if (selectedNode?.role_id !== 'validator') {
           throw new Error('Stake Validator is only available on validator nodes.');

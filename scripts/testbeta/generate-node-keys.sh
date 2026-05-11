@@ -130,26 +130,8 @@ derive_address_from_public_key() {
   local public_key_file="$1"
   local address_class="$2"
 
-  python3 - "$public_key_file" "$address_class" <<'PY'
-import base64
-import hashlib
-import sys
-
-public_key_file = sys.argv[1]
-address_class = int(sys.argv[2])
-
-with open(public_key_file, "r", encoding="utf-8") as f:
-    public_key_text = f.read().strip()
-
-try:
-    public_key_bytes = base64.b64decode(public_key_text, validate=True)
-except Exception:
-    # Fallback for non-base64 legacy key files.
-    public_key_bytes = public_key_text.encode("utf-8")
-
-digest = hashlib.sha3_256(public_key_bytes).hexdigest()
-print(f"synv{address_class}{digest[:36]}")
-PY
+  echo "Cannot derive a fallback address for ${public_key_file} class ${address_class}; rerun key generation with the Synergy address engine available." >&2
+  return 1
 }
 
 write_identity_files() {
@@ -330,6 +312,10 @@ while IFS=, read -r node_slot_id node_alias _ role node_type address_class _ _ _
   address="$(tr -d '\r\n' < "$node_key_dir/address.txt" 2>/dev/null || true)"
   if [[ -z "$address" ]]; then
     address="$(derive_address_from_public_key "$node_key_dir/public.key" "$address_class")"
+  fi
+  if [[ ${#address} -ne 41 || "$address" != syn* ]]; then
+    echo "Generated invalid Synergy address for $node_slot_id: $address" >&2
+    exit 1
   fi
   echo "$address" > "$node_key_dir/address.txt"
   write_identity_files \

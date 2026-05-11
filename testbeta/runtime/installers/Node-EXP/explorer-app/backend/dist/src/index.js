@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import { loadConfig } from './config.js';
 import { createPool } from './db.js';
-import { isSynergyAddress, isSynergyTransactionHash, normalizeAddress, normalizeTxHash, rpcCallWithFallback } from './synergy.js';
+import { isSynergyAddress, isSynergyTransactionHash, isSynergyValidatorAddress, normalizeAddress, normalizeTxHash, rpcCallWithFallback } from './synergy.js';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 const cfg = loadConfig(process.env);
 const pool = createPool(cfg.dbUrl);
@@ -51,6 +51,34 @@ function parseLimitPage(q) {
     const page = Math.max(1, Number(q.page || 1));
     const offset = (page - 1) * limit;
     return { limit, page, offset };
+}
+function nullableString(value) {
+    if (value === null || value === undefined)
+        return null;
+    return String(value);
+}
+function rpcTransactionToRow(tx) {
+    return {
+        hash: tx.hash,
+        block_number: nullableString(tx.block_number),
+        block_timestamp: null,
+        tx_index: tx.transaction_index ?? null,
+        sender_address: tx.sender || tx.from || null,
+        receiver_address: tx.receiver || tx.to || null,
+        amount_nwei: nullableString(tx.amount),
+        fee_nwei: nullableString(tx.fee),
+        nonce: nullableString(tx.nonce),
+        data: tx.data || null,
+        status: tx.status || (tx.block_number == null ? 'pending' : 'confirmed'),
+        signature_algorithm: tx.signature_algorithm || null,
+        timestamp_unix: nullableString(tx.timestamp),
+    };
+}
+async function getRpcTransactionRow(hash) {
+    const tx = await rpcCallWithFallback(rpc, 'synergy_getTransactionByHash', [hash]).catch(() => null);
+    if (!tx || !tx.hash)
+        return null;
+    return rpcTransactionToRow(tx);
 }
 function parseBigInt(value) {
     if (value === null || value === undefined || value === '')
@@ -250,7 +278,23 @@ app.register(async (api) => {
          JOIN blocks b ON b.number = t.block_number
         WHERE t.hash = $1`, [hash]);
         if (txRes.rows.length === 0) {
-            throw api.httpErrors.notFound('Transaction not found');
+            const rpcTx = await getRpcTransactionRow(hash);
+            if (!rpcTx) {
+                throw api.httpErrors.notFound('Transaction not found');
+            }
+            return {
+                ...rpcTx,
+                blockNumber: rpcTx.block_number,
+                blockTimestamp: rpcTx.block_timestamp,
+                txIndex: rpcTx.tx_index,
+                sender: rpcTx.sender_address,
+                receiver: rpcTx.receiver_address,
+                amountNwei: rpcTx.amount_nwei,
+                feeNwei: rpcTx.fee_nwei,
+                signatureAlgorithm: rpcTx.signature_algorithm,
+                timestampUnix: rpcTx.timestamp_unix,
+                indexed: false,
+            };
         }
         const tx = txRes.rows[0];
         return {
@@ -321,14 +365,15 @@ app.register(async (api) => {
     });
     api.get('/validators/:address', async (req) => {
         const address = normalizeAddress(String(req.params.address));
-        if (!isSynergyAddress(address)) {
+        if (!isSynergyValidatorAddress(address)) {
             throw api.httpErrors.badRequest('Invalid Synergy validator address');
         }
-        const [validator, synergyBreakdown, stakingInfo, walletBalance, recentTransactions] = await Promise.all([
+        const [validatorRpc, synergyBreakdownRpc, stakingInfo, walletBalance, stakedBalance, recentTransactions] = await Promise.all([
             rpcCallWithFallback(rpc, 'synergy_getValidator', [address]).catch(() => null),
             rpcCallWithFallback(rpc, 'synergy_getSynergyScoreBreakdown', [address]).catch(() => null),
             rpcCallWithFallback(rpc, 'synergy_getStakingInfo', [address]).catch(() => null),
             rpcCallWithFallback(rpc, 'synergy_getTokenBalance', [address, 'SNRG']).catch(() => 0),
+            rpcCallWithFallback(rpc, 'synergy_getStakedBalance', [address, 'SNRG']).catch(() => ({ balance: 0 })),
             pool.query(`SELECT t.hash, t.block_number, b.timestamp AS block_timestamp, t.tx_index, t.sender_address,
                 t.receiver_address, t.amount_nwei, t.fee_nwei, t.nonce, t.data, t.status,
                 t.signature_algorithm, t.timestamp_unix
@@ -338,14 +383,40 @@ app.register(async (api) => {
           ORDER BY t.block_number DESC, t.tx_index DESC NULLS LAST
           LIMIT 50`, [address]),
         ]);
-        if (!validator) {
+        const stakingEntries = Array.isArray(stakingInfo) ? stakingInfo : [];
+        const stakedBalanceNwei = String(stakedBalance?.balance || stakingEntries.reduce((total, entry) => {
+            if (entry?.is_active === false)
+                return total;
+            return total + parseBigInt(entry?.amount);
+        }, 0n));
+        const hasStake = parseBigInt(stakedBalanceNwei) > 0n || stakingEntries.length > 0;
+        if (!validatorRpc && !hasStake) {
             throw api.httpErrors.notFound('Validator not found');
         }
+        const validator = validatorRpc || {
+            address,
+            name: null,
+            stake_amount: stakedBalanceNwei,
+            synergy_score: null,
+            total_blocks_produced: 0,
+            uptime_percentage: null,
+            cluster_id: null,
+            cluster_address: null,
+            last_active: null,
+            status: hasStake ? 'Staked' : 'Inactive',
+            role_hint: 'validator',
+        };
+        const consensusActive = String(validator.status || '').toLowerCase() === 'active';
+        const synergyBreakdown = synergyBreakdownRpc && !synergyBreakdownRpc.error ? synergyBreakdownRpc : null;
         return {
             validator,
             synergyBreakdown,
-            stakingInfo,
+            stakingInfo: stakingEntries,
             walletBalanceNwei: String(walletBalance || 0),
+            stakedBalanceNwei,
+            hasStake,
+            consensusActive,
+            clusterAddress: validator.cluster_address || null,
             recentTransactions: recentTransactions.rows,
         };
     });

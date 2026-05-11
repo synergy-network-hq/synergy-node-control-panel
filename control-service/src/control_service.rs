@@ -20,7 +20,7 @@ use crate::testnet_beta::{
     testbeta_activate_validator, testbeta_boost_sync, testbeta_erase_local_machine_data,
     testbeta_force_peer_connect, testbeta_get_catalog, testbeta_get_chain_blocks,
     testbeta_get_device_profile, testbeta_get_live_status, testbeta_get_node_logs,
-    testbeta_get_node_readiness, testbeta_get_state,
+    testbeta_get_node_readiness, testbeta_get_rewards_data, testbeta_get_state,
     testbeta_get_validator_activation_preflight, testbeta_import_ceremony_package,
     testbeta_inspect_ceremony_package, testbeta_node_control, testbeta_remove_node,
     testbeta_run_register_with_seeds, testbeta_setup_node, testbeta_stake_validator,
@@ -193,6 +193,12 @@ struct TestnetBetaRegisterWithSeedsArgs {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TestnetBetaReadinessArgs {
+    node_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetBetaRewardsArgs {
     node_id: String,
 }
 
@@ -473,6 +479,10 @@ async fn dispatch_command(
         "testbeta_get_node_readiness" => {
             let args: TestnetBetaReadinessArgs = parse_args(request.args)?;
             to_value(testbeta_get_node_readiness(args.node_id).await?)
+        }
+        "get_rewards_data" | "testbeta_get_rewards_data" => {
+            let args: TestnetBetaRewardsArgs = parse_args(request.args)?;
+            to_value(testbeta_get_rewards_data(args.node_id).await?)
         }
         "testbeta_boost_sync" => {
             let args: TestnetBetaBoostSyncArgs = parse_args(request.args)?;

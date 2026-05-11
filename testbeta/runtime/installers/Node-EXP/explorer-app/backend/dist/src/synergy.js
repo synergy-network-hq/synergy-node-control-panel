@@ -53,7 +53,11 @@ export function isSynergyTransactionHash(value) {
 }
 export function isSynergyAddress(value) {
     const candidate = normalizeAddress(value);
-    return /^syn[a-z0-9]{38}$/.test(candidate) || /^syngrp[1-5][0-9a-f]{34}$/.test(candidate);
+    return candidate.length === 41 && /^syn[a-z0-9]+$/.test(candidate);
+}
+export function isSynergyValidatorAddress(value) {
+    const candidate = normalizeAddress(value);
+    return candidate.length === 41 && /^synv[1-5]1[a-z0-9]+$/.test(candidate);
 }
 export function formatTimestampIso(value) {
     const numeric = Number(value || 0);
