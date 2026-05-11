@@ -2122,13 +2122,33 @@ async fn build_validator_activation_preflight(
         "The validator has live peer visibility.",
         "Check firewall/P2P reachability and peer bootstrap before activation.",
     ));
-    checks.push(preflight_check(
-        "seed-registration",
-        "Seed registration",
-        seed_ok,
-        "Seed servers have a registration for this validator.",
-        "Run Re-register so public peers can discover this validator.",
-    ));
+    checks.push(NodeReadinessCheck {
+        id: "seed-registration".to_string(),
+        label: "Seed registration".to_string(),
+        status: if seed_ok {
+            "pass"
+        } else if peer_ok {
+            "warn"
+        } else {
+            "fail"
+        }
+        .to_string(),
+        detail: if seed_ok {
+            "Seed servers have a registration for this validator.".to_string()
+        } else if peer_ok {
+            "Seed registration is unavailable, but the validator already has live peer visibility."
+                .to_string()
+        } else {
+            "Seed servers do not currently expose this validator.".to_string()
+        },
+        suggestion: if seed_ok {
+            None
+        } else if peer_ok {
+            Some("Continue activation when sync, stake, wallet, and direct validator peers are ready.".to_string())
+        } else {
+            Some("Run Re-register or fix bootstrap peers so public validators can discover this node.".to_string())
+        },
+    });
     checks.push(preflight_check(
         "liquid-balance",
         "Wallet funding",
@@ -2172,7 +2192,6 @@ async fn build_validator_activation_preflight(
         && runtime_wallet_ready
         && sync_gap_ok
         && peer_ok
-        && seed_ok
         && staked >= required_stake_nwei;
 
     Ok(ValidatorActivationPreflightResult {
@@ -5924,6 +5943,8 @@ async fn build_node_readiness_report(
         label: "Seed Registered".to_string(),
         status: if seed_registered {
             "pass"
+        } else if live.is_running && live.local_peer_count.unwrap_or(0) > 0 {
+            "warn"
         } else if live.is_running {
             "fail"
         } else {
@@ -5932,6 +5953,8 @@ async fn build_node_readiness_report(
         .to_string(),
         detail: if seed_registered {
             format!("Registered with {seed_count} seed server(s).")
+        } else if live.is_running && live.local_peer_count.unwrap_or(0) > 0 {
+            "Seed registration is unavailable, but the node has live peers.".to_string()
         } else if live.is_running {
             "Not found in any seed server peer registry.".to_string()
         } else {
@@ -5939,6 +5962,8 @@ async fn build_node_readiness_report(
         },
         suggestion: if seed_registered {
             None
+        } else if live.is_running && live.local_peer_count.unwrap_or(0) > 0 {
+            Some("Keep direct validator peers healthy; seed registration is not required once peer visibility is established.".to_string())
         } else if live.is_running {
             Some("Re-register with seed servers.".to_string())
         } else {
@@ -6838,6 +6863,7 @@ struct CanonicalValidatorPeer {
     slot: u64,
     address: String,
     private_host: String,
+    public_host: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -6882,11 +6908,19 @@ fn parse_canonical_validator_peer(entry: &Value) -> Option<CanonicalValidatorPee
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| fallback_validator_private_host_for_slot(slot).map(str::to_string))?;
+    let public_host = entry
+        .get("public_host")
+        .and_then(Value::as_str)
+        .or_else(|| entry.get("public_ip").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
     Some(CanonicalValidatorPeer {
         slot,
         address,
         private_host,
+        public_host,
     })
 }
 
@@ -6948,6 +6982,20 @@ fn canonical_validator_dial_target(entry: &CanonicalValidatorPeer) -> String {
         entry.private_host,
         canonical_public_p2p_port_for_validator_slot(entry.slot)
     )
+}
+
+fn canonical_public_validator_dial_target(entry: &CanonicalValidatorPeer) -> Option<String> {
+    let host = entry.public_host.as_deref()?.trim();
+    if host.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "snr://{}@{}:{}",
+        entry.address,
+        host,
+        canonical_public_p2p_port_for_validator_slot(entry.slot)
+    ))
 }
 
 fn canonical_validator_dial_targets_toml(
@@ -7169,10 +7217,15 @@ fn canonical_sentry_public_dial_targets_for_role(role_id: &str) -> Vec<String> {
 }
 
 fn canonical_public_validator_dial_targets() -> Vec<String> {
-    let mut targets = canonical_sentry_peers()
+    let mut targets = canonical_testnet_beta_validator_peers()
         .into_iter()
-        .map(|entry| format!("{}:{}", entry.public_host, entry.port))
+        .filter_map(|entry| canonical_public_validator_dial_target(&entry))
         .collect::<Vec<_>>();
+    targets.extend(
+        canonical_sentry_peers()
+            .into_iter()
+            .map(|entry| format!("{}:{}", entry.public_host, entry.port)),
+    );
     targets.sort();
     targets.dedup();
     targets
@@ -9644,6 +9697,11 @@ mod tests {
                 additional_dial_target_values.contains(&"relay1.synergynode.xyz:5622")
                     && additional_dial_target_values.contains(&"relay2.synergynode.xyz:5622"),
                 "non-genesis validator node.toml should pin the public sentry relayers for sync"
+            );
+            assert!(
+                additional_dial_target_values.iter().any(|value| value
+                    .starts_with("snr://synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs@62.146.182.207:5622")),
+                "non-genesis validator node.toml should dial public genesis validators for consensus"
             );
             let persistent_peers = node_value
                 .get("network")
