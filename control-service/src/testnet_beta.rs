@@ -1275,7 +1275,27 @@ pub async fn testbeta_node_control(
             }
             validate_workspace_launch_preflight(&config_path, &workspace_directory).await?;
 
-            run_runner_and_wait(&runner, "sync", &config_path, &workspace_directory).await?;
+            let sync_message = match run_runner_and_wait(
+                &runner,
+                "sync",
+                &config_path,
+                &workspace_directory,
+            )
+            .await
+            {
+                Ok(()) => "P2P fast-sync completed.".to_string(),
+                Err(sync_error) => {
+                    let fallback_message =
+                        rpc_fast_sync_workspace_chain(&workspace_directory).await.map_err(
+                            |fallback_error| {
+                                format!(
+                                    "P2P fast-sync failed ({sync_error}); RPC chain catch-up also failed ({fallback_error})."
+                                )
+                            },
+                        )?;
+                    format!("P2P fast-sync needed RPC fallback. {fallback_message}")
+                }
+            };
             launch_runner_detached(&runner, "start", &config_path, &workspace_directory).await?;
             wait_for_workspace_start(&config_path, &workspace_directory, Duration::from_secs(30))
                 .await?;
@@ -1301,14 +1321,15 @@ pub async fn testbeta_node_control(
                 status: "ok".to_string(),
                 message: if launch_notices.is_empty() {
                     if is_validator_role {
-                        "Validator catch-up sync completed and the runtime is back online."
-                            .to_string()
+                        format!(
+                            "Validator catch-up sync completed and the runtime is back online. {sync_message}"
+                        )
                     } else {
-                        "Node fast-sync completed and the runtime is back online.".to_string()
+                        format!("Node fast-sync completed and the runtime is back online. {sync_message}")
                     }
                 } else {
                     format!(
-                        "{} {} fast-sync restarted from the active network genesis.",
+                        "{} {} fast-sync restarted from the active network genesis. {sync_message}",
                         launch_notices.join(" "),
                         if is_validator_role {
                             "Validator"
@@ -6055,6 +6076,135 @@ fn ensure_workspace_bootstrap_topology(
 
 async fn query_public_chain_height(client: &Client) -> Result<u64, String> {
     query_local_chain_height(client, TESTNET_BETA_PUBLIC_RPC_ENDPOINT).await
+}
+
+async fn rpc_fast_sync_workspace_chain(workspace_directory: &Path) -> Result<String, String> {
+    let data_dir = workspace_directory.join("data");
+    let chain_path = data_dir.join("chain.json");
+    if !chain_path.is_file() {
+        return Err(format!(
+            "Local chain file not found at {}.",
+            chain_path.display()
+        ));
+    }
+
+    let chain_contents = fs::read_to_string(&chain_path)
+        .map_err(|error| format!("Failed to read {}: {error}", chain_path.display()))?;
+    let mut chain = serde_json::from_str::<Vec<Value>>(&chain_contents)
+        .map_err(|error| format!("Failed to parse {}: {error}", chain_path.display()))?;
+    let last_block = chain
+        .last()
+        .ok_or_else(|| format!("Local chain file is empty: {}", chain_path.display()))?;
+    let local_height = block_height_from_value(last_block)
+        .ok_or_else(|| "Local chain tip does not expose block_index.".to_string())?;
+    let mut expected_previous_hash = block_hash_from_value(last_block)
+        .ok_or_else(|| "Local chain tip does not expose hash.".to_string())?;
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+    let public_height = query_public_chain_height(&client).await?;
+    if local_height >= public_height {
+        return Ok(format!(
+            "RPC fallback checked the public chain and the workspace is already at height {local_height}."
+        ));
+    }
+
+    let missing = public_height.saturating_sub(local_height);
+    if missing > 25_000 {
+        return Err(format!(
+            "RPC fallback refused to pull {missing} blocks in one pass. Run catch-up closer to network head or restore from a trusted snapshot."
+        ));
+    }
+
+    for height in (local_height + 1)..=public_height {
+        let block = query_rpc_value(
+            &client,
+            TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
+            "synergy_getBlockByNumber",
+            json!([height]),
+        )
+        .await?;
+        let block_height = block_height_from_value(&block)
+            .ok_or_else(|| format!("RPC block {height} did not include block_index."))?;
+        if block_height != height {
+            return Err(format!(
+                "RPC returned block {block_height} while syncing expected height {height}."
+            ));
+        }
+        let previous_hash = block
+            .get("previous_hash")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("RPC block {height} did not include previous_hash."))?;
+        if previous_hash != expected_previous_hash {
+            return Err(format!(
+                "RPC block {height} parent hash mismatch. Expected {expected_previous_hash}, got {previous_hash}."
+            ));
+        }
+        expected_previous_hash = block_hash_from_value(&block)
+            .ok_or_else(|| format!("RPC block {height} did not include hash."))?;
+        chain.push(block);
+    }
+
+    fs::create_dir_all(&data_dir)
+        .map_err(|error| format!("Failed to create {}: {error}", data_dir.display()))?;
+    let stamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let backup_path = data_dir.join(format!("chain.before-rpc-fast-sync-{stamp}.json"));
+    fs::copy(&chain_path, &backup_path).map_err(|error| {
+        format!(
+            "Failed to back up {} to {}: {error}",
+            chain_path.display(),
+            backup_path.display()
+        )
+    })?;
+    let tmp_path = data_dir.join(format!("chain.json.rpc-fast-sync-{}.tmp", Uuid::new_v4()));
+    let chain_json = serde_json::to_string_pretty(&chain)
+        .map_err(|error| format!("Failed to serialize RPC-synced chain: {error}"))?;
+    fs::write(&tmp_path, chain_json)
+        .map_err(|error| format!("Failed to write {}: {error}", tmp_path.display()))?;
+    fs::rename(&tmp_path, &chain_path).map_err(|error| {
+        let _ = fs::remove_file(&tmp_path);
+        format!(
+            "Failed to replace {} with {}: {error}",
+            chain_path.display(),
+            tmp_path.display()
+        )
+    })?;
+
+    let token_state_path = data_dir.join("token_state.json");
+    if token_state_path.is_file() {
+        let token_backup_path =
+            data_dir.join(format!("token_state.before-rpc-fast-sync-{stamp}.json"));
+        fs::rename(&token_state_path, &token_backup_path).map_err(|error| {
+            format!(
+                "Failed to move {} to {} before replay: {error}",
+                token_state_path.display(),
+                token_backup_path.display()
+            )
+        })?;
+    }
+
+    Ok(format!(
+        "RPC fallback appended {missing} block(s), advanced from {local_height} to {public_height}, and staged token-state replay for restart."
+    ))
+}
+
+fn block_height_from_value(block: &Value) -> Option<u64> {
+    block
+        .get("block_index")
+        .or_else(|| block.get("height"))
+        .or_else(|| block.get("number"))
+        .and_then(Value::as_u64)
+}
+
+fn block_hash_from_value(block: &Value) -> Option<String> {
+    block
+        .get("hash")
+        .or_else(|| block.get("block_hash"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
 }
 
 async fn query_public_peer_count(client: &Client) -> Result<usize, String> {
