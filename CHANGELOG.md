@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v12.0.0 - 2026-05-13
+
+- Rebuilt the post-setup control panel shell around Basic, Advanced, and gated Developer views with compact current-node status, visible Help access, floating Jarvis, and route compatibility redirects.
+- Removed Node Slots from the configured-node experience and moved wallet, deposit, stake, unstake, and withdraw workflows out of Node Details into Rewards.
+- Added distinct page compositions for Alerts, Identity/Security, Diagnostics, Configuration, and protocol/system screens, plus compact Settings cards with a collapsed Danger Zone.
+
 ## v11.0.0 - 2026-05-10
 
 - Clarified Jarvis setup so normal non-genesis validator provisioning creates the workspace directly on the validator machine and does not require importing a setup package first.

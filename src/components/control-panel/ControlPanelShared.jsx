@@ -17,7 +17,7 @@ export function ModeSwitcher({ mode, onChange, compact = false, allowDeveloper =
     : MODE_SWITCH_ITEMS.filter((item) => item.id !== 'developer');
 
   return (
-    <div className={`cp-mode-switcher ${compact ? 'is-compact' : ''}`}>
+    <div className={`cp-mode-switcher ${compact ? 'is-compact' : ''}`} data-mode-count={items.length}>
       {items.map((item) => (
         <button
           key={item.id}
@@ -120,8 +120,8 @@ export function JarvisCard({
       </div>
       {chips.length ? (
         <div className="cp-chip-row">
-          {chips.map((chip) => (
-            <span key={chip} className="cp-chip">{chip}</span>
+          {chips.map((chip, index) => (
+            <span key={`${chip}-${index}`} className="cp-chip">{chip}</span>
           ))}
         </div>
       ) : null}

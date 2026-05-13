@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { invoke, openPath, readTextFile, resolvePeerTopology } from '../../lib/desktopClient';
 import { normalizePeerInfoPayload } from '../../lib/testnetBetaPeerInfo';
 import { SNRGButton } from '../../styles/SNRGButton';
@@ -50,8 +50,6 @@ import {
   runNodeControlAction,
 } from './controlPanelActions';
 
-const CONNECTED_WALLET_STORAGE_KEY = 'synergy:testbeta:connected-wallet:v1';
-
 function buildExpectedConfigProfile(node, nodeLive) {
   const endpoint = localRpcEndpointForNode(node, nodeLive);
   return [
@@ -82,44 +80,6 @@ function activationPreflightMessage(result) {
   return `Validator preflight is ${ready}. Liquid ${formatNumber(result?.balance_nwei || 0)} nWei; staked ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.${blockedBy}`;
 }
 
-function readConnectedWalletAddress() {
-  if (typeof window === 'undefined') {
-    return '';
-  }
-  try {
-    return window.localStorage.getItem(CONNECTED_WALLET_STORAGE_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-function writeConnectedWalletAddress(address) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    if (address) {
-      window.localStorage.setItem(CONNECTED_WALLET_STORAGE_KEY, address);
-    } else {
-      window.localStorage.removeItem(CONNECTED_WALLET_STORAGE_KEY);
-    }
-  } catch {
-    // Local persistence is optional.
-  }
-}
-
-function parseSnrgAmount(value) {
-  const normalized = String(value || '').trim();
-  if (!/^\d+$/.test(normalized)) {
-    throw new Error('Enter a whole-number SNRG amount.');
-  }
-  const amount = Number(normalized);
-  if (!Number.isSafeInteger(amount) || amount <= 0) {
-    throw new Error('Enter a positive whole-number SNRG amount.');
-  }
-  return amount;
-}
-
 function formatSnrg(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) {
@@ -143,6 +103,7 @@ export default function TestnetBetaNodeDetailRevamp() {
     nodes,
     recordAction,
     refresh,
+    selectedNode: currentSelectedNode,
     selectedPeerId,
     setSelectedNodeId,
     setSelectedPeerId,
@@ -153,8 +114,8 @@ export default function TestnetBetaNodeDetailRevamp() {
   } = useControlPanel();
 
   const node = useMemo(
-    () => nodes.find((entry) => entry.id === nodeId) || null,
-    [nodeId, nodes],
+    () => nodes.find((entry) => entry.id === nodeId) || currentSelectedNode || nodes[0] || null,
+    [currentSelectedNode, nodeId, nodes],
   );
   const nodeLive = node ? nodeLiveById[node.id] || null : null;
 
@@ -162,11 +123,6 @@ export default function TestnetBetaNodeDetailRevamp() {
   const [activationReport, setActivationReport] = useState(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [rewardsData, setRewardsData] = useState(null);
-  const [walletInput, setWalletInput] = useState(() => readConnectedWalletAddress());
-  const [connectedWallet, setConnectedWallet] = useState(() => readConnectedWalletAddress());
-  const [withdrawAmountSnrg, setWithdrawAmountSnrg] = useState('');
-  const [stakeAmountSnrg, setStakeAmountSnrg] = useState('50000');
-  const [unstakeAmountSnrg, setUnstakeAmountSnrg] = useState('');
   const [localPeerInfo, setLocalPeerInfo] = useState(null);
   const [localPeerError, setLocalPeerError] = useState('');
   const [configPreview, setConfigPreview] = useState('');
@@ -180,10 +136,10 @@ export default function TestnetBetaNodeDetailRevamp() {
   });
 
   useEffect(() => {
-    if (nodeId) {
-      setSelectedNodeId(nodeId);
+    if (node?.id) {
+      setSelectedNodeId(node.id);
     }
-  }, [nodeId, setSelectedNodeId]);
+  }, [node?.id, setSelectedNodeId]);
 
   useEffect(() => {
     if (!notice) {
@@ -350,7 +306,7 @@ export default function TestnetBetaNodeDetailRevamp() {
     };
   }, [node, viewMode]);
 
-  const handleAction = async (kind, options = {}) => {
+  const handleAction = async (kind) => {
     if (!node) {
       return;
     }
@@ -370,34 +326,6 @@ export default function TestnetBetaNodeDetailRevamp() {
       } else if (kind === 'activation-preflight') {
         const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: node.id });
         message = activationPreflightMessage(result);
-      } else if (kind === 'stake-validator') {
-        const amountSnrg = options.amountSnrg ? parseSnrgAmount(options.amountSnrg) : undefined;
-        const result = await invoke('testbeta_stake_validator', {
-          input: {
-            nodeId: node.id,
-            ...(amountSnrg ? { amountSnrg } : {}),
-          },
-        });
-        message = result?.message || `Validator stake submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
-      } else if (kind === 'unstake-validator') {
-        const amountSnrg = parseSnrgAmount(options.amountSnrg);
-        const result = await invoke('testbeta_unstake_validator', {
-          input: {
-            nodeId: node.id,
-            amountSnrg,
-          },
-        });
-        message = result?.message || 'Validator unstake submitted.';
-      } else if (kind === 'withdraw-validator') {
-        const amountSnrg = parseSnrgAmount(options.amountSnrg);
-        const result = await invoke('testbeta_transfer_validator_tokens', {
-          input: {
-            nodeId: node.id,
-            destinationAddress: options.destinationAddress,
-            amountSnrg,
-          },
-        });
-        message = result?.message || `Validator transfer submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else if (kind === 'activate-validator') {
         const result = await invoke('testbeta_activate_validator', {
           input: {
@@ -442,28 +370,6 @@ export default function TestnetBetaNodeDetailRevamp() {
       setNotice(detail);
     } finally {
       setActionBusy('');
-    }
-  };
-
-  const connectWallet = () => {
-    const address = walletInput.trim();
-    if (!address) {
-      setConnectedWallet('');
-      writeConnectedWalletAddress('');
-      setNotice('Connected wallet cleared.');
-      return;
-    }
-    setConnectedWallet(address);
-    writeConnectedWalletAddress(address);
-    setNotice(`Connected wallet ${truncateMiddle(address, 10, 8)}.`);
-  };
-
-  const copyDepositAddress = async () => {
-    try {
-      await navigator.clipboard.writeText(node.node_address);
-      setNotice('Validator deposit address copied.');
-    } catch {
-      setNotice(`Deposit address: ${node.node_address}`);
     }
   };
 
@@ -597,46 +503,24 @@ export default function TestnetBetaNodeDetailRevamp() {
                     <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>
                       Preflight
                     </SNRGButton>
-                    <SNRGButton variant="green" size="sm" disabled={actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator')}>
-                      Stake
+                    <SNRGButton variant="purple" size="sm" onClick={() => navigate('/validator')}>
+                      Validator
                     </SNRGButton>
-                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'activate-validator'} onClick={() => void handleAction('activate-validator')}>
-                      Activate
+                    <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>
+                      Rewards
                     </SNRGButton>
                   </>
                 ) : null}
               </div>
             </PanelCard>
 
-            <PanelCard title="Wallet + stake" action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
+            <PanelCard title="Rewards summary" detail="Wallet and validator economics actions live on Rewards." action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
               <div className="cp-metric-grid cp-metric-grid-dashboard">
                 <MetricCard label="Wallet balance" value={`${formatSnrg(walletBalanceSnrg)} SNRG`} tone="cyan" icon="wallet" />
-                <MetricCard label="Bonded stake" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
+                <MetricCard label="Bonded amount" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
               </div>
-              <div className="cp-wallet-control-grid">
-                <label className="cp-form-field">
-                  <span>Wallet address</span>
-                  <input value={walletInput} onChange={(event) => setWalletInput(event.target.value)} placeholder="syns..." />
-                </label>
-                <SNRGButton variant="blue" size="sm" onClick={connectWallet}>{connectedWallet ? 'Update Wallet' : 'Connect Wallet'}</SNRGButton>
-                <SNRGButton variant="lime" size="sm" onClick={copyDepositAddress}>Copy Deposit Address</SNRGButton>
-              </div>
-              <div className="cp-wallet-control-grid">
-                <label className="cp-form-field">
-                  <span>Stake SNRG</span>
-                  <input value={stakeAmountSnrg} onChange={(event) => setStakeAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="purple" size="sm" disabled={!isValidatorNode || actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator', { amountSnrg: stakeAmountSnrg })}>Stake</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Unstake SNRG</span>
-                  <input value={unstakeAmountSnrg} onChange={(event) => setUnstakeAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="red" size="sm" disabled={!isValidatorNode || actionBusy === 'unstake-validator'} onClick={() => void handleAction('unstake-validator', { amountSnrg: unstakeAmountSnrg })}>Unstake</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Withdraw SNRG</span>
-                  <input value={withdrawAmountSnrg} onChange={(event) => setWithdrawAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="blue" size="sm" disabled={!connectedWallet || actionBusy === 'withdraw-validator'} onClick={() => void handleAction('withdraw-validator', { destinationAddress: connectedWallet, amountSnrg: withdrawAmountSnrg })}>Withdraw</SNRGButton>
+              <div className="cp-button-grid">
+                <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>Open Rewards</SNRGButton>
               </div>
             </PanelCard>
 
@@ -697,8 +581,8 @@ export default function TestnetBetaNodeDetailRevamp() {
                   <strong>{truncateMiddle(node.node_address, 8, 6)}</strong>
                 </div>
                 <div className="cp-definition-item">
-                  <span>Connected wallet</span>
-                  <strong>{connectedWallet ? truncateMiddle(connectedWallet, 8, 6) : 'None'}</strong>
+                  <span>Rewards workflow</span>
+                  <strong>Open Rewards</strong>
                 </div>
               </div>
             </PanelCard>
@@ -723,41 +607,21 @@ export default function TestnetBetaNodeDetailRevamp() {
                 {isValidatorNode ? (
                   <>
                     <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>Activation Preflight</SNRGButton>
-                    <SNRGButton variant="green" size="sm" disabled={actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator')}>Stake Validator</SNRGButton>
-                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'activate-validator'} onClick={() => void handleAction('activate-validator')}>Activate Validator</SNRGButton>
+                    <SNRGButton variant="purple" size="sm" onClick={() => navigate('/validator')}>Validator Lifecycle</SNRGButton>
+                    <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>Rewards</SNRGButton>
                   </>
                 ) : null}
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Open logs</SNRGButton>
               </div>
             </PanelCard>
 
-            <PanelCard title="Wallet + stake" action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
+            <PanelCard title="Rewards summary" detail="Economics controls live on Rewards so this page stays focused on runtime detail." action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
               <div className="cp-metric-grid cp-metric-grid-dashboard">
                 <MetricCard label="Wallet balance" value={`${formatSnrg(walletBalanceSnrg)} SNRG`} tone="cyan" icon="wallet" />
-                <MetricCard label="Bonded stake" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
+                <MetricCard label="Bonded amount" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
               </div>
-              <div className="cp-wallet-control-grid">
-                <label className="cp-form-field">
-                  <span>Wallet address</span>
-                  <input value={walletInput} onChange={(event) => setWalletInput(event.target.value)} placeholder="syns..." />
-                </label>
-                <SNRGButton variant="blue" size="sm" onClick={connectWallet}>{connectedWallet ? 'Update Wallet' : 'Connect Wallet'}</SNRGButton>
-                <SNRGButton variant="lime" size="sm" onClick={copyDepositAddress}>Copy Deposit Address</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Stake SNRG</span>
-                  <input value={stakeAmountSnrg} onChange={(event) => setStakeAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="purple" size="sm" disabled={!isValidatorNode || actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator', { amountSnrg: stakeAmountSnrg })}>Stake</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Unstake SNRG</span>
-                  <input value={unstakeAmountSnrg} onChange={(event) => setUnstakeAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="red" size="sm" disabled={!isValidatorNode || actionBusy === 'unstake-validator'} onClick={() => void handleAction('unstake-validator', { amountSnrg: unstakeAmountSnrg })}>Unstake</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Withdraw SNRG</span>
-                  <input value={withdrawAmountSnrg} onChange={(event) => setWithdrawAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="blue" size="sm" disabled={!connectedWallet || actionBusy === 'withdraw-validator'} onClick={() => void handleAction('withdraw-validator', { destinationAddress: connectedWallet, amountSnrg: withdrawAmountSnrg })}>Withdraw</SNRGButton>
+              <div className="cp-button-grid">
+                <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>Open Rewards</SNRGButton>
               </div>
             </PanelCard>
 
@@ -838,8 +702,8 @@ export default function TestnetBetaNodeDetailRevamp() {
                   <strong>{formatTimestamp(node.updated_at_utc || node.created_at_utc)}</strong>
                 </div>
                 <div className="cp-definition-item">
-                  <span>Connected wallet</span>
-                  <strong>{connectedWallet ? truncateMiddle(connectedWallet, 10, 8) : 'None'}</strong>
+                  <span>Rewards workflow</span>
+                  <strong>Use Rewards + Stake</strong>
                 </div>
               </div>
             </PanelCard>
@@ -874,8 +738,8 @@ export default function TestnetBetaNodeDetailRevamp() {
                 {isValidatorNode ? (
                   <>
                     <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>Activation Preflight</SNRGButton>
-                    <SNRGButton variant="green" size="sm" disabled={actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator')}>Stake Validator</SNRGButton>
-                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'activate-validator'} onClick={() => void handleAction('activate-validator')}>Activate Validator</SNRGButton>
+                    <SNRGButton variant="purple" size="sm" onClick={() => navigate('/validator')}>Validator Lifecycle</SNRGButton>
+                    <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>Rewards Ledger</SNRGButton>
                   </>
                 ) : null}
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(node.workspace_directory)}>Open workspace</SNRGButton>
@@ -883,33 +747,13 @@ export default function TestnetBetaNodeDetailRevamp() {
               </div>
             </PanelCard>
 
-            <PanelCard title="Wallet + stake" action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
+            <PanelCard title="Rewards summary" detail="Use Rewards + Ledger for wallet, bonding, and payout operations." action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
               <div className="cp-metric-grid cp-metric-grid-dashboard">
                 <MetricCard label="Wallet balance" value={`${formatSnrg(walletBalanceSnrg)} SNRG`} tone="cyan" icon="wallet" />
-                <MetricCard label="Bonded stake" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
+                <MetricCard label="Bonded amount" value={`${formatSnrg(stakedBalanceSnrg)} SNRG`} tone={Number(stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
               </div>
-              <div className="cp-wallet-control-grid">
-                <label className="cp-form-field">
-                  <span>Wallet address</span>
-                  <input value={walletInput} onChange={(event) => setWalletInput(event.target.value)} placeholder="syns..." />
-                </label>
-                <SNRGButton variant="blue" size="sm" onClick={connectWallet}>{connectedWallet ? 'Update Wallet' : 'Connect Wallet'}</SNRGButton>
-                <SNRGButton variant="lime" size="sm" onClick={copyDepositAddress}>Copy Deposit Address</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Stake SNRG</span>
-                  <input value={stakeAmountSnrg} onChange={(event) => setStakeAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="purple" size="sm" disabled={!isValidatorNode || actionBusy === 'stake-validator'} onClick={() => void handleAction('stake-validator', { amountSnrg: stakeAmountSnrg })}>Stake</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Unstake SNRG</span>
-                  <input value={unstakeAmountSnrg} onChange={(event) => setUnstakeAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="red" size="sm" disabled={!isValidatorNode || actionBusy === 'unstake-validator'} onClick={() => void handleAction('unstake-validator', { amountSnrg: unstakeAmountSnrg })}>Unstake</SNRGButton>
-                <label className="cp-form-field">
-                  <span>Withdraw SNRG</span>
-                  <input value={withdrawAmountSnrg} onChange={(event) => setWithdrawAmountSnrg(event.target.value)} inputMode="numeric" />
-                </label>
-                <SNRGButton variant="blue" size="sm" disabled={!connectedWallet || actionBusy === 'withdraw-validator'} onClick={() => void handleAction('withdraw-validator', { destinationAddress: connectedWallet, amountSnrg: withdrawAmountSnrg })}>Withdraw</SNRGButton>
+              <div className="cp-button-grid">
+                <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>Open Rewards Ledger</SNRGButton>
               </div>
             </PanelCard>
 

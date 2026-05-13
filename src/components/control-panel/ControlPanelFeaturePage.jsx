@@ -367,7 +367,7 @@ function GenericVisual({ type }) {
         <span></span>
         <span></span>
         <i className="material-icons" aria-hidden="true">
-          {type === 'security' ? 'shield' : type === 'rpc' ? 'terminal' : type === 'fleet' ? 'lan' : type === 'governance' ? 'how_to_vote' : 'hub'}
+          {type === 'security' ? 'shield' : type === 'rpc' ? 'terminal' : type === 'diagnostics' ? 'troubleshoot' : type === 'config' ? 'tune' : type === 'governance' ? 'how_to_vote' : 'hub'}
         </i>
       </div>
       <div className="cp-feature-mini-grid">
@@ -435,13 +435,12 @@ function buildRuntimeActionsForFeature(featureKey, selectedNodeLive) {
     register: { id: 'register-seeds', label: 'Re-register Seeds', variant: 'blue' },
     rejoin: { id: 'rejoin-network', label: 'Rejoin Network', variant: 'purple' },
     preflight: { id: 'activation-preflight', label: 'Activation Preflight', variant: 'lime' },
-    stake: { id: 'stake-validator', label: 'Stake Validator', variant: 'purple' },
     activate: { id: 'activate-validator', label: 'Activate Validator', variant: 'blue' },
   };
 
   const actionMap = {
     alerts: [common.refresh, common.readiness, common.logs],
-    validator: [common.preflight, common.stake, common.activate, common.register],
+    validator: [common.preflight, common.activate, common.register],
     security: [common.readiness, common.logs, common.refresh],
     identity: [common.readiness, common.preflight, common.logs],
     consensus: [common.refresh, common.readiness, common.register, startAction],
@@ -451,7 +450,8 @@ function buildRuntimeActionsForFeature(featureKey, selectedNodeLive) {
     storage: [common.readiness, common.logs, common.refresh],
     api: [common.refresh, common.readiness, common.logs],
     maintenance: [common.restart, common.rejoin, common.boost, common.stop],
-    fleet: [common.refresh, common.rejoin, common.register],
+    diagnostics: [common.refresh, common.logs, common.readiness],
+    config: [common.refresh, common.readiness, common.logs],
     compliance: [common.readiness, common.logs, common.refresh],
   };
 
@@ -536,12 +536,6 @@ export default function ControlPanelFeaturePage({ screenKey }) {
       } else if (action.id === 'activation-preflight') {
         const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: selectedNode.id });
         detail = activationPreflightMessage(result);
-      } else if (action.id === 'stake-validator') {
-        if (selectedNode?.role_id !== 'validator') {
-          throw new Error('Stake Validator is only available on validator nodes.');
-        }
-        const result = await invoke('testbeta_stake_validator', { input: { nodeId: selectedNode.id } });
-        detail = result?.message || `Validator stake submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else if (action.id === 'activate-validator') {
         if (selectedNode?.role_id !== 'validator') {
           throw new Error('Activate Validator is only available on validator nodes.');
@@ -554,7 +548,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         });
         detail = result?.message || `Validator activation submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else {
-        throw new Error(`${action.label} is not wired to a runtime command.`);
+        detail = `${action.label} is staged on ${feature.title}. Review the visible context and use the guarded workflow when this action changes runtime state.`;
       }
 
       setNotice(detail);
@@ -589,15 +583,20 @@ export default function ControlPanelFeaturePage({ screenKey }) {
   };
 
   const runtimeActions = buildRuntimeActionsForFeature(feature.key, selectedNodeLive);
+  const featureLabel = feature.modeLabels?.[viewMode] || feature.label;
+  const featureTitle = feature.modeTitles?.[viewMode] || feature.title;
+  const featureCopy = feature.modeCopy?.[viewMode] || feature.description;
+  const featureActions = safeArray(feature.actions);
 
   return (
     <div className="cp-page-stack cp-feature-page">
       <SectionHeader
         eyebrow={feature.eyebrow}
-        title={feature.title}
+        title={featureTitle}
+        copy={featureCopy}
         actions={(
           <>
-            <StatusPill tone={feature.tone}>{feature.label}</StatusPill>
+            <StatusPill tone={feature.tone}>{featureLabel}</StatusPill>
             {feature.key === 'dag' ? (
               <div className="cp-feature-toggle">
                 {['local', 'network'].map((option) => (
@@ -622,29 +621,36 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         <div className="cp-dashboard-main">
           <PanelCard
             className="cp-feature-hero"
-            eyebrow={selectedNode?.display_label || 'Selected node'}
-            title={nodeRuntimeLabel(selectedNodeLive)}
+            eyebrow={featureLabel}
+            title={`${featureLabel} workspace`}
+            detail={feature.description}
             action={<StatusPill tone={nodeRuntimeTone(selectedNodeLive)} live>{nodeRuntimeLabel(selectedNodeLive)}</StatusPill>}
           >
-            <LiveRuntimeVisual
-              feature={feature}
-              selectedNodeLive={selectedNodeLive}
-              liveStatus={liveStatus}
-              networkStats={networkStats}
-            />
+            <GenericVisual type={feature.visual || feature.key} />
+            <div className="cp-feature-question-grid">
+              {safeArray(feature.questions).map((question) => (
+                <article key={question.label} className={`cp-feature-question tone-${question.tone || 'neutral'}`}>
+                  <span className="material-icons" aria-hidden="true">{question.icon || 'analytics'}</span>
+                  <div>
+                    <span>{question.label}</span>
+                    <strong>{question.value}</strong>
+                  </div>
+                </article>
+              ))}
+            </div>
           </PanelCard>
 
           <div className="cp-metric-grid cp-metric-grid-dashboard">
-            {liveMetrics.map((metric) => (
+            {safeArray(feature.metrics).map((metric) => (
               <MetricCard key={`${feature.key}-${metric.label}`} {...metric} />
             ))}
           </div>
 
           <div className="cp-split-grid">
-            <FeatureChecklist title="Live readiness checklist" items={liveChecklist} />
-            <PanelCard title={`${feature.label} action center`}>
+            <FeatureChecklist title={feature.checklistTitle || `${featureLabel} checks`} items={safeArray(feature.checklist)} />
+            <PanelCard title={`${featureLabel} actions`} detail="Actions stay explicit. Risky work must use the normal confirmation path.">
               <div className="cp-feature-action-grid">
-                {runtimeActions.map((action) => (
+                {[...featureActions, ...runtimeActions].slice(0, viewMode === 'developer' ? 8 : 5).map((action) => (
                   <SNRGButton
                     key={action.id}
                     variant={action.variant}
@@ -660,9 +666,9 @@ export default function ControlPanelFeaturePage({ screenKey }) {
           </div>
 
           <FeatureTable
-            title="Live runtime rows"
-            columns={['Node', 'Runtime', 'Local height', 'Gap', 'Peers']}
-            rows={liveRows}
+            title={feature.tableTitle || `${featureLabel} table`}
+            columns={safeArray(feature.tableColumns)}
+            rows={safeArray(feature.tableRows)}
           />
 
           <DangerWorkflow
@@ -672,6 +678,29 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         </div>
 
         <div className="cp-dashboard-side">
+          <PanelCard title="Current node context" detail={selectedNode?.display_label || 'No local node selected'}>
+            <LiveRuntimeVisual
+              feature={feature}
+              selectedNodeLive={selectedNodeLive}
+              liveStatus={liveStatus}
+              networkStats={networkStats}
+            />
+          </PanelCard>
+
+          <div className="cp-metric-grid">
+            {liveMetrics.slice(0, 4).map((metric) => (
+              <MetricCard key={`${feature.key}-live-${metric.label}`} {...metric} />
+            ))}
+          </div>
+
+          {viewMode === 'developer' ? (
+            <FeatureTable
+              title="Live runtime sample"
+              columns={['Node', 'Runtime', 'Local height', 'Gap', 'Peers']}
+              rows={liveRows.slice(0, 4)}
+            />
+          ) : null}
+
           <PanelCard title="Recent action audit">
             <div className="cp-panel-scroll cp-panel-scroll-tight">
               <ActionAuditStream entries={actionAudit.slice(0, 10)} emptyMessage="No actions recorded for this session yet." />

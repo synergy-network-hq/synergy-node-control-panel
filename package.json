@@ -1,6 +1,6 @@
 {
   "name": "synergy-node-control-panel",
-  "version": "11.0.9",
+  "version": "12.0.0",
   "description": "Synergy Node Control Panel",
   "author": "Synergy Network <support@synergy-network.io>",
   "type": "module",
@@ -16,7 +16,8 @@
     "dist:electron": "npm run build:electron && electron-builder --config electron-builder.yml",
     "build:sidecars": "bash scripts/build-sidecars.sh",
     "build:bundle-prep": "bash scripts/release/build-bundle-prep.sh",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:uiux-revamp": "node scripts/qa/control-panel-uiux-revamp-check.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

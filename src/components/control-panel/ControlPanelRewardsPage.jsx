@@ -38,6 +38,54 @@ function formatSnrg(value) {
   });
 }
 
+const CONNECTED_WALLET_STORAGE_KEY = 'synergy:testbeta:connected-wallet:v1';
+
+function readConnectedWalletAddress() {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  try {
+    return window.localStorage.getItem(CONNECTED_WALLET_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeConnectedWalletAddress(address) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    if (address) {
+      window.localStorage.setItem(CONNECTED_WALLET_STORAGE_KEY, address);
+    } else {
+      window.localStorage.removeItem(CONNECTED_WALLET_STORAGE_KEY);
+    }
+  } catch {
+    // Wallet persistence is optional.
+  }
+}
+
+function parseSnrgAmount(value) {
+  const normalized = String(value || '').trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error('Enter a whole-number SNRG amount.');
+  }
+  const amount = Number(normalized);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new Error('Enter a positive whole-number SNRG amount.');
+  }
+  return amount;
+}
+
+function truncateMiddle(value, left = 10, right = 8) {
+  const text = String(value || '');
+  if (text.length <= left + right + 3) {
+    return text || 'None';
+  }
+  return `${text.slice(0, left)}...${text.slice(-right)}`;
+}
+
 function formatPercentValue(value, digits = 2) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -259,6 +307,13 @@ export default function ControlPanelRewardsPage() {
   const [rewardsLoading, setRewardsLoading] = useState(false);
   const [rewardsError, setRewardsError] = useState('');
   const [exportBusy, setExportBusy] = useState(false);
+  const [workflowNotice, setWorkflowNotice] = useState('');
+  const [walletInput, setWalletInput] = useState(() => readConnectedWalletAddress());
+  const [connectedWallet, setConnectedWallet] = useState(() => readConnectedWalletAddress());
+  const [stakeAmountSnrg, setStakeAmountSnrg] = useState('50000');
+  const [unstakeAmountSnrg, setUnstakeAmountSnrg] = useState('');
+  const [withdrawAmountSnrg, setWithdrawAmountSnrg] = useState('');
+  const [stakeBusy, setStakeBusy] = useState('');
 
   useEffect(() => {
     if (!selectedNode) {
@@ -385,6 +440,91 @@ export default function ControlPanelRewardsPage() {
     }
   };
 
+  const connectWallet = () => {
+    const address = walletInput.trim();
+    if (!address) {
+      setConnectedWallet('');
+      writeConnectedWalletAddress('');
+      setWorkflowNotice('Connected wallet cleared.');
+      return;
+    }
+    setConnectedWallet(address);
+    writeConnectedWalletAddress(address);
+    setWorkflowNotice(`Connected wallet ${truncateMiddle(address)}.`);
+  };
+
+  const copyDepositAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(selectedNode.node_address || '');
+      setWorkflowNotice('Deposit address copied.');
+    } catch {
+      setWorkflowNotice(`Deposit address: ${selectedNode.node_address || 'Unavailable'}`);
+    }
+  };
+
+  const runStakeWorkflow = async (kind) => {
+    if (!selectedNode || stakeBusy) {
+      return;
+    }
+
+    setStakeBusy(kind);
+    try {
+      let result = null;
+      if (kind === 'stake') {
+        const amountSnrg = parseSnrgAmount(stakeAmountSnrg);
+        result = await invoke('testbeta_stake_validator', {
+          input: {
+            nodeId: selectedNode.id,
+            amountSnrg,
+          },
+        });
+      } else if (kind === 'unstake') {
+        const amountSnrg = parseSnrgAmount(unstakeAmountSnrg);
+        result = await invoke('testbeta_unstake_validator', {
+          input: {
+            nodeId: selectedNode.id,
+            amountSnrg,
+          },
+        });
+      } else if (kind === 'withdraw') {
+        const amountSnrg = parseSnrgAmount(withdrawAmountSnrg);
+        if (!connectedWallet) {
+          throw new Error('Connect a wallet before withdrawing.');
+        }
+        result = await invoke('testbeta_transfer_validator_tokens', {
+          input: {
+            nodeId: selectedNode.id,
+            destinationAddress: connectedWallet,
+            amountSnrg,
+          },
+        });
+      }
+
+      const message = result?.message || `${kind} request submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
+      setWorkflowNotice(message);
+      recordAction({
+        title: `${kind} rewards workflow`,
+        detail: message,
+        status: 'good',
+        source: 'rewards-page',
+        command: kind,
+      });
+      await refresh({ silent: true });
+    } catch (workflowError) {
+      const detail = String(workflowError);
+      setWorkflowNotice(detail);
+      recordAction({
+        title: `${kind} rewards workflow failed`,
+        detail,
+        status: 'bad',
+        source: 'rewards-page',
+        command: kind,
+      });
+    } finally {
+      setStakeBusy('');
+    }
+  };
+
   if (!selectedNode) {
     return (
       <EmptyPanel
@@ -399,12 +539,12 @@ export default function ControlPanelRewardsPage() {
   return (
     <div className="cp-page-stack">
       <SectionHeader
-        eyebrow={viewMode === 'basic' ? 'Earnings View' : viewMode === 'advanced' ? 'Operator Economics' : 'Proof Surface'}
-        title={viewMode === 'basic' ? 'Earnings' : viewMode === 'advanced' ? 'Rewards' : 'Rewards + Ledger'}
+        eyebrow={viewMode === 'basic' ? 'Rewards View' : viewMode === 'advanced' ? 'Operator Economics' : 'Proof Surface'}
+        title={viewMode === 'basic' ? 'Rewards + Stake' : viewMode === 'advanced' ? 'Rewards + Stake' : 'Rewards + Ledger'}
         copy={viewMode === 'basic'
-          ? 'Track what this node has earned, what is still pending, and what simple conditions affect it.'
+          ? 'Track wallet, stake, rewards, and the simple conditions that affect earnings.'
           : viewMode === 'advanced'
-            ? 'Inspect validator reward flow, fetch diagnostics, and recent payout history.'
+            ? 'Inspect validator wallet, stake, reward flow, fetch diagnostics, and recent payout history.'
             : 'Expose the reward and accounting pipeline with enough raw context to prove what is happening.'}
         actions={(
           <>
@@ -426,6 +566,52 @@ export default function ControlPanelRewardsPage() {
           {rewardsError || error}
         </div>
       ) : null}
+
+      {workflowNotice ? (
+        <div className={`cp-inline-notice tone-${statusTone(workflowNotice)}`}>
+          {workflowNotice}
+        </div>
+      ) : null}
+
+      <PanelCard
+        title={viewMode === 'developer' ? 'Wallet + Stake workflow' : 'Wallet + Stake'}
+        detail="Connect the payout wallet, copy the validator deposit address, and manage validator economics from this screen."
+        action={<SNRGButton variant="blue" size="sm" onClick={connectWallet}>{connectedWallet ? 'Update Wallet' : 'Connect Wallet'}</SNRGButton>}
+      >
+        <div className="cp-metric-grid cp-metric-grid-dashboard">
+          <MetricCard label="Wallet balance" value={`${formatSnrg(payload.walletBalanceSnrg)} ${payload.tokenSymbol}`} detail={connectedWallet ? truncateMiddle(connectedWallet) : 'No wallet connected'} tone="cyan" icon="wallet" />
+          <MetricCard label="Bonded stake" value={`${formatSnrg(payload.stakedBalanceSnrg)} ${payload.tokenSymbol}`} detail={participation.detail} tone={Number(payload.stakedBalanceSnrg) >= 50000 ? 'good' : 'warn'} icon="account_balance" />
+          <MetricCard label="Pending rewards" value={`${formatSnrg(payload.pendingRewardsSnrg)} ${payload.tokenSymbol}`} detail="Claim and payout state" tone={Number(payload.pendingRewardsSnrg || 0) > 0 ? 'warn' : 'neutral'} icon="schedule" />
+        </div>
+        <div className="cp-wallet-control-grid">
+          <label className="cp-form-field">
+            <span>Wallet address</span>
+            <input value={walletInput} onChange={(event) => setWalletInput(event.target.value)} placeholder="syns..." />
+          </label>
+          <SNRGButton variant="lime" size="sm" onClick={copyDepositAddress}>Copy Deposit Address</SNRGButton>
+          <label className="cp-form-field">
+            <span>Stake SNRG</span>
+            <input value={stakeAmountSnrg} onChange={(event) => setStakeAmountSnrg(event.target.value)} inputMode="numeric" />
+          </label>
+          <SNRGButton variant="purple" size="sm" disabled={stakeBusy === 'stake'} onClick={() => void runStakeWorkflow('stake')}>
+            {stakeBusy === 'stake' ? 'Staking...' : 'Stake'}
+          </SNRGButton>
+          <label className="cp-form-field">
+            <span>Unstake SNRG</span>
+            <input value={unstakeAmountSnrg} onChange={(event) => setUnstakeAmountSnrg(event.target.value)} inputMode="numeric" />
+          </label>
+          <SNRGButton variant="red" size="sm" disabled={stakeBusy === 'unstake'} onClick={() => void runStakeWorkflow('unstake')}>
+            {stakeBusy === 'unstake' ? 'Unstaking...' : 'Unstake'}
+          </SNRGButton>
+          <label className="cp-form-field">
+            <span>Withdraw SNRG</span>
+            <input value={withdrawAmountSnrg} onChange={(event) => setWithdrawAmountSnrg(event.target.value)} inputMode="numeric" />
+          </label>
+          <SNRGButton variant="blue" size="sm" disabled={!connectedWallet || stakeBusy === 'withdraw'} onClick={() => void runStakeWorkflow('withdraw')}>
+            {stakeBusy === 'withdraw' ? 'Withdrawing...' : 'Withdraw'}
+          </SNRGButton>
+        </div>
+      </PanelCard>
 
       {viewMode === 'basic' ? (
         <div className="cp-dashboard-grid">

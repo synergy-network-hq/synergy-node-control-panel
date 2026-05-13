@@ -17,13 +17,16 @@ import {
 import DeveloperTerminalDock from './DeveloperTerminalDock';
 import { ModeSwitcher } from './ControlPanelShared';
 import {
-  FEATURE_SCREEN_GROUPS,
-  featureNavItemsForGroup,
   getFeatureScreenByPathname,
 } from './controlPanelFeatureScreens';
+import {
+  isActivityPathname,
+  isNodePathname,
+  navGroupsForView,
+} from './routeRegistry';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
-const MAX_NODE_SLOTS = 4;
+const GENESIS_SETUP_UNAVAILABLE_MESSAGE = 'Genesis setup is only available during the initial setup flow before a node exists on this machine. This control panel is already managing a configured node. I can help with diagnostics, validator readiness, rewards, connectivity, or maintenance instead.';
 
 function updateButtonLabel(updateState) {
   switch (updateState.status) {
@@ -64,7 +67,7 @@ function pageMetaFor(pathname, viewMode, selectedNode) {
     };
   }
 
-  if (pathname.startsWith('/logs')) {
+  if (isActivityPathname(pathname)) {
     return {
       title: viewMode === 'basic' ? 'Activity' : viewMode === 'advanced' ? 'Logs' : 'Runtime Logs',
       description: viewMode === 'basic'
@@ -78,25 +81,25 @@ function pageMetaFor(pathname, viewMode, selectedNode) {
 
   if (pathname.startsWith('/rewards')) {
     return {
-      title: viewMode === 'basic' ? 'Earnings' : viewMode === 'advanced' ? 'Rewards' : 'Rewards + Ledger',
+      title: viewMode === 'basic' ? 'Rewards + Stake' : viewMode === 'advanced' ? 'Rewards + Stake' : 'Rewards + Ledger',
       description: viewMode === 'basic'
-        ? 'See what this node has earned and what is still pending.'
-        : 'Validator rewards, payout history, and economics telemetry.',
+        ? 'Wallet, stake, rewards, and payout status for this node.'
+        : 'Validator wallet, staking, payout history, and economics telemetry.',
       jarvis: viewMode === 'basic'
-        ? 'This page explains earnings in plain language so operators can tell whether the node is performing and getting paid.'
-        : 'This is the economics surface for validator income, pending rewards, and payout trends.',
+        ? 'This page explains wallet, stake, and rewards in plain language so operators can tell whether the node is funded, participating, and getting paid.'
+        : 'This is the economics surface for validator income, staking state, pending rewards, and payout trends.',
     };
   }
 
-  if (pathname.startsWith('/node/')) {
+  if (isNodePathname(pathname)) {
     return {
       title: selectedNode?.display_label || (viewMode === 'basic' ? 'My Node' : viewMode === 'advanced' ? 'Node Details' : 'Validator Detail'),
       description: viewMode === 'basic'
-        ? 'Health, rewards, and a plain-language explanation of how this node is doing.'
-        : 'Identity, readiness, configuration, and operator controls for the selected node.',
+        ? 'Health, readiness, runtime controls, and plain-language status for this node.'
+        : 'Identity, readiness, configuration, topology, and operator controls for the selected node.',
       jarvis: viewMode === 'basic'
-        ? 'This page is tuned for simple operator decisions: is the node healthy, is it earning, and what should happen next.'
-        : 'This is the node control surface I will eventually operate directly from chat. For now the command UI is in place and the actions stay explicit.',
+        ? 'This page is tuned for simple operator decisions: is the node healthy, is it ready, and what should happen next. Wallet and staking controls live on Rewards.'
+        : 'This is the node runtime surface. Wallet, stake, unstake, and withdraw controls are intentionally kept on Rewards.',
     };
   }
 
@@ -133,20 +136,51 @@ function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
 }
 
+function CurrentNodeCard({ node, nodeLive, onOpen }) {
+  if (!node) {
+    return (
+      <section className="cp-current-node-card is-empty" aria-label="Current node">
+        <span className="cp-eyebrow">Current Node</span>
+        <strong>No node configured</strong>
+        <p>Complete initial setup to manage a local node on this machine.</p>
+      </section>
+    );
+  }
+
+  const syncGap = Number(nodeLive?.sync_gap);
+  const peerCount = Number(nodeLive?.local_peer_count);
+
+  return (
+    <section className="cp-current-node-card" aria-label="Current node">
+      <div className="cp-current-node-head">
+        <span className="cp-eyebrow">Current Node</span>
+        <span className={joinClasses('cp-node-health-dot', `tone-${nodeRuntimeLabel(nodeLive).toLowerCase().includes('offline') ? 'bad' : 'good'}`)}></span>
+      </div>
+      <strong>{node.display_label || node.role_display_name || node.id}</strong>
+      <p>{node.role_display_name || node.role_id || 'Validator'} · {nodeRuntimeLabel(nodeLive)}</p>
+      <div className="cp-current-node-meta">
+        <span>Sync {Number.isFinite(syncGap) ? `${syncGap} gap` : 'pending'}</span>
+        <span>{Number.isFinite(peerCount) ? `${peerCount} peers` : 'Peers pending'}</span>
+      </div>
+      <button type="button" className="cp-current-node-link" onClick={onOpen}>
+        Open Node
+      </button>
+    </section>
+  );
+}
+
 export default function ControlPanelShell({ children, onLaunchSetup }) {
   const location = useLocation();
   const navigate = useNavigate();
   const {
     error,
     lastUpdatedAt,
-    nodeLiveById,
     nodes,
     selectedNode,
     selectedNodeLive,
     setSelectedNodeId,
     setViewMode,
     viewMode,
-    viewProfile,
   } = useControlPanel();
 
   const [developerModeEnabled] = useDeveloperMode();
@@ -175,8 +209,9 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
   useEffect(() => {
     if (!developerModeEnabled && viewMode === 'developer') {
       setViewMode('advanced');
+      navigate('/', { replace: true });
     }
-  }, [developerModeEnabled, setViewMode, viewMode]);
+  }, [developerModeEnabled, navigate, setViewMode, viewMode]);
 
   useEffect(() => {
     let disposed = false;
@@ -363,10 +398,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
       ));
 
     if (/genesis[\s-]*setup|open setup|start setup|setup wizard/.test(normalized)) {
-      pushJarvisMessage('assistant', 'Opening the Jarvis setup flow now.');
-      if (typeof onLaunchSetup === 'function') {
-        onLaunchSetup();
-      }
+      pushJarvisMessage('assistant', GENESIS_SETUP_UNAVAILABLE_MESSAGE);
       return;
     }
 
@@ -394,14 +426,14 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
       return;
     }
 
-    if (/node|health|wallet|details/.test(normalized) && selectedNode) {
-      pushJarvisMessage('assistant', `Opening ${selectedNode.display_label || 'the selected node'} so you can work from its control surface.`);
-      navigate(`/node/${selectedNode.id}`);
+    if (/node|health|details/.test(normalized) && selectedNode) {
+      pushJarvisMessage('assistant', `Opening ${selectedNode.display_label || 'the selected node'} so you can inspect its runtime, readiness, topology, and recent events.`);
+      navigate('/node');
       return;
     }
 
-    if (/restart|reboot|rejoin|sync/.test(normalized)) {
-      pushJarvisMessage('assistant', 'Jarvis control execution is staged in this redesign. The direct action buttons are live today, and the chat hooks are now in place for the next upgrade.');
+    if (/restart|reboot|rejoin|sync|stop|wipe|kill|pause signing|restore snapshot|apply config/.test(normalized)) {
+      pushJarvisMessage('assistant', 'Finding: this request may affect uptime or local state. Evidence: risky node actions must use the normal page controls and confirmations. Recommended next step: open the related page, review the visible warning, and confirm there.');
       return;
     }
 
@@ -413,26 +445,13 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     pushJarvisMessage('assistant', meta.jarvis);
   };
 
-  const navigationItems = [
-    { to: '/', key: 'dashboard', label: viewProfile.navLabels.dashboard, icon: 'space_dashboard', end: true },
-    { to: defaultNode ? `/node/${defaultNode.id}` : '', key: 'details', label: viewProfile.navLabels.details, icon: 'dns', disabled: !defaultNode },
-    { to: '/connectivity', key: 'connectivity', label: viewProfile.navLabels.connectivity, icon: 'hub' },
-    { to: '/logs', key: 'logs', label: viewProfile.navLabels.logs, icon: 'receipt_long' },
-    { to: '/rewards', key: 'rewards', label: viewProfile.navLabels.rewards, icon: 'savings' },
-  ];
-  const navigationGroups = [
-    { id: 'core', label: 'Core', items: navigationItems },
-    ...FEATURE_SCREEN_GROUPS.map((group) => ({
-      id: group.id,
-      label: group.label,
-      items: featureNavItemsForGroup(group.id).map((screen) => ({
-        to: screen.path,
-        key: screen.key,
-        label: screen.label,
-        icon: screen.icon,
-      })),
+  const navigationGroups = navGroupsForView(viewMode, developerModeEnabled).map((group) => ({
+    ...group,
+    items: group.items.map((item) => ({
+      ...item,
+      disabled: item.key === 'details' && !defaultNode,
     })),
-  ];
+  }));
 
   const isNavigationItemActive = (item) => {
     if (item.key === 'dashboard') {
@@ -440,7 +459,11 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
     }
 
     if (item.key === 'details') {
-      return location.pathname.startsWith('/node/');
+      return isNodePathname(location.pathname);
+    }
+
+    if (item.key === 'activity' || item.key === 'logs') {
+      return isActivityPathname(location.pathname);
     }
 
     return item.to !== '/' && location.pathname.startsWith(item.to);
@@ -449,20 +472,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
   const hasFooterUpdateState = ['checking', 'available', 'downloading', 'ready', 'installing', 'error'].includes(updateState.status);
   const footerMessage = hasFooterUpdateState ? updateState.message : error;
   const shellStatusMessage = footerMessage || `Last updated ${lastUpdatedAt ? formatTimestamp(lastUpdatedAt) : 'moments ago'}`;
-  const nodeSlots = Array.from({ length: MAX_NODE_SLOTS }, (_, index) => nodes[index] || null);
   const currentYear = new Date().getFullYear();
-
-  const handleNodeSlotClick = (node) => {
-    if (!node) {
-      if (typeof onLaunchSetup === 'function') {
-        onLaunchSetup();
-      }
-      return;
-    }
-
-    setSelectedNodeId(node.id);
-    navigate(`/node/${node.id}`);
-  };
 
   return (
     <div className="cp-shell-frame" data-cp-mode={viewMode}>
@@ -472,9 +482,20 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
             <img src={controlPanelBannerSrc} alt="Synergy Network Node Control Panel" className="cp-sidebar-brand-image" />
           </div>
 
+          <CurrentNodeCard
+            node={defaultNode}
+            nodeLive={selectedNodeLive}
+            onOpen={() => {
+              if (defaultNode) {
+                setSelectedNodeId(defaultNode.id);
+              }
+              navigate('/node');
+            }}
+          />
+
           <nav className="cp-sidebar-nav" aria-label="Primary">
             {navigationGroups.map((group) => (
-              <div key={group.id} className="cp-nav-group">
+              <div key={group.id} className="cp-nav-group" data-layout={group.layout}>
                 <span className="cp-nav-group-label">{group.label}</span>
                 {group.items.map((item) => (
                   item.disabled ? (
@@ -508,51 +529,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
             ))}
           </nav>
 
-          <div className="cp-sidebar-slots">
-            <span className="cp-eyebrow">Node Slots</span>
-            <div className="cp-node-slot-grid">
-              {nodeSlots.map((node, index) => {
-                const nodeLive = node ? nodeLiveById[node.id] || null : null;
-                return (
-                  <button
-                    key={node?.id || `empty-slot-${index}`}
-                    type="button"
-                    className={joinClasses(
-                      'cp-node-slot',
-                      node ? 'is-filled' : 'is-empty',
-                      node && selectedNode?.id === node.id && 'is-selected',
-                    )}
-                    onClick={() => handleNodeSlotClick(node)}
-                  >
-                    {node ? (
-                      <>
-                        <strong>{node.display_label || node.role_display_name || `Node ${index + 1}`}</strong>
-                        <span>{node.public_host || node.workspace_directory || 'Configured workspace'}</span>
-                        <small>{nodeRuntimeLabel(nodeLive)}</small>
-                      </>
-                    ) : (
-                      <>
-                        <strong>+ Setup a New Node</strong>
-                        <span>Provision another Synergy node workspace</span>
-                      </>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           <div className="cp-sidebar-footer">
-            <button
-              type="button"
-              className="cp-sidebar-jarvis"
-              onClick={() => setJarvisOpen((current) => !current)}
-            >
-              <span className="material-icons" aria-hidden="true">smart_toy</span>
-              <div>
-                <strong>Ask Jarvis</strong>
-              </div>
-            </button>
             <div className="cp-sidebar-mode-panel">
               <span className="cp-eyebrow cp-sidebar-footer-label">Views</span>
               <ModeSwitcher mode={viewMode} onChange={setViewMode} compact allowDeveloper={developerModeEnabled} />
@@ -574,14 +551,21 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
                 </div>
                 <div className="cp-topbar-statuscopy">
                   <span className="cp-eyebrow">Health</span>
-                  <strong>{selectedNode ? nodeRuntimeLabel(selectedNodeLive) : 'Watching fleet'}</strong>
+                  <strong>{selectedNode ? nodeRuntimeLabel(selectedNodeLive) : 'No node'}</strong>
+                </div>
+                <div className="cp-topbar-statuscopy">
+                  <span className="cp-eyebrow">Peers</span>
+                  <strong>{Number.isFinite(Number(selectedNodeLive?.local_peer_count)) ? Number(selectedNodeLive.local_peer_count) : '—'}</strong>
                 </div>
               </div>
             </div>
 
             <div className="cp-topbar-actions">
-              <button type="button" className="cp-icon-button" onClick={() => navigate('/settings')}>
+              <button type="button" className="cp-icon-button" aria-label="Open Settings" onClick={() => navigate('/settings')}>
                 <span className="material-icons" aria-hidden="true">settings</span>
+              </button>
+              <button type="button" className="cp-icon-button" aria-label="Open Help" onClick={() => navigate('/help')}>
+                <span className="material-icons" aria-hidden="true">help</span>
               </button>
               <button
                 type="button"
@@ -592,8 +576,8 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
               >
                 {updateButtonLabel(updateState)}
               </button>
-              <button type="button" className="cp-update-button cp-wallet-button" onClick={() => navigate(defaultNode ? `/node/${defaultNode.id}` : '/')}>
-                Wallet
+              <button type="button" className="cp-update-button cp-wallet-button" onClick={() => navigate('/rewards')}>
+                Rewards
               </button>
             </div>
           </header>
@@ -613,6 +597,17 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
         <span className="cp-app-footer-center">{shellStatusMessage}</span>
         <span className="cp-app-footer-right">{appVersion ? `Control Panel v${appVersion}` : 'Control Panel version unavailable'}</span>
       </footer>
+
+      <button
+        type="button"
+        className="cp-floating-jarvis-launcher"
+        aria-expanded={jarvisOpen}
+        aria-label="Open Jarvis node assistant"
+        onClick={() => setJarvisOpen((current) => !current)}
+      >
+        <span className="material-icons" aria-hidden="true">smart_toy</span>
+        <i aria-hidden="true"></i>
+      </button>
 
       <aside className={`cp-jarvis-drawer ${jarvisOpen ? 'is-open' : ''}`}>
         <div className="cp-jarvis-drawer-head">
@@ -641,22 +636,22 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
 
         <div className="cp-chip-row">
           <button type="button" className="cp-chip cp-chip-button" onClick={() => {
+            setJarvisInput('Summarize node health');
+          }}
+          >
+            Summarize health
+          </button>
+          <button type="button" className="cp-chip cp-chip-button" onClick={() => {
+            setJarvisInput('Diagnose peers');
+          }}
+          >
+            Diagnose peers
+          </button>
+          <button type="button" className="cp-chip cp-chip-button" onClick={() => {
             setJarvisInput('Explain this page');
           }}
           >
             Explain this page
-          </button>
-          <button type="button" className="cp-chip cp-chip-button" onClick={() => {
-            setJarvisInput('Open connectivity');
-          }}
-          >
-            Open connectivity
-          </button>
-          <button type="button" className="cp-chip cp-chip-button" onClick={() => {
-            setJarvisInput('Genesis setup');
-          }}
-          >
-            Genesis setup
           </button>
         </div>
 

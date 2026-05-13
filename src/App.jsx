@@ -6,7 +6,7 @@ import HelpArticlesPage from './components/HelpArticlesPage';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
 import TestnetBetaJarvisSetup from './components/TestnetBetaJarvisSetup';
 import TestnetBetaDashboard from './components/TestnetBetaDashboard';
-import SettingsPage from './components/SettingsPage';
+import SettingsPage from './components/SettingsPageCompact';
 import ControlPanelConnectivityPage from './components/control-panel/ControlPanelConnectivityPage';
 import ControlPanelFeaturePage from './components/control-panel/ControlPanelFeaturePage';
 import ControlPanelLogsPage from './components/control-panel/ControlPanelLogsPage';
@@ -16,6 +16,7 @@ import NodeSyncGateModal from './components/control-panel/NodeSyncGateModal';
 import { FEATURE_ROUTES } from './components/control-panel/controlPanelFeatureScreens';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { fetchTestnetBetaLiveStatus, fetchTestnetBetaState } from './lib/testnetBetaPageData';
+import { useDeveloperMode } from './lib/developerMode';
 
 const SPLASH_DURATION_MS = 4800;
 const SPLASH_FADE_OUT_MS = 720;
@@ -33,6 +34,22 @@ function setupNodeIdFromPayload(payload) {
       || payload.node?.id
       || '',
   ).trim();
+}
+
+function DeveloperOnlyRoute({ children }) {
+  const [developerModeEnabled] = useDeveloperMode();
+  if (!developerModeEnabled) {
+    return <Navigate to="/settings?developer=required" replace />;
+  }
+  return children;
+}
+
+function IdentityRoute() {
+  const [developerModeEnabled] = useDeveloperMode();
+  if (!developerModeEnabled) {
+    return <Navigate to="/security" replace />;
+  }
+  return <ControlPanelFeaturePage screenKey="identity" />;
 }
 
 function App() {
@@ -218,6 +235,7 @@ function App() {
         <Layout onLaunchSetup={handleLaunchSetup}>
           <Routes>
             <Route path="/" element={<TestnetBetaDashboard onLaunchSetup={handleLaunchSetup} />} />
+            <Route path="/activity" element={<ControlPanelLogsPage />} />
             <Route path="/connectivity" element={<ControlPanelConnectivityPage />} />
             <Route path="/logs" element={<ControlPanelLogsPage />} />
             <Route path="/rewards" element={<ControlPanelRewardsPage />} />
@@ -226,10 +244,20 @@ function App() {
               <Route
                 key={screen.key}
                 path={screen.path}
-                element={<ControlPanelFeaturePage screenKey={screen.key} />}
+                element={screen.key === 'identity'
+                  ? <IdentityRoute />
+                  : screen.developerOnly
+                    ? (
+                      <DeveloperOnlyRoute>
+                        <ControlPanelFeaturePage screenKey={screen.key} />
+                      </DeveloperOnlyRoute>
+                    )
+                    : <ControlPanelFeaturePage screenKey={screen.key} />}
               />
             ))}
-            <Route path="/node/:nodeId" element={<TestnetBetaNodeDetail />} />
+            <Route path="/node" element={<TestnetBetaNodeDetail />} />
+            <Route path="/node/:nodeId" element={<Navigate to="/node" replace />} />
+            <Route path="/fleet" element={<Navigate to="/" replace />} />
             <Route path="/monitor/:nodeSlotId" element={<NetworkMonitorNodePage />} />
             <Route path="/help" element={<HelpArticlesPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
