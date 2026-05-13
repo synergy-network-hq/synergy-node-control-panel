@@ -32,7 +32,7 @@ async function getServiceConfig() {
         await sleep(SERVICE_CONFIG_RETRY_DELAY_MS);
       }
 
-      throw new Error('Electron desktop bridge is unavailable.');
+      throw new Error('Electron desktop bridge is required for this action.');
     })();
   }
 
@@ -234,7 +234,7 @@ export async function fetchSeedPeerTargets(seedServers = []) {
 export async function readTextFile(path) {
   const bridge = getBridge();
   if (!bridge?.readTextFile) {
-    throw new Error('File reading is unavailable in this runtime.');
+    throw new Error('File reading requires the desktop runtime.');
   }
   return bridge.readTextFile(path);
 }
@@ -242,7 +242,7 @@ export async function readTextFile(path) {
 export async function writeTextFile(path, contents) {
   const bridge = getBridge();
   if (!bridge?.writeTextFile) {
-    throw new Error('File writing is unavailable in this runtime.');
+    throw new Error('File writing requires the desktop runtime.');
   }
   return bridge.writeTextFile(path, contents);
 }
@@ -258,7 +258,7 @@ export async function relaunchApp() {
 export async function openTerminalSession(options = {}) {
   const bridge = getBridge();
   if (!bridge?.openTerminalSession) {
-    throw new Error('Terminal sessions are unavailable in this runtime.');
+    throw new Error('Terminal sessions require the desktop runtime.');
   }
   return bridge.openTerminalSession(options);
 }
@@ -266,7 +266,7 @@ export async function openTerminalSession(options = {}) {
 export async function writeTerminalInput(sessionId, input) {
   const bridge = getBridge();
   if (!bridge?.writeTerminalInput) {
-    throw new Error('Terminal sessions are unavailable in this runtime.');
+    throw new Error('Terminal sessions require the desktop runtime.');
   }
   return bridge.writeTerminalInput(sessionId, input);
 }
@@ -274,7 +274,7 @@ export async function writeTerminalInput(sessionId, input) {
 export async function resizeTerminal(sessionId, cols, rows) {
   const bridge = getBridge();
   if (!bridge?.resizeTerminal) {
-    throw new Error('Terminal sessions are unavailable in this runtime.');
+    throw new Error('Terminal sessions require the desktop runtime.');
   }
   return bridge.resizeTerminal(sessionId, cols, rows);
 }
@@ -282,7 +282,7 @@ export async function resizeTerminal(sessionId, cols, rows) {
 export async function closeTerminalSession(sessionId) {
   const bridge = getBridge();
   if (!bridge?.closeTerminalSession) {
-    throw new Error('Terminal sessions are unavailable in this runtime.');
+    throw new Error('Terminal sessions require the desktop runtime.');
   }
   return bridge.closeTerminalSession(sessionId);
 }

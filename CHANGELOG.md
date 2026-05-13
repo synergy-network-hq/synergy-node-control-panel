@@ -2,6 +2,12 @@
 
 Historical release notes reconstructed from local git tag ranges for the control panel versions shown in the screenshots. Where the underlying commits were too generic to support a precise summary, the entry is marked as a maintenance release with broader wording.
 
+## v12.1.0 - 2026-05-13
+
+- Added a dedicated Sync Catch Up workflow for validators that stops the runtime, runs fast chain sync, restarts, checks validator preflight, and rejoins consensus when checks pass.
+- Surfaced Sync Catch Up on Dashboard and Node Details with block-gap status, step receipts, and operator repair buttons for failed preflight checks.
+- Corrected validator sync control so validator nodes no longer skip offline fast-sync in favor of restart-only rejoin.
+
 ## v12.0.0 - 2026-05-13
 
 - Rebuilt the post-setup control panel shell around Basic, Advanced, and gated Developer views with compact current-node status, visible Help access, floating Jarvis, and route compatibility redirects.

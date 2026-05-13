@@ -18,12 +18,11 @@ export default function LogSourceSidebar({
         >
           <div>
             <strong>{source.label}</strong>
-            <span>{source.path || 'Source path unavailable'}</span>
+            <span>{source.path || 'Source path not reported'}</span>
           </div>
-          <small>{source.available ? `${source.line_count || 0} lines` : 'Unavailable'}</small>
+          <small>{source.available ? `${source.line_count || 0} lines` : 'Not reported'}</small>
         </button>
       ))}
     </div>
   );
 }
-

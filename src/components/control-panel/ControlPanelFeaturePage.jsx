@@ -1,17 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { SNRGButton } from '../../styles/SNRGButton';
 import { invoke } from '../../lib/desktopClient';
 import { useControlPanel } from './ControlPanelProvider';
 import {
   effectiveLocalChainHeight,
   formatNumber,
-  formatPercent,
   formatRuntimeDuration,
   nodeRuntimeLabel,
   nodeRuntimeTone,
-  nodeSyncPercent,
 } from './controlPanelModel';
-import { runNodeControlAction } from './controlPanelActions';
 import {
   MetricCard,
   PanelCard,
@@ -26,467 +24,559 @@ import {
   registerWithSeedsAction,
   rejoinNetworkAction,
   restartNodeAction,
+  runNodeControlAction,
+  syncCatchUpRejoinAction,
 } from './controlPanelActions';
 
-function joinClasses(...values) {
-  return values.filter(Boolean).join(' ');
-}
+const SYNC_READY_GAP = 32;
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function activationPreflightMessage(result) {
-  const canActivate = result?.canActivate === true || result?.can_activate === true;
-  const ready = canActivate ? 'ready for activation' : 'not ready for activation';
-  const failedChecks = safeArray(result?.checks)
-    .filter((check) => check?.status !== 'pass')
-    .map((check) => check?.label || check?.id)
-    .filter(Boolean)
-    .slice(0, 3);
-  const blockedBy = failedChecks.length ? ` Blocked by: ${failedChecks.join(', ')}.` : '';
-  return `Validator preflight is ${ready}. Liquid ${formatNumber(result?.balance_nwei || 0)} nWei; staked ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.${blockedBy}`;
+function readObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-const SYNC_READY_GAP = 32;
+function formatBytes(bytes) {
+  const numeric = Number(bytes);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const index = Math.min(Math.floor(Math.log(numeric) / Math.log(1024)), units.length - 1);
+  return `${(numeric / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
 
-function buildLiveMetrics(selectedNodeLive, liveStatus, networkStats) {
-  const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
-  const localHeight = effectiveLocalChainHeight(selectedNodeLive);
-  const networkHeight = selectedNodeLive?.best_network_height ?? liveStatus?.public_chain_height ?? networkStats.publicChainHeight;
-  return [
-    {
-      label: 'Selected node',
-      value: nodeRuntimeLabel(selectedNodeLive),
-      detail: `${formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers)} visible peers`,
-      tone: nodeRuntimeTone(selectedNodeLive),
-      icon: 'dns',
-    },
-    {
-      label: 'Sync readiness',
-      value: `${Math.round(syncPercent)}%`,
-      detail: `${formatNumber(selectedNodeLive?.sync_gap ?? 0)} block gap`,
-      tone: syncPercent >= 99 ? 'good' : syncPercent >= 80 ? 'warn' : 'bad',
-      icon: 'sync',
-    },
-    {
-      label: 'Local height',
-      value: formatNumber(localHeight),
-      detail: `Network tip ${formatNumber(networkHeight)}`,
-      tone: selectedNodeLive?.is_running ? 'cyan' : 'neutral',
-      icon: 'layers',
-    },
-    {
-      label: 'Local RPC',
-      value: selectedNodeLive?.local_rpc_ready ? 'Ready' : selectedNodeLive?.is_running ? 'Starting' : 'Offline',
-      detail: selectedNodeLive?.rpc_endpoint || liveStatus?.public_rpc_endpoint || 'RPC status unavailable',
-      tone: selectedNodeLive?.local_rpc_ready ? 'good' : selectedNodeLive?.is_running ? 'warn' : 'bad',
-      icon: 'terminal',
-    },
-    {
-      label: 'Peers',
-      value: formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers),
-      detail: `${formatNumber(selectedNodeLive?.connected_validator_count ?? 0)} validator peer(s) visible`,
-      tone: Number(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers) > 0 ? 'good' : 'warn',
-      icon: 'lan',
-    },
-    {
-      label: 'Runtime',
-      value: selectedNodeLive?.is_running ? 'Running' : 'Stopped',
-      detail: formatRuntimeDuration(selectedNodeLive?.process_uptime_secs),
-      tone: selectedNodeLive?.is_running ? 'good' : 'bad',
-      icon: 'monitor_heart',
-    },
+function metric(label, value, detail, tone = 'neutral', icon = 'analytics', numericValue = null) {
+  return { label, value, detail, tone, icon, numericValue };
+}
+
+function probeStatusCounts(snapshot) {
+  const probes = safeArray(snapshot?.rpc?.probes);
+  const passing = probes.filter((probe) => probe.status === 'pass').length;
+  return { passing, total: probes.length, failing: probes.length - passing };
+}
+
+function firstProbe(snapshot, method) {
+  return safeArray(snapshot?.rpc?.probes).find((probe) => probe.method === method) || null;
+}
+
+function probeResult(snapshot, method) {
+  return readObject(firstProbe(snapshot, method)?.result);
+}
+
+function arrayProbeResult(snapshot, method) {
+  const result = firstProbe(snapshot, method)?.result;
+  return safeArray(result);
+}
+
+function readinessCounts(snapshot) {
+  const readiness = readObject(snapshot?.readiness);
+  const total = Number(readiness.total_count ?? readiness.totalCount ?? 0);
+  const ready = Number(readiness.ready_count ?? readiness.readyCount ?? 0);
+  return { ready, total, blocked: Math.max(0, total - ready) };
+}
+
+function logSummary(snapshot) {
+  return readObject(snapshot?.logs?.summary);
+}
+
+function chainBlocks(snapshot) {
+  return safeArray(snapshot?.chain?.blocks);
+}
+
+function graphSnapshot(snapshot) {
+  return readObject(snapshot?.chain?.graph);
+}
+
+function nodeAddress(snapshot) {
+  return snapshot?.node?.node_address || snapshot?.node?.nodeAddress || '';
+}
+
+function selectedNodeLabel(snapshot, selectedNode) {
+  return selectedNode?.display_label
+    || selectedNode?.role_display_name
+    || snapshot?.node?.display_label
+    || snapshot?.node?.id
+    || 'Node';
+}
+
+function buildMetrics(featureKey, snapshot, selectedNodeLive, networkStats) {
+  const probes = probeStatusCounts(snapshot);
+  const readiness = readinessCounts(snapshot);
+  const logs = logSummary(snapshot);
+  const blocks = chainBlocks(snapshot);
+  const latestBlock = blocks[0] || {};
+  const storage = readObject(snapshot?.storage);
+  const graph = graphSnapshot(snapshot);
+  const validation = probeResult(snapshot, 'synergy_getBlockValidationStatus');
+  const validator = probeResult(snapshot, 'synergy_getValidator');
+  const validatorPerformance = probeResult(snapshot, 'synergy_getValidatorPerformance');
+  const slashing = probeResult(snapshot, 'synergy_getValidatorSlashingHistory');
+  const pool = arrayProbeResult(snapshot, 'synergy_getTransactionPool');
+  const pendingPool = arrayProbeResult(snapshot, 'synergy_getPendingTransactions');
+  const processCount = safeArray(snapshot?.diagnostics?.processes).length;
+
+  const common = [
+    metric('Runtime', nodeRuntimeLabel(selectedNodeLive), selectedNodeLive?.local_rpc_status || 'Runtime state read from control service', nodeRuntimeTone(selectedNodeLive), 'monitor_heart'),
+    metric('Local height', formatNumber(effectiveLocalChainHeight(selectedNodeLive)), `Network tip ${formatNumber(selectedNodeLive?.best_network_height ?? networkStats.publicChainHeight ?? 0)}`, selectedNodeLive?.is_running ? 'cyan' : 'warn', 'layers'),
+    metric('Readiness', `${formatNumber(readiness.ready)}/${formatNumber(readiness.total)}`, `${formatNumber(readiness.blocked)} checks need action`, readiness.blocked ? 'warn' : 'good', 'fact_check', readiness.ready),
+    metric('RPC probes', `${formatNumber(probes.passing)}/${formatNumber(probes.total)}`, `${formatNumber(probes.failing)} probe failures`, probes.failing ? 'warn' : 'good', 'terminal', probes.passing),
   ];
-}
 
-function buildLiveChecklist(selectedNodeLive) {
-  const syncGap = Number(selectedNodeLive?.sync_gap);
-  return [
-    {
-      label: 'Workspace exists',
-      detail: selectedNodeLive?.workspace_ready ? 'Node workspace is present on this machine.' : 'Workspace has not been reported by the runtime service.',
-      done: selectedNodeLive?.workspace_ready === true,
-      tone: selectedNodeLive?.workspace_ready ? 'good' : 'bad',
-    },
-    {
-      label: 'Configuration file present',
-      detail: selectedNodeLive?.config_ready ? 'node.toml is available for the selected node.' : 'The selected node has no readable node.toml yet.',
-      done: selectedNodeLive?.config_ready === true,
-      tone: selectedNodeLive?.config_ready ? 'good' : 'bad',
-    },
-    {
-      label: 'Wallet and identity present',
-      detail: selectedNodeLive?.wallet_ready ? 'Local key material exists in the workspace.' : 'Wallet material was not reported for this node.',
-      done: selectedNodeLive?.wallet_ready === true,
-      tone: selectedNodeLive?.wallet_ready ? 'good' : 'bad',
-    },
-    {
-      label: 'Runtime responding',
-      detail: selectedNodeLive?.local_rpc_status || 'No runtime status is available yet.',
-      done: selectedNodeLive?.is_running === true && selectedNodeLive?.local_rpc_ready !== false,
-      tone: selectedNodeLive?.local_rpc_ready ? 'good' : selectedNodeLive?.is_running ? 'warn' : 'bad',
-    },
-    {
-      label: 'Chain caught up',
-      detail: Number.isFinite(syncGap) ? `${formatNumber(syncGap)} block gap to best visible network height.` : 'Waiting for local and network chain height data.',
-      done: Number.isFinite(syncGap) && syncGap <= SYNC_READY_GAP,
-      tone: Number.isFinite(syncGap) && syncGap <= SYNC_READY_GAP ? 'good' : 'warn',
-    },
-  ];
-}
-
-function buildLiveTableRows(nodes, liveStatus) {
-  const liveNodes = Array.isArray(liveStatus?.nodes) ? liveStatus.nodes : [];
-  if (!liveNodes.length) {
-    return [];
+  if (featureKey === 'alerts') {
+    return [
+      metric('Critical logs', formatNumber(logs.error_count || 0), 'ERROR entries from local logs', logs.error_count ? 'bad' : 'good', 'report', logs.error_count || 0),
+      metric('Warnings', formatNumber(logs.warn_count || 0), 'WARN entries from local logs', logs.warn_count ? 'warn' : 'good', 'warning', logs.warn_count || 0),
+      metric('Blocked checks', formatNumber(readiness.blocked), 'Failed readiness checks', readiness.blocked ? 'bad' : 'good', 'rule', readiness.blocked),
+      metric('RPC failures', formatNumber(probes.failing), 'Failed live probes', probes.failing ? 'warn' : 'good', 'lan', probes.failing),
+    ];
   }
 
-  return liveNodes.map((entry) => {
-    const node = nodes.find((candidate) => candidate.id === entry.node_id);
-    const localHeight = effectiveLocalChainHeight(entry);
+  if (featureKey === 'validator') {
     return [
-      node?.display_label || entry.node_id || 'Node',
-      nodeRuntimeLabel(entry),
-      formatNumber(localHeight),
-      Number.isFinite(Number(entry?.sync_gap)) ? `${formatNumber(entry.sync_gap)} blocks` : 'Waiting',
-      formatNumber(entry?.local_peer_count ?? 0),
+      metric('Validator status', validator.status || 'Not active', `Address ${nodeAddress(snapshot)}`, String(validator.status || '').toLowerCase() === 'active' ? 'good' : 'warn', 'verified_user'),
+      metric('Produced blocks', formatNumber(validator.total_blocks_produced ?? validator.totalBlocksProduced ?? validatorPerformance.totalBlocksProduced ?? 0), 'Reported by validator RPC', 'cyan', 'inventory'),
+      metric('Missed duties', formatNumber(validatorPerformance.missedAttestations ?? 0), 'Reported by performance RPC', Number(validatorPerformance.missedAttestations || 0) ? 'warn' : 'good', 'event_busy'),
+      metric('Synergy score', formatNumber(validator.synergy_score ?? validatorPerformance.synergyScore ?? 0), 'Validator weighting score', 'purple', 'auto_graph'),
     ];
-  });
+  }
+
+  if (featureKey === 'security' || featureKey === 'identity') {
+    return [
+      metric('Identity address', nodeAddress(snapshot) ? 'Present' : 'Missing', nodeAddress(snapshot), nodeAddress(snapshot) ? 'good' : 'bad', 'badge'),
+      metric('Key files', formatNumber(readObject(safeArray(snapshot?.storage?.sections).find((item) => item.label === 'keys'))?.files || 0), 'Files in workspace keys folder', 'purple', 'key'),
+      metric('Slashing events', formatNumber(safeArray(slashing.slashingEvents).length), 'Reported by slashing RPC', safeArray(slashing.slashingEvents).length ? 'bad' : 'good', 'gpp_maybe'),
+      metric('Readiness', `${formatNumber(readiness.ready)}/${formatNumber(readiness.total)}`, 'Security-relevant readiness checks', readiness.blocked ? 'warn' : 'good', 'shield'),
+    ];
+  }
+
+  if (featureKey === 'consensus') {
+    return [
+      metric('Latest block', formatNumber(latestBlock.number ?? latestBlock.block_index ?? latestBlock.blockNumber ?? 0), 'Latest local block returned by RPC', 'cyan', 'account_tree'),
+      metric('Active validators', formatNumber(validation.active_validators ?? 0), `${formatNumber(validation.total_validators ?? 0)} total validators in validation RPC`, 'purple', 'groups'),
+      metric('Sync gap', formatNumber(selectedNodeLive?.sync_gap ?? 0), 'Blocks behind visible network tip', Number(selectedNodeLive?.sync_gap || 0) > SYNC_READY_GAP ? 'warn' : 'good', 'sync'),
+      metric('Recent blocks', formatNumber(blocks.length), 'Block range returned by local RPC', blocks.length ? 'good' : 'warn', 'view_timeline'),
+    ];
+  }
+
+  if (featureKey === 'dag') {
+    return [
+      metric('Graph nodes', formatNumber(safeArray(graph.nodes).length), 'Recent blocks in local graph', 'cyan', 'schema'),
+      metric('Parent links', formatNumber(safeArray(graph.edges).length), 'Parent hash links returned by blocks', 'purple', 'share'),
+      metric('Latest block txs', formatNumber(safeArray(latestBlock.transactions).length), 'Transactions in latest returned block', 'good', 'swap_horiz'),
+      metric('Recent producers', formatNumber(new Set(blocks.map((block) => block.validator || block.validator_id).filter(Boolean)).size), 'Distinct validators in recent blocks', 'cyan', 'how_to_vote'),
+    ];
+  }
+
+  if (featureKey === 'transactions') {
+    return [
+      metric('Pending pool', formatNumber(pool.length || pendingPool.length), 'Transactions returned by pool RPC', pool.length || pendingPool.length ? 'warn' : 'good', 'pending_actions'),
+      metric('Latest block txs', formatNumber(safeArray(latestBlock.transactions).length), 'Transactions in latest local block', 'cyan', 'receipt_long'),
+      metric('Gas price', String(firstProbe(snapshot, 'synergy_gasPrice')?.summary || 'No gas value'), 'synergy_gasPrice response', 'purple', 'payments'),
+      metric('RPC probes', `${formatNumber(probes.passing)}/${formatNumber(probes.total)}`, 'Transaction RPC health', probes.failing ? 'warn' : 'good', 'terminal'),
+    ];
+  }
+
+  if (featureKey === 'storage') {
+    const disk = readObject(storage.disk);
+    const free = disk.availableBytes;
+    return [
+      metric('Workspace size', formatBytes(storage.workspaceBytes), `${formatNumber(storage.workspaceFiles || 0)} files`, 'blue', 'folder_open'),
+      metric('Log data', formatBytes(readObject(safeArray(storage.sections).find((item) => item.label === 'logs'))?.bytes || 0), 'Local log footprint', 'cyan', 'receipt_long'),
+      metric('Chain data', formatBytes(readObject(safeArray(storage.sections).find((item) => item.label === 'data'))?.bytes || 0), 'Runtime data folder', 'purple', 'database'),
+      metric('Disk free', free != null ? formatBytes(free) : 'Disk probe pending', disk.mountPoint || 'Host disk probe', free != null ? 'good' : 'warn', 'hard_drive'),
+    ];
+  }
+
+  if (featureKey === 'api') {
+    const latencies = safeArray(snapshot?.rpc?.probes).map((probe) => Number(probe.latencyMs)).filter(Number.isFinite);
+    const avgLatency = latencies.length ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length) : 0;
+    return [
+      metric('Endpoint', snapshot?.rpc?.endpoint || 'Endpoint not resolved', 'Selected node JSON-RPC endpoint', 'blue', 'terminal'),
+      metric('Passing methods', `${formatNumber(probes.passing)}/${formatNumber(probes.total)}`, 'Live method probes', probes.failing ? 'warn' : 'good', 'fact_check'),
+      metric('Average latency', `${formatNumber(avgLatency)} ms`, 'Mean probe latency', avgLatency > 500 ? 'warn' : 'good', 'speed'),
+      metric('Chain ID', String(firstProbe(snapshot, 'synergy_getChainId')?.result || snapshot?.network?.chainId || ''), 'Live chain identifier', 'purple', 'tag'),
+    ];
+  }
+
+  if (featureKey === 'maintenance') {
+    return [
+      metric('Runtime', nodeRuntimeLabel(selectedNodeLive), formatRuntimeDuration(selectedNodeLive?.process_uptime_secs), nodeRuntimeTone(selectedNodeLive), 'build_circle'),
+      metric('Sync gap', formatNumber(selectedNodeLive?.sync_gap ?? 0), 'Use Sync Catch Up when behind', Number(selectedNodeLive?.sync_gap || 0) > SYNC_READY_GAP ? 'warn' : 'good', 'sync'),
+      metric('Processes', formatNumber(processCount), 'Workspace runtime processes', processCount === 1 ? 'good' : 'warn', 'memory'),
+      metric('Readiness', `${formatNumber(readiness.ready)}/${formatNumber(readiness.total)}`, 'Pre-maintenance checks', readiness.blocked ? 'warn' : 'good', 'rule'),
+    ];
+  }
+
+  if (featureKey === 'diagnostics') {
+    return [
+      metric('Processes', formatNumber(processCount), 'Workspace runtime process matches', processCount === 1 ? 'good' : 'warn', 'memory'),
+      metric('Listeners', String(readObject(snapshot?.diagnostics?.listeners).status ?? 'Captured'), 'Port listener command status', 'cyan', 'settings_ethernet'),
+      metric('Disk command', String(readObject(snapshot?.diagnostics?.disk).status ?? 'Captured'), 'Disk command status', 'blue', 'hard_drive'),
+      metric('Log entries', formatNumber(logs.total_entries || 0), 'Parsed from workspace logs', 'purple', 'receipt_long'),
+    ];
+  }
+
+  if (featureKey === 'config') {
+    const files = safeArray(snapshot?.config?.files);
+    const present = files.filter((file) => file.exists).length;
+    return [
+      metric('Config files', `${formatNumber(present)}/${formatNumber(files.length)}`, 'Files read from workspace', present === files.length ? 'good' : 'warn', 'description'),
+      metric('RPC endpoint', snapshot?.rpc?.endpoint || 'Endpoint not resolved', 'Resolved from node.toml', 'cyan', 'terminal'),
+      metric('Chain ID', String(snapshot?.network?.chainId || ''), 'Bundled Testnet-Beta network profile', 'purple', 'tag'),
+      metric('Bootstrap entries', formatNumber(safeArray(snapshot?.network?.bootnodes).length + safeArray(snapshot?.network?.seedServers).length), 'Bootnodes and seed servers in network profile', 'blue', 'hub'),
+    ];
+  }
+
+  return common;
 }
 
-function FeatureChecklist({ title, items }) {
+function buildChecks(featureKey, snapshot) {
+  const readinessChecks = safeArray(snapshot?.readiness?.checks).map((check) => ({
+    id: check.id || check.label,
+    label: check.label || check.id,
+    detail: check.detail || check.suggestion || 'Runtime check returned without detail.',
+    status: check.status === 'pass' ? 'pass' : 'fail',
+  }));
+  const rpcChecks = safeArray(snapshot?.rpc?.probes).map((probe) => ({
+    id: `rpc-${probe.method}`,
+    label: probe.method,
+    detail: probe.status === 'pass' ? `${probe.summary || 'Method responded'} in ${formatNumber(probe.latencyMs)} ms` : String(probe.detail || 'RPC probe failed'),
+    status: probe.status === 'pass' ? 'pass' : 'fail',
+  }));
+
+  if (featureKey === 'config') {
+    return safeArray(snapshot?.config?.files).map((file) => ({
+      id: file.path,
+      label: file.path?.split('/').slice(-2).join('/') || 'config file',
+      detail: file.exists ? `${formatBytes(file.bytes)} read from workspace` : 'File was not found in this workspace.',
+      status: file.exists ? 'pass' : 'fail',
+    }));
+  }
+
+  if (featureKey === 'diagnostics') {
+    return [
+      ...safeArray(snapshot?.diagnostics?.processes).map((process) => ({
+        id: `pid-${process.pid}`,
+        label: `Process ${process.pid}`,
+        detail: `Runtime process has been alive for ${formatRuntimeDuration(process.uptimeSecs)}.`,
+        status: 'pass',
+      })),
+      {
+        id: 'listeners',
+        label: 'Port listeners command',
+        detail: readObject(snapshot?.diagnostics?.listeners).stdout || readObject(snapshot?.diagnostics?.listeners).stderr || 'Listener command completed.',
+        status: readObject(snapshot?.diagnostics?.listeners).status === 0 ? 'pass' : 'fail',
+      },
+      {
+        id: 'disk',
+        label: 'Disk command',
+        detail: readObject(snapshot?.diagnostics?.disk).stdout || readObject(snapshot?.diagnostics?.disk).stderr || 'Disk command completed.',
+        status: readObject(snapshot?.diagnostics?.disk).status === 0 ? 'pass' : 'fail',
+      },
+    ];
+  }
+
+  return [...readinessChecks, ...rpcChecks].slice(0, 10);
+}
+
+function buildTable(featureKey, snapshot) {
+  const blocks = chainBlocks(snapshot);
+  const graph = graphSnapshot(snapshot);
+
+  if (featureKey === 'alerts') {
+    const logRows = safeArray(snapshot?.logs?.entries)
+      .filter((entry) => ['WARN', 'ERROR'].includes(String(entry.level || '').toUpperCase()))
+      .slice(0, 8)
+      .map((entry) => [
+        String(entry.level || 'INFO').toUpperCase(),
+        entry.module || entry.source_label || 'runtime',
+        entry.message || entry.raw || '',
+        entry.timestamp_utc || 'No timestamp',
+      ]);
+    const checkRows = safeArray(snapshot?.readiness?.checks)
+      .filter((check) => check.status !== 'pass')
+      .slice(0, 6)
+      .map((check) => ['CHECK', check.label || check.id, check.detail || check.suggestion || '', snapshot?.readiness?.generated_at_utc || 'Current']);
+    return {
+      title: 'Incident evidence',
+      columns: ['Severity', 'Signal', 'Detail', 'Time'],
+      rows: [...logRows, ...checkRows],
+    };
+  }
+
+  if (featureKey === 'storage') {
+    return {
+      title: 'Workspace storage',
+      columns: ['Section', 'Bytes', 'Files', 'Path'],
+      rows: safeArray(snapshot?.storage?.sections).map((section) => [
+        section.label,
+        formatBytes(section.bytes),
+        formatNumber(section.files),
+        section.path,
+      ]),
+    };
+  }
+
+  if (featureKey === 'api') {
+    return {
+      title: 'RPC method probes',
+      columns: ['Method', 'Status', 'Latency', 'Result'],
+      rows: safeArray(snapshot?.rpc?.probes).map((probe) => [
+        probe.method,
+        probe.status,
+        `${formatNumber(probe.latencyMs)} ms`,
+        probe.summary || String(probe.detail || ''),
+      ]),
+    };
+  }
+
+  if (featureKey === 'diagnostics') {
+    return {
+      title: 'Machine command output',
+      columns: ['Check', 'Status', 'Output'],
+      rows: [
+        ['Listeners', String(readObject(snapshot?.diagnostics?.listeners).status ?? 'captured'), readObject(snapshot?.diagnostics?.listeners).stdout || readObject(snapshot?.diagnostics?.listeners).stderr || ''],
+        ['Disk', String(readObject(snapshot?.diagnostics?.disk).status ?? 'captured'), readObject(snapshot?.diagnostics?.disk).stdout || readObject(snapshot?.diagnostics?.disk).stderr || ''],
+      ],
+    };
+  }
+
+  if (featureKey === 'config') {
+    return {
+      title: 'Config files',
+      columns: ['File', 'Bytes', 'Modified', 'Path'],
+      rows: safeArray(snapshot?.config?.files).map((file) => [
+        file.path?.split('/').pop() || 'file',
+        file.exists ? formatBytes(file.bytes) : 'Missing',
+        file.modifiedAtUtc || 'No timestamp',
+        file.path,
+      ]),
+    };
+  }
+
+  if (featureKey === 'transactions') {
+    const pool = arrayProbeResult(snapshot, 'synergy_getTransactionPool');
+    const latestTransactions = safeArray(blocks[0]?.transactions);
+    return {
+      title: 'Transaction evidence',
+      columns: ['Hash', 'State', 'Amount/Fee', 'Source'],
+      rows: [
+        ...pool.slice(0, 8).map((tx) => [
+          tx.hash || tx.tx_hash || tx.id || 'pending transaction',
+          tx.status || 'pending',
+          tx.amount || tx.fee || tx.gas || '0',
+          'pool',
+        ]),
+        ...latestTransactions.slice(0, 8).map((tx) => [
+          tx.hash || tx.tx_hash || tx.id || 'block transaction',
+          tx.status || 'confirmed',
+          tx.amount || tx.fee || tx.gas || '0',
+          `block ${formatNumber(blocks[0]?.number ?? blocks[0]?.block_index ?? 0)}`,
+        ]),
+      ],
+    };
+  }
+
+  if (featureKey === 'dag') {
+    return {
+      title: 'Recent block graph',
+      columns: ['Height', 'Hash', 'Parent', 'Validator'],
+      rows: blocks.slice(0, 16).map((block) => [
+        formatNumber(block.number ?? block.block_index ?? block.blockNumber ?? 0),
+        block.hash || '',
+        block.parentHash || block.parent_hash || block.previous_hash || '',
+        block.validator || block.validator_id || '',
+      ]),
+    };
+  }
+
+  return {
+    title: featureKey === 'consensus' ? 'Recent consensus blocks' : 'Live RPC evidence',
+    columns: ['Height', 'Hash', 'Validator', 'Transactions'],
+    rows: blocks.slice(0, 12).map((block) => [
+      formatNumber(block.number ?? block.block_index ?? block.blockNumber ?? 0),
+      block.hash || '',
+      block.validator || block.validator_id || '',
+      formatNumber(safeArray(block.transactions).length),
+    ]),
+  };
+}
+
+function FeatureChecklist({ items }) {
   return (
-    <PanelCard title={title}>
+    <PanelCard title="Live checks">
       <div className="cp-feature-checklist">
-        {items.map((item) => (
-          <article key={item.label} className={`cp-feature-check tone-${item.tone || 'neutral'} ${item.done ? 'is-done' : ''}`}>
-            <span className="material-icons" aria-hidden="true">{item.done ? 'check_circle' : 'radio_button_unchecked'}</span>
+        {items.length ? items.map((item) => (
+          <article key={item.id} className={`cp-feature-check tone-${item.status === 'pass' ? 'good' : 'warn'} ${item.status === 'pass' ? 'is-done' : ''}`}>
+            <span className="material-icons" aria-hidden="true">{item.status === 'pass' ? 'check_circle' : 'radio_button_unchecked'}</span>
             <div>
               <strong>{item.label}</strong>
               <p>{item.detail}</p>
             </div>
           </article>
-        ))}
-      </div>
-    </PanelCard>
-  );
-}
-
-function FeatureTable({ title, columns, rows }) {
-  return (
-    <PanelCard title={title}>
-      <div className="cp-feature-table">
-        <div className="cp-feature-table-row cp-feature-table-head">
-          {columns.map((column) => <span key={column}>{column}</span>)}
-        </div>
-        {rows.length ? rows.map((row) => (
-          <div key={row.join('-')} className="cp-feature-table-row">
-            {row.map((cell, index) => (
-              <span key={`${cell}-${index}`} className={index === 0 ? 'is-primary' : ''}>{cell}</span>
-            ))}
-          </div>
         )) : (
-          <div className="cp-feature-table-row">
-            <span className="is-primary">No live runtime rows available</span>
-            <span>Start chain sync</span>
-            <span>Waiting</span>
-            <span>Waiting</span>
-            <span>0</span>
-          </div>
+          <div className="cp-empty-inline">The live snapshot returned zero actionable checks.</div>
         )}
       </div>
     </PanelCard>
   );
 }
 
-function DangerWorkflow({ danger, onOpen }) {
-  const [confirmText, setConfirmText] = useState('');
-  const armed = confirmText.trim().toUpperCase() === 'REVIEW';
-
-  if (!danger) {
-    return null;
-  }
-
+function FeatureTable({ table }) {
   return (
-    <PanelCard className="cp-feature-danger" title={danger.title} detail={danger.copy}>
-      <div className="cp-feature-danger-body">
-        <label className="cp-form-field">
-          <span>Type REVIEW to open the guarded workflow</span>
-          <input
-            value={confirmText}
-            onChange={(event) => setConfirmText(event.target.value)}
-            placeholder="REVIEW"
-            autoComplete="off"
-          />
-        </label>
-        <SNRGButton
-          variant="red"
-          size="sm"
-          disabled={!armed}
-          onClick={() => {
-            onOpen();
-            setConfirmText('');
-          }}
-        >
-          {danger.confirmLabel}
-        </SNRGButton>
+    <PanelCard title={table.title}>
+      <div className="cp-feature-table">
+        <div className="cp-feature-table-row cp-feature-table-head">
+          {table.columns.map((column) => <span key={column}>{column}</span>)}
+        </div>
+        {table.rows.length ? table.rows.map((row, rowIndex) => (
+          <div key={`${row.join('-')}-${rowIndex}`} className="cp-feature-table-row">
+            {row.map((cell, index) => (
+              <span key={`${index}-${String(cell).slice(0, 40)}`} className={index === 0 ? 'is-primary' : ''}>{String(cell)}</span>
+            ))}
+          </div>
+        )) : (
+          <div className="cp-empty-inline">The live source returned zero rows for this screen.</div>
+        )}
       </div>
     </PanelCard>
   );
 }
 
-function Dot({ x, y, tone = 'cyan', shape = 'circle' }) {
-  if (shape === 'triangle') {
-    return <polygon points={`${x},${y - 5} ${x + 6},${y + 6} ${x - 6},${y + 6}`} className={`tone-${tone}`} />;
-  }
-  if (shape === 'diamond') {
-    return <rect x={x - 5} y={y - 5} width="10" height="10" transform={`rotate(45 ${x} ${y})`} className={`tone-${tone}`} />;
-  }
-  return <circle cx={x} cy={y} r="5.5" className={`tone-${tone}`} />;
-}
-
-function DagVisual() {
-  const nodes = [
-    [8, 55, 'cyan', 'triangle'],
-    [22, 38, 'cyan', 'diamond'],
-    [22, 72, 'cyan', 'diamond'],
-    [36, 25, 'cyan', 'diamond'],
-    [36, 55, 'cyan', 'circle'],
-    [36, 84, 'cyan', 'diamond'],
-    [52, 36, 'cyan', 'diamond'],
-    [52, 62, 'cyan', 'diamond'],
-    [66, 45, 'warn', 'circle'],
-    [66, 72, 'warn', 'diamond'],
-    [80, 24, 'bad', 'circle'],
-    [80, 50, 'warn', 'diamond'],
-    [80, 76, 'bad', 'triangle'],
-    [94, 55, 'bad', 'triangle'],
-  ];
-  const edges = [
-    [8, 55, 22, 38], [8, 55, 22, 72], [22, 38, 36, 25], [22, 38, 36, 55],
-    [22, 72, 36, 55], [22, 72, 36, 84], [36, 25, 52, 36], [36, 55, 52, 36],
-    [36, 55, 52, 62], [36, 84, 52, 62], [52, 36, 66, 45], [52, 62, 66, 45],
-    [52, 62, 66, 72], [66, 45, 80, 24], [66, 45, 80, 50], [66, 72, 80, 50],
-    [66, 72, 80, 76], [80, 24, 94, 55], [80, 50, 94, 55], [80, 76, 94, 55],
-  ];
-
-  return (
-    <div className="cp-feature-visual cp-feature-visual-dag">
-      <svg viewBox="0 0 100 100" role="img" aria-label="DAG topology view">
-        {edges.map((edge) => (
-          <line key={edge.join('-')} x1={edge[0]} y1={edge[1]} x2={edge[2]} y2={edge[3]} />
-        ))}
-        {nodes.map((node) => (
-          <Dot key={node.join('-')} x={node[0]} y={node[1]} tone={node[2]} shape={node[3]} />
-        ))}
-      </svg>
-      <div className="cp-feature-legend">
-        <span><i className="tone-cyan"></i>Finalized</span>
-        <span><i className="tone-warn"></i>Pending</span>
-        <span><i className="tone-bad"></i>Conflicting</span>
-      </div>
-    </div>
-  );
-}
-
-function ConsensusVisual() {
-  return (
-    <div className="cp-feature-visual cp-feature-consensus">
-      <div className="cp-feature-finality-line">
-        {['Block', 'Vote', 'QC', 'Checkpoint', 'DAG Anchor', 'Finalized'].map((item, index) => (
-          <div key={item} className={index < 5 ? 'is-complete' : ''}>
-            <span>{index + 1}</span>
-            <strong>{item}</strong>
-          </div>
-        ))}
-      </div>
-      <DagVisual />
-    </div>
-  );
-}
-
-function StorageVisual() {
-  return (
-    <div className="cp-feature-visual cp-feature-storage">
-      <svg viewBox="0 0 360 170" role="img" aria-label="Storage growth forecast">
-        <polyline points="12,145 70,124 128,100 184,72 240,45 305,28 348,18" />
-        <line x1="12" y1="145" x2="348" y2="145" />
-        <line x1="240" y1="22" x2="240" y2="145" className="warn-line" />
-      </svg>
-      <div className="cp-feature-donut" style={{ '--value': '76%' }}>
-        <strong>76%</strong>
-        <span>Projected capacity</span>
-      </div>
-    </div>
-  );
-}
-
-function AlertsVisual() {
-  return (
-    <div className="cp-feature-visual cp-feature-alerts">
-      {[
-        ['Critical', 78, 'bad'],
-        ['Warning', 56, 'warn'],
-        ['Info', 34, 'cyan'],
-        ['Recovered', 82, 'good'],
-      ].map(([label, height, tone]) => (
-        <div key={label} className="cp-feature-alert-bar">
-          <span style={{ height: `${height}%` }} className={`tone-${tone}`}></span>
-          <strong>{label}</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function LifecycleVisual() {
-  return (
-    <div className="cp-feature-visual cp-feature-lifecycle">
-      {['Registration', 'Activation', 'Performance', 'Exit'].map((step, index) => (
-        <div key={step} className={index < 2 ? 'is-complete' : index === 2 ? 'is-active' : ''}>
-          <span>{index + 1}</span>
-          <strong>{step}</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function GenericVisual({ type }) {
-  if (type === 'dag') return <DagVisual />;
-  if (type === 'consensus') return <ConsensusVisual />;
-  if (type === 'storage') return <StorageVisual />;
-  if (type === 'alerts') return <AlertsVisual />;
-  if (type === 'lifecycle') return <LifecycleVisual />;
-
-  return (
-    <div className={joinClasses('cp-feature-visual', `cp-feature-visual-${type}`)}>
-      <div className="cp-feature-signal-orbit">
-        <span></span>
-        <span></span>
-        <span></span>
-        <i className="material-icons" aria-hidden="true">
-          {type === 'security' ? 'shield' : type === 'rpc' ? 'terminal' : type === 'diagnostics' ? 'troubleshoot' : type === 'config' ? 'tune' : type === 'governance' ? 'how_to_vote' : 'hub'}
-        </i>
-      </div>
-      <div className="cp-feature-mini-grid">
-        {[0, 1, 2, 3, 4, 5].map((index) => (
-          <span key={index} className={index % 3 === 0 ? 'tone-purple' : index % 2 === 0 ? 'tone-good' : 'tone-cyan'}></span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function LiveRuntimeVisual({ feature, selectedNodeLive, liveStatus, networkStats }) {
-  const syncPercent = nodeSyncPercent(selectedNodeLive, liveStatus);
-  const localHeight = effectiveLocalChainHeight(selectedNodeLive);
-  const networkHeight = selectedNodeLive?.best_network_height ?? liveStatus?.public_chain_height ?? networkStats.publicChainHeight;
+function LiveGraphVisual({ snapshot }) {
+  const graph = graphSnapshot(snapshot);
+  const nodes = safeArray(graph.nodes).slice(0, 18);
+  const nodeById = new Map(nodes.map((node, index) => [node.id, {
+    ...node,
+    x: 8 + (index % 6) * 17,
+    y: 24 + Math.floor(index / 6) * 28,
+  }]));
+  const edges = safeArray(graph.edges)
+    .map((edge) => ({ from: nodeById.get(edge.from), to: nodeById.get(edge.to) }))
+    .filter((edge) => edge.from && edge.to);
+  const nodeLabel = (height) => {
+    const text = String(height ?? '').replace(/[^\d]/g, '');
+    return text ? `#${text.slice(-4)}` : '#0';
+  };
 
   return (
     <div className="cp-feature-visual cp-feature-live-runtime">
-      <div className="cp-feature-live-chain">
-        <span style={{ width: `${Math.max(2, Math.min(100, syncPercent))}%` }}></span>
-      </div>
-      <div className="cp-feature-live-steps">
-        <article className={selectedNodeLive?.workspace_ready ? 'is-complete' : ''}>
-          <span className="material-icons" aria-hidden="true">folder_open</span>
-          <strong>Workspace</strong>
-          <small>{selectedNodeLive?.workspace_ready ? 'Ready' : 'Missing'}</small>
-        </article>
-        <article className={selectedNodeLive?.is_running ? 'is-complete' : ''}>
-          <span className="material-icons" aria-hidden="true">play_circle</span>
-          <strong>Runtime</strong>
-          <small>{selectedNodeLive?.is_running ? 'Running' : 'Stopped'}</small>
-        </article>
-        <article className={selectedNodeLive?.local_rpc_ready ? 'is-complete' : ''}>
-          <span className="material-icons" aria-hidden="true">terminal</span>
-          <strong>RPC</strong>
-          <small>{selectedNodeLive?.local_rpc_ready ? 'Ready' : 'Waiting'}</small>
-        </article>
-        <article className={syncPercent >= 99.5 ? 'is-complete' : ''}>
-          <span className="material-icons" aria-hidden="true">sync</span>
-          <strong>Chain</strong>
-          <small>{formatPercent(syncPercent, 0)}</small>
-        </article>
-      </div>
-      <div className="cp-feature-live-heights">
-        <span>Local {formatNumber(localHeight)}</span>
-        <span>Network {formatNumber(networkHeight)}</span>
-      </div>
+      {nodes.length ? (
+        <svg viewBox="0 0 112 100" role="img" aria-label="Live block parent graph">
+          {edges.map((edge, index) => (
+            <line key={`${edge.from.id}-${edge.to.id}-${index}`} x1={edge.from.x} y1={edge.from.y} x2={edge.to.x} y2={edge.to.y} />
+          ))}
+          {Array.from(nodeById.values()).map((node) => (
+            <g key={node.id || node.height} transform={`translate(${node.x} ${node.y})`}>
+              <circle r="5.5" className="tone-cyan" />
+              <text x="0" y="14" textAnchor="middle">{nodeLabel(node.height)}</text>
+            </g>
+          ))}
+        </svg>
+      ) : (
+        <div className="cp-empty-inline">The node returned zero recent block graph rows.</div>
+      )}
     </div>
   );
 }
 
 function buildRuntimeActionsForFeature(featureKey, selectedNodeLive) {
-  const startAction = {
-    id: 'start-chain-sync',
-    label: selectedNodeLive?.is_running ? 'Resume Chain Sync' : 'Start Chain Sync',
-    variant: 'purple',
-  };
   const common = {
     refresh: { id: 'refresh-live-state', label: 'Refresh Live State', variant: 'blue', requiresNode: false },
     readiness: { id: 'run-readiness-check', label: 'Run Readiness Check', variant: 'lime' },
     logs: { id: 'inspect-recent-logs', label: 'Inspect Recent Logs', variant: 'blue' },
+    start: { id: 'start-node', label: selectedNodeLive?.is_running ? 'Node Running' : 'Start Node', variant: 'lime' },
     stop: { id: 'stop-node', label: 'Stop Node', variant: 'red' },
     restart: { id: 'restart-node', label: 'Restart Runtime', variant: 'purple' },
     boost: { id: 'boost-sync', label: 'Boost Sync', variant: 'lime' },
-    register: { id: 'register-seeds', label: 'Re-register Seeds', variant: 'blue' },
+    catchUp: { id: 'sync-catch-up', label: 'Sync Catch Up', variant: 'purple' },
+    register: { id: 'register-seeds', label: 'Refresh Seeds', variant: 'blue' },
     rejoin: { id: 'rejoin-network', label: 'Rejoin Network', variant: 'purple' },
     preflight: { id: 'activation-preflight', label: 'Activation Preflight', variant: 'lime' },
     activate: { id: 'activate-validator', label: 'Activate Validator', variant: 'blue' },
+    settings: { id: 'open-settings', label: 'Open Settings', variant: 'blue', requiresNode: false },
   };
 
   const actionMap = {
     alerts: [common.refresh, common.readiness, common.logs],
-    validator: [common.preflight, common.activate, common.register],
+    validator: [common.preflight, common.catchUp, common.activate, common.register],
     security: [common.readiness, common.logs, common.refresh],
     identity: [common.readiness, common.preflight, common.logs],
-    consensus: [common.refresh, common.readiness, common.register, startAction],
+    consensus: [common.refresh, common.readiness, common.register, common.catchUp],
     dag: [common.refresh, common.logs, common.boost],
-    transactions: [common.logs, common.readiness, common.refresh],
-    governance: [common.refresh, common.preflight, common.logs],
-    storage: [common.readiness, common.logs, common.refresh],
+    transactions: [common.logs, common.refresh, common.readiness],
+    storage: [common.refresh, common.logs, common.settings],
     api: [common.refresh, common.readiness, common.logs],
-    maintenance: [common.restart, common.rejoin, common.boost, common.stop],
+    maintenance: [common.restart, common.catchUp, common.rejoin, common.boost, common.stop],
     diagnostics: [common.refresh, common.logs, common.readiness],
     config: [common.refresh, common.readiness, common.logs],
-    compliance: [common.readiness, common.logs, common.refresh],
   };
 
-  return actionMap[featureKey] || [common.refresh, startAction, common.readiness, common.stop];
+  return actionMap[featureKey] || [common.refresh, common.readiness];
 }
 
 export default function ControlPanelFeaturePage({ screenKey }) {
   const feature = getFeatureScreenByKey(screenKey);
+  const navigate = useNavigate();
   const {
     actionAudit,
     liveStatus,
     network,
     networkStats,
-    nodes,
     recordAction,
     refresh,
     selectedNode,
     selectedNodeLive,
     viewMode,
   } = useControlPanel();
+  const [snapshot, setSnapshot] = useState(null);
+  const [snapshotError, setSnapshotError] = useState('');
+  const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState('');
-  const [localView, setLocalView] = useState('local');
+  const [actionBusy, setActionBusy] = useState('');
 
-  const liveMetrics = useMemo(
-    () => (feature ? buildLiveMetrics(selectedNodeLive, liveStatus, networkStats) : []),
-    [feature, liveStatus, networkStats, selectedNodeLive],
+  const loadSnapshot = async () => {
+    if (!feature) return;
+    setLoading(true);
+    try {
+      const nextSnapshot = await invoke('testbeta_get_feature_snapshot', {
+        input: {
+          screenKey: feature.key,
+          nodeId: selectedNode?.id,
+        },
+      });
+      setSnapshot(nextSnapshot || null);
+      setSnapshotError('');
+    } catch (error) {
+      setSnapshot(null);
+      setSnapshotError(String(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSnapshot();
+  }, [feature?.key, selectedNode?.id, liveStatus]);
+
+  const metrics = useMemo(
+    () => buildMetrics(feature?.key, snapshot || {}, selectedNodeLive, networkStats),
+    [feature?.key, networkStats, selectedNodeLive, snapshot],
   );
-  const liveChecklist = useMemo(
-    () => buildLiveChecklist(selectedNodeLive),
-    [selectedNodeLive],
+  const checks = useMemo(
+    () => buildChecks(feature?.key, snapshot || {}),
+    [feature?.key, snapshot],
   );
-  const liveRows = useMemo(
-    () => buildLiveTableRows(nodes, liveStatus),
-    [liveStatus, nodes],
+  const table = useMemo(
+    () => buildTable(feature?.key, snapshot || {}),
+    [feature?.key, snapshot],
   );
+  const runtimeActions = buildRuntimeActionsForFeature(feature?.key, selectedNodeLive);
+  const featureTitle = feature?.modeTitles?.[viewMode] || feature?.title;
+  const featureCopy = feature?.modeCopy?.[viewMode] || feature?.description;
 
   if (!feature) {
     return null;
@@ -498,12 +588,14 @@ export default function ControlPanelFeaturePage({ screenKey }) {
       return;
     }
 
+    setActionBusy(action.id);
     try {
       let detail = '';
       if (action.id === 'refresh-live-state') {
         await refresh({ silent: false });
+        await loadSnapshot();
         detail = 'Live state refreshed from the control service.';
-      } else if (action.id === 'start-chain-sync') {
+      } else if (action.id === 'start-node') {
         const response = await runNodeControlAction({ node: selectedNode, network, action: 'start' });
         detail = response?.message || 'Node start requested.';
         await refresh({ silent: true });
@@ -517,6 +609,10 @@ export default function ControlPanelFeaturePage({ screenKey }) {
       } else if (action.id === 'boost-sync') {
         detail = await boostSyncAction(selectedNode.id);
         await refresh({ silent: true });
+      } else if (action.id === 'sync-catch-up') {
+        const result = await syncCatchUpRejoinAction({ node: selectedNode, network });
+        detail = result?.message || 'Sync Catch Up completed.';
+        await refresh({ silent: true });
       } else if (action.id === 'register-seeds') {
         detail = await registerWithSeedsAction(selectedNode.id);
         await refresh({ silent: true });
@@ -525,21 +621,19 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         await refresh({ silent: true });
       } else if (action.id === 'run-readiness-check') {
         const report = await invoke('testbeta_get_node_readiness', { nodeId: selectedNode.id });
-        detail = `Readiness ${report?.overall_status || 'unknown'}: ${formatNumber(report?.ready_count)} of ${formatNumber(report?.total_count)} checks passing.`;
+        detail = `Readiness ${report?.overall_status || 'reported'}: ${formatNumber(report?.ready_count)} of ${formatNumber(report?.total_count)} checks passing.`;
       } else if (action.id === 'inspect-recent-logs') {
-        const bundle = await invoke('testbeta_get_node_logs', { nodeId: selectedNode.id, lines: 40 });
-        const entries = Array.isArray(bundle?.entries) ? bundle.entries : [];
+        const bundle = await invoke('testbeta_get_node_logs', { nodeId: selectedNode.id, lines: 80 });
+        const entries = safeArray(bundle?.entries);
         const latest = entries[entries.length - 1];
         detail = entries.length
           ? `Loaded ${formatNumber(entries.length)} log entries. Latest: ${latest?.level || 'INFO'} ${latest?.message || latest?.raw || 'runtime event'}.`
-          : 'No recent log entries were returned for the selected node.';
+          : 'The log reader returned zero entries for the selected node.';
       } else if (action.id === 'activation-preflight') {
         const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: selectedNode.id });
-        detail = activationPreflightMessage(result);
+        const ready = result?.canActivate || result?.can_activate;
+        detail = ready ? 'Validator activation preflight is passing.' : 'Validator activation preflight returned blocking checks.';
       } else if (action.id === 'activate-validator') {
-        if (selectedNode?.role_id !== 'validator') {
-          throw new Error('Activate Validator is only available on validator nodes.');
-        }
         const result = await invoke('testbeta_activate_validator', {
           input: {
             nodeId: selectedNode.id,
@@ -547,8 +641,9 @@ export default function ControlPanelFeaturePage({ screenKey }) {
           },
         });
         detail = result?.message || `Validator activation submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
-      } else {
-        detail = `${action.label} is staged on ${feature.title}. Review the visible context and use the guarded workflow when this action changes runtime state.`;
+      } else if (action.id === 'open-settings') {
+        navigate('/settings');
+        detail = 'Opened Settings.';
       }
 
       setNotice(detail);
@@ -564,6 +659,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
           viewMode,
         },
       });
+      await loadSnapshot();
     } catch (error) {
       const detail = String(error);
       setNotice(detail);
@@ -579,14 +675,10 @@ export default function ControlPanelFeaturePage({ screenKey }) {
           viewMode,
         },
       });
+    } finally {
+      setActionBusy('');
     }
   };
-
-  const runtimeActions = buildRuntimeActionsForFeature(feature.key, selectedNodeLive);
-  const featureLabel = feature.modeLabels?.[viewMode] || feature.label;
-  const featureTitle = feature.modeTitles?.[viewMode] || feature.title;
-  const featureCopy = feature.modeCopy?.[viewMode] || feature.description;
-  const featureActions = safeArray(feature.actions);
 
   return (
     <div className="cp-page-stack cp-feature-page">
@@ -596,110 +688,78 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         copy={featureCopy}
         actions={(
           <>
-            <StatusPill tone={feature.tone}>{featureLabel}</StatusPill>
-            {feature.key === 'dag' ? (
-              <div className="cp-feature-toggle">
-                {['local', 'network'].map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={localView === option ? 'is-active' : ''}
-                    onClick={() => setLocalView(option)}
-                  >
-                    {option === 'local' ? 'Local View' : 'Network View'}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <StatusPill tone={feature.tone}>{feature.label}</StatusPill>
+            <SNRGButton variant="blue" size="sm" onClick={() => void loadSnapshot()} disabled={loading}>
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </SNRGButton>
           </>
         )}
       />
 
+      {snapshotError ? <div className="cp-inline-notice tone-bad">{snapshotError}</div> : null}
       {notice ? <div className="cp-inline-notice">{notice}</div> : null}
 
       <div className="cp-dashboard-grid cp-feature-grid">
         <div className="cp-dashboard-main">
           <PanelCard
             className="cp-feature-hero"
-            eyebrow={featureLabel}
-            title={`${featureLabel} workspace`}
-            detail={feature.description}
+            eyebrow={selectedNodeLabel(snapshot, selectedNode)}
+            title={`${feature.label} live workspace`}
+            detail={`Snapshot generated ${snapshot?.generatedAtUtc || 'after refresh'} from local control-service and node RPC sources.`}
             action={<StatusPill tone={nodeRuntimeTone(selectedNodeLive)} live>{nodeRuntimeLabel(selectedNodeLive)}</StatusPill>}
           >
-            <GenericVisual type={feature.visual || feature.key} />
-            <div className="cp-feature-question-grid">
-              {safeArray(feature.questions).map((question) => (
-                <article key={question.label} className={`cp-feature-question tone-${question.tone || 'neutral'}`}>
-                  <span className="material-icons" aria-hidden="true">{question.icon || 'analytics'}</span>
-                  <div>
-                    <span>{question.label}</span>
-                    <strong>{question.value}</strong>
-                  </div>
-                </article>
-              ))}
-            </div>
+            <LiveGraphVisual snapshot={snapshot || {}} />
           </PanelCard>
 
           <div className="cp-metric-grid cp-metric-grid-dashboard">
-            {safeArray(feature.metrics).map((metric) => (
-              <MetricCard key={`${feature.key}-${metric.label}`} {...metric} />
+            {metrics.map((item) => (
+              <MetricCard key={`${feature.key}-${item.label}`} {...item} />
             ))}
           </div>
 
           <div className="cp-split-grid">
-            <FeatureChecklist title={feature.checklistTitle || `${featureLabel} checks`} items={safeArray(feature.checklist)} />
-            <PanelCard title={`${featureLabel} actions`} detail="Actions stay explicit. Risky work must use the normal confirmation path.">
+            <FeatureChecklist items={checks} />
+            <PanelCard title={`${feature.label} actions`} detail="These controls call the production control-service action path and record action receipts.">
               <div className="cp-feature-action-grid">
-                {[...featureActions, ...runtimeActions].slice(0, viewMode === 'developer' ? 8 : 5).map((action) => (
+                {runtimeActions.map((action) => (
                   <SNRGButton
                     key={action.id}
                     variant={action.variant}
                     size="sm"
                     onClick={() => void handleAction(action)}
-                    disabled={!selectedNode && action.requiresNode !== false}
+                    disabled={actionBusy === action.id || (!selectedNode && action.requiresNode !== false) || (action.id === 'start-node' && selectedNodeLive?.is_running)}
                   >
-                    {action.label}
+                    {actionBusy === action.id ? 'Working...' : action.label}
                   </SNRGButton>
                 ))}
               </div>
             </PanelCard>
           </div>
 
-          <FeatureTable
-            title={feature.tableTitle || `${featureLabel} table`}
-            columns={safeArray(feature.tableColumns)}
-            rows={safeArray(feature.tableRows)}
-          />
-
-          <DangerWorkflow
-            danger={feature.danger}
-            onOpen={() => handleAction({ id: `${feature.key}-danger-review`, label: feature.danger.confirmLabel, variant: 'red' })}
-          />
+          <FeatureTable table={table} />
         </div>
 
         <div className="cp-dashboard-side">
-          <PanelCard title="Current node context" detail={selectedNode?.display_label || 'No local node selected'}>
-            <LiveRuntimeVisual
-              feature={feature}
-              selectedNodeLive={selectedNodeLive}
-              liveStatus={liveStatus}
-              networkStats={networkStats}
-            />
+          <PanelCard title="Current node context" detail={selectedNodeLabel(snapshot, selectedNode)}>
+            <div className="cp-definition-list">
+              <div className="cp-definition-item">
+                <span>Address</span>
+                <strong>{nodeAddress(snapshot) || 'No node address reported'}</strong>
+              </div>
+              <div className="cp-definition-item">
+                <span>RPC endpoint</span>
+                <strong>{snapshot?.rpc?.endpoint || 'No endpoint reported'}</strong>
+              </div>
+              <div className="cp-definition-item">
+                <span>Runtime</span>
+                <strong>{nodeRuntimeLabel(selectedNodeLive)}</strong>
+              </div>
+              <div className="cp-definition-item">
+                <span>Sync gap</span>
+                <strong>{formatNumber(selectedNodeLive?.sync_gap ?? 0)}</strong>
+              </div>
+            </div>
           </PanelCard>
-
-          <div className="cp-metric-grid">
-            {liveMetrics.slice(0, 4).map((metric) => (
-              <MetricCard key={`${feature.key}-live-${metric.label}`} {...metric} />
-            ))}
-          </div>
-
-          {viewMode === 'developer' ? (
-            <FeatureTable
-              title="Live runtime sample"
-              columns={['Node', 'Runtime', 'Local height', 'Gap', 'Peers']}
-              rows={liveRows.slice(0, 4)}
-            />
-          ) : null}
 
           <PanelCard title="Recent action audit">
             <div className="cp-panel-scroll cp-panel-scroll-tight">
@@ -709,15 +769,26 @@ export default function ControlPanelFeaturePage({ screenKey }) {
 
           {viewMode === 'developer' ? (
             <JsonInspectorPanel
-              title="Screen model"
-              value={{
-                screen: feature.key,
-                selectedNodeId: selectedNode?.id || null,
-                localView,
-                metrics: liveMetrics,
-              }}
+              title="Production snapshot"
+              value={snapshot}
+              emptyMessage="Refresh to load the production snapshot."
             />
           ) : null}
+
+          {feature.key === 'config' && viewMode === 'developer' ? (
+            safeArray(snapshot?.config?.files).filter((file) => file.contents).slice(0, 3).map((file) => (
+              <PanelCard key={file.path} title={file.path?.split('/').pop() || 'config'}>
+                <pre className="cp-json-inspector">{file.contents}</pre>
+              </PanelCard>
+            ))
+          ) : null}
+
+          <PanelCard title="Related">
+            <div className="cp-button-grid">
+              <SNRGButton as={Link} to="/node" variant="blue" size="sm">Node Details</SNRGButton>
+              <SNRGButton as={Link} to="/logs" variant="purple" size="sm">Logs</SNRGButton>
+            </div>
+          </PanelCard>
         </div>
       </div>
     </div>

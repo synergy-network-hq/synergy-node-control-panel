@@ -158,7 +158,7 @@ export default function SettingsPageCompact() {
       <div className="settings-shell-main-grid settings-shell-compact-grid">
         <SettingsCard kicker="General" title="General Preferences">
           <div className="settings-shell-definition-grid">
-            <Definition label="App" value="Synergy Node Control Panel" detail={version || 'Version unavailable'} />
+            <Definition label="App" value="Synergy Node Control Panel" detail={version || 'Version not reported'} />
             <Definition label="Environment" value={state?.display_name || 'Testnet-Beta'} detail={`Chain ID ${state?.network_profile?.chain_id || 338639}`} />
             <Definition label="Machine" value={state?.device_profile?.hostname || 'Unknown'} detail={state?.device_profile?.operating_system || 'Local operator host'} />
           </div>
@@ -205,7 +205,7 @@ export default function SettingsPageCompact() {
         <SettingsCard kicker="Diagnostics" title="Shortcuts">
           <div className="settings-shell-definition-grid">
             <Definition label="Network" value={liveStatus?.discovery_status || 'Unknown'} detail={liveStatus?.discovery_detail || 'Waiting for live check'} />
-            <Definition label="Public RPC" value={liveStatus?.public_rpc_online ? 'Online' : 'Unavailable'} detail={liveStatus?.public_rpc_endpoint || 'No endpoint reported'} />
+            <Definition label="Public RPC" value={liveStatus?.public_rpc_online ? 'Online' : 'Not responding'} detail={liveStatus?.public_rpc_endpoint || 'No endpoint reported'} />
           </div>
           <div className="settings-shell-definition-actions">
             <SNRGButton variant="purple" size="sm" onClick={() => navigate('/diagnostics')}>Open Diagnostics</SNRGButton>

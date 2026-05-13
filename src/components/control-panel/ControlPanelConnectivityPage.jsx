@@ -36,7 +36,7 @@ function buildConnectionProblems(localPeerInfoError, readinessReport) {
   if (localPeerInfoError) {
     items.push({
       id: 'peer-error',
-      title: 'Peer inspection is unavailable',
+      title: 'Peer inspection needs attention',
       detail: localPeerInfoError,
       tone: 'bad',
       time: 'now',

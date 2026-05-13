@@ -182,35 +182,6 @@ function buildRewardSeries(history, spanDays) {
   return Array.from(buckets.values()).sort((left, right) => left.at - right.at);
 }
 
-function buildPipelineSeries(history, telemetry, spanDays) {
-  const now = Date.now();
-  const days = [];
-  for (let offset = spanDays - 1; offset >= 0; offset -= 1) {
-    const at = now - (offset * 24 * 60 * 60 * 1000);
-    const bucketAt = Math.floor(at / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000);
-    days.push({
-      id: `pipeline-${bucketAt}`,
-      at: bucketAt,
-      value: 0,
-    });
-  }
-
-  const eventDays = new Set(
-    safeArray(history).map((entry) => Math.floor((Number(entry?.timestamp || 0) * 1000) / (24 * 60 * 60 * 1000))),
-  );
-
-  const pipelineVisible = telemetry.token_balance_available !== false
-    && telemetry.staking_info_available !== false
-    && telemetry.staked_balance_available !== false;
-
-  return days.map((entry) => ({
-    ...entry,
-    value: eventDays.has(Math.floor(entry.at / (24 * 60 * 60 * 1000)))
-      ? 100
-      : (pipelineVisible ? 60 : 18),
-  }));
-}
-
 function participationState(selectedNodeLive) {
   if (!selectedNodeLive?.is_running) {
     return {
@@ -373,14 +344,6 @@ export default function ControlPanelRewardsPage() {
     () => buildRewardSeries(payload.rewardHistory, 30),
     [payload.rewardHistory],
   );
-  const pipelineShortSeries = useMemo(
-    () => buildPipelineSeries(payload.rewardHistory, payload.telemetry, 7),
-    [payload.rewardHistory, payload.telemetry],
-  );
-  const pipelineLongSeries = useMemo(
-    () => buildPipelineSeries(payload.rewardHistory, payload.telemetry, 30),
-    [payload.rewardHistory, payload.telemetry],
-  );
   const correlationBars = useMemo(
     () => buildCorrelationBars(payload, selectedNodeLive),
     [payload, selectedNodeLive],
@@ -458,7 +421,7 @@ export default function ControlPanelRewardsPage() {
       await navigator.clipboard.writeText(selectedNode.node_address || '');
       setWorkflowNotice('Deposit address copied.');
     } catch {
-      setWorkflowNotice(`Deposit address: ${selectedNode.node_address || 'Unavailable'}`);
+      setWorkflowNotice(`Deposit address: ${selectedNode.node_address || 'Not reported by node registry'}`);
     }
   };
 
@@ -618,8 +581,8 @@ export default function ControlPanelRewardsPage() {
           <div className="cp-dashboard-main">
             <PanelCard title="Earnings at a glance" detail={rewardsLoading ? 'Refreshing reward totals…' : 'Today, this week, and what is still pending.'}>
               <div className="cp-metric-grid cp-metric-grid-dashboard">
-                <MetricCard label="Today" value={`${formatSnrg(sevenDaySeries.at(-1)?.value || 0)} ${payload.tokenSymbol}`} detail="Most recent daily bucket" tone="good" icon="savings" />
-                <MetricCard label="This week" value={`${formatSnrg(payload.totalEarnedSnrg)} ${payload.tokenSymbol}`} detail="Historical rewards returned so far" tone="cyan" icon="calendar_month" />
+                <MetricCard label="Latest day" value={`${formatSnrg(sevenDaySeries.at(-1)?.value || 0)} ${payload.tokenSymbol}`} detail="Most recent reward bucket returned by RPC" tone="good" icon="savings" />
+                <MetricCard label="Total returned" value={`${formatSnrg(payload.totalEarnedSnrg)} ${payload.tokenSymbol}`} detail="Historical rewards returned by RPC" tone="cyan" icon="calendar_month" />
                 <MetricCard label="Pending" value={`${formatSnrg(payload.pendingRewardsSnrg)} ${payload.tokenSymbol}`} detail="Waiting to settle or become claimable" tone={Number(payload.pendingRewardsSnrg || 0) > 0 ? 'warn' : 'neutral'} icon="schedule" />
               </div>
             </PanelCard>
@@ -648,7 +611,7 @@ export default function ControlPanelRewardsPage() {
 
             <ActivityFeed
               title="Recent reward events"
-              detail={rewardEvents.length ? 'Latest reward events returned by the control service.' : 'No reward events have been returned yet.'}
+              detail={rewardEvents.length ? 'Latest reward events returned by the control service.' : 'The control service reported zero reward events.'}
               items={rewardEvents.slice(0, 6)}
               emptyMessage="Reward history will populate after the node participates in blocks."
             />
@@ -738,7 +701,7 @@ export default function ControlPanelRewardsPage() {
                 </div>
                 <div className="cp-definition-item">
                   <span>Net vs genesis</span>
-                  <strong>{payload.netPositionDeltaSnrg != null ? `${payload.netPositionDeltaSnrg >= 0 ? '+' : ''}${formatSnrg(payload.netPositionDeltaSnrg)} ${payload.tokenSymbol}` : 'Unavailable'}</strong>
+                  <strong>{payload.netPositionDeltaSnrg != null ? `${payload.netPositionDeltaSnrg >= 0 ? '+' : ''}${formatSnrg(payload.netPositionDeltaSnrg)} ${payload.tokenSymbol}` : 'Not reported'}</strong>
                 </div>
               </div>
             </PanelCard>
@@ -785,7 +748,7 @@ export default function ControlPanelRewardsPage() {
                     <span>#{formatNumber(entry?.block_number)}</span>
                   </div>
                 )) : (
-                  <div className="cp-empty-inline">No reward events have been returned for this node yet.</div>
+                  <div className="cp-empty-inline">The control service reported zero reward events for this node.</div>
                 )}
               </div>
             </PanelCard>
@@ -855,15 +818,6 @@ export default function ControlPanelRewardsPage() {
               longLabel="30d"
             />
 
-            <RewardsTrendChart
-              title="Historical chart set: pipeline visibility"
-              detail="A synthetic view of whether reward inputs are exposed and whether recent reward events were seen."
-              shortWindow={pipelineShortSeries}
-              longWindow={pipelineLongSeries}
-              shortLabel="Pipeline 7d"
-              longLabel="Pipeline 30d"
-            />
-
             <PanelCard title="Ledger / event table" detail="Rawer reward event context for operators and developers.">
               <div className="cp-reward-table cp-reward-table-developer">
                 <div className="cp-reward-table-head">
@@ -891,19 +845,19 @@ export default function ControlPanelRewardsPage() {
               <div className="cp-definition-list">
                 <div className="cp-definition-item">
                   <span>Token balance RPC</span>
-                  <strong>{payload.telemetry.token_balance_available === false ? 'Unavailable' : 'Available'}</strong>
+                  <strong>{payload.telemetry.token_balance_available === false ? 'Not reported' : 'Available'}</strong>
                 </div>
                 <div className="cp-definition-item">
                   <span>Staking info RPC</span>
-                  <strong>{payload.telemetry.staking_info_available === false ? 'Unavailable' : 'Available'}</strong>
+                  <strong>{payload.telemetry.staking_info_available === false ? 'Not reported' : 'Available'}</strong>
                 </div>
                 <div className="cp-definition-item">
                   <span>Staked balance RPC</span>
-                  <strong>{payload.telemetry.staked_balance_available === false ? 'Fallback path' : 'Available'}</strong>
+                  <strong>{payload.telemetry.staked_balance_available === false ? 'Derived from staking entries' : 'Available'}</strong>
                 </div>
                 <div className="cp-definition-item">
                   <span>Synergy breakdown RPC</span>
-                  <strong>{payload.telemetry.synergy_breakdown_available === false ? 'Unavailable' : 'Available'}</strong>
+                  <strong>{payload.telemetry.synergy_breakdown_available === false ? 'Not reported' : 'Available'}</strong>
                 </div>
               </div>
               {safeArray(payload.telemetry.telemetry_gaps).length ? (
@@ -940,15 +894,15 @@ export default function ControlPanelRewardsPage() {
                 </div>
                 <div className="cp-definition-item">
                   <span>Net vs genesis</span>
-                  <strong>{payload.netPositionDeltaSnrg != null ? `${payload.netPositionDeltaSnrg >= 0 ? '+' : ''}${formatSnrg(payload.netPositionDeltaSnrg)} ${payload.tokenSymbol}` : 'Unavailable'}</strong>
+                  <strong>{payload.netPositionDeltaSnrg != null ? `${payload.netPositionDeltaSnrg >= 0 ? '+' : ''}${formatSnrg(payload.netPositionDeltaSnrg)} ${payload.tokenSymbol}` : 'Not reported'}</strong>
                 </div>
                 <div className="cp-definition-item">
                   <span>Rank</span>
-                  <strong>{payload.synergyBreakdown.rank != null ? formatNumber(payload.synergyBreakdown.rank) : 'Unavailable'}</strong>
+                  <strong>{payload.synergyBreakdown.rank != null ? formatNumber(payload.synergyBreakdown.rank) : 'Not reported'}</strong>
                 </div>
                 <div className="cp-definition-item">
                   <span>Percentile</span>
-                  <strong>{payload.synergyBreakdown.percentile != null ? formatPercent(payload.synergyBreakdown.percentile, 1) : 'Unavailable'}</strong>
+                  <strong>{payload.synergyBreakdown.percentile != null ? formatPercent(payload.synergyBreakdown.percentile, 1) : 'Not reported'}</strong>
                 </div>
               </div>
             </PanelCard>

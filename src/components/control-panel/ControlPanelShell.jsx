@@ -595,7 +595,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
       <footer className="cp-app-footer">
         <span className="cp-app-footer-left">© {currentYear} Synergy Network. All rights reserved.</span>
         <span className="cp-app-footer-center">{shellStatusMessage}</span>
-        <span className="cp-app-footer-right">{appVersion ? `Control Panel v${appVersion}` : 'Control Panel version unavailable'}</span>
+        <span className="cp-app-footer-right">{appVersion ? `Control Panel v${appVersion}` : 'Control Panel version not reported'}</span>
       </footer>
 
       <button

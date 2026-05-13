@@ -69,6 +69,25 @@ export async function boostSyncAction(nodeId) {
   return result?.message || 'Boost sync completed.';
 }
 
+export async function syncCatchUpRejoinAction({ node, network }) {
+  if (!node) {
+    throw new Error('No node selected.');
+  }
+
+  const bootstrapNotice = await prepareNodeRuntime(node, network);
+  const result = await invoke('testbeta_sync_catch_up_rejoin', {
+    input: {
+      nodeId: node.id,
+      autoActivate: true,
+    },
+  });
+
+  return {
+    result,
+    message: `${result?.message || 'Sync Catch Up completed.'}${bootstrapNotice ? ` ${bootstrapNotice}` : ''}`,
+  };
+}
+
 export async function registerWithSeedsAction(nodeId) {
   if (!nodeId) {
     throw new Error('No node selected.');

@@ -11,7 +11,7 @@ export function safeArray(value) {
 export function truncateMiddle(value, start = 8, end = 5) {
   const text = String(value || '').trim();
   if (!text) {
-    return 'Unavailable';
+    return 'Not reported';
   }
   if (text.length <= start + end + 3) {
     return text;

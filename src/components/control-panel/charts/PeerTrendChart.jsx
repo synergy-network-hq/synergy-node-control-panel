@@ -40,7 +40,7 @@ export default function PeerTrendChart({
   if (!normalizedSeries.length) {
     return (
       <PanelCard title={title} detail={detail}>
-        <div className="cp-empty-inline">Trend lines need at least a few live samples before they can render.</div>
+        <div className="cp-empty-inline">Trend lines need at least a few live points before they can render.</div>
       </PanelCard>
     );
   }
@@ -86,4 +86,3 @@ export default function PeerTrendChart({
     </PanelCard>
   );
 }
-

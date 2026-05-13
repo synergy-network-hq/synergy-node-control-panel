@@ -409,6 +409,55 @@ pub struct ValidatorLifecycleTxResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaValidatorCatchUpInput {
+    pub node_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_activate: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestnetBetaFeatureSnapshotInput {
+    pub screen_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidatorCatchUpStep {
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreflightRepairAction {
+    pub id: String,
+    pub label: String,
+    pub detail: String,
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidatorCatchUpResult {
+    pub node_id: String,
+    pub status: String,
+    pub message: String,
+    pub steps: Vec<ValidatorCatchUpStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preflight: Option<ValidatorActivationPreflightResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<ValidatorLifecycleTxResult>,
+    pub consensus_active: bool,
+    pub repair_actions: Vec<PreflightRepairAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcceleratedSyncResult {
     pub node_id: String,
     pub peers_injected: usize,
@@ -1181,92 +1230,6 @@ pub async fn testbeta_node_control(
             })
         }
         "sync" => {
-            if role_supports_validator_registration(&node.role_id) {
-                let mut launch_notices = Vec::new();
-                if is_running {
-                    let _ =
-                        run_runner_and_wait(&runner, "stop", &config_path, &workspace_directory)
-                            .await;
-                    force_kill_workspace_processes(&workspace_directory)?;
-                }
-
-                if let Err(e) = write_canonical_workspace_manifests(&workspace_directory) {
-                    eprintln!(
-                        "Warning: could not refresh launch manifests for {}: {e}",
-                        node.display_label
-                    );
-                }
-                if let Some(message) = repair_workspace_chain_state_if_needed(&workspace_directory)?
-                {
-                    eprintln!("Warning: {message}");
-                    launch_notices.push(message);
-                }
-                if let Err(error) = ensure_workspace_bootstrap_topology(
-                    &config_path,
-                    &workspace_directory,
-                    &state.network_profile,
-                    &node,
-                ) {
-                    eprintln!(
-                        "Warning: could not rewrite workspace bootstrap topology for {}: {error}",
-                        node.display_label
-                    );
-                }
-
-                if let Err(error) = refresh_workspace_peer_targets(
-                    &state.network_profile,
-                    &state.nodes,
-                    &node,
-                    &workspace_directory,
-                )
-                .await
-                {
-                    eprintln!(
-                        "Warning: could not refresh peers.toml for {}: {error}",
-                        node.display_label
-                    );
-                }
-                validate_workspace_launch_preflight(&config_path, &workspace_directory).await?;
-
-                launch_runner_detached(&runner, "start", &config_path, &workspace_directory)
-                    .await?;
-                wait_for_workspace_start(
-                    &config_path,
-                    &workspace_directory,
-                    Duration::from_secs(30),
-                )
-                .await?;
-                if let Err(error) =
-                    register_node_with_seeds_async(&state.network_profile, &node).await
-                {
-                    eprintln!("Warning: {error}");
-                }
-                append_workspace_control_log(
-                    &workspace_directory,
-                    "INFO",
-                    "Validator restart-based rejoin completed",
-                    Some(json!({
-                        "action": "sync",
-                        "mode": "validator-rejoin",
-                        "node_id": node.id.clone(),
-                    })),
-                );
-
-                return Ok(TestnetBetaNodeControlResult {
-                    node_id: node.id,
-                    action: "sync".to_string(),
-                    status: "ok".to_string(),
-                    message: if launch_notices.is_empty() {
-                        "Validator rejoin completed. Validator nodes use restart-based peer rejoin instead of offline fast-sync.".to_string()
-                    } else {
-                        format!(
-                            "{} Validator rejoin started against the active network genesis.",
-                            launch_notices.join(" ")
-                        )
-                    },
-                });
-            }
-
             let mut launch_notices = Vec::new();
             if is_running {
                 let _ =
@@ -1331,16 +1294,27 @@ pub async fn testbeta_node_control(
                 })),
             );
 
+            let is_validator_role = role_supports_validator_registration(&node.role_id);
             Ok(TestnetBetaNodeControlResult {
                 node_id: node.id,
                 action: "sync".to_string(),
                 status: "ok".to_string(),
                 message: if launch_notices.is_empty() {
-                    "Node fast-sync completed and the runtime is back online.".to_string()
+                    if is_validator_role {
+                        "Validator catch-up sync completed and the runtime is back online."
+                            .to_string()
+                    } else {
+                        "Node fast-sync completed and the runtime is back online.".to_string()
+                    }
                 } else {
                     format!(
-                        "{} Node fast-sync restarted from the active network genesis.",
-                        launch_notices.join(" ")
+                        "{} {} fast-sync restarted from the active network genesis.",
+                        launch_notices.join(" "),
+                        if is_validator_role {
+                            "Validator"
+                        } else {
+                            "Node"
+                        }
                     )
                 },
             })
@@ -1480,12 +1454,12 @@ pub async fn testbeta_get_chain_blocks(
     // Get current block height
     let height = match query_local_chain_height(&client, &rpc_endpoint).await {
         Ok(height) => height,
-        Err(error) if rpc_error_is_transport_unavailable(&error) => {
+        Err(error) if rpc_error_is_transport_failure(&error) => {
             return Ok(Vec::new());
         }
         Err(error) => {
             return Err(format!(
-                "Local chain RPC is unavailable on {rpc_endpoint}: {error}"
+                "Local chain RPC is not responding on {rpc_endpoint}: {error}"
             ));
         }
     };
@@ -1507,10 +1481,10 @@ pub async fn testbeta_get_chain_blocks(
     .await
     {
         Ok(result) => result,
-        Err(error) if rpc_error_is_transport_unavailable(&error) => return Ok(Vec::new()),
+        Err(error) if rpc_error_is_transport_failure(&error) => return Ok(Vec::new()),
         Err(error) => {
             return Err(format!(
-                "Local chain RPC is unavailable on {rpc_endpoint}: {error}"
+                "Local chain RPC is not responding on {rpc_endpoint}: {error}"
             ));
         }
     };
@@ -1521,6 +1495,498 @@ pub async fn testbeta_get_chain_blocks(
     let mut ordered = blocks;
     ordered.reverse();
     Ok(ordered)
+}
+
+pub async fn testbeta_get_feature_snapshot(
+    input: TestnetBetaFeatureSnapshotInput,
+) -> Result<Value, String> {
+    let state = build_state()?;
+    let selected_node = input
+        .node_id
+        .as_deref()
+        .and_then(|node_id| state.nodes.iter().find(|node| node.id == node_id))
+        .or_else(|| state.nodes.first());
+    let generated_at_utc = Utc::now().to_rfc3339();
+
+    let Some(node) = selected_node.cloned() else {
+        return Ok(json!({
+            "screenKey": input.screen_key,
+            "generatedAtUtc": generated_at_utc,
+            "node": Value::Null,
+            "network": {
+                "environmentId": state.environment_id,
+                "chainName": state.network_profile.chain_name,
+                "chainId": state.network_profile.chain_id,
+                "configuredNodes": state.nodes.len(),
+            },
+            "metrics": [],
+            "checks": [],
+            "table": {
+                "columns": ["State", "Detail"],
+                "rows": [["No configured node", "Complete setup before using this production screen."]]
+            }
+        }));
+    };
+
+    let workspace = PathBuf::from(&node.workspace_directory);
+    let config_path = workspace.join("config").join("node.toml");
+    let rpc_endpoint = parse_testbeta_rpc_endpoint(&config_path)
+        .unwrap_or_else(|| format!("http://127.0.0.1:{TESTNET_BETA_RPC_PORT}"));
+    let client = Client::builder()
+        .timeout(Duration::from_millis(2_500))
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?;
+
+    let public_chain_height = query_public_chain_height(&client).await.ok();
+    let live = build_node_live_status(&client, &node, public_chain_height).await;
+    let readiness =
+        build_node_readiness_report(&client, &node, &live, &state.network_profile.seed_servers)
+            .await;
+    let log_bundle = build_node_log_bundle(&node, 240);
+    let chain_blocks = if live.local_rpc_ready {
+        fetch_recent_chain_blocks_for_endpoint(&client, &rpc_endpoint, 40).await
+    } else {
+        Ok(Vec::new())
+    };
+    let graph = chain_graph_from_blocks(chain_blocks.as_ref().ok());
+    let rpc_probes = if live.local_rpc_ready {
+        probe_feature_rpc_methods(
+            &client,
+            &rpc_endpoint,
+            &input.screen_key,
+            &node.node_address,
+            chain_blocks.as_ref().ok(),
+        )
+        .await
+    } else {
+        vec![json!({
+            "method": "local_rpc",
+            "status": "fail",
+            "latencyMs": 0,
+            "detail": live.local_rpc_status,
+        })]
+    };
+    let storage = workspace_storage_snapshot(&workspace);
+    let config = workspace_config_snapshot(&workspace);
+    let diagnostics = machine_diagnostics_snapshot(&workspace, &rpc_endpoint);
+
+    Ok(json!({
+        "screenKey": input.screen_key,
+        "generatedAtUtc": generated_at_utc,
+        "node": node,
+        "network": {
+            "environmentId": state.environment_id,
+            "chainName": state.network_profile.chain_name,
+            "chainId": state.network_profile.chain_id,
+            "configuredNodes": state.nodes.len(),
+            "bootnodes": state.network_profile.bootnodes,
+            "seedServers": state.network_profile.seed_servers,
+        },
+        "live": live,
+        "readiness": readiness,
+        "logs": {
+            "summary": log_bundle.summary,
+            "sources": log_bundle.sources,
+            "entries": log_bundle.entries.into_iter().rev().take(80).collect::<Vec<_>>(),
+        },
+        "chain": {
+            "blocks": chain_blocks.unwrap_or_default(),
+            "graph": graph,
+        },
+        "rpc": {
+            "endpoint": rpc_endpoint,
+            "probes": rpc_probes,
+        },
+        "storage": storage,
+        "config": config,
+        "diagnostics": diagnostics,
+    }))
+}
+
+async fn fetch_recent_chain_blocks_for_endpoint(
+    client: &Client,
+    rpc_endpoint: &str,
+    count: u64,
+) -> Result<Vec<Value>, String> {
+    let height = query_local_chain_height(client, rpc_endpoint).await?;
+    let start = height.saturating_sub(count.saturating_sub(1));
+    let result = query_rpc_value(
+        client,
+        rpc_endpoint,
+        "synergy_getBlockRange",
+        json!([start, height]),
+    )
+    .await?;
+    let mut blocks = result.as_array().cloned().unwrap_or_default();
+    blocks.reverse();
+    Ok(blocks)
+}
+
+fn chain_graph_from_blocks(blocks: Option<&Vec<Value>>) -> Value {
+    let blocks = blocks.cloned().unwrap_or_default();
+    let nodes = blocks
+        .iter()
+        .filter_map(|block| {
+            let height = block
+                .get("number")
+                .or_else(|| block.get("block_index"))
+                .or_else(|| block.get("blockNumber"))
+                .and_then(Value::as_u64)?;
+            Some(json!({
+                "id": block.get("hash").and_then(Value::as_str).unwrap_or("").to_string(),
+                "height": height,
+                "validator": block.get("validator")
+                    .or_else(|| block.get("validator_id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                "transactionCount": block.get("transactions")
+                    .and_then(|value| value.as_array().map(Vec::len).or_else(|| value.as_u64().map(|n| n as usize)))
+                    .unwrap_or(0),
+                "timestamp": block.get("timestamp").cloned().unwrap_or(Value::Null),
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    let edges = blocks
+        .iter()
+        .filter_map(|block| {
+            let hash = block.get("hash").and_then(Value::as_str)?;
+            let parent = block
+                .get("parentHash")
+                .or_else(|| block.get("parent_hash"))
+                .or_else(|| block.get("previous_hash"))
+                .and_then(Value::as_str)?;
+            if parent.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "from": parent,
+                "to": hash,
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "nodes": nodes,
+        "edges": edges,
+    })
+}
+
+fn feature_rpc_methods(
+    screen_key: &str,
+    address: &str,
+    blocks: Option<&Vec<Value>>,
+) -> Vec<(&'static str, Value)> {
+    let latest_height = blocks
+        .and_then(|items| items.first())
+        .and_then(|block| {
+            block
+                .get("number")
+                .or_else(|| block.get("block_index"))
+                .or_else(|| block.get("blockNumber"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(0);
+    match screen_key {
+        "alerts" => vec![
+            ("synergy_getNodeStatus", json!([])),
+            ("synergy_getSyncStatus", json!([])),
+            ("synergy_getBlockValidationStatus", json!([])),
+        ],
+        "validator" => vec![
+            ("synergy_getValidator", json!([address])),
+            ("synergy_getValidatorPerformance", json!([address])),
+            ("synergy_getValidatorQueue", json!([])),
+            ("synergy_getValidatorActivity", json!([])),
+        ],
+        "security" | "identity" => vec![
+            ("synergy_getValidator", json!([address])),
+            ("synergy_getValidatorSlashingHistory", json!([address])),
+            ("synergy_getSynergyScoreBreakdown", json!([address])),
+        ],
+        "consensus" => vec![
+            ("synergy_getBlockValidationStatus", json!([])),
+            ("synergy_getValidatorStats", json!([])),
+            ("synergy_getValidatorActivity", json!([])),
+            ("synergy_getLatestBlock", json!([])),
+        ],
+        "dag" => vec![
+            ("synergy_getLatestBlock", json!([])),
+            ("synergy_getBlockByNumber", json!([latest_height])),
+            ("synergy_getBlockValidationStatus", json!([])),
+        ],
+        "transactions" => vec![
+            ("synergy_getTransactionPool", json!([])),
+            ("synergy_getPendingTransactions", json!([])),
+            ("synergy_gasPrice", json!([])),
+            ("synergy_getTransactionsInBlock", json!([latest_height])),
+        ],
+        "storage" => vec![
+            ("synergy_getBlockNumber", json!([])),
+            ("synergy_getTokenStats", json!([])),
+            ("synergy_getNetworkStats", json!([])),
+        ],
+        "api" => vec![
+            ("synergy_getChainId", json!([])),
+            ("synergy_getNodeStatus", json!([])),
+            ("synergy_getPeerInfo", json!([])),
+            ("synergy_getSyncStatus", json!([])),
+            ("synergy_getNetworkStats", json!([])),
+            ("synergy_getTransactionPool", json!([])),
+        ],
+        "maintenance" => vec![
+            ("synergy_getNodeStatus", json!([])),
+            ("synergy_getSyncStatus", json!([])),
+            ("synergy_getPeerInfo", json!([])),
+        ],
+        "diagnostics" => vec![
+            ("synergy_getNodeStatus", json!([])),
+            ("synergy_getPeerInfo", json!([])),
+            ("synergy_getSyncStatus", json!([])),
+            ("synergy_blockNumber", json!([])),
+        ],
+        "config" => vec![
+            ("synergy_getChainId", json!([])),
+            ("synergy_nodeInfo", json!([])),
+            ("synergy_getDeterminismDigest", json!([])),
+        ],
+        _ => vec![
+            ("synergy_getNodeStatus", json!([])),
+            ("synergy_getSyncStatus", json!([])),
+        ],
+    }
+}
+
+async fn probe_feature_rpc_methods(
+    client: &Client,
+    rpc_endpoint: &str,
+    screen_key: &str,
+    address: &str,
+    blocks: Option<&Vec<Value>>,
+) -> Vec<Value> {
+    let mut probes = Vec::new();
+    for (method, params) in feature_rpc_methods(screen_key, address, blocks) {
+        let started = Instant::now();
+        let result = query_rpc_value(client, rpc_endpoint, method, params).await;
+        let latency_ms = started.elapsed().as_millis() as u64;
+        match result {
+            Ok(value) if rpc_result_contains_error(&value) => {
+                probes.push(json!({
+                    "method": method,
+                    "status": "fail",
+                    "latencyMs": latency_ms,
+                    "detail": value,
+                }));
+            }
+            Ok(value) => {
+                probes.push(json!({
+                    "method": method,
+                    "status": "pass",
+                    "latencyMs": latency_ms,
+                    "summary": summarize_rpc_value(&value),
+                    "result": value,
+                }));
+            }
+            Err(error) => {
+                probes.push(json!({
+                    "method": method,
+                    "status": "fail",
+                    "latencyMs": latency_ms,
+                    "detail": error,
+                }));
+            }
+        }
+    }
+    probes
+}
+
+fn summarize_rpc_value(value: &Value) -> String {
+    if let Some(array) = value.as_array() {
+        return format!("{} row(s)", array.len());
+    }
+    if let Some(object) = value.as_object() {
+        return format!(
+            "{} field(s): {}",
+            object.len(),
+            object
+                .keys()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if value.is_null() {
+        return "null".to_string();
+    }
+    value.to_string()
+}
+
+fn directory_usage(path: &Path) -> (u64, u64) {
+    let mut bytes = 0u64;
+    let mut files = 0u64;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(metadata) = fs::symlink_metadata(&current) else {
+            continue;
+        };
+        if metadata.is_file() {
+            bytes = bytes.saturating_add(metadata.len());
+            files = files.saturating_add(1);
+        } else if metadata.is_dir() {
+            let Ok(entries) = fs::read_dir(&current) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                stack.push(entry.path());
+            }
+        }
+    }
+    (bytes, files)
+}
+
+fn workspace_storage_snapshot(workspace: &Path) -> Value {
+    let sections = ["config", "data", "logs", "manifests", "keys"]
+        .iter()
+        .map(|section| {
+            let path = workspace.join(section);
+            let (bytes, files) = directory_usage(&path);
+            json!({
+                "label": section,
+                "path": path.display().to_string(),
+                "exists": path.exists(),
+                "bytes": bytes,
+                "files": files,
+            })
+        })
+        .collect::<Vec<_>>();
+    let (workspace_bytes, workspace_files) = directory_usage(workspace);
+    let canonical_workspace = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let disks = Disks::new_with_refreshed_list();
+    let disk = disks
+        .iter()
+        .filter(|disk| canonical_workspace.starts_with(disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().to_string_lossy().len())
+        .map(|disk| {
+            json!({
+                "mountPoint": disk.mount_point().display().to_string(),
+                "availableBytes": disk.available_space(),
+                "totalBytes": disk.total_space(),
+            })
+        });
+
+    json!({
+        "workspacePath": workspace.display().to_string(),
+        "workspaceExists": workspace.exists(),
+        "workspaceBytes": workspace_bytes,
+        "workspaceFiles": workspace_files,
+        "sections": sections,
+        "disk": disk,
+    })
+}
+
+fn read_config_file(path: &Path, max_bytes: usize) -> Value {
+    let metadata = fs::metadata(path).ok();
+    let contents = fs::read_to_string(path).ok().map(|text| {
+        if text.len() > max_bytes {
+            let trimmed = text.chars().take(max_bytes).collect::<String>();
+            format!("{trimmed}...")
+        } else {
+            text
+        }
+    });
+    json!({
+        "path": path.display().to_string(),
+        "exists": metadata.is_some(),
+        "bytes": metadata.as_ref().map(|item| item.len()),
+        "modifiedAtUtc": source_modified_at_utc(path),
+        "contents": contents,
+    })
+}
+
+fn workspace_config_snapshot(workspace: &Path) -> Value {
+    let config_dir = workspace.join("config");
+    let files = [
+        config_dir.join("node.toml"),
+        config_dir.join("peers.toml"),
+        workspace.join("node.env"),
+        config_dir.join("genesis.json"),
+        workspace.join("manifests").join("funding-manifest.json"),
+    ]
+    .into_iter()
+    .map(|path| {
+        read_config_file(
+            &path,
+            if path.file_name().and_then(|name| name.to_str()) == Some("genesis.json") {
+                24_000
+            } else {
+                12_000
+            },
+        )
+    })
+    .collect::<Vec<_>>();
+
+    json!({
+        "workspacePath": workspace.display().to_string(),
+        "files": files,
+    })
+}
+
+fn capture_command(program: &str, args: &[&str]) -> Value {
+    match ProcessCommand::new(program)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+    {
+        Ok(output) => json!({
+            "command": std::iter::once(program.to_string()).chain(args.iter().map(|arg| arg.to_string())).collect::<Vec<_>>().join(" "),
+            "status": output.status.code(),
+            "stdout": String::from_utf8_lossy(&output.stdout).to_string(),
+            "stderr": String::from_utf8_lossy(&output.stderr).to_string(),
+        }),
+        Err(error) => json!({
+            "command": std::iter::once(program.to_string()).chain(args.iter().map(|arg| arg.to_string())).collect::<Vec<_>>().join(" "),
+            "status": Value::Null,
+            "stdout": "",
+            "stderr": error.to_string(),
+        }),
+    }
+}
+
+fn machine_diagnostics_snapshot(workspace: &Path, rpc_endpoint: &str) -> Value {
+    let processes = running_processes_for_workspace(workspace)
+        .into_iter()
+        .map(|process| {
+            json!({
+                "pid": process.pid,
+                "uptimeSecs": process.uptime_secs,
+            })
+        })
+        .collect::<Vec<_>>();
+    let listener_command = if cfg!(target_os = "windows") {
+        capture_command("netstat", &["-ano"])
+    } else {
+        capture_command("lsof", &["-nP", "-iTCP:5620-5699", "-sTCP:LISTEN"])
+    };
+    let disk_command = if cfg!(target_os = "windows") {
+        capture_command(
+            "cmd",
+            &["/C", "wmic logicaldisk get size,freespace,caption"],
+        )
+    } else {
+        capture_command("df", &["-k", &workspace.display().to_string()])
+    };
+
+    json!({
+        "workspacePath": workspace.display().to_string(),
+        "rpcEndpoint": rpc_endpoint,
+        "processes": processes,
+        "listeners": listener_command,
+        "disk": disk_command,
+    })
 }
 
 /// Returns the last `lines` lines from a node's main log file.
@@ -1647,7 +2113,7 @@ pub async fn testbeta_get_rewards_data(node_id: String) -> Result<Value, String>
                 .and_then(|value| parse_rpc_balance_u64(value.clone()))
         });
     if wallet_balance_nwei.is_none() {
-        telemetry_gaps.push("wallet balance RPC unavailable".to_string());
+        telemetry_gaps.push("wallet balance RPC is not responding".to_string());
     }
 
     let direct_staked_balance_nwei = staked_result
@@ -1665,7 +2131,7 @@ pub async fn testbeta_get_rewards_data(node_id: String) -> Result<Value, String>
         .or_else(|| (staking_entry_total_nwei > 0).then_some(staking_entry_total_nwei))
         .or(direct_staked_balance_nwei);
     if staked_balance_nwei.is_none() {
-        telemetry_gaps.push("staked balance RPC unavailable".to_string());
+        telemetry_gaps.push("staked balance RPC is not responding".to_string());
     }
 
     let historical_earned_nwei = staking_entries
@@ -1695,7 +2161,7 @@ pub async fn testbeta_get_rewards_data(node_id: String) -> Result<Value, String>
         .filter(|value| !rpc_result_contains_error(value) && !value.is_null())
         .cloned();
     if synergy_payload.is_none() {
-        telemetry_gaps.push("synergy score RPC unavailable".to_string());
+        telemetry_gaps.push("synergy score RPC is not responding".to_string());
     }
 
     let synergy_multiplier = synergy_payload
@@ -2011,6 +2477,239 @@ pub async fn testbeta_activate_validator(
     })
 }
 
+pub async fn testbeta_sync_catch_up_rejoin(
+    app_context: &AppContext,
+    input: TestnetBetaValidatorCatchUpInput,
+) -> Result<ValidatorCatchUpResult, String> {
+    let state = build_state()?;
+    let node = state
+        .nodes
+        .iter()
+        .find(|n| n.id == input.node_id)
+        .cloned()
+        .ok_or_else(|| format!("Node not found: {}", input.node_id))?;
+
+    if !role_supports_validator_registration(&node.role_id) {
+        return Err("Sync Catch Up is only available for validator nodes.".to_string());
+    }
+
+    let mut steps = Vec::<ValidatorCatchUpStep>::new();
+    let sync_result = match testbeta_node_control(
+        app_context,
+        TestnetBetaNodeControlInput {
+            node_id: node.id.clone(),
+            action: "sync".to_string(),
+        },
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            steps.push(catch_up_step(
+                "speed-sync",
+                "Speed sync chain",
+                "fail",
+                &error,
+            ));
+            return Ok(ValidatorCatchUpResult {
+                node_id: node.id,
+                status: "failed".to_string(),
+                message: format!("Sync Catch Up failed before preflight: {error}"),
+                steps,
+                preflight: None,
+                activation: None,
+                consensus_active: false,
+                repair_actions: vec![PreflightRepairAction {
+                    id: "open-diagnostics".to_string(),
+                    label: "Open Diagnostics".to_string(),
+                    detail: "Review runtime, ports, disk, and RPC checks before retrying catch-up."
+                        .to_string(),
+                    action: "diagnostics".to_string(),
+                }],
+            });
+        }
+    };
+
+    steps.push(catch_up_step(
+        "stop-node",
+        "Stop node",
+        "pass",
+        "Runtime was stopped or confirmed stopped before sync.",
+    ));
+    steps.push(catch_up_step(
+        "speed-sync",
+        "Speed sync chain",
+        "pass",
+        sync_result.message.as_str(),
+    ));
+    steps.push(catch_up_step(
+        "restart-runtime",
+        "Restart runtime",
+        "pass",
+        "Runtime restarted from the synced workspace.",
+    ));
+
+    let preflight = match build_validator_activation_preflight(&state, &node).await {
+        Ok(preflight) => preflight,
+        Err(error) => {
+            steps.push(catch_up_step("preflight", "Run preflight", "fail", &error));
+            return Ok(ValidatorCatchUpResult {
+                node_id: node.id,
+                status: "blocked".to_string(),
+                message: format!("Catch-up completed, but validator preflight failed: {error}"),
+                steps,
+                preflight: None,
+                activation: None,
+                consensus_active: false,
+                repair_actions: vec![PreflightRepairAction {
+                    id: "open-diagnostics".to_string(),
+                    label: "Open Diagnostics".to_string(),
+                    detail:
+                        "Open Developer Diagnostics and resolve runtime checks before rejoining."
+                            .to_string(),
+                    action: "diagnostics".to_string(),
+                }],
+            });
+        }
+    };
+
+    if !preflight.can_activate {
+        let repair_actions = repair_actions_for_preflight(&preflight);
+        steps.push(catch_up_step(
+            "preflight",
+            "Run preflight",
+            "blocked",
+            "One or more readiness checks still need operator action.",
+        ));
+        steps.push(catch_up_step(
+            "rejoin-consensus",
+            "Rejoin consensus",
+            "blocked",
+            "Resolve failed preflight checks before rejoining consensus.",
+        ));
+        return Ok(ValidatorCatchUpResult {
+            node_id: node.id,
+            status: "blocked".to_string(),
+            message: "Catch-up completed, but preflight still has blockers.".to_string(),
+            steps,
+            preflight: Some(preflight),
+            activation: None,
+            consensus_active: false,
+            repair_actions,
+        });
+    }
+
+    steps.push(catch_up_step(
+        "preflight",
+        "Run preflight",
+        "pass",
+        "All validator rejoin preflight checks are passing.",
+    ));
+
+    let consensus_active_before = validator_consensus_active(&node).await;
+    if consensus_active_before {
+        steps.push(catch_up_step(
+            "rejoin-consensus",
+            "Rejoin consensus",
+            "pass",
+            "Validator is already active in consensus after catch-up.",
+        ));
+        return Ok(ValidatorCatchUpResult {
+            node_id: node.id,
+            status: "rejoined".to_string(),
+            message: "Catch-up complete. Validator is active in consensus.".to_string(),
+            steps,
+            preflight: Some(preflight),
+            activation: None,
+            consensus_active: true,
+            repair_actions: Vec::new(),
+        });
+    }
+
+    if input.auto_activate.unwrap_or(true) {
+        let activation = match testbeta_activate_validator(TestnetBetaValidatorActivateInput {
+            node_id: node.id.clone(),
+            amount_snrg: None,
+            display_name: Some(node.display_label.clone()),
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                steps.push(catch_up_step(
+                    "rejoin-consensus",
+                    "Rejoin consensus",
+                    "fail",
+                    &error,
+                ));
+                return Ok(ValidatorCatchUpResult {
+                    node_id: node.id,
+                    status: "blocked".to_string(),
+                    message: format!("Catch-up passed preflight, but activation failed: {error}"),
+                    steps,
+                    preflight: Some(preflight),
+                    activation: None,
+                    consensus_active: false,
+                    repair_actions: vec![PreflightRepairAction {
+                        id: "open-rewards".to_string(),
+                        label: "Open Rewards".to_string(),
+                        detail: "Check wallet balance, bonded stake, and activation controls."
+                            .to_string(),
+                        action: "rewards".to_string(),
+                    }],
+                });
+            }
+        };
+        let consensus_active_after = validator_consensus_active(&node).await;
+        steps.push(catch_up_step(
+            "rejoin-consensus",
+            "Rejoin consensus",
+            "pass",
+            if consensus_active_after {
+                "Validator is active in consensus."
+            } else {
+                "Activation transaction submitted; validator will show active after the transaction is included and synced."
+            },
+        ));
+        return Ok(ValidatorCatchUpResult {
+            node_id: node.id,
+            status: if consensus_active_after {
+                "rejoined".to_string()
+            } else {
+                "activation-submitted".to_string()
+            },
+            message: if consensus_active_after {
+                "Catch-up complete. Validator rejoined consensus.".to_string()
+            } else {
+                activation.message.clone()
+            },
+            steps,
+            preflight: Some(activation.preflight.clone()),
+            activation: Some(activation),
+            consensus_active: consensus_active_after,
+            repair_actions: Vec::new(),
+        });
+    }
+
+    steps.push(catch_up_step(
+        "rejoin-consensus",
+        "Rejoin consensus",
+        "blocked",
+        "Automatic activation was disabled for this request.",
+    ));
+    Ok(ValidatorCatchUpResult {
+        node_id: node.id,
+        status: "ready".to_string(),
+        message: "Catch-up complete. Preflight is passing and validator is ready to activate."
+            .to_string(),
+        steps,
+        preflight: Some(preflight),
+        activation: None,
+        consensus_active: false,
+        repair_actions: Vec::new(),
+    })
+}
+
 async fn build_validator_activation_preflight(
     state: &TestnetBetaState,
     node: &TestnetBetaProvisionedNode,
@@ -2113,7 +2812,7 @@ async fn build_validator_activation_preflight(
         "Synced near chain head",
         sync_gap_ok,
         "The validator is close enough to the public chain head for activation.",
-        "Wait for sync or run Bootstrap before activating.",
+        "Run Sync Catch Up before activating.",
     ));
     checks.push(preflight_check(
         "peers-visible",
@@ -2136,7 +2835,7 @@ async fn build_validator_activation_preflight(
         detail: if seed_ok {
             "Seed servers have a registration for this validator.".to_string()
         } else if peer_ok {
-            "Seed registration is unavailable, but the validator already has live peer visibility."
+            "Seed registration is not reporting this validator, but the validator already has live peer visibility."
                 .to_string()
         } else {
             "Seed servers do not currently expose this validator.".to_string()
@@ -2255,6 +2954,118 @@ fn rpc_endpoint_for_workspace(node: &TestnetBetaProvisionedNode) -> Result<Strin
             config_path.display()
         )
     })
+}
+
+fn catch_up_step(id: &str, label: &str, status: &str, detail: &str) -> ValidatorCatchUpStep {
+    ValidatorCatchUpStep {
+        id: id.to_string(),
+        label: label.to_string(),
+        status: status.to_string(),
+        detail: detail.to_string(),
+    }
+}
+
+fn push_unique_repair_action(
+    actions: &mut Vec<PreflightRepairAction>,
+    id: &str,
+    label: &str,
+    detail: &str,
+    action: &str,
+) {
+    if actions.iter().any(|entry| entry.id == id) {
+        return;
+    }
+
+    actions.push(PreflightRepairAction {
+        id: id.to_string(),
+        label: label.to_string(),
+        detail: detail.to_string(),
+        action: action.to_string(),
+    });
+}
+
+fn repair_actions_for_preflight(
+    preflight: &ValidatorActivationPreflightResult,
+) -> Vec<PreflightRepairAction> {
+    let mut actions = Vec::new();
+    for check in preflight
+        .checks
+        .iter()
+        .filter(|check| check.status != "pass")
+    {
+        match check.id.as_str() {
+            "process-running" | "local-rpc" => push_unique_repair_action(
+                &mut actions,
+                "start-node",
+                "Start Node",
+                "Start or restart the runtime, then rerun preflight.",
+                "start",
+            ),
+            "sync-gap" => push_unique_repair_action(
+                &mut actions,
+                "sync-catch-up",
+                "Sync Catch Up",
+                "Run the catch-up workflow again after peers are reachable.",
+                "sync-catch-up",
+            ),
+            "peers-visible" | "seed-registration" => push_unique_repair_action(
+                &mut actions,
+                "register-seeds",
+                "Refresh Peers",
+                "Refresh seed registration and peer targets.",
+                "register-seeds",
+            ),
+            "liquid-balance" | "bonded-stake" => push_unique_repair_action(
+                &mut actions,
+                "open-rewards",
+                "Open Rewards",
+                "Fund, stake, or activate the validator wallet from Rewards.",
+                "rewards",
+            ),
+            "local-signing-key" | "runtime-wallet-loaded" => push_unique_repair_action(
+                &mut actions,
+                "restart-node",
+                "Restart Node",
+                "Reload runtime identity and wallet files.",
+                "restart",
+            ),
+            _ => push_unique_repair_action(
+                &mut actions,
+                "open-diagnostics",
+                "Open Diagnostics",
+                "Inspect machine diagnostics and runtime configuration.",
+                "diagnostics",
+            ),
+        }
+    }
+
+    actions
+}
+
+async fn validator_consensus_active(node: &TestnetBetaProvisionedNode) -> bool {
+    let Ok(endpoint) = rpc_endpoint_for_workspace(node) else {
+        return false;
+    };
+    let Ok(client) = Client::builder().timeout(Duration::from_secs(8)).build() else {
+        return false;
+    };
+    let Ok(value) = query_rpc_value(
+        &client,
+        &endpoint,
+        "synergy_getValidator",
+        json!([node.node_address.clone()]),
+    )
+    .await
+    else {
+        return false;
+    };
+
+    let status = value
+        .get("status")
+        .or_else(|| value.get("validator").and_then(|entry| entry.get("status")))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    status.eq_ignore_ascii_case("active")
 }
 
 fn preflight_check(
@@ -3081,7 +3892,7 @@ pub async fn testbeta_setup_node(
                     "Public host detection: {}.",
                     detected_public_host
                         .as_deref()
-                        .unwrap_or("not available from automatic detection")
+                        .unwrap_or("not detected automatically")
                 ),
                 if validator_mesh_only {
                     "Start the node with the generated workspace; it will dial the private WireGuard validator mesh immediately.".to_string()
@@ -3197,7 +4008,7 @@ fn chain_summary(
     }
 
     (
-        "Unavailable".to_string(),
+        "Offline".to_string(),
         "Neither the public RPC nor the bootstrap endpoints are responding yet.".to_string(),
     )
 }
@@ -5954,7 +6765,7 @@ async fn build_node_readiness_report(
         detail: if seed_registered {
             format!("Registered with {seed_count} seed server(s).")
         } else if live.is_running && live.local_peer_count.unwrap_or(0) > 0 {
-            "Seed registration is unavailable, but the node has live peers.".to_string()
+            "Seed registration is not reporting this node, but the node has live peers.".to_string()
         } else if live.is_running {
             "Not found in any seed server peer registry.".to_string()
         } else {
@@ -6218,7 +7029,7 @@ async fn resolve_synergy_score_status(
         return (
             None,
             format!(
-                "Synergy score is unavailable because the local RPC is not responding on {rpc_endpoint}."
+                "Synergy score is not reporting because the local RPC is not responding on {rpc_endpoint}."
             ),
         );
     }
@@ -6232,7 +7043,7 @@ async fn resolve_synergy_score_status(
 
     (
         None,
-        "Synergy score is not available from the public RPC yet.".to_string(),
+        "Synergy score is not reporting from the public RPC yet.".to_string(),
     )
 }
 
@@ -6269,7 +7080,7 @@ async fn query_rpc_value(
         .ok_or_else(|| format!("RPC response for {method} did not contain a result."))
 }
 
-fn rpc_error_is_transport_unavailable(error: &str) -> bool {
+fn rpc_error_is_transport_failure(error: &str) -> bool {
     let lower = error.to_ascii_lowercase();
     lower.contains("error sending request")
         || lower.contains("connection refused")
@@ -7737,7 +8548,7 @@ async fn register_node_with_seeds_async(
         None => detect_public_host()
             .await
             .and_then(|host| normalize_public_host_candidate(&host))
-            .ok_or_else(|| "Public host not available for seed registration.".to_string())?,
+            .ok_or_else(|| "Public host was not detected for seed registration.".to_string())?,
     };
     let payload = build_seed_registration(node, &public_host);
 
@@ -10376,7 +11187,7 @@ block_timeout_secs = 30
                 artifacts: TestnetBetaCeremonyPackageArtifacts {
                     genesis: json!({
                         "integrity": {
-                            "genesis_hash": "fixture-genesis-hash"
+                            "genesis_hash": "test-genesis-hash"
                         }
                     }),
                     operational_manifest: json!({}),
@@ -10532,7 +11343,7 @@ block_timeout_secs = 30
             artifacts: TestnetBetaCeremonyPackageArtifacts {
                 genesis: json!({
                     "integrity": {
-                        "genesis_hash": "fixture-genesis-hash"
+                        "genesis_hash": "test-genesis-hash"
                     }
                 }),
                 operational_manifest: json!({}),
@@ -10575,7 +11386,7 @@ block_timeout_secs = 30
                 "artifacts": {
                     "genesis": {
                         "integrity": {
-                            "genesis_hash": "fixture-genesis-hash"
+                            "genesis_hash": "test-genesis-hash"
                         }
                     },
                     "operational_manifest": {}
@@ -10765,7 +11576,7 @@ block_timeout_secs = 30
             fs::create_dir_all(&binaries).expect("binaries dir should exist");
 
             let platform_binary = binaries.join(current_platform_testbeta_binary_names()[0]);
-            fs::write(&platform_binary, b"#!/bin/sh\n").expect("binary stub should write");
+            fs::write(&platform_binary, b"#!/bin/sh\n").expect("test binary should write");
 
             let _resource_root = EnvVarGuard::set_path("SYNERGY_RESOURCE_ROOT", &resources);
             let app_context = AppContext::from_env();
@@ -10870,7 +11681,7 @@ PY
 esac
 "#,
             )
-            .expect("runner stub should write");
+            .expect("runner test script should write");
             let mut permissions = fs::metadata(&runner_path)
                 .expect("runner metadata should exist")
                 .permissions();

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { openPath, resolvePeerTopology, invoke } from '../../lib/desktopClient';
 import { SNRGButton } from '../../styles/SNRGButton';
 import { useControlPanel } from './ControlPanelProvider';
@@ -37,11 +37,13 @@ import PeerGlobe from './PeerGlobe';
 import PeerGlobeLegend from './PeerGlobeLegend';
 import ActionAuditStream from './ActionAuditStream';
 import JsonInspectorPanel from './JsonInspectorPanel';
+import ValidatorCatchUpCard from './ValidatorCatchUpCard';
 import {
   boostSyncAction,
   registerWithSeedsAction,
   restartNodeAction,
   runNodeControlAction,
+  syncCatchUpRejoinAction,
 } from './controlPanelActions';
 
 function sliceByTimeRange(points = [], timeRange = '6h') {
@@ -88,7 +90,7 @@ function buildPrimaryAction(selectedNodeLive) {
     return { kind: 'start', label: 'Start node', tone: 'lime' };
   }
   if ((Number(selectedNodeLive?.sync_gap) || 0) > 48) {
-    return { kind: 'boost', label: 'View next step', tone: 'blue' };
+    return { kind: 'sync-catch-up', label: 'Sync Catch Up', tone: 'purple' };
   }
   return { kind: 'refresh', label: 'Reconnect', tone: 'blue' };
 }
@@ -174,6 +176,7 @@ function dashboardMetrics(selectedNode, selectedNodeLive, networkStats, liveStat
 }
 
 export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
+  const navigate = useNavigate();
   const {
     actionAudit,
     error,
@@ -200,6 +203,7 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
   const [notice, setNotice] = useState('');
   const [nodeLogBundle, setNodeLogBundle] = useState(null);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [catchUpResult, setCatchUpResult] = useState(null);
   const [bootstrapTopology, setBootstrapTopology] = useState({
     points: [],
     regionSummary: [],
@@ -287,6 +291,10 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
         message = result.message;
       } else if (kind === 'restart') {
         message = await restartNodeAction({ node: selectedNode, network });
+      } else if (kind === 'sync-catch-up') {
+        const actionResult = await syncCatchUpRejoinAction({ node: selectedNode, network });
+        setCatchUpResult(actionResult.result || null);
+        message = actionResult.message;
       } else if (kind === 'boost') {
         message = await boostSyncAction(selectedNode.id);
       } else if (kind === 'refresh') {
@@ -318,6 +326,26 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
     } finally {
       setActionBusy('');
     }
+  };
+
+  const handleCatchUpRepair = (action) => {
+    if (action === 'rewards') {
+      navigate('/rewards');
+      return;
+    }
+    if (action === 'diagnostics') {
+      navigate(viewMode === 'developer' ? '/diagnostics' : '/settings');
+      return;
+    }
+    if (action === 'settings') {
+      navigate('/settings');
+      return;
+    }
+    if (action === 'register-seeds') {
+      void handleAction('refresh');
+      return;
+    }
+    void handleAction(action);
   };
 
   const healthSummary = useMemo(() => networkHealthSummary(liveStatus), [liveStatus]);
@@ -479,6 +507,17 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
                   </div>
                 </PanelCard>
 
+                <ValidatorCatchUpCard
+                  node={selectedNode}
+                  nodeLive={selectedNodeLive}
+                  liveStatus={liveStatus}
+                  lastResult={catchUpResult}
+                  actionBusy={actionBusy}
+                  mode={viewMode}
+                  onRun={() => void handleAction('sync-catch-up')}
+                  onRepair={handleCatchUpRepair}
+                />
+
                 <div className="cp-metric-grid cp-metric-grid-dashboard">
                   {basicMetrics.map((metric) => (
                     <MetricCard key={metric.label} {...metric} />
@@ -589,6 +628,17 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
                     </div>
                   </PanelCard>
 
+                  <ValidatorCatchUpCard
+                    node={selectedNode}
+                    nodeLive={selectedNodeLive}
+                    liveStatus={liveStatus}
+                    lastResult={catchUpResult}
+                    actionBusy={actionBusy}
+                    mode={viewMode}
+                    onRun={() => void handleAction('sync-catch-up')}
+                    onRepair={handleCatchUpRepair}
+                  />
+
                   <div className="cp-metric-grid cp-metric-grid-dashboard">
                     <MetricCard label="Health" value={nodeRuntimeLabel(selectedNodeLive)} detail={healthSummary.detail} tone={nodeRuntimeTone(selectedNodeLive)} icon="monitor_heart" />
                     <MetricCard label="Active peers" value={formatNumber(selectedNodeLive?.local_peer_count ?? networkStats.totalPeers)} detail="Visible from the selected node" tone="cyan" icon="hub" />
@@ -658,7 +708,7 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
                       <SNRGButton as={Link} to={`/node/${selectedNode.id}`} variant="blue" size="sm">Node details</SNRGButton>
                       <SNRGButton as={Link} to="/connectivity" variant="purple" size="sm">Refresh topology</SNRGButton>
                       <SNRGButton as={Link} to="/rewards" variant="blue" size="sm">Open rewards</SNRGButton>
-                      <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('boost')}>Open diagnostics</SNRGButton>
+                      <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('boost')}>Boost peers</SNRGButton>
                     </div>
                   </PanelCard>
                 </div>
@@ -692,6 +742,17 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
                     </div>
                   </div>
                 </PanelCard>
+
+                <ValidatorCatchUpCard
+                  node={selectedNode}
+                  nodeLive={selectedNodeLive}
+                  liveStatus={liveStatus}
+                  lastResult={catchUpResult}
+                  actionBusy={actionBusy}
+                  mode={viewMode}
+                  onRun={() => void handleAction('sync-catch-up')}
+                  onRepair={handleCatchUpRepair}
+                />
 
                 <div className="cp-metric-grid cp-metric-grid-dashboard cp-metric-grid-dense">
                   <MetricCard label="Head height" value={formatNumber(nodeBlockHeightValue(selectedNodeLive, liveStatus))} detail="Local runtime head" tone={nodeRuntimeTone(selectedNodeLive)} icon="data_usage" />
@@ -750,7 +811,7 @@ export default function TestnetBetaDashboardRevamp({ onLaunchSetup }) {
                   message="Use the dock for shell and RPC work, the audit stream for action receipts, and the raw inspector when two subsystems disagree."
                   chips={[
                     `${formatNumber(actionAudit.length)} local actions`,
-                    `${formatNumber(nodeHistory.length)} samples`,
+                    `${formatNumber(nodeHistory.length)} live points`,
                     `${timeRange} retained`,
                   ]}
                 />

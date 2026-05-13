@@ -43,7 +43,7 @@ function copyText(value) {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
     return navigator.clipboard.writeText(String(value || ''));
   }
-  throw new Error('Clipboard access is unavailable in this runtime.');
+  throw new Error('Clipboard access requires the desktop runtime.');
 }
 
 function buildEntryKey(entry, index) {
@@ -938,7 +938,7 @@ export default function ControlPanelLogsPage() {
                   </div>
                   <div className="cp-definition-item">
                     <span>Path</span>
-                    <strong>{selectedSource.path || 'Unavailable'}</strong>
+                    <strong>{selectedSource.path || 'Path not reported'}</strong>
                   </div>
                 </div>
               ) : (

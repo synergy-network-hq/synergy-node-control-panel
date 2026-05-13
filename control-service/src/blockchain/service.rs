@@ -41,12 +41,23 @@ impl BlockchainService {
 
     pub async fn get_network_status(&self) -> Result<NetworkStatus, String> {
         let current_block_height = self.rpc_client.get_block_number().await?;
-
         let peers = self.rpc_client.get_network_peers().await?;
         let network_peers = peers.len() as u64;
-
-        let sync_percentage = 100.0; // If we can fetch the block number, we assume we're synced
-        let is_synced = true;
+        let sync_status = self
+            .rpc_client
+            .call_method::<serde_json::Value>("synergy_getSyncStatus", serde_json::json!([]))
+            .await
+            .unwrap_or_default();
+        let sync_percentage = sync_status
+            .get("sync_percentage")
+            .or_else(|| sync_status.get("syncPercentage"))
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.0);
+        let is_synced = sync_status
+            .get("syncing")
+            .and_then(|value| value.as_bool())
+            .map(|syncing| !syncing)
+            .unwrap_or(false);
 
         Ok(NetworkStatus {
             current_block_height,
@@ -57,16 +68,42 @@ impl BlockchainService {
     }
 
     pub async fn get_validator_info(&self, address: &str) -> Result<ValidatorInfo, String> {
-        let synergy_score = self.rpc_client.get_synergy_score(address).await?;
+        let validator = self.rpc_client.get_validator_info(address).await?;
+        let performance = self
+            .rpc_client
+            .call_method::<serde_json::Value>(
+                "synergy_getValidatorPerformance",
+                serde_json::json!([address]),
+            )
+            .await
+            .unwrap_or_default();
+        let synergy_score = validator
+            .get("synergy_score")
+            .or_else(|| validator.get("synergyScore"))
+            .and_then(|value| value.as_f64())
+            .or_else(|| performance.get("synergyScore").and_then(|value| value.as_f64()))
+            .unwrap_or(0.0);
 
-        // For now, using placeholder values - these would come from actual blockchain calls in a real implementation
-        // Eventually, there would be a specific RPC call to get complete validator information
         Ok(ValidatorInfo {
             address: address.to_string(),
             synergy_score,
-            blocks_produced: 0, // This would come from blockchain data
-            uptime: 100.0,      // This would come from blockchain data
-            stake_amount: 0,    // This would come from blockchain data
+            blocks_produced: validator
+                .get("total_blocks_produced")
+                .or_else(|| validator.get("totalBlocksProduced"))
+                .or_else(|| performance.get("totalBlocksProduced"))
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
+            uptime: validator
+                .get("uptime_percentage")
+                .or_else(|| validator.get("uptime"))
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0),
+            stake_amount: validator
+                .get("stake_amount")
+                .or_else(|| validator.get("stakeAmount"))
+                .or_else(|| performance.get("effectiveBalance"))
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
         })
     }
 

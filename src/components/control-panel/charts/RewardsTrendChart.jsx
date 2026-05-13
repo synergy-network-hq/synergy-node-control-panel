@@ -34,7 +34,7 @@ export default function RewardsTrendChart({
   if (!activeSeries.length) {
     return (
       <PanelCard title={title} detail={detail}>
-        <div className="cp-empty-inline">Reward samples will appear once the fetcher has history to plot.</div>
+        <div className="cp-empty-inline">Reward points will appear once the fetcher has history to plot.</div>
       </PanelCard>
     );
   }
@@ -100,4 +100,3 @@ export default function RewardsTrendChart({
     </PanelCard>
   );
 }
-

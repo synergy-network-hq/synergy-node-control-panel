@@ -11,7 +11,7 @@ const REGION_COORDINATES = {
   Africa: [18, 4],
   'Middle East': [42, 27],
   'Asia Pacific': [118, 20],
-  'Private Mesh': [0, 0],
+  Unmapped: [0, 0],
   Unknown: [0, 0],
 };
 
@@ -190,4 +190,3 @@ export default function PeerGlobe({
     </div>
   );
 }
-

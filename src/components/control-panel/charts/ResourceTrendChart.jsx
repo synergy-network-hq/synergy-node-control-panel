@@ -49,7 +49,7 @@ export default function ResourceTrendChart({
   if (!series.length) {
     return (
       <PanelCard title={title} detail={detail}>
-        <div className="cp-empty-inline">Resource traces are not available from the current runtime yet.</div>
+        <div className="cp-empty-inline">Resource traces have not been captured by the current runtime yet.</div>
       </PanelCard>
     );
   }
@@ -95,4 +95,3 @@ export default function ResourceTrendChart({
     </PanelCard>
   );
 }
-

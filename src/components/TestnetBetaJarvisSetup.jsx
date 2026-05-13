@@ -787,7 +787,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
         setCeremonyPackagePreview(null);
         setSelectedRoleId('');
         setPublicHost('');
-        addTerminalLine('error', `Package preview unavailable: ${String(previewError)}`);
+        addTerminalLine('error', `Package preview did not complete: ${String(previewError)}`);
         if (selectedArchiveBundle) {
           await queueJarvisMessages([
             {
@@ -1367,7 +1367,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             await queueJarvisMessage(
               detected
                 ? `Updated public endpoint: ${detected}.`
-                : 'Public endpoint is still unavailable. Continuing without it.',
+                : 'Public endpoint is still not responding. Continuing without it.',
             );
           } finally {
             setRunning(false);
@@ -1407,7 +1407,7 @@ function TestnetBetaJarvisSetup({ onComplete, onDefer }) {
             await queueJarvisMessage(
               detected
                 ? `Updated public endpoint: ${detected}.`
-                : 'Public endpoint is still unavailable. Continuing without it.',
+                : 'Public endpoint is still not responding. Continuing without it.',
             );
           } finally {
             setRunning(false);

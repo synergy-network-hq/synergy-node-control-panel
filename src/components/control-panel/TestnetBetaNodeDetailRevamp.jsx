@@ -42,12 +42,14 @@ import PeerDetailsDrawer from './PeerDetailsDrawer';
 import JsonInspectorPanel from './JsonInspectorPanel';
 import ActionAuditStream from './ActionAuditStream';
 import ConfigDiffViewer from './ConfigDiffViewer';
+import ValidatorCatchUpCard from './ValidatorCatchUpCard';
 import {
   boostSyncAction,
   registerWithSeedsAction,
   rejoinNetworkAction,
   restartNodeAction,
   runNodeControlAction,
+  syncCatchUpRejoinAction,
 } from './controlPanelActions';
 
 function buildExpectedConfigProfile(node, nodeLive) {
@@ -129,6 +131,7 @@ export default function TestnetBetaNodeDetailRevamp() {
   const [configError, setConfigError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
   const [notice, setNotice] = useState('');
+  const [catchUpResult, setCatchUpResult] = useState(null);
   const [peerTopology, setPeerTopology] = useState({
     points: [],
     regionSummary: [],
@@ -319,6 +322,13 @@ export default function TestnetBetaNodeDetailRevamp() {
         message = await restartNodeAction({ node, network });
       } else if (kind === 'rejoin') {
         message = await rejoinNetworkAction({ node, network });
+      } else if (kind === 'sync-catch-up') {
+        const actionResult = await syncCatchUpRejoinAction({ node, network });
+        setCatchUpResult(actionResult.result || null);
+        if (actionResult.result?.preflight) {
+          setActivationReport(actionResult.result.preflight);
+        }
+        message = actionResult.message;
       } else if (kind === 'boost') {
         message = await boostSyncAction(node.id);
       } else if (kind === 'register') {
@@ -371,6 +381,26 @@ export default function TestnetBetaNodeDetailRevamp() {
     } finally {
       setActionBusy('');
     }
+  };
+
+  const handleCatchUpRepair = (action) => {
+    if (action === 'rewards') {
+      navigate('/rewards');
+      return;
+    }
+    if (action === 'diagnostics') {
+      navigate(viewMode === 'developer' ? '/diagnostics' : '/settings');
+      return;
+    }
+    if (action === 'settings') {
+      navigate('/settings');
+      return;
+    }
+    if (action === 'register-seeds') {
+      void handleAction('register');
+      return;
+    }
+    void handleAction(action);
   };
 
   const topologyModel = useMemo(
@@ -500,6 +530,9 @@ export default function TestnetBetaNodeDetailRevamp() {
                 </SNRGButton>
                 {isValidatorNode ? (
                   <>
+                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'sync-catch-up'} onClick={() => void handleAction('sync-catch-up')}>
+                      Sync Catch Up
+                    </SNRGButton>
                     <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>
                       Preflight
                     </SNRGButton>
@@ -513,6 +546,18 @@ export default function TestnetBetaNodeDetailRevamp() {
                 ) : null}
               </div>
             </PanelCard>
+
+            <ValidatorCatchUpCard
+              node={node}
+              nodeLive={nodeLive}
+              liveStatus={liveStatus}
+              preflight={activationReport}
+              lastResult={catchUpResult}
+              actionBusy={actionBusy}
+              mode={viewMode}
+              onRun={() => void handleAction('sync-catch-up')}
+              onRepair={handleCatchUpRepair}
+            />
 
             <PanelCard title="Rewards summary" detail="Wallet and validator economics actions live on Rewards." action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
               <div className="cp-metric-grid cp-metric-grid-dashboard">
@@ -606,6 +651,7 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'register'} onClick={() => void handleAction('register')}>Re-register</SNRGButton>
                 {isValidatorNode ? (
                   <>
+                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'sync-catch-up'} onClick={() => void handleAction('sync-catch-up')}>Sync Catch Up</SNRGButton>
                     <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>Activation Preflight</SNRGButton>
                     <SNRGButton variant="purple" size="sm" onClick={() => navigate('/validator')}>Validator Lifecycle</SNRGButton>
                     <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>Rewards</SNRGButton>
@@ -614,6 +660,18 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Open logs</SNRGButton>
               </div>
             </PanelCard>
+
+            <ValidatorCatchUpCard
+              node={node}
+              nodeLive={nodeLive}
+              liveStatus={liveStatus}
+              preflight={activationReport}
+              lastResult={catchUpResult}
+              actionBusy={actionBusy}
+              mode={viewMode}
+              onRun={() => void handleAction('sync-catch-up')}
+              onRepair={handleCatchUpRepair}
+            />
 
             <PanelCard title="Rewards summary" detail="Economics controls live on Rewards so this page stays focused on runtime detail." action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
               <div className="cp-metric-grid cp-metric-grid-dashboard">
@@ -737,6 +795,7 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" onClick={() => void handleAction('register')}>Re-register</SNRGButton>
                 {isValidatorNode ? (
                   <>
+                    <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'sync-catch-up'} onClick={() => void handleAction('sync-catch-up')}>Sync Catch Up</SNRGButton>
                     <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => void handleAction('activation-preflight')}>Activation Preflight</SNRGButton>
                     <SNRGButton variant="purple" size="sm" onClick={() => navigate('/validator')}>Validator Lifecycle</SNRGButton>
                     <SNRGButton variant="blue" size="sm" onClick={() => navigate('/rewards')}>Rewards Ledger</SNRGButton>
@@ -746,6 +805,18 @@ export default function TestnetBetaNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Tail logs</SNRGButton>
               </div>
             </PanelCard>
+
+            <ValidatorCatchUpCard
+              node={node}
+              nodeLive={nodeLive}
+              liveStatus={liveStatus}
+              preflight={activationReport}
+              lastResult={catchUpResult}
+              actionBusy={actionBusy}
+              mode={viewMode}
+              onRun={() => void handleAction('sync-catch-up')}
+              onRepair={handleCatchUpRepair}
+            />
 
             <PanelCard title="Rewards summary" detail="Use Rewards + Ledger for wallet, bonding, and payout operations." action={<StatusPill tone={validatorStatus === 'Active' ? 'good' : 'warn'}>{validatorStatus}</StatusPill>}>
               <div className="cp-metric-grid cp-metric-grid-dashboard">
@@ -815,7 +886,7 @@ export default function TestnetBetaNodeDetailRevamp() {
                   status: 'info',
                   source: 'readiness',
                 }))}
-                emptyMessage="No readiness checks returned yet."
+                emptyMessage="Readiness has zero checks in the latest snapshot."
               />
             </PanelCard>
 
@@ -828,8 +899,8 @@ export default function TestnetBetaNodeDetailRevamp() {
           </div>
 
           <div className="cp-dashboard-side">
-            <JsonInspectorPanel title="Raw identity / metadata inspector" value={node} emptyMessage="Node metadata is unavailable." />
-            <JsonInspectorPanel title="Runtime payload" value={nodeLive} emptyMessage="Runtime payload is unavailable." />
+            <JsonInspectorPanel title="Raw identity / metadata inspector" value={node} emptyMessage="Node metadata has not been reported yet." />
+            <JsonInspectorPanel title="Runtime payload" value={nodeLive} emptyMessage="Runtime payload has not been reported yet." />
 
             <PanelCard title="Selected peer inspector" detail="Raw peer metadata and timing.">
               <PeerDetailsDrawer peer={selectedPeer} mode="developer" />

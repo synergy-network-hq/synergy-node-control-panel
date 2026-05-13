@@ -30,28 +30,6 @@ function parseEndpoint(value) {
   };
 }
 
-function hashCoordinate(seed) {
-  const text = String(seed || 'mesh');
-  let hash = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = ((hash << 5) - hash) + text.charCodeAt(index);
-    hash |= 0;
-  }
-  return hash;
-}
-
-function syntheticMeshCoordinate(seed) {
-  const hash = hashCoordinate(seed);
-  const latitude = ((hash % 40) - 20) * 0.6;
-  const longitude = (((hash / 40) % 80) - 40) * 0.9;
-  return {
-    ll: [latitude, longitude],
-    country: 'PR',
-    region: 'Private Mesh',
-    city: 'Mesh',
-  };
-}
-
 function classifyRegion(latitude, longitude) {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return 'Unknown';
@@ -138,18 +116,14 @@ async function resolveGeoForHost(host) {
       ip = lookup.address;
     }
   } catch {
-    // Keep host as-is; synthetic fallback may still handle it.
+    // Keep host as-is and return no geographic point if it cannot be resolved.
   }
 
-  let geo = net.isIP(ip) ? geoip.lookup(ip) : null;
-
-  if (!geo && /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip)) {
-    geo = syntheticMeshCoordinate(normalizedHost);
-  }
+  const geo = net.isIP(ip) ? geoip.lookup(ip) : null;
 
   const result = geo
     ? { ip, ...geo }
-    : { ip, ll: [0, 0], country: '', region: 'Unknown', city: '' };
+    : { ip, ll: null, country: '', region: 'Unmapped', city: '' };
 
   geoCache.set(normalizedHost, result);
   return result;
@@ -185,21 +159,21 @@ async function resolvePeerTopology(input = {}) {
   const localNodeLabel = input?.localNode?.display_label || input?.localNode?.label || 'Local node';
   const localNodeHost = parseEndpoint(input?.localNode?.public_host || input?.localNode?.publicAddress)?.host || '';
   const localGeo = await resolveGeoForHost(localNodeHost);
+  const localHasCoordinates = Array.isArray(localGeo?.ll);
   const localNode = {
     label: localNodeLabel,
-    latitude: Number(localGeo?.ll?.[0] || 0),
-    longitude: Number(localGeo?.ll?.[1] || 0),
+    latitude: localHasCoordinates ? Number(localGeo.ll[0]) : null,
+    longitude: localHasCoordinates ? Number(localGeo.ll[1]) : null,
   };
 
   const points = await Promise.all(peers.map(async (peer, index) => {
     const endpoint = parseEndpoint(peer?.publicAddress || peer?.address);
     const geo = await resolveGeoForHost(endpoint?.host || '');
-    const latitude = Number(geo?.ll?.[0] || 0);
-    const longitude = Number(geo?.ll?.[1] || 0);
+    const hasCoordinates = Array.isArray(geo?.ll);
+    const latitude = hasCoordinates ? Number(geo.ll[0]) : null;
+    const longitude = hasCoordinates ? Number(geo.ll[1]) : null;
     const healthState = resolveHealth(peer);
-    const region = geo?.region === 'Private Mesh'
-      ? 'Private Mesh'
-      : classifyRegion(latitude, longitude);
+    const region = hasCoordinates ? classifyRegion(latitude, longitude) : 'Unmapped';
     const role = classifyRole(peer, input);
     const label = peer?.validatorAddress
       || peer?.publicAddress
@@ -230,18 +204,22 @@ async function resolvePeerTopology(input = {}) {
       peerVersion: peer?.version || '',
       raw: peer,
     };
-  }));
+  })).then((items) => items.filter((point) => (
+    Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
+  )));
 
   const regionSummary = buildRegionSummary(points);
-  const routes = points.map((point) => ({
-    fromNodeId: input?.localNode?.id || 'local-node',
-    toPeerId: point.id,
-    from: [localNode.longitude, localNode.latitude],
-    to: [point.longitude, point.latitude],
-    latencyMs: point.latencyMs,
-    health: point.health,
-    healthTone: point.healthTone,
-  }));
+  const routes = Number.isFinite(localNode.latitude) && Number.isFinite(localNode.longitude)
+    ? points.map((point) => ({
+      fromNodeId: input?.localNode?.id || 'local-node',
+      toPeerId: point.id,
+      from: [localNode.longitude, localNode.latitude],
+      to: [point.longitude, point.latitude],
+      latencyMs: point.latencyMs,
+      health: point.health,
+      healthTone: point.healthTone,
+    }))
+    : [];
 
   return {
     localNode,
@@ -261,4 +239,3 @@ function setupRuntimeInspectorIpc(ipcMain) {
 module.exports = {
   setupRuntimeInspectorIpc,
 };
-

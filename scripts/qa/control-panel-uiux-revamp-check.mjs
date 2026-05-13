@@ -62,14 +62,54 @@ assert(shellSource.includes('cp-floating-jarvis-launcher'), 'Floating Jarvis lau
 assert(shellSource.includes('aria-label="Open Help"'), 'Topbar Help button is missing.');
 
 const nodeDetailsSource = read('src/components/control-panel/TestnetBetaNodeDetailRevamp.jsx');
+assert(nodeDetailsSource.includes('Sync Catch Up'), 'Node Details must expose the dedicated Sync Catch Up workflow.');
 for (const forbidden of ['Connect Wallet', 'Copy Deposit Address', 'Stake Validator', 'Stake SNRG', 'Unstake', 'Withdraw']) {
   assert(!nodeDetailsSource.includes(forbidden), `Node Details still contains forbidden wallet/stake control: ${forbidden}`);
 }
+
+const dashboardSource = read('src/components/control-panel/TestnetBetaDashboardRevamp.jsx');
+assert(dashboardSource.includes('Sync Catch Up'), 'Dashboard must expose the dedicated Sync Catch Up workflow.');
+
+const actionSource = read('src/components/control-panel/controlPanelActions.js');
+assert(actionSource.includes('testbeta_sync_catch_up_rejoin'), 'Frontend action must call testbeta_sync_catch_up_rejoin.');
+
+const controlServiceSource = read('control-service/src/testnet_beta.rs');
+assert(controlServiceSource.includes('testbeta_sync_catch_up_rejoin'), 'Control service is missing the validator catch-up command.');
+assert(controlServiceSource.includes('testbeta_activate_validator'), 'Catch-up command must be able to rejoin consensus through validator activation.');
+assert(!controlServiceSource.includes('restart-based peer rejoin instead of offline fast-sync'), 'Validator sync must no longer skip offline fast-sync.');
+assert(controlServiceSource.includes('testbeta_get_feature_snapshot'), 'Feature pages must load production feature snapshots from the control service.');
 
 const rewardsSource = read('src/components/control-panel/ControlPanelRewardsPage.jsx');
 for (const required of ['Connect Wallet', 'Copy Deposit Address', 'Stake SNRG', 'Unstake', 'Withdraw']) {
   assert(rewardsSource.includes(required), `Rewards is missing required wallet/stake control: ${required}`);
 }
+assert(!/synthetic|simulated/i.test(rewardsSource), 'Rewards must not render synthetic or simulated datasets.');
+
+const featurePageSource = read('src/components/control-panel/ControlPanelFeaturePage.jsx');
+assert(featurePageSource.includes('testbeta_get_feature_snapshot'), 'Feature pages must call the production snapshot command.');
+assert(!featurePageSource.includes('No checks were returned'), 'Feature pages must not use unavailable-style placeholder check copy.');
+assert(!featurePageSource.includes('No rows were returned'), 'Feature pages must not use unavailable-style placeholder table copy.');
+
+const featureRegistrySource = read('src/components/control-panel/controlPanelFeatureScreens.js');
+for (const forbidden of [
+  'Critical alerts',
+  'Voting uptime',
+  'Commission revenue',
+  'Tax statement',
+  '421,891',
+  'vtx-',
+  'operator-grade scaffold',
+  'synthetic',
+  'simulated',
+  'dummy',
+  'mock',
+]) {
+  assert(!featureRegistrySource.toLowerCase().includes(forbidden.toLowerCase()), `Feature registry contains static/fake data marker: ${forbidden}`);
+}
+
+const runtimeInspectorSource = read('electron/ipc/runtime-inspector-ipc.cjs');
+assert(!runtimeInspectorSource.includes('syntheticMeshCoordinate'), 'Peer topology must not synthesize private mesh coordinates.');
+assert(!runtimeInspectorSource.includes('hashCoordinate'), 'Peer topology must not hash peer IDs into fake coordinates.');
 
 assert(!/setJarvisInput\(['"]Genesis setup['"]\)/.test(shellSource), 'Post-setup Jarvis quick chips must not include Genesis setup.');
 assert(shellSource.includes('Genesis setup is only available during the initial setup flow'), 'Jarvis typed genesis setup guard is missing.');

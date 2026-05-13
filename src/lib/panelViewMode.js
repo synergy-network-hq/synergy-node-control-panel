@@ -50,7 +50,7 @@ export function writeStoredViewMode(value) {
       storage.setItem(VIEW_MODE_STORAGE_KEY, normalized);
       storage.removeItem(LEGACY_VIEW_MODE_STORAGE_KEY);
     } catch {
-      // Keep dispatch behavior even if storage is unavailable.
+      // Keep dispatch behavior even if storage throws.
     }
   }
 

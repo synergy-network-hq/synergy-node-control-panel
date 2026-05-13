@@ -72,7 +72,7 @@ export async function downloadAndInstallUpdate() {
 
     return {
       status: 'error',
-      message: 'Native updater is unavailable in this build.',
+      message: 'Native updater is not bundled in this build.',
     };
   } catch (error) {
     return {
