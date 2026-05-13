@@ -65,6 +65,7 @@ const TESTNET_BETA_BLOCK_TIMEOUT_SECS: usize = 6;
 const TESTNET_BETA_VALIDATOR_CLUSTER_SIZE: usize = 7;
 const TESTNET_BETA_VALIDATOR_VOTE_THRESHOLD: usize = 4;
 const TESTNET_BETA_MAX_VALIDATORS: usize = 100;
+const TESTNET_BETA_RPC_FAST_SYNC_REBUILD_LIMIT: u64 = 250_000;
 const TESTNET_BETA_EPOCH_LENGTH: usize = 1000;
 const TESTNET_BETA_CONSENSUS_PENALIZATION_ENABLED: bool = false;
 const TESTNET_BETA_P2P_BOOTSTRAP_REFRESH_SECS: usize = 3600;
@@ -6111,13 +6112,15 @@ async fn rpc_fast_sync_workspace_chain(workspace_directory: &Path) -> Result<Str
         ));
     }
 
-    let missing = public_height.saturating_sub(local_height);
-    if missing > 25_000 {
+    if public_height > TESTNET_BETA_RPC_FAST_SYNC_REBUILD_LIMIT {
         return Err(format!(
-            "RPC fallback refused to pull {missing} blocks in one pass. Run catch-up closer to network head or restore from a trusted snapshot."
+            "RPC fallback refused to rebuild a {public_height}-block chain in one pass. Restore from a trusted snapshot before retrying catch-up."
         ));
     }
 
+    let mut mode = "append";
+    let mut rebuilt_from_genesis = false;
+    let mut appended_blocks = 0_u64;
     for height in (local_height + 1)..=public_height {
         let block = query_rpc_value(
             &client,
@@ -6138,13 +6141,51 @@ async fn rpc_fast_sync_workspace_chain(workspace_directory: &Path) -> Result<Str
             .and_then(Value::as_str)
             .ok_or_else(|| format!("RPC block {height} did not include previous_hash."))?;
         if previous_hash != expected_previous_hash {
-            return Err(format!(
-                "RPC block {height} parent hash mismatch. Expected {expected_previous_hash}, got {previous_hash}."
-            ));
+            mode = "rebuild";
+            rebuilt_from_genesis = true;
+            break;
         }
         expected_previous_hash = block_hash_from_value(&block)
             .ok_or_else(|| format!("RPC block {height} did not include hash."))?;
         chain.push(block);
+        appended_blocks += 1;
+    }
+
+    if rebuilt_from_genesis {
+        let mut rebuilt_chain = Vec::with_capacity(public_height.saturating_add(1) as usize);
+        let mut rebuilt_previous_hash = String::new();
+        for height in 0..=public_height {
+            let block = query_rpc_value(
+                &client,
+                TESTNET_BETA_PUBLIC_RPC_ENDPOINT,
+                "synergy_getBlockByNumber",
+                json!([height]),
+            )
+            .await?;
+            let block_height = block_height_from_value(&block)
+                .ok_or_else(|| format!("RPC block {height} did not include block_index."))?;
+            if block_height != height {
+                return Err(format!(
+                    "RPC returned block {block_height} while rebuilding expected height {height}."
+                ));
+            }
+            if height > 0 {
+                let previous_hash = block
+                    .get("previous_hash")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| format!("RPC block {height} did not include previous_hash."))?;
+                if previous_hash != rebuilt_previous_hash {
+                    return Err(format!(
+                        "RPC rebuild parent hash mismatch at {height}. Expected {rebuilt_previous_hash}, got {previous_hash}."
+                    ));
+                }
+            }
+            rebuilt_previous_hash = block_hash_from_value(&block)
+                .ok_or_else(|| format!("RPC block {height} did not include hash."))?;
+            rebuilt_chain.push(block);
+        }
+        chain = rebuilt_chain;
+        appended_blocks = public_height.saturating_add(1);
     }
 
     fs::create_dir_all(&data_dir)
@@ -6186,7 +6227,7 @@ async fn rpc_fast_sync_workspace_chain(workspace_directory: &Path) -> Result<Str
     }
 
     Ok(format!(
-        "RPC fallback appended {missing} block(s), advanced from {local_height} to {public_height}, and staged token-state replay for restart."
+        "RPC fallback {mode} synced {appended_blocks} block(s), advanced from {local_height} to {public_height}, and staged token-state replay for restart."
     ))
 }
 
