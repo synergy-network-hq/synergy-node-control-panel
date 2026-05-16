@@ -69,10 +69,7 @@ jobs:
             echo "RELEASES_REPO_TOKEN is required to checkout the Testnet source repository." >&2
             exit 1
           fi
-          if [[ -z "${TESTNET_SOURCE_REPOSITORY:-}" ]]; then
-            echo "TESTNET_SOURCE_REPOSITORY repository variable is required for the Testnet source checkout." >&2
-            exit 1
-          fi
+          TESTNET_SOURCE_REPOSITORY="${TESTNET_SOURCE_REPOSITORY:-synergy-network-hq/testnet-beta}"
 
           auth_header="$(printf 'x-access-token:%s' "$TESTNET_REPO_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" clone \
