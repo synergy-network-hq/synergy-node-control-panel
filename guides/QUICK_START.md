@@ -1,41 +1,41 @@
-# Synergy Testnet-Beta - Quick Start
+# Synergy Testnet - Quick Start
 
 ## Build & Run in 3 Steps
 
 ```bash
 # 1. Build the binary
-./testbeta.sh build
+./testnet.sh build
 
 # 2. Start a node (choose any of the 19 types)
-./testbeta.sh start validator
+./testnet.sh start validator
 
 # 3. Check status
-./testbeta.sh status
+./testnet.sh status
 ```
 
 ## Common Commands
 
 ```bash
 # List all available node types
-./testbeta.sh list
+./testnet.sh list
 
 # Start different node types
-./testbeta.sh start validator      # Core validator
-./testbeta.sh start oracle          # Oracle node
-./testbeta.sh start ai-inference    # AI inference node
-./testbeta.sh start rpc-gateway     # RPC gateway
+./testnet.sh start validator      # Core validator
+./testnet.sh start oracle          # Oracle node
+./testnet.sh start ai-inference    # AI inference node
+./testnet.sh start rpc-gateway     # RPC gateway
 
 # View logs
-./testbeta.sh logs                  # View recent logs
-./testbeta.sh logs follow           # Follow logs in real-time
+./testnet.sh logs                  # View recent logs
+./testnet.sh logs follow           # Follow logs in real-time
 
 # Control nodes
-./testbeta.sh stop                  # Stop the node
-./testbeta.sh restart validator     # Restart with new type
-./testbeta.sh status                # Check if running
+./testnet.sh stop                  # Stop the node
+./testnet.sh restart validator     # Restart with new type
+./testnet.sh status                # Check if running
 
 # Maintenance
-./testbeta.sh clean                 # Clean all data (requires confirmation)
+./testnet.sh clean                 # Clean all data (requires confirmation)
 ```
 
 ## Available Node Types (19 Total)
@@ -70,12 +70,12 @@
 
 ```bash
 # Direct binary usage
-./target/release/synergy-testbeta start --node-type validator
-./target/release/synergy-testbeta list-templates
-./target/release/synergy-testbeta generate-keypair
-./target/release/synergy-testbeta version
-./target/release/synergy-testbeta logs --follow
-./target/release/synergy-testbeta stop
+./target/release/synergy-testnet start --node-type validator
+./target/release/synergy-testnet list-templates
+./target/release/synergy-testnet generate-keypair
+./target/release/synergy-testnet version
+./target/release/synergy-testnet logs --follow
+./target/release/synergy-testnet stop
 ```
 
 ## Default Ports
@@ -86,29 +86,29 @@
 
 ## Files & Directories
 
-- **Binary**: `./target/release/synergy-testbeta`
+- **Binary**: `./target/release/synergy-testnet`
 - **Templates**: `./templates/`
 - **Config**: `./config/node.toml`
 - **Data**: `./data/chain/`
 - **Logs**: `./data/logs/`
-- **PID File**: `./data/synergy-testbeta.pid`
+- **PID File**: `./data/synergy-testnet.pid`
 
 ## Troubleshooting
 
 ```bash
 # If node won't stop
-pkill -9 synergy-testbeta
-rm -f data/synergy-testbeta.pid
+pkill -9 synergy-testnet
+rm -f data/synergy-testnet.pid
 
 # Clean restart
-./testbeta.sh stop
-./testbeta.sh clean
-./testbeta.sh start validator
+./testnet.sh stop
+./testnet.sh clean
+./testnet.sh start validator
 
 # Change ports (if in use)
 export SYNERGY_RPC_PORT=5660
 export SYNERGY_P2P_PORT=30304
-./testbeta.sh start validator
+./testnet.sh start validator
 ```
 
 ## Running Multiple Nodes
@@ -118,17 +118,17 @@ Open multiple terminals:
 ```bash
 # Terminal 1: Validator
 export SYNERGY_RPC_PORT=5640 && export SYNERGY_P2P_PORT=5622
-./target/release/synergy-testbeta start --node-type validator
+./target/release/synergy-testnet start --node-type validator
 
 # Terminal 2: Oracle
 export SYNERGY_RPC_PORT=5660 && export SYNERGY_P2P_PORT=30304
-./target/release/synergy-testbeta start --node-type oracle
+./target/release/synergy-testnet start --node-type oracle
 
 # Terminal 3: RPC Gateway
 export SYNERGY_RPC_PORT=8547 && export SYNERGY_P2P_PORT=30305
-./target/release/synergy-testbeta start --node-type rpc-gateway
+./target/release/synergy-testnet start --node-type rpc-gateway
 ```
 
 ## Next Steps
 
-For detailed documentation, see [TESTBETA_GUIDE.md](TESTBETA_GUIDE.md)
+For detailed documentation, see [TESTNET_GUIDE.md](TESTNET_GUIDE.md)

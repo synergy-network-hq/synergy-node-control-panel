@@ -8,7 +8,8 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  TESTNET_BETA_REF: ${{ github.ref_name }}
+  TESTNET_REF: ${{ github.ref_name }}
+  TESTNET_SOURCE_REPOSITORY: ${{ vars.TESTNET_SOURCE_REPOSITORY }}
 
 jobs:
   build:
@@ -57,25 +58,29 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Checkout Testnet-Beta node source
+      - name: Checkout Testnet node source
         shell: bash
         env:
-          TESTNET_BETA_REPO_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          TESTNET_REPO_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${TESTNET_BETA_REPO_TOKEN:-}" ]]; then
-            echo "RELEASES_REPO_TOKEN is required to checkout synergy-network-hq/testnet-beta." >&2
+          if [[ -z "${TESTNET_REPO_TOKEN:-}" ]]; then
+            echo "RELEASES_REPO_TOKEN is required to checkout the Testnet source repository." >&2
+            exit 1
+          fi
+          if [[ -z "${TESTNET_SOURCE_REPOSITORY:-}" ]]; then
+            echo "TESTNET_SOURCE_REPOSITORY repository variable is required for the Testnet source checkout." >&2
             exit 1
           fi
 
-          auth_header="$(printf 'x-access-token:%s' "$TESTNET_BETA_REPO_TOKEN" | base64 | tr -d '\n')"
+          auth_header="$(printf 'x-access-token:%s' "$TESTNET_REPO_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" clone \
             --depth 1 \
-            --branch "${TESTNET_BETA_REF}" \
+            --branch "${TESTNET_REF}" \
             --single-branch \
-            https://github.com/synergy-network-hq/testnet-beta.git \
-            testnet-beta-source
+            "https://github.com/${TESTNET_SOURCE_REPOSITORY}.git" \
+            testnet-source
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -85,7 +90,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Validate Testnet-Beta genesis alignment
+      - name: Validate Testnet genesis alignment
         shell: bash
         run: |
           set -euo pipefail
@@ -93,76 +98,43 @@ jobs:
           const fs = require('node:fs');
 
           (async () => {
-            const publicRpcs = [
-              'https://testbeta-core-rpc.synergy-network.io',
-              'http://testbeta-core-rpc.synergy-network.io:5640',
-              'http://195.26.241.95:5640',
-            ];
-            const readHash = (filePath) => {
+            const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            const readGenesisIdentity = (filePath) => {
               const payload = JSON.parse(fs.readFileSync(filePath, 'utf8'));
               const hash = payload?.integrity?.genesis_hash;
               if (!hash) {
                 throw new Error(`${filePath} is missing integrity.genesis_hash`);
               }
-              return String(hash).trim().toLowerCase();
+              return {
+                chainId: payload?.network?.chain_id,
+                networkId: payload?.network?.network_id,
+                hash: String(hash).trim().toLowerCase(),
+                magic: String(payload?.p2p_identity?.network_magic_bytes || '').trim().toLowerCase(),
+              };
             };
 
-            const sourceHash = readHash('testnet-beta-source/config/genesis.json');
-            const bundledHash = readHash('testbeta/runtime/configs/genesis/genesis.json');
-            if (sourceHash !== bundledHash) {
-              throw new Error(`Bundled genesis does not match testnet-beta source. source=${sourceHash} bundled=${bundledHash}`);
+            const source = readGenesisIdentity('testnet-source/config/genesis.json');
+            const bundled = readGenesisIdentity('testnet/runtime/configs/genesis/genesis.json');
+            if (source.hash !== bundled.hash || source.magic !== bundled.magic || source.chainId !== bundled.chainId) {
+              throw new Error(`Bundled genesis does not match testnet source. source=${JSON.stringify(source)} bundled=${JSON.stringify(bundled)}`);
+            }
+            if (bundled.chainId !== 1263 || bundled.networkId !== 1263) {
+              throw new Error(`Bundled genesis must be public Testnet chain 1263. got=${JSON.stringify(bundled)}`);
             }
 
-            const request = async (publicRpc) => {
-              const response = await fetch(publicRpc, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                signal: AbortSignal.timeout(8000),
-                body: JSON.stringify({
-                  jsonrpc: '2.0',
-                  method: 'synergy_getBlockByNumber',
-                  params: [0],
-                  id: 1,
-                }),
-              });
-              if (!response.ok) {
-                throw new Error(`public RPC returned HTTP ${response.status}`);
-              }
-              const payload = await response.json();
-              const liveHash = String(payload?.result?.hash || '').trim().toLowerCase();
-              if (!liveHash) {
-                throw new Error(`public RPC block 0 response did not include a hash: ${JSON.stringify(payload).slice(0, 400)}`);
-              }
-              return liveHash;
-            };
-
-            let liveHash = '';
-            let lastError;
-            for (const publicRpc of publicRpcs) {
-              for (let attempt = 1; attempt <= 2; attempt += 1) {
-                try {
-                  liveHash = await request(publicRpc);
-                  console.log(`Read live genesis hash from ${publicRpc}`);
-                  break;
-                } catch (error) {
-                  lastError = error;
-                  console.warn(`Genesis probe failed for ${publicRpc} on attempt ${attempt}: ${error.message}`);
-                  await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-                }
-              }
-              if (liveHash) {
-                break;
-              }
+            const identifiers = readJson('testnet-source/network-identifiers.testnet.json');
+            const identifierHash = String(identifiers?.cryptographic_identity?.genesis_hash || '').trim().toLowerCase();
+            const identifierMagic = String(identifiers?.cryptographic_identity?.network_magic_bytes?.value || '').trim().toLowerCase();
+            if (identifierHash !== bundled.hash || identifierMagic !== bundled.magic) {
+              throw new Error(`Network identifiers do not match bundled genesis. identifiers=${identifierHash}/${identifierMagic} bundled=${bundled.hash}/${bundled.magic}`);
             }
 
-            if (!liveHash) {
-              throw lastError || new Error('Unable to read live public genesis hash');
-            }
-            if (liveHash !== bundledHash) {
-              throw new Error(`Bundled genesis does not match live Testnet-Beta block 0. live=${liveHash} bundled=${bundledHash}`);
+            const manifest = readJson('testnet/runtime/workspace-manifest.json');
+            if (manifest?.chain_id !== 1263 && manifest?.chainId !== 1263) {
+              throw new Error('Workspace manifest must declare chain ID 1263');
             }
 
-            console.log(`Testnet-Beta genesis alignment OK: ${bundledHash}`);
+            console.log(`Testnet genesis alignment OK: ${bundled.hash}`);
           })().catch((error) => {
             console.error(error);
             process.exit(1);
@@ -177,26 +149,26 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build fresh Testnet-Beta node binary
+      - name: Build fresh Testnet node binary
         shell: bash
         run: |
           set -euo pipefail
 
-          cargo build --manifest-path testnet-beta-source/src/Cargo.toml --release --bin synergy-testbeta
+          cargo build --manifest-path testnet-source/src/Cargo.toml --release --bin synergy-testnet
 
           mkdir -p binaries
           case "${{ matrix.artifact_name }}" in
             macos)
-              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-darwin-arm64
-              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-macos-arm64
-              chmod +x binaries/synergy-testbeta-darwin-arm64 binaries/synergy-testbeta-macos-arm64
+              cp testnet-source/target/release/synergy-testnet binaries/synergy-testnet-darwin-arm64
+              cp testnet-source/target/release/synergy-testnet binaries/synergy-testnet-macos-arm64
+              chmod +x binaries/synergy-testnet-darwin-arm64 binaries/synergy-testnet-macos-arm64
               ;;
             linux)
-              cp testnet-beta-source/target/release/synergy-testbeta binaries/synergy-testbeta-linux-amd64
-              chmod +x binaries/synergy-testbeta-linux-amd64
+              cp testnet-source/target/release/synergy-testnet binaries/synergy-testnet-linux-amd64
+              chmod +x binaries/synergy-testnet-linux-amd64
               ;;
             windows)
-              cp testnet-beta-source/target/release/synergy-testbeta.exe binaries/synergy-testbeta-windows-amd64.exe
+              cp testnet-source/target/release/synergy-testnet.exe binaries/synergy-testnet-windows-amd64.exe
               ;;
             *)
               echo "Unsupported release target: ${{ matrix.artifact_name }}" >&2
@@ -204,7 +176,7 @@ jobs:
               ;;
           esac
 
-          for binary in binaries/synergy-testbeta-*; do
+          for binary in binaries/synergy-testnet-*; do
             if [[ -f "$binary" && "$binary" != *.sha256 ]]; then
               if command -v sha256sum >/dev/null 2>&1; then
                 digest="$(sha256sum "$binary" | awk '{print $1}')"
@@ -219,7 +191,7 @@ jobs:
         shell: bash
         run: bash scripts/release/generate-workspace-manifest.sh
 
-      - name: Create .env from testbeta example if missing
+      - name: Create .env from testnet example if missing
         shell: bash
         run: |
           if [ ! -f .env ]; then
@@ -260,7 +232,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bundle_root="testbeta/runtime/installers/Node-EXP/explorer-app"
+          bundle_root="testnet/runtime/installers/Node-EXP/explorer-app"
           if [[ -d "$bundle_root" ]]; then
             find "$bundle_root" -path '*/node_modules/.bin' -type d -prune -exec rm -rf {} +
           fi

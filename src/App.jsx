@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
 import NetworkMonitorNodePage from './components/NetworkMonitorNodePage';
-import TestnetBetaNodeDetail from './components/TestnetBetaNodeDetail';
+import TestnetNodeDetail from './components/TestnetNodeDetail';
 import HelpArticlesPage from './components/HelpArticlesPage';
 import StartupLoadingScreen from './components/StartupLoadingScreen';
-import TestnetBetaJarvisSetup from './components/TestnetBetaJarvisSetup';
-import TestnetBetaDashboard from './components/TestnetBetaDashboard';
+import TestnetJarvisSetup from './components/TestnetJarvisSetup';
+import TestnetDashboard from './components/TestnetDashboard';
 import SettingsPage from './components/SettingsPageCompact';
 import ControlPanelConnectivityPage from './components/control-panel/ControlPanelConnectivityPage';
 import ControlPanelFeaturePage from './components/control-panel/ControlPanelFeaturePage';
@@ -15,7 +15,7 @@ import { ControlPanelProvider } from './components/control-panel/ControlPanelPro
 import NodeSyncGateModal from './components/control-panel/NodeSyncGateModal';
 import { FEATURE_ROUTES } from './components/control-panel/controlPanelFeatureScreens';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { fetchTestnetBetaLiveStatus, fetchTestnetBetaState } from './lib/testnetBetaPageData';
+import { fetchTestnetLiveStatus, fetchTestnetState } from './lib/testnetPageData';
 import { useDeveloperMode } from './lib/developerMode';
 
 const SPLASH_DURATION_MS = 4800;
@@ -106,11 +106,11 @@ function App() {
 
     const resolveSetupState = async () => {
       try {
-        const state = await fetchTestnetBetaState({ force: true });
+        const state = await fetchTestnetState({ force: true });
         const isComplete = Array.isArray(state?.nodes) && state.nodes.length > 0;
         setSetupComplete(isComplete);
         if (isComplete) {
-          void fetchTestnetBetaLiveStatus({ force: true });
+          void fetchTestnetLiveStatus({ force: true });
         }
         if (isComplete && typeof window !== 'undefined') {
           window.sessionStorage.removeItem(SETUP_DEFERRED_SESSION_KEY);
@@ -133,7 +133,7 @@ function App() {
 
     const intervalId = window.setInterval(async () => {
       try {
-        const state = await fetchTestnetBetaState({ force: true });
+        const state = await fetchTestnetState({ force: true });
         if (Array.isArray(state?.nodes) && state.nodes.length > 0) {
           setSetupComplete(true);
           setSetupStateReady(true);
@@ -227,14 +227,14 @@ function App() {
       </section>
     );
   } else if (manualSetupActive || (!setupComplete && !setupDeferred)) {
-    nextScreen = <TestnetBetaJarvisSetup onComplete={handleSetupComplete} onDefer={handleSetupDeferred} />;
+    nextScreen = <TestnetJarvisSetup onComplete={handleSetupComplete} onDefer={handleSetupDeferred} />;
   } else {
     nextScreen = (
       <ControlPanelProvider>
         <NodeSyncGateModal nodeId={pendingSyncNodeId} onComplete={handleSyncGateComplete} />
         <Layout onLaunchSetup={handleLaunchSetup}>
           <Routes>
-            <Route path="/" element={<TestnetBetaDashboard onLaunchSetup={handleLaunchSetup} />} />
+            <Route path="/" element={<TestnetDashboard onLaunchSetup={handleLaunchSetup} />} />
             <Route path="/activity" element={<ControlPanelLogsPage />} />
             <Route path="/connectivity" element={<ControlPanelConnectivityPage />} />
             <Route path="/logs" element={<ControlPanelLogsPage />} />
@@ -255,7 +255,7 @@ function App() {
                     : <ControlPanelFeaturePage screenKey={screen.key} />}
               />
             ))}
-            <Route path="/node" element={<TestnetBetaNodeDetail />} />
+            <Route path="/node" element={<TestnetNodeDetail />} />
             <Route path="/node/:nodeId" element={<Navigate to="/node" replace />} />
             <Route path="/fleet" element={<Navigate to="/" replace />} />
             <Route path="/monitor/:nodeSlotId" element={<NetworkMonitorNodePage />} />

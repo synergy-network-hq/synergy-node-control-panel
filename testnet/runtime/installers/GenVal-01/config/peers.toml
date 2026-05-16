@@ -1,0 +1,18 @@
+# Auto-generated for GitHub Actions release packaging
+[global]
+bootnodes = []
+seed_servers = []
+bootstrap_dns_records = []
+additional_dial_targets = ["snr://synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt@10.69.0.2:5622", "snr://synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re@10.69.0.3:5622", "snr://synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5@10.69.0.4:5622", "snr://synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f@10.69.0.5:5622"]
+persistent_peers = ["snr://synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt@10.69.0.2:5622", "snr://synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re@10.69.0.3:5622", "snr://synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5@10.69.0.4:5622", "snr://synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f@10.69.0.5:5622"]
+
+[testnet]
+core_rpc = "https://testnet-core-rpc.synergy-network.io"
+core_ws = "wss://testnet-core-ws.synergy-network.io"
+wallet_api = "https://testnet-wallet-api.synergy-network.io"
+sxcp_api = "https://testnet-sxcp-api.synergy-network.io"
+
+[security]
+strict_tls = true
+allow_unpinned_dev_endpoints = false
+bootstrap_connectivity_required = false

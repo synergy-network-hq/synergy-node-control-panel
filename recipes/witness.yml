@@ -20,7 +20,7 @@ steps:
     description: Preparing configuration files for the witness
     progress: 75
   - name: register
-    description: Registering the node on the Synergy testbeta
+    description: Registering the node on the Synergy testnet
     progress: 90
   - name: sync
     description: Syncing blockchain data to the latest block

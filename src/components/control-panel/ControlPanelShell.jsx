@@ -26,7 +26,7 @@ import {
 } from './routeRegistry';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
-const GENESIS_SETUP_UNAVAILABLE_MESSAGE = 'Genesis setup is only available during the initial setup flow before a node exists on this machine. This control panel is already managing a configured node. I can help with diagnostics, validator readiness, rewards, connectivity, or maintenance instead.';
+const SETUP_UNAVAILABLE_MESSAGE = 'Setup is only available during the initial onboarding flow before a node exists on this machine. This control panel is already managing a configured node. I can help with diagnostics, validator readiness, rewards, connectivity, or maintenance instead.';
 
 function updateButtonLabel(updateState) {
   switch (updateState.status) {
@@ -397,8 +397,8 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
         || normalized.includes(screen.title.toLowerCase().split(' ')[0])
       ));
 
-    if (/genesis[\s-]*setup|open setup|start setup|setup wizard/.test(normalized)) {
-      pushJarvisMessage('assistant', GENESIS_SETUP_UNAVAILABLE_MESSAGE);
+    if (/open setup|start setup|setup wizard/.test(normalized)) {
+      pushJarvisMessage('assistant', SETUP_UNAVAILABLE_MESSAGE);
       return;
     }
 
@@ -543,7 +543,7 @@ export default function ControlPanelShell({ children, onLaunchSetup }) {
               <div className="cp-topbar-statusbar">
                 <div className="cp-topbar-statuscopy">
                   <span className="cp-eyebrow">Environment</span>
-                  <strong>Testnet-Beta</strong>
+                  <strong>Testnet</strong>
                 </div>
                 <div className="cp-topbar-statuscopy">
                   <span className="cp-eyebrow">Selected Node</span>

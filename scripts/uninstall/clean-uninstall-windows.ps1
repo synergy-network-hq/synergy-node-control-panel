@@ -23,10 +23,10 @@ function Test-Admin {
 function Confirm-DestructiveAction {
   Write-Host "This will permanently delete:"
   Write-Host "  - Synergy Node Control Panel installs and app data"
-  Write-Host "  - local validator/node workspaces under $env:USERPROFILE\.synergy\testnet-beta"
+  Write-Host "  - local validator/node workspaces under $env:USERPROFILE\.synergy\testnet"
   Write-Host "  - monitor workspaces under $env:USERPROFILE\.synergy-node-control-panel"
   Write-Host "  - startup agents, Windows services, firewall rules, and shortcuts"
-  Write-Host "  - validator/node runtimes under C:\Synergy\Testnet-Beta"
+  Write-Host "  - validator/node runtimes under C:\Synergy\Testnet"
   Write-Host ""
   Write-Host "Bootnode and seed-server directories are intentionally preserved."
 
@@ -71,7 +71,7 @@ function Remove-EmptyDirectorySafe {
 
 function Stop-KnownProcesses {
   $names = @(
-    "synergy-testbeta-agent",
+    "synergy-testnet-agent",
     "control-service",
     "Synergy Node Control Panel"
   )
@@ -82,7 +82,7 @@ function Stop-KnownProcesses {
 
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {
-      $_.CommandLine -match "synergy-testbeta-agent|control-service|Synergy Node Control Panel|\\.synergy\\testnet-beta\\nodes\\|\\Synergy\\Testnet-Beta\\node-|\\Synergy\\Testnet-Beta\\validator"
+      $_.CommandLine -match "synergy-testnet-agent|control-service|Synergy Node Control Panel|\\.synergy\\testnet\\nodes\\|\\Synergy\\Testnet\\node-|\\Synergy\\Testnet\\validator"
     } |
     ForEach-Object {
       Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -90,7 +90,7 @@ function Stop-KnownProcesses {
 }
 
 function Remove-WindowsServices {
-  Get-Service -Name "synergy-testbeta-agent" -ErrorAction SilentlyContinue | ForEach-Object {
+  Get-Service -Name "synergy-testnet-agent" -ErrorAction SilentlyContinue | ForEach-Object {
     Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue
     sc.exe delete $_.Name *> $null
     Write-Log "Removed Windows service $($_.Name)"
@@ -151,7 +151,7 @@ function Remove-RegistryRemnants {
 }
 
 function Remove-ShortcutsAndStartup {
-  $startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) "Synergy Testnet-Beta Agent.cmd"
+  $startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) "Synergy Testnet Agent.cmd"
   Remove-PathSafe $startupLink
 
   $wildcards = @(
@@ -169,12 +169,12 @@ function Remove-ShortcutsAndStartup {
 function Remove-FilesAndDirectories {
   $paths = @(
     "$env:USERPROFILE\.synergy-node-control-panel",
-    "$env:USERPROFILE\.synergy-testbeta-control-panel",
+    "$env:USERPROFILE\.synergy-testnet-control-panel",
     "$env:USERPROFILE\.synergy-node-monitor",
     "$env:USERPROFILE\.synergy\node",
-    "$env:USERPROFILE\.synergy\testnet-beta\nodes",
-    "$env:USERPROFILE\.synergy\testnet-beta\network",
-    "$env:USERPROFILE\.synergy\testnet-beta\wallets",
+    "$env:USERPROFILE\.synergy\testnet\nodes",
+    "$env:USERPROFILE\.synergy\testnet\network",
+    "$env:USERPROFILE\.synergy\testnet\wallets",
     "$env:APPDATA\synergy-node-control-panel",
     "$env:APPDATA\Synergy Node Control Panel",
     "$env:APPDATA\com.synergy.node-monitor",
@@ -191,7 +191,7 @@ function Remove-FilesAndDirectories {
     "$env:LOCALAPPDATA\Programs\io.synergy-network.node-control-panel",
     "$env:ProgramFiles\Synergy Node Control Panel",
     "$env:ProgramFiles(x86)\Synergy Node Control Panel",
-    "$env:USERPROFILE\synergy-testbeta-agent.log"
+    "$env:USERPROFILE\synergy-testnet-agent.log"
   )
 
   foreach ($path in $paths) {
@@ -199,19 +199,19 @@ function Remove-FilesAndDirectories {
   }
 
   $selectivePatterns = @(
-    "C:\Synergy\Testnet-Beta\node-*",
-    "C:\Synergy\Testnet-Beta\validator*"
+    "C:\Synergy\Testnet\node-*",
+    "C:\Synergy\Testnet\validator*"
   )
 
   foreach ($pattern in $selectivePatterns) {
     Remove-WildcardSafe $pattern
   }
 
-  Remove-EmptyDirectorySafe "$env:USERPROFILE\.synergy\testnet-beta\ceremony\imports"
-  Remove-EmptyDirectorySafe "$env:USERPROFILE\.synergy\testnet-beta\ceremony"
-  Remove-EmptyDirectorySafe "$env:USERPROFILE\.synergy\testnet-beta"
+  Remove-EmptyDirectorySafe "$env:USERPROFILE\.synergy\testnet\ceremony\imports"
+  Remove-EmptyDirectorySafe "$env:USERPROFILE\.synergy\testnet\ceremony"
+  Remove-EmptyDirectorySafe "$env:USERPROFILE\.synergy\testnet"
   Remove-EmptyDirectorySafe "$env:USERPROFILE\.synergy"
-  Remove-EmptyDirectorySafe "C:\Synergy\Testnet-Beta"
+  Remove-EmptyDirectorySafe "C:\Synergy\Testnet"
   Remove-EmptyDirectorySafe "C:\Synergy"
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-const DEVELOPER_MODE_STORAGE_KEY = 'synergy:testbeta:developer-mode:v1';
-const DEVELOPER_MODE_CHANGE_EVENT = 'synergy:testbeta:developer-mode-change';
+const DEVELOPER_MODE_STORAGE_KEY = 'synergy:testnet:developer-mode:v1';
+const DEVELOPER_MODE_CHANGE_EVENT = 'synergy:testnet:developer-mode-change';
 
 function getLocalStorage() {
   if (typeof window === 'undefined') {

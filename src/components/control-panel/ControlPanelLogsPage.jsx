@@ -298,7 +298,7 @@ export default function ControlPanelLogsPage() {
         setLoading(true);
       }
       try {
-        const nextBundle = await invoke('testbeta_get_node_logs', {
+        const nextBundle = await invoke('testnet_get_node_logs', {
           nodeId: selectedNode.id,
           lines: viewMode === 'developer' ? 1200 : viewMode === 'advanced' ? 480 : 260,
         });

@@ -1,8 +1,0 @@
-node_slot_id,node_alias,role,node_type,address_class,address
-Node-EXP,genesisindexer,indexer,indexer,5,synv5899b4c230af2c6435fa833f721d598de34ad
-Node-RPC,genesisrpc,rpc-gateway,rpc-gateway,5,synv5d2b6a255a574438fd8bdcb194a782acbdcf2
-GenVal-01,genesisval1,validator,validator,1,synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs
-GenVal-02,genesisval2,validator,validator,1,synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt
-GenVal-03,genesisval3,validator,validator,1,synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re
-GenVal-04,genesisval4,validator,validator,1,synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5
-GenVal-05,genesisval5,validator,validator,1,synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f

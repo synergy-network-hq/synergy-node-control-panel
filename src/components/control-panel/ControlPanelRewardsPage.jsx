@@ -38,7 +38,7 @@ function formatSnrg(value) {
   });
 }
 
-const CONNECTED_WALLET_STORAGE_KEY = 'synergy:testbeta:connected-wallet:v1';
+const CONNECTED_WALLET_STORAGE_KEY = 'synergy:testnet:connected-wallet:v1';
 
 function readConnectedWalletAddress() {
   if (typeof window === 'undefined') {
@@ -435,7 +435,7 @@ export default function ControlPanelRewardsPage() {
       let result = null;
       if (kind === 'stake') {
         const amountSnrg = parseSnrgAmount(stakeAmountSnrg);
-        result = await invoke('testbeta_stake_validator', {
+        result = await invoke('testnet_stake_validator', {
           input: {
             nodeId: selectedNode.id,
             amountSnrg,
@@ -443,7 +443,7 @@ export default function ControlPanelRewardsPage() {
         });
       } else if (kind === 'unstake') {
         const amountSnrg = parseSnrgAmount(unstakeAmountSnrg);
-        result = await invoke('testbeta_unstake_validator', {
+        result = await invoke('testnet_unstake_validator', {
           input: {
             nodeId: selectedNode.id,
             amountSnrg,
@@ -454,7 +454,7 @@ export default function ControlPanelRewardsPage() {
         if (!connectedWallet) {
           throw new Error('Connect a wallet before withdrawing.');
         }
-        result = await invoke('testbeta_transfer_validator_tokens', {
+        result = await invoke('testnet_transfer_validator_tokens', {
           input: {
             nodeId: selectedNode.id,
             destinationAddress: connectedWallet,

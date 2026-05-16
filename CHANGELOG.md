@@ -24,7 +24,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 
 - Enabled activated non-genesis validators to enter the consensus membership instead of being capped out by the five-genesis-validator release configuration.
 - Hardened validator activation so a synced non-genesis validator can start consensus after its activation transaction is applied, while genesis validators skip the public join sync gate.
-- Regenerated and validated the bundled Testnet-Beta runtime assets, setup packages, and operator guide for the non-genesis validator funding, staking, and activation flow.
+- Regenerated and validated the bundled Testnet runtime assets, setup packages, and operator guide for the non-genesis validator funding, staking, and activation flow.
 
 ## v8.0.18 - 2026-04-14
 
@@ -35,8 +35,8 @@ Historical release notes reconstructed from local git tag ranges for the control
 ## v8.0.0 - 2026-04-09
 
 - Aligned the control-panel app version, bundled workspace manifest, and release tag so published installers report the same `v8.0.0` release line in-app and in release metadata.
-- Re-enabled Windows installer production in the release workflow and switched bundled Testnet-Beta source selection to the current release tag instead of a stale hard-coded ref.
-- Refreshed the Testnet-Beta dashboard and validator connectivity presentation around the current 5-validator topology, bootstrap-only infrastructure, and stricter peer identity requirements.
+- Re-enabled Windows installer production in the release workflow and switched bundled Testnet source selection to the current release tag instead of a stale hard-coded ref.
+- Refreshed the Testnet dashboard and validator connectivity presentation around the current 5-validator topology, bootstrap-only infrastructure, and stricter peer identity requirements.
 
 ## v7.1.0 - 2026-04-08
 
@@ -52,79 +52,79 @@ Historical release notes reconstructed from local git tag ranges for the control
 
 ## v5.13.0 - 2026-04-04
 
-- Advanced the bundled Testnet-Beta source pin to `v5.13.0-testbeta-source`, which includes the runtime-root migration, canonical genesis refresh, and current validator/bootstrap assets used for the clean reinstall path.
+- Advanced the bundled Testnet source pin to `v5.13.0-testnet-source`, which includes the runtime-root migration, canonical genesis refresh, and current validator/bootstrap assets used for the clean reinstall path.
 - Hardened local node control so duplicate `start` actions now detect an already-running process from the installed `node.toml`, and regenerated every bundled installer `nodectl` script with the same live-PID safeguard.
 - Fixed peer-list presentation by deduplicating repeated sessions that announce the same validator or public address, updated runtime-root documentation paths, and kept the control-service monitor/control-plane host fixtures aligned with the legacy overlay range we still migrate away from.
 
 ## v5.12.4 - 2026-04-03
 
-- Advanced the bundled Testnet-Beta source pin to `v5.12.4-testbeta-source`, which includes the P2P discovery fix that keeps bootnodes and other non-validator discovery peers connected even when they do not advertise a genesis hash in their status payload.
+- Advanced the bundled Testnet source pin to `v5.12.4-testnet-source`, which includes the P2P discovery fix that keeps bootnodes and other non-validator discovery peers connected even when they do not advertise a genesis hash in their status payload.
 - Preserved the runtime-root launcher/runtime fix, the faster startup readiness probe, and the reduced monitor RPC timeouts already landed in the control panel release line.
-- Rebuilt the installers so the packaged `synergy-testbeta` binary matches the current top-level source used for genesis-validator operation.
+- Rebuilt the installers so the packaged `synergy-testnet` binary matches the current top-level source used for genesis-validator operation.
 
 ## v5.12.3 - 2026-04-03
 
-- Switched the Testnet-Beta release source pin from a raw commit SHA to the reachable top-level tag `v5.12.2-testbeta-source`, which points to the same fixed source commit but can be fetched reliably by `actions/checkout`.
+- Switched the Testnet release source pin from a raw commit SHA to the reachable top-level tag `v5.12.2-testnet-source`, which points to the same fixed source commit but can be fetched reliably by `actions/checkout`.
 - Preserved the v5.12.2 source-graph fix that removed the stale top-level `node-control-panel` gitlink, along with the runtime-root and readiness-probe fixes already landed in the control panel.
 - Re-ran the control-panel installer release against the tagged top-level source so checkout and binary bundling resolve from stable refs on every runner.
 
 ## v5.12.2 - 2026-04-03
 
-- Advanced the Testnet-Beta release source pin to commit `c7aab0ef41a2f154869845b0579dc3d36a75c235`, which removes the stale `node-control-panel` gitlink from the top-level source tree so `actions/checkout` no longer fails during auth cleanup.
+- Advanced the Testnet release source pin to commit `c7aab0ef41a2f154869845b0579dc3d36a75c235`, which removes the stale `node-control-panel` gitlink from the top-level source tree so `actions/checkout` no longer fails during auth cleanup.
 - Kept the runtime-root launcher fix, the runtime-root-aware node binary, the faster startup readiness probe, and the reduced monitor RPC timeouts from v5.12.1.
 - Rebuilt the installer release on top of the corrected top-level source graph so the packaged control panel and packaged node now ship from the same fixed lineage.
 
 ## v5.12.1 - 2026-04-03
 
-- Corrected the Testnet-Beta release source pin so installer builds now compile `synergy-testbeta` from commit `476a159956eaeffe5d6f4cb4c1caf94156828716`, which includes the runtime-root detection fix required for validator workspaces launched outside the source checkout.
+- Corrected the Testnet release source pin so installer builds now compile `synergy-testnet` from commit `476a159956eaeffe5d6f4cb4c1caf94156828716`, which includes the runtime-root detection fix required for validator workspaces launched outside the source checkout.
 - Preserved the v5.12.0 control-service launcher fix that exports `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH`, while ensuring the bundled node binary now understands those runtime-root environment variables too.
-- Disabled submodule cleanup for the pinned Testnet-Beta checkout in the release workflow so GitHub Actions no longer trips over the broken `node-control-panel` gitlink metadata during post-job cleanup.
+- Disabled submodule cleanup for the pinned Testnet checkout in the release workflow so GitHub Actions no longer trips over the broken `node-control-panel` gitlink metadata during post-job cleanup.
 
 ## v5.12.0 - 2026-04-03
 
-- Fixed Testnet-Beta node launches from generated validator workspaces by exporting `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH` into every control-service runner invocation, which stops the validator restart loop caused by runtime root detection failures.
+- Fixed Testnet node launches from generated validator workspaces by exporting `SYNERGY_PROJECT_ROOT` and `SYNERGY_CONFIG_PATH` into every control-service runner invocation, which stops the validator restart loop caused by runtime root detection failures.
 - Added focused regression coverage for workspace-scoped runner environment propagation and strengthened the start-path test so it validates the local RPC readiness gate instead of depending on an ambient service on the default port.
-- Regenerated the bundled testbeta runtime assets and installer bundles for the repaired workspace launch flow.
+- Regenerated the bundled testnet runtime assets and installer bundles for the repaired workspace launch flow.
 
 ## v5.11.3 - 2026-04-03
 
 - Fixed Jarvis Genesis Setup so validator `setup-package.json` files remain package-driven from selection through import instead of dropping into a manual ceremony-role prompt when the package role should already be known.
 - Hardened ceremony import so the control service can infer the role directly from the approved validator package when no manual role is supplied, while preserving the explicit bootstrap-bundle role path for legacy bootnode and seed archives.
-- Kept the discovery-only bootnode genesis-hash handshake allowance verified in the testbeta runtime and rebuilt the control-panel installers around the repaired Genesis Setup flow.
+- Kept the discovery-only bootnode genesis-hash handshake allowance verified in the testnet runtime and rebuilt the control-panel installers around the repaired Genesis Setup flow.
 
 ## v5.11.2 - 2026-04-02
 
 - Completed the monitor/control-service rename from `vpn_ip` detection to machine-level `management_host` detection so the setup wizard, monitor dashboard, node page, and operator agent snapshot all use the same identity model.
 - Fixed the headless control-service release build by shipping the matching monitor API and agent-health fields instead of a partial command rename.
-- Regenerated the bundled `testbeta/runtime` assets and installers for the repaired release tag.
+- Regenerated the bundled `testnet/runtime` assets and installers for the repaired release tag.
 
 ## v5.11.1 - 2026-04-02
 
 - Reworked Jarvis genesis setup so the ceremony flow starts with the assigned setup package JSON, derives the role from that package, and pauses on an explicit machine-specific port-forwarding confirmation before sending the operator to the dashboard.
-- Fixed the Testnet-Beta node details tabs so shared runtime/network values are available across the wallet and connectivity views instead of throwing render-time errors when those tabs open.
+- Fixed the Testnet node details tabs so shared runtime/network values are available across the wallet and connectivity views instead of throwing render-time errors when those tabs open.
 - Added the developer-mode live peer list to the node-details Connectivity tab and reduced initial dashboard/detail latency by caching local state and parallelizing the control-service live-status network probes.
 
 ## v5.11.0 - 2026-04-02
 
 - Added a Settings-level `Developer Mode` toggle and exposed the live peer list on the dashboard Connectivity tab when that mode is enabled.
-- Refreshed the bundled testbeta runtime defaults for genesis launch: removed the hard `max_validators = 4` ceiling while preserving `min_validators = 4`, and regenerated the runtime/genesis assets accordingly.
-- Pinned the installer release workflow to the updated testbeta source commit that includes real network vote collection, explicit equivocation evidence handling, rolling missed-vote jailing/slashing, and the current RPC/runtime fixes needed for fresh binaries.
+- Refreshed the bundled testnet runtime defaults for genesis launch: removed the hard `max_validators = 4` ceiling while preserving `min_validators = 4`, and regenerated the runtime/genesis assets accordingly.
+- Pinned the installer release workflow to the updated testnet source commit that includes real network vote collection, explicit equivocation evidence handling, rolling missed-vote jailing/slashing, and the current RPC/runtime fixes needed for fresh binaries.
 
 ## v5.10.5 - 2026-04-02
 
-- Fixed genesis validator crash loop on macOS arm64: the `synergy-testbeta-macos-arm64` binary search was incorrectly taking priority over the fixed `synergy-testbeta-darwin-arm64` binary. The control service binary search order now tries `darwin-arm64` first, with `macos-arm64` as a fallback only. The `macos-arm64` binary on disk has also been replaced with the fixed `darwin-arm64` build. This restored all 4 genesis validators to active quorum (`qc_cumulative_weight: 4.0`).
+- Fixed genesis validator crash loop on macOS arm64: the `synergy-testnet-macos-arm64` binary search was incorrectly taking priority over the fixed `synergy-testnet-darwin-arm64` binary. The control service binary search order now tries `darwin-arm64` first, with `macos-arm64` as a fallback only. The `macos-arm64` binary on disk has also been replaced with the fixed `darwin-arm64` build. This restored all 4 genesis validators to active quorum (`qc_cumulative_weight: 4.0`).
 - Removed confidential payout equation from node detail view: `payoutEquation` no longer renders in the Rewards Standard definition panel or any associated copy-block paragraphs.
 - Dashboard overhaul across all tabs: replaced the 4-card status grid and verbose Network Overview panel with a compact inline status strip showing live network metrics. Stripped all non-data description text from Connectivity, Rewards, Files, and Chain tabs. Added copy-to-clipboard buttons next to node and wallet addresses. Added "Open Workspace" and "Open Logs" directory shortcuts to the Files tab.
 - Settings page enhancements: added "Check for Updates" button with live status feedback wired to the Electron auto-updater bridge. Added "Refresh All Bootstrap" to re-fetch and rewrite `peers.toml` from live seed servers for all nodes in one action. Workspace Inventory now shows direct "Logs" and "Details →" links per node.
 - Connectivity tab: removed redundant stat descriptions from SXCP cards; fallback discovery sequence now displayed inline as a single `A → B → C` chain instead of a two-column grid.
 
 ## v5.10.3 - 2026-04-01
-- Bundled updated testbeta node binaries (darwin-arm64, linux-amd64, windows-amd64) built from the mutex deadlock fix in `token.rs` and the seed-server registration fix in `networking.rs`.
+- Bundled updated testnet node binaries (darwin-arm64, linux-amd64, windows-amd64) built from the mutex deadlock fix in `token.rs` and the seed-server registration fix in `networking.rs`.
 - Redesigned the Settings page Operator Console button section: buttons are now grouped in compact inline rows with distinct color-coded group labels (Services, Connectivity, Processes, Logs) instead of large card layouts.
 - Added new operator actions: Show Disk Usage, Flush DNS Cache, Find Zombie Processes, Kill Zombie Processes, Kill All Nodes, Tail Node Logs, Clear Log Files.
 
 ## v2.9.2 - 2026-03-08
-- Updated the `synergy-testbeta-agent` sidecar crate dependencies, including adding `reqwest` to support follow-on agent networking and sync work.
+- Updated the `synergy-testnet-agent` sidecar crate dependencies, including adding `reqwest` to support follow-on agent networking and sync work.
 - Maintenance release with no large UI or workflow delta clearly exposed in the tag range.
 
 ## v2.8.3 - 2026-03-08
@@ -133,7 +133,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Refined monitor and backend integration around topology-aware node views and app update behavior.
 
 ## v2.8.1 - 2026-03-08
-- Regenerated `runtime` installer bundles after topology changes across the testbeta fleet.
+- Regenerated `runtime` installer bundles after topology changes across the testnet fleet.
 - Updated per-node install/start scripts and binary status markers.
 - Primarily a topology and installer refresh release.
 
@@ -144,7 +144,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 
 ## v2.7.2 - 2026-03-07
 - Fixed Windows node setup scripts and process launch behavior to avoid broken or stuck installs.
-- Added stronger stop/restart cleanup in the testbeta agent so orphaned node processes are killed before resets or restarts.
+- Added stronger stop/restart cleanup in the testnet agent so orphaned node processes are killed before resets or restarts.
 - Improved updater UX with app relaunch support and clearer Linux manual-update messaging.
 
 ## v2.7.1 - 2026-03-07
@@ -158,7 +158,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 - Reliability release focused on Windows setup and release-pipeline stability.
 
 ## v2.6.10 - 2026-03-06
-- Split `synergy-testbeta-agent` into a dedicated sidecar crate and updated sidecar builds to use the new manifest and target directory.
+- Split `synergy-testnet-agent` into a dedicated sidecar crate and updated sidecar builds to use the new manifest and target directory.
 - Strengthened release asset generation by normalizing filenames, validating `latest.json`, URL-encoding asset names, and requiring updater signatures.
 - Refined topology application and machine-control plumbing, including regenerated `hosts.env`, fallback node-address discovery, and remote-path normalization.
 - Refreshed a large set of generated installer and sidecar artifacts as part of the release.

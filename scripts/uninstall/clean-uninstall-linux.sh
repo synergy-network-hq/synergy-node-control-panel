@@ -27,9 +27,9 @@ prune_empty_dir() {
 }
 
 prune_user_synergy_dirs() {
-  prune_empty_dir "$HOME/.synergy/testnet-beta/ceremony/imports"
-  prune_empty_dir "$HOME/.synergy/testnet-beta/ceremony"
-  prune_empty_dir "$HOME/.synergy/testnet-beta"
+  prune_empty_dir "$HOME/.synergy/testnet/ceremony/imports"
+  prune_empty_dir "$HOME/.synergy/testnet/ceremony"
+  prune_empty_dir "$HOME/.synergy/testnet"
   prune_empty_dir "$HOME/.synergy"
 }
 
@@ -68,10 +68,10 @@ confirm_destructive_action() {
   cat <<'EOF'
 This will permanently delete:
   - Synergy Node Control Panel application data
-  - local validator/node workspaces under ~/.synergy/testnet-beta
+  - local validator/node workspaces under ~/.synergy/testnet
   - monitor workspaces under ~/.synergy-node-control-panel
   - legacy control-panel roots
-  - local/system testbeta agent autostart units
+  - local/system testnet agent autostart units
   - validator/node runtimes under /opt/synergy
   - desktop launchers and discovered firewall rules
 
@@ -94,11 +94,11 @@ stop_known_processes() {
   local patterns=(
     "Synergy Node Control Panel"
     "synergy-node-control-panel"
-    "synergy-testbeta-agent"
+    "synergy-testnet-agent"
     "control-service"
-    "$HOME/.synergy/testnet-beta/nodes/"
+    "$HOME/.synergy/testnet/nodes/"
     "/opt/synergy/node-"
-    "/opt/synergy/testbeta/validator"
+    "/opt/synergy/testnet/validator"
   )
 
   for pattern in "${patterns[@]}"; do
@@ -113,7 +113,7 @@ stop_known_processes() {
 
 stop_user_units() {
   local unit
-  for unit_path in "$HOME/.config/systemd/user"/synergy-testbeta-agent.service; do
+  for unit_path in "$HOME/.config/systemd/user"/synergy-testnet-agent.service; do
     unit="$(basename "$unit_path")"
     systemctl --user stop "$unit" 2>/dev/null || true
     systemctl --user disable "$unit" 2>/dev/null || true
@@ -129,12 +129,12 @@ stop_system_units() {
   local unit unit_path
 
   for unit_path in \
-    /etc/systemd/system/synergy-testbeta-agent.service \
-    /usr/lib/systemd/system/synergy-testbeta-agent.service \
-    /lib/systemd/system/synergy-testbeta-agent.service \
-    /etc/systemd/system/synergy-testbeta-validator*.service \
-    /usr/lib/systemd/system/synergy-testbeta-validator*.service \
-    /lib/systemd/system/synergy-testbeta-validator*.service
+    /etc/systemd/system/synergy-testnet-agent.service \
+    /usr/lib/systemd/system/synergy-testnet-agent.service \
+    /lib/systemd/system/synergy-testnet-agent.service \
+    /etc/systemd/system/synergy-testnet-validator*.service \
+    /usr/lib/systemd/system/synergy-testnet-validator*.service \
+    /lib/systemd/system/synergy-testnet-validator*.service
   do
     unit="$(basename "$unit_path")"
     run_root systemctl stop "$unit" 2>/dev/null || true
@@ -219,10 +219,10 @@ collect_ports_from_node_env() {
   local env_file key value
   local env_files=(
     /opt/synergy/*/node.env
-    /opt/synergy/testbeta/validator*/node.env
-    "$HOME/.synergy-node-control-panel/monitor-workspace/testbeta/runtime/installers"/*/node.env
-    "$HOME/.synergy-testbeta-control-panel/monitor-workspace/testbeta/runtime/installers"/*/node.env
-    "$HOME/.synergy-node-monitor/monitor-workspace/testbeta/runtime/installers"/*/node.env
+    /opt/synergy/testnet/validator*/node.env
+    "$HOME/.synergy-node-control-panel/monitor-workspace/testnet/runtime/installers"/*/node.env
+    "$HOME/.synergy-testnet-control-panel/monitor-workspace/testnet/runtime/installers"/*/node.env
+    "$HOME/.synergy-node-monitor/monitor-workspace/testnet/runtime/installers"/*/node.env
   )
 
   FIREWALL_PORTS["47990"]=1
@@ -277,12 +277,12 @@ remove_firewall_rules() {
 remove_user_files() {
   local paths=(
     "$HOME/.synergy-node-control-panel"
-    "$HOME/.synergy-testbeta-control-panel"
+    "$HOME/.synergy-testnet-control-panel"
     "$HOME/.synergy-node-monitor"
     "$HOME/.synergy/node"
-    "$HOME/.synergy/testnet-beta/nodes"
-    "$HOME/.synergy/testnet-beta/network"
-    "$HOME/.synergy/testnet-beta/wallets"
+    "$HOME/.synergy/testnet/nodes"
+    "$HOME/.synergy/testnet/network"
+    "$HOME/.synergy/testnet/wallets"
     "$HOME/.config/synergy-node-control-panel"
     "$HOME/.config/Synergy Node Control Panel"
     "$HOME/.config/com.synergy.node-monitor"
@@ -296,7 +296,7 @@ remove_user_files() {
     "$HOME/.cache/com.synergy.node-monitor"
     "$HOME/.cache/io.synergy-network.node-control-panel"
     "$HOME/Applications/Synergy Node Control Panel.AppImage"
-    "$HOME/synergy-testbeta-agent.log"
+    "$HOME/synergy-testnet-agent.log"
   )
 
   local path
@@ -326,8 +326,8 @@ remove_user_files() {
 
 remove_system_files() {
   local paths=(
-    "/opt/synergy/testbeta-agent"
-    "/var/log/synergy-testbeta-agent.log"
+    "/opt/synergy/testnet-agent"
+    "/var/log/synergy-testnet-agent.log"
     "/usr/share/applications/com.synergy.node-monitor.desktop"
     "/usr/share/applications/synergy-node-control-panel.desktop"
     "/usr/share/applications/io.synergy-network.node-control-panel.desktop"
@@ -338,16 +338,16 @@ remove_system_files() {
     remove_root_path "$path"
   done
 
-  for node_dir in /opt/synergy/node-* /opt/synergy/testbeta/validator*; do
+  for node_dir in /opt/synergy/node-* /opt/synergy/testnet/validator*; do
     remove_root_path "$node_dir"
   done
 
-  for package_file in /opt/synergy/testbeta/control-panel/validator-*-setup-package.json; do
+  for package_file in /opt/synergy/testnet/control-panel/validator-*-setup-package.json; do
     remove_root_path "$package_file"
   done
 
-  run_root rmdir /opt/synergy/testbeta/control-panel 2>/dev/null || true
-  run_root rmdir /opt/synergy/testbeta 2>/dev/null || true
+  run_root rmdir /opt/synergy/testnet/control-panel 2>/dev/null || true
+  run_root rmdir /opt/synergy/testnet 2>/dev/null || true
   run_root rmdir /opt/synergy 2>/dev/null || true
 
   for icon in /usr/share/icons/hicolor/*/apps/io.synergy-network.node-control-panel.* /usr/share/icons/hicolor/*/apps/synergy-node-control-panel.* /usr/share/pixmaps/io.synergy-network.node-control-panel.*; do

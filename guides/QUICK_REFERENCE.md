@@ -1,8 +1,8 @@
-# Synergy Testnet-Beta Quick Reference
+# Synergy Testnet Quick Reference
 
 ## Network Configuration
 
-- **Chain ID**: 338639
+- **Chain ID**: 1262
 - **P2P Port**: 5622
 - **RPC Port**: 5640
 - **WebSocket Port**: 5660
@@ -10,14 +10,14 @@
 
 ## Endpoints
 
-- **Core RPC**: https://testbeta-core-rpc.synergy-network.io
-- **Core WebSocket**: wss://testbeta-core-ws.synergy-network.io
-- **EVM RPC**: https://testbeta-evm-rpc.synergy-network.io
-- **EVM WebSocket**: wss://testbeta-evm-ws.synergy-network.io
-- **API**: https://testbeta-api.synergy-network.io
-- **Explorer**: https://testbeta-explorer.synergy-network.io
-- **Indexer**: https://testbeta-indexer.synergy-network.io
-- **Faucet**: https://testbeta-faucet.synergy-network.io
+- **Core RPC**: https://testnet-core-rpc.synergy-network.io
+- **Core WebSocket**: wss://testnet-core-ws.synergy-network.io
+- **EVM RPC**: https://testnet-evm-rpc.synergy-network.io
+- **EVM WebSocket**: wss://testnet-evm-ws.synergy-network.io
+- **API**: https://testnet-api.synergy-network.io
+- **Explorer**: https://testnet-explorer.synergy-network.io
+- **Indexer**: https://testnet-indexer.synergy-network.io
+- **Faucet**: https://testnet-faucet.synergy-network.io
 
 ## Bootnodes
 
@@ -54,32 +54,32 @@
 ## Cluster
 
 - **Cluster ID**: `syngrp116xlcwtcuwd8cdkqrftdww5dpqvm699uanux4mc`
-- **Name**: Testnet-Beta Bootstrap Cluster
+- **Name**: Testnet Bootstrap Cluster
 - **Class**: 1 (Consensus Nodes)
 
 ## Network
 
 - **Total Supply**: 1,150,000 SNRG
 - **Burn Address**: `synergy00000000000000000000000burn`
-- **Chain ID**: `synergy-testbeta`
+- **Chain ID**: `synergy-testnet`
 
 ## Quick Commands
 
 ```bash
 # Start primary bootnode
-./testbeta.sh start validator
+./testnet.sh start validator
 
 # Check status
-./testbeta.sh status
+./testnet.sh status
 
 # View logs
-./testbeta.sh logs
+./testnet.sh logs
 
 # Clean and reset
-./testbeta.sh clean
+./testnet.sh clean
 
 # Build project
-./testbeta.sh build
+./testnet.sh build
 ```
 
 ## Generate New Address

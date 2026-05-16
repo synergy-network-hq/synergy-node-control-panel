@@ -1,7 +1,7 @@
 use crate::app_context::AppContext;
-use crate::testbeta_agent_service::{
-    TestnetBetaAgentControlRequest, TestnetBetaAgentControlResponse, TestnetBetaAgentHealth,
-    TESTBETA_AGENT_PORT,
+use crate::testnet_agent_service::{
+    TestnetAgentControlRequest, TestnetAgentControlResponse, TestnetAgentHealth,
+    TESTNET_AGENT_PORT,
 };
 use chrono::Utc;
 use futures_util::future::join_all;
@@ -101,7 +101,7 @@ pub struct MonitorControlCapabilities {
     pub export_logs_configured: bool,
     pub view_chain_data_configured: bool,
     pub export_chain_data_configured: bool,
-    /// True when the node can be reached via the testbeta-agent or a configured
+    /// True when the node can be reached via the testnet-agent or a configured
     /// SSH command, meaning the `sync_node` action (nodectl sync) is available.
     pub sync_node_configured: bool,
     /// True when the orchestrator `deploy_agent` action is available for this node,
@@ -452,7 +452,7 @@ pub fn monitor_ensure_ssh_keypair_from_context(app_context: &AppContext) -> Resu
                 "-f",
                 &private_key_arg,
                 "-C",
-                "testbeta-ops",
+                "testnet-ops",
                 "-N",
                 "",
             ])
@@ -553,7 +553,7 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                         };
                     }
 
-                    let endpoint = format!("http://{management_host}:{TESTBETA_AGENT_PORT}/health");
+                    let endpoint = format!("http://{management_host}:{TESTNET_AGENT_PORT}/health");
                     let started = Instant::now();
                     match client.get(&endpoint).send().await {
                         Ok(response) => {
@@ -584,7 +584,7 @@ pub async fn get_monitor_agent_snapshot() -> Result<MonitorAgentSnapshot, String
                                 };
                             }
 
-                            match response.json::<TestnetBetaAgentHealth>().await {
+                            match response.json::<TestnetAgentHealth>().await {
                                 Ok(payload) => {
                                     let mut installed_node_slot_ids = payload
                                         .node_slot_ids
@@ -806,25 +806,25 @@ fn detect_local_machine_id_override() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-async fn local_agent_health_check() -> Result<TestnetBetaAgentHealth, String> {
+async fn local_agent_health_check() -> Result<TestnetAgentHealth, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(2))
         .connect_timeout(Duration::from_secs(1))
         .build()
         .unwrap_or_else(|_| Client::new());
     let response = client
-        .get(format!("http://127.0.0.1:{TESTBETA_AGENT_PORT}/health"))
+        .get(format!("http://127.0.0.1:{TESTNET_AGENT_PORT}/health"))
         .send()
         .await
-        .map_err(|error| format!("Local testbeta agent health request failed: {error}"))?
+        .map_err(|error| format!("Local testnet agent health request failed: {error}"))?
         .error_for_status()
         .map_err(|error| {
-            format!("Local testbeta agent health endpoint returned an error: {error}")
+            format!("Local testnet agent health endpoint returned an error: {error}")
         })?;
     response
-        .json::<TestnetBetaAgentHealth>()
+        .json::<TestnetAgentHealth>()
         .await
-        .map_err(|error| format!("Failed to decode local testbeta agent health payload: {error}"))
+        .map_err(|error| format!("Failed to decode local testnet agent health payload: {error}"))
 }
 
 pub async fn monitor_mark_setup_complete(
@@ -863,7 +863,7 @@ pub async fn monitor_mark_setup_complete(
     let health = local_agent_health_check().await?;
     if health.status.trim().to_ascii_lowercase() != "ok" {
         return Err(
-            "Setup cannot be marked complete: local testbeta agent health is not OK.".to_string(),
+            "Setup cannot be marked complete: local testnet agent health is not OK.".to_string(),
         );
     }
 
@@ -1460,7 +1460,7 @@ fn resolve_hosts_env_path() -> Result<PathBuf, String> {
         .map(|parent| parent.join("hosts.env"))
         .filter(|candidate| candidate.is_file())
         .ok_or_else(|| {
-            "Unable to resolve testbeta/runtime/hosts.env from the active monitor workspace."
+            "Unable to resolve testnet/runtime/hosts.env from the active monitor workspace."
                 .to_string()
         })
 }
@@ -1535,7 +1535,7 @@ async fn send_explorer_reset_request(endpoint: &str, reason: &str) -> Result<(),
 fn send_explorer_reset_via_orchestrator(endpoint: &str, reason: &str) -> Result<(), String> {
     let inventory_path = resolve_inventory_path()?;
     let script_path = resolve_orchestrator_script_path(&inventory_path).ok_or_else(|| {
-        "Unable to resolve scripts/testbeta/remote-node-orchestrator.sh for explorer reset fallback."
+        "Unable to resolve scripts/testnet/remote-node-orchestrator.sh for explorer reset fallback."
             .to_string()
     })?;
     let hosts_env_path = resolve_hosts_env_path()
@@ -1841,7 +1841,7 @@ pub async fn monitor_update_local_agent_from_context(
     let identity = monitor_detect_local_machine_identity()?;
     if !identity.detected {
         return Err(format!(
-            "Local testbeta-agent self-update is only available on the target machine. {}",
+            "Local testnet-agent self-update is only available on the target machine. {}",
             identity.message
         ));
     }
@@ -1855,21 +1855,21 @@ pub async fn monitor_update_local_agent_from_context(
         .eq_ignore_ascii_case(local_machine_id.as_str())
     {
         return Err(format!(
-            "Node {} belongs to {}, but this control panel is running on {}. Open the control panel on the target machine to update its local testbeta agent without SSH.",
+            "Node {} belongs to {}, but this control panel is running on {}. Open the control panel on the target machine to update its local testnet agent without SSH.",
             node.node_slot_id, node.physical_machine_id, local_machine_id
         ));
     }
 
     let installed_binary =
-        crate::agent::force_update_local_testbeta_agent_from_context(app_context).await?;
+        crate::agent::force_update_local_testnet_agent_from_context(app_context).await?;
     Ok(MonitorControlResult {
         node_slot_id: node.node_slot_id.clone(),
         action: "update_agent".to_string(),
         success: true,
         exit_code: 0,
-        command: "local testbeta agent self-update".to_string(),
+        command: "local testnet agent self-update".to_string(),
         stdout: format!(
-            "Updated the local testbeta agent for {} on {} using the bundled resource binary at {}.",
+            "Updated the local testnet agent for {} on {} using the bundled resource binary at {}.",
             node.node_slot_id,
             node.physical_machine_id,
             installed_binary.display()
@@ -2042,7 +2042,7 @@ mod terminal_command_tests {
     #[test]
     fn splits_powershell_file_command_with_windows_path() {
         let tokens = split_command_arguments(
-            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testbeta\runtime\installers\node-12\install_and_start.ps1""#,
+            r#"powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testnet\runtime\installers\node-12\install_and_start.ps1""#,
         )
         .expect("command should parse");
 
@@ -2054,7 +2054,7 @@ mod terminal_command_tests {
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                r"C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testbeta\runtime\installers\node-12\install_and_start.ps1",
+                r"C:\Users\blueiris\.synergy-node-control-panel\monitor-workspace\testnet\runtime\installers\node-12\install_and_start.ps1",
             ]
         );
     }
@@ -2082,10 +2082,10 @@ mod terminal_command_tests {
     #[test]
     fn stale_agent_action_errors_trigger_ssh_fallback() {
         assert!(agent_error_requires_ssh_fallback(
-            r#"{"error":"Unsupported testbeta agent action: sync_node"}"#
+            r#"{"error":"Unsupported testnet agent action: sync_node"}"#
         ));
         assert!(agent_error_requires_ssh_fallback(
-            "Unsupported testbeta agent action: sync_node"
+            "Unsupported testnet agent action: sync_node"
         ));
         assert!(!agent_error_requires_ssh_fallback(
             r#"{"error":"agent access restricted to loopback or approved management networks"}"#
@@ -2186,25 +2186,25 @@ mod terminal_command_tests {
     }
 }
 
-pub fn monitor_apply_testbeta_topology_from_context(
+pub fn monitor_apply_testnet_topology_from_context(
     app_context: &AppContext,
 ) -> Result<String, String> {
     let workspace = ensure_monitor_workspace_with_context(app_context)?;
-    apply_monitor_testbeta_topology(&workspace)
+    apply_monitor_testnet_topology(&workspace)
 }
 
-fn apply_monitor_testbeta_topology(workspace: &Path) -> Result<String, String> {
-    let inventory_path = workspace.join("testbeta/runtime/node-inventory.csv");
+fn apply_monitor_testnet_topology(workspace: &Path) -> Result<String, String> {
+    let inventory_path = workspace.join("testnet/runtime/node-inventory.csv");
     sanitize_inventory_hosts(&inventory_path)?;
 
     let mut warnings = Vec::new();
 
-    let hosts_env_path = workspace.join("testbeta/runtime/hosts.env");
+    let hosts_env_path = workspace.join("testnet/runtime/hosts.env");
     generate_monitor_hosts_env(&workspace, &inventory_path, &hosts_env_path)?;
 
     // Re-render base configs from the refreshed inventory so bundled installer templates do
     // not keep shipping stale node roles, machine mappings, or bootstrap topology.
-    let render_configs_script = workspace.join("scripts/testbeta/render-configs.sh");
+    let render_configs_script = workspace.join("scripts/testnet/render-configs.sh");
     if render_configs_script.is_file() {
         match ProcessCommand::new("bash")
             .arg(render_configs_script.to_string_lossy().to_string())
@@ -2233,7 +2233,7 @@ fn apply_monitor_testbeta_topology(workspace: &Path) -> Result<String, String> {
         }
     }
 
-    let installers_dir = workspace.join("testbeta/runtime/installers");
+    let installers_dir = workspace.join("testnet/runtime/installers");
 
     let entries = load_monitor_hosts_env_entries(&inventory_path)?;
     for entry in entries {
@@ -2258,7 +2258,7 @@ fn apply_monitor_testbeta_topology(workspace: &Path) -> Result<String, String> {
     }
 
     let mut message = format!(
-        "Applied 13-machine testbeta topology to {} and installer configs; hosts.env refreshed.",
+        "Applied 13-machine testnet topology to {} and installer configs; hosts.env refreshed.",
         inventory_path.display()
     );
     if !warnings.is_empty() {
@@ -2331,7 +2331,7 @@ fn resolve_inventory_path() -> Result<PathBuf, String> {
     }
 
     if let Ok(workspace) = resolve_monitor_workspace_path() {
-        let workspace_inventory = workspace.join("testbeta/runtime/node-inventory.csv");
+        let workspace_inventory = workspace.join("testnet/runtime/node-inventory.csv");
         if workspace_inventory.is_file() {
             return Ok(workspace_inventory);
         }
@@ -2346,9 +2346,9 @@ fn resolve_inventory_path() -> Result<PathBuf, String> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
             candidates.extend(discovery_candidates_from_base(exe_dir));
-            candidates.push(exe_dir.join("../Resources/testbeta/runtime/node-inventory.csv"));
+            candidates.push(exe_dir.join("../Resources/testnet/runtime/node-inventory.csv"));
             candidates.push(
-                exe_dir.join("../Resources/_up_/_up_/_up_/testbeta/runtime/node-inventory.csv"),
+                exe_dir.join("../Resources/_up_/_up_/_up_/testnet/runtime/node-inventory.csv"),
             );
         }
     }
@@ -2363,11 +2363,11 @@ fn resolve_inventory_path() -> Result<PathBuf, String> {
 
 fn discovery_candidates_from_base(base: &Path) -> Vec<PathBuf> {
     let mut output = Vec::new();
-    output.push(base.join("testbeta/runtime/node-inventory.csv"));
+    output.push(base.join("testnet/runtime/node-inventory.csv"));
     output.push(base.join("node-inventory.csv"));
 
     for ancestor in base.ancestors().take(10) {
-        output.push(ancestor.join("testbeta/runtime/node-inventory.csv"));
+        output.push(ancestor.join("testnet/runtime/node-inventory.csv"));
     }
 
     output
@@ -4736,7 +4736,7 @@ fn build_control_capabilities(commands: &NodeControlCommands) -> MonitorControlC
     let configuration_hint = if enabled {
         "Remote control is enabled for this node (hosts.env mappings and/or bundled orchestrator defaults).".to_string()
     } else {
-        "Add MACHINE_XX_START_CMD / STOP_CMD / RESTART_CMD / STATUS_CMD plus optional SETUP/EXPORT_LOGS/VIEW_CHAIN_DATA/EXPORT_CHAIN_DATA entries in testbeta/runtime/hosts.env, or ship bundled orchestration resources with the app.".to_string()
+        "Add MACHINE_XX_START_CMD / STOP_CMD / RESTART_CMD / STATUS_CMD plus optional SETUP/EXPORT_LOGS/VIEW_CHAIN_DATA/EXPORT_CHAIN_DATA entries in testnet/runtime/hosts.env, or ship bundled orchestration resources with the app.".to_string()
     };
 
     MonitorControlCapabilities {
@@ -5545,7 +5545,7 @@ fn build_atlas_links(
         })
         .or_else(|| std::env::var("SYNERGY_ATLAS_BASE_URL").ok())
         .or_else(|| std::env::var("SYNERGY_EXPLORER_ENDPOINT").ok())
-        .or_else(|| Some("https://testbeta-explorer.synergy-network.io".to_string()))
+        .or_else(|| Some("https://testnet-explorer.synergy-network.io".to_string()))
         .map(|value| value.trim().trim_end_matches('/').to_string())
         .filter(|value| !value.is_empty());
 
@@ -5675,7 +5675,7 @@ fn agent_endpoint_for_node(
     if trimmed.is_empty() {
         return None;
     }
-    Some(format!("http://{trimmed}:{TESTBETA_AGENT_PORT}"))
+    Some(format!("http://{trimmed}:{TESTNET_AGENT_PORT}"))
 }
 
 /// Actions that involve stopping/starting a node binary (chain reset, install, setup)
@@ -5724,7 +5724,7 @@ async fn try_execute_monitor_agent_control(
         .build()
         .unwrap_or_else(|_| Client::new());
 
-    let request = TestnetBetaAgentControlRequest {
+    let request = TestnetAgentControlRequest {
         node_slot_id: node.node_slot_id.clone(),
         action: action.to_string(),
         target_reason: None,
@@ -5752,7 +5752,7 @@ async fn try_execute_monitor_agent_control(
     if agent_error_requires_ssh_fallback(&text) {
         return AgentControlAttempt::Unavailable;
     }
-    let result = if let Ok(payload) = serde_json::from_str::<TestnetBetaAgentControlResponse>(&text)
+    let result = if let Ok(payload) = serde_json::from_str::<TestnetAgentControlResponse>(&text)
     {
         let payload = if let Some(job_id) = payload.job_id.clone() {
             if agent_phase_is_terminal(payload.phase.as_deref()) {
@@ -5760,7 +5760,7 @@ async fn try_execute_monitor_agent_control(
             } else {
                 match poll_monitor_agent_job(&client, &base_url, &job_id, action).await {
                     Ok(polled) => polled,
-                    Err(error) => TestnetBetaAgentControlResponse {
+                    Err(error) => TestnetAgentControlResponse {
                         node_slot_id: payload.node_slot_id.clone(),
                         action: payload.action.clone(),
                         success: false,
@@ -5811,7 +5811,7 @@ async fn try_execute_monitor_agent_control(
             action: action.to_string(),
             success: status.is_success(),
             exit_code: if status.is_success() { 0 } else { 1 },
-            command: "testbeta-agent".to_string(),
+            command: "testnet-agent".to_string(),
             stdout: if status.is_success() {
                 truncate_text(text.trim(), 6000)
             } else {
@@ -5841,7 +5841,7 @@ async fn poll_monitor_agent_job(
     base_url: &str,
     job_id: &str,
     action: &str,
-) -> Result<TestnetBetaAgentControlResponse, String> {
+) -> Result<TestnetAgentControlResponse, String> {
     let deadline = Instant::now() + agent_request_timeout(action);
     loop {
         if Instant::now() >= deadline {
@@ -5864,7 +5864,7 @@ async fn poll_monitor_agent_job(
         }
 
         let payload =
-            serde_json::from_str::<TestnetBetaAgentControlResponse>(&text).map_err(|error| {
+            serde_json::from_str::<TestnetAgentControlResponse>(&text).map_err(|error| {
                 format!("Failed to decode agent control job {job_id} payload: {error}")
             })?;
         if agent_phase_is_terminal(payload.phase.as_deref()) {
@@ -5881,7 +5881,7 @@ fn agent_error_requires_ssh_fallback(text: &str) -> bool {
         return false;
     }
 
-    if trimmed.contains("Unsupported testbeta agent action") {
+    if trimmed.contains("Unsupported testnet agent action") {
         return true;
     }
 
@@ -5891,7 +5891,7 @@ fn agent_error_requires_ssh_fallback(text: &str) -> bool {
             payload
                 .get("error")
                 .and_then(Value::as_str)
-                .map(|error| error.contains("Unsupported testbeta agent action"))
+                .map(|error| error.contains("Unsupported testnet agent action"))
         })
         .unwrap_or(false)
 }
@@ -6128,28 +6128,28 @@ fn resolve_orchestrator_script_path(inventory_path: &Path) -> Option<String> {
     let mut candidates = Vec::new();
 
     if let Some(runtime_dir) = inventory_path.parent() {
-        if let Some(testbeta_dir) = runtime_dir.parent() {
-            if let Some(root_dir) = testbeta_dir.parent() {
-                candidates.push(root_dir.join("scripts/testbeta/remote-node-orchestrator.sh"));
+        if let Some(testnet_dir) = runtime_dir.parent() {
+            if let Some(root_dir) = testnet_dir.parent() {
+                candidates.push(root_dir.join("scripts/testnet/remote-node-orchestrator.sh"));
             }
         }
     }
 
     if let Ok(current_dir) = std::env::current_dir() {
         for ancestor in current_dir.ancestors().take(10) {
-            candidates.push(ancestor.join("scripts/testbeta/remote-node-orchestrator.sh"));
+            candidates.push(ancestor.join("scripts/testnet/remote-node-orchestrator.sh"));
         }
     }
 
     if let Ok(executable) = std::env::current_exe() {
         if let Some(exe_dir) = executable.parent() {
             candidates
-                .push(exe_dir.join("../Resources/scripts/testbeta/remote-node-orchestrator.sh"));
+                .push(exe_dir.join("../Resources/scripts/testnet/remote-node-orchestrator.sh"));
             candidates
-                .push(exe_dir.join("../../Resources/scripts/testbeta/remote-node-orchestrator.sh"));
+                .push(exe_dir.join("../../Resources/scripts/testnet/remote-node-orchestrator.sh"));
             candidates.push(
                 exe_dir.join(
-                    "../Resources/_up_/_up_/_up_/scripts/testbeta/remote-node-orchestrator.sh",
+                    "../Resources/_up_/_up_/_up_/scripts/testnet/remote-node-orchestrator.sh",
                 ),
             );
         }
@@ -6189,8 +6189,8 @@ fn shell_quote(value: &str) -> String {
 const MONITOR_WORKSPACE_ENV: &str = "SYNERGY_MONITOR_WORKSPACE";
 const MONITOR_SECURITY_CONFIG_RELATIVE: &str = "config/security.json";
 const MONITOR_AUDIT_LOG_RELATIVE: &str = "audit/control-actions.jsonl";
-const MONITOR_USER_MANUAL_RELATIVE: &str = "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md";
-const MONITOR_WORKSPACE_MANIFEST_RELATIVE: &str = "testbeta/runtime/workspace-manifest.json";
+const MONITOR_USER_MANUAL_RELATIVE: &str = "guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md";
+const MONITOR_WORKSPACE_MANIFEST_RELATIVE: &str = "testnet/runtime/workspace-manifest.json";
 const MONITOR_SETUP_WIZARD_VERSION: u32 = 3;
 const MONITOR_HOSTS_BACKUP_RETENTION: usize = 5;
 
@@ -6221,7 +6221,7 @@ pub fn ensure_monitor_workspace_with_context(app_context: &AppContext) -> Result
     ensure_security_config_exists(&workspace_root)?;
     validate_monitor_workspace_assets(&workspace_root)?;
 
-    let inventory_path = workspace_root.join("testbeta/runtime/node-inventory.csv");
+    let inventory_path = workspace_root.join("testnet/runtime/node-inventory.csv");
     if inventory_path.is_file() {
         std::env::set_var(
             "SYNERGY_MONITOR_INVENTORY",
@@ -6244,10 +6244,10 @@ fn legacy_workspace_roots(app_context: &AppContext) -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
     if let Some(home_dir) = dirs::home_dir().or_else(dirs::data_dir) {
-        let legacy_testbeta_workspace = format!(".synergy-{}-control-panel", "testbeta");
+        let legacy_testnet_workspace = format!(".synergy-{}-control-panel", "testnet");
         roots.push(
             home_dir
-                .join(legacy_testbeta_workspace)
+                .join(legacy_testnet_workspace)
                 .join("monitor-workspace"),
         );
         roots.push(
@@ -6268,7 +6268,7 @@ fn migrate_legacy_workspace_if_needed(
     app_context: &AppContext,
     workspace_root: &Path,
 ) -> Result<(), String> {
-    let target_inventory = workspace_root.join("testbeta/runtime/node-inventory.csv");
+    let target_inventory = workspace_root.join("testnet/runtime/node-inventory.csv");
     if target_inventory.is_file() {
         return Ok(());
     }
@@ -6290,17 +6290,17 @@ fn extract_bundled_resources_to_workspace(
     workspace_root: &Path,
 ) -> Result<(), String> {
     let relative_paths = [
-        "testbeta/runtime/node-inventory.csv",
-        "testbeta/runtime/hosts.env.example",
-        "testbeta/runtime/keys",
-        "testbeta/runtime/configs",
-        "testbeta/runtime/installers",
+        "testnet/runtime/node-inventory.csv",
+        "testnet/runtime/hosts.env.example",
+        "testnet/runtime/keys",
+        "testnet/runtime/configs",
+        "testnet/runtime/installers",
         MONITOR_WORKSPACE_MANIFEST_RELATIVE,
         "binaries",
-        "scripts/testbeta",
+        "scripts/testnet",
         "scripts/cleanup",
-        "scripts/reset-testbeta.sh",
-        "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md",
+        "scripts/reset-testnet.sh",
+        "guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md",
     ];
 
     let roots = discover_workspace_source_roots(app_context);
@@ -6327,11 +6327,11 @@ fn extract_bundled_resources_to_workspace(
 
     // Always refresh critical orchestration scripts so existing installs receive runtime fixes.
     let always_refresh = [
-        "testbeta/runtime/node-inventory.csv",
-        "scripts/testbeta/remote-node-orchestrator.sh",
-        "scripts/testbeta/generate-monitor-hosts-env.sh",
-        "scripts/testbeta/render-configs.sh",
-        "scripts/testbeta/reset-testbeta.sh",
+        "testnet/runtime/node-inventory.csv",
+        "scripts/testnet/remote-node-orchestrator.sh",
+        "scripts/testnet/generate-monitor-hosts-env.sh",
+        "scripts/testnet/render-configs.sh",
+        "scripts/testnet/reset-testnet.sh",
         MONITOR_WORKSPACE_MANIFEST_RELATIVE,
     ];
     for relative in always_refresh {
@@ -6346,8 +6346,8 @@ fn extract_bundled_resources_to_workspace(
     }
 
     let always_refresh_dirs = [
-        "testbeta/runtime/configs",
-        "testbeta/runtime/keys",
+        "testnet/runtime/configs",
+        "testnet/runtime/keys",
         "binaries",
         "scripts/cleanup",
     ];
@@ -6366,14 +6366,14 @@ fn extract_bundled_resources_to_workspace(
     // machine metadata even when a full installer regeneration is skipped.
     if let Some(source_installers) = roots
         .iter()
-        .map(|root| root.join("testbeta/runtime/installers"))
+        .map(|root| root.join("testnet/runtime/installers"))
         .find(|candidate| candidate.is_dir())
     {
-        let destination_installers = workspace_root.join("testbeta/runtime/installers");
+        let destination_installers = workspace_root.join("testnet/runtime/installers");
         refresh_installer_bundle_assets(&source_installers, &destination_installers)?;
     }
 
-    let inventory_path = workspace_root.join("testbeta/runtime/node-inventory.csv");
+    let inventory_path = workspace_root.join("testnet/runtime/node-inventory.csv");
     if !inventory_path.is_file() {
         return Err(format!(
             "Workspace initialization failed: {} not found after extraction",
@@ -6381,12 +6381,12 @@ fn extract_bundled_resources_to_workspace(
         ));
     }
 
-    let hosts_env = workspace_root.join("testbeta/runtime/hosts.env");
+    let hosts_env = workspace_root.join("testnet/runtime/hosts.env");
     if !hosts_env.is_file() {
         if let Err(generate_error) =
             generate_monitor_hosts_env(workspace_root, &inventory_path, &hosts_env)
         {
-            let example = workspace_root.join("testbeta/runtime/hosts.env.example");
+            let example = workspace_root.join("testnet/runtime/hosts.env.example");
             if example.is_file() {
                 if let Some(parent) = hosts_env.parent() {
                     fs::create_dir_all(parent).map_err(|error| {
@@ -6430,9 +6430,9 @@ fn validate_monitor_workspace_assets(workspace_root: &Path) -> Result<(), String
     }
 
     let required_files = [
-        "testbeta/runtime/node-inventory.csv",
-        "testbeta/runtime/hosts.env.example",
-        "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md",
+        "testnet/runtime/node-inventory.csv",
+        "testnet/runtime/hosts.env.example",
+        "guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md",
     ];
     for relative in required_files {
         let path = workspace_root.join(relative);
@@ -6442,8 +6442,8 @@ fn validate_monitor_workspace_assets(workspace_root: &Path) -> Result<(), String
     }
 
     let required_dirs = [
-        "testbeta/runtime/configs",
-        "testbeta/runtime/installers",
+        "testnet/runtime/configs",
+        "testnet/runtime/installers",
         "binaries",
     ];
     for relative in required_dirs {
@@ -7076,7 +7076,7 @@ fn generate_monitor_hosts_env(
 ) -> Result<(), String> {
     let entries = load_monitor_hosts_env_entries(inventory_path)?;
     let orchestrator_script = workspace_root
-        .join("scripts/testbeta/remote-node-orchestrator.sh")
+        .join("scripts/testnet/remote-node-orchestrator.sh")
         .to_string_lossy()
         .replace('\\', "/");
     let orchestrator_script = shell_quote(&orchestrator_script);
@@ -7090,14 +7090,14 @@ fn generate_monitor_hosts_env(
             .to_string(),
         "#".to_string(),
         "# Global SSH defaults used by remote-node-orchestrator.sh:".to_string(),
-        "SYNERGY_TESTBETA_SSH_USER=ops".to_string(),
-        "SYNERGY_TESTBETA_SSH_PORT=22".to_string(),
+        "SYNERGY_TESTNET_SSH_USER=ops".to_string(),
+        "SYNERGY_TESTNET_SSH_PORT=22".to_string(),
         "# Optional global SSH private key path:".to_string(),
-        "# SYNERGY_TESTBETA_SSH_KEY=/Users/you/.ssh/id_ed25519".to_string(),
+        "# SYNERGY_TESTNET_SSH_KEY=/Users/you/.ssh/id_ed25519".to_string(),
         String::new(),
         "# Explorer bridge used by control panel Atlas links:".to_string(),
-        "ATLAS_BASE_URL=https://testbeta-explorer.synergy-network.io".to_string(),
-        "SYNERGY_EXPLORER_RESET_ENDPOINT=https://testbeta-atlas-api.synergy-network.io/v1/admin/reindex-from-genesis".to_string(),
+        "ATLAS_BASE_URL=https://testnet-explorer.synergy-network.io".to_string(),
+        "SYNERGY_EXPLORER_RESET_ENDPOINT=https://testnet-atlas-api.synergy-network.io/v1/admin/reindex-from-genesis".to_string(),
         String::new(),
     ];
 
@@ -7348,10 +7348,10 @@ fn apply_topology_to_installer_node_env(path: &Path, management_host: &str) -> R
 
     upsert_key_value_line(&mut lines, "MONITOR_HOST", management_host);
     upsert_key_value_line(&mut lines, "MANAGEMENT_HOST", management_host);
-    upsert_key_value_line(&mut lines, "CHAIN_ID", "338639");
-    upsert_key_value_line(&mut lines, "NETWORK_ID", "synergy-testnet-beta");
-    upsert_key_value_line(&mut lines, "SYNERGY_CHAIN_ID", "338639");
-    upsert_key_value_line(&mut lines, "SYNERGY_NETWORK_ID", "synergy-testnet-beta");
+    upsert_key_value_line(&mut lines, "CHAIN_ID", "1263");
+    upsert_key_value_line(&mut lines, "NETWORK_ID", "synergy-testnet");
+    upsert_key_value_line(&mut lines, "SYNERGY_CHAIN_ID", "1263");
+    upsert_key_value_line(&mut lines, "SYNERGY_NETWORK_ID", "synergy-testnet");
     upsert_key_value_line(&mut lines, "SYNERGY_CONFIG_PATH", "config/node.toml");
     upsert_key_value_line(&mut lines, "RPC_BIND_ADDRESS", &rpc_bind);
     upsert_key_value_line(&mut lines, "SYNERGY_RPC_BIND_ADDRESS", &rpc_bind);
@@ -7481,8 +7481,8 @@ fn ensure_security_config_exists(workspace: &Path) -> Result<(), String> {
 }
 
 fn is_legacy_local_installers_path(value: &str) -> bool {
-    value.contains("/testbeta/runtime/installers")
-        || value.contains("\\testbeta\\runtime\\installers")
+    value.contains("/testnet/runtime/installers")
+        || value.contains("\\testnet\\runtime\\installers")
 }
 
 fn normalize_remote_root_opt(value: &Option<String>) -> Option<String> {
@@ -8302,11 +8302,11 @@ fn apply_security_ssh_profile(
     let machine_key = node_slot_id.to_ascii_uppercase().replace('-', "_");
     let mut env_pairs = Vec::<(String, String)>::new();
     env_pairs.push((
-        "SYNERGY_TESTBETA_SSH_USER".to_string(),
+        "SYNERGY_TESTNET_SSH_USER".to_string(),
         profile.ssh_user.clone(),
     ));
     env_pairs.push((
-        "SYNERGY_TESTBETA_SSH_PORT".to_string(),
+        "SYNERGY_TESTNET_SSH_PORT".to_string(),
         profile.ssh_port.to_string(),
     ));
     if let Some(value) = profile
@@ -8315,7 +8315,7 @@ fn apply_security_ssh_profile(
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
     {
-        env_pairs.push(("SYNERGY_TESTBETA_SSH_KEY".to_string(), value.to_string()));
+        env_pairs.push(("SYNERGY_TESTNET_SSH_KEY".to_string(), value.to_string()));
     }
     if let Some(value) = profile
         .remote_root
@@ -8771,10 +8771,10 @@ async fn execute_monitor_node_control(
                         action: normalized_action.to_string(),
                         success: false,
                         exit_code: 1,
-                        command: "testbeta-agent".to_string(),
+                        command: "testnet-agent".to_string(),
                         stdout: String::new(),
                         stderr: format!(
-                            "The testbeta agent is unavailable for {}. Normal '{}' operations require the local control panel on the target machine or a healthy remote testbeta-agent; SSH fallback is disabled for this action.",
+                            "The testnet agent is unavailable for {}. Normal '{}' operations require the local control panel on the target machine or a healthy remote testnet-agent; SSH fallback is disabled for this action.",
                             node.node_slot_id, normalized_action
                         ),
                         executed_at_utc: Utc::now().to_rfc3339(),

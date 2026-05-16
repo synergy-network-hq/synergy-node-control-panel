@@ -1,5 +1,5 @@
 use crate::app_context::AppContext;
-use crate::testbeta_agent_service::TESTBETA_AGENT_PORT;
+use crate::testnet_agent_service::TESTNET_AGENT_PORT;
 use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -75,19 +75,19 @@ fn prepare_hosts_env_in_workspace(
     workspace: &Path,
     input: JarvisPrepareHostsEnvInput,
 ) -> Result<String, String> {
-    let hosts_env_path = workspace.join("testbeta/runtime/hosts.env");
+    let hosts_env_path = workspace.join("testnet/runtime/hosts.env");
     ensure_hosts_env_exists(workspace, &hosts_env_path)?;
 
     let mut updates = BTreeMap::<String, String>::new();
 
     if let Some(user) = normalize_opt(&input.global_ssh_user) {
-        updates.insert("SYNERGY_TESTBETA_SSH_USER".to_string(), user);
+        updates.insert("SYNERGY_TESTNET_SSH_USER".to_string(), user);
     }
     if let Some(port) = input.global_ssh_port {
-        updates.insert("SYNERGY_TESTBETA_SSH_PORT".to_string(), port.to_string());
+        updates.insert("SYNERGY_TESTNET_SSH_PORT".to_string(), port.to_string());
     }
     if let Some(key_path) = normalize_opt(&input.global_ssh_key_path) {
-        updates.insert("SYNERGY_TESTBETA_SSH_KEY".to_string(), key_path);
+        updates.insert("SYNERGY_TESTNET_SSH_KEY".to_string(), key_path);
     }
     if let Some(atlas) = normalize_opt(&input.atlas_base_url) {
         updates.insert("ATLAS_BASE_URL".to_string(), atlas);
@@ -141,7 +141,7 @@ fn ensure_hosts_env_exists(workspace: &Path, hosts_env_path: &Path) -> Result<()
         return Ok(());
     }
 
-    let example = workspace.join("testbeta/runtime/hosts.env.example");
+    let example = workspace.join("testnet/runtime/hosts.env.example");
     if !example.is_file() {
         return Err(format!(
             "hosts.env not found and no example available at {}",
@@ -340,14 +340,14 @@ fn parse_inventory_machines(path: &Path) -> Result<Vec<JarvisInventoryMachine>, 
     Ok(output)
 }
 
-pub async fn ensure_local_testbeta_agent_from_context(
+pub async fn ensure_local_testnet_agent_from_context(
     app_context: &AppContext,
 ) -> Result<(), String> {
     let workspace_root = crate::monitor::ensure_monitor_workspace_with_context(app_context)?;
-    ensure_local_testbeta_agent_in_workspace(&workspace_root).await
+    ensure_local_testnet_agent_in_workspace(&workspace_root).await
 }
 
-pub async fn ensure_local_testbeta_agent_in_workspace(workspace_root: &Path) -> Result<(), String> {
+pub async fn ensure_local_testnet_agent_in_workspace(workspace_root: &Path) -> Result<(), String> {
     if local_agent_running().await {
         return Ok(());
     }
@@ -360,7 +360,7 @@ pub async fn ensure_local_testbeta_agent_in_workspace(workspace_root: &Path) -> 
         std::thread::sleep(std::time::Duration::from_millis(300));
         if !local_agent_port_available() && !local_agent_running().await {
             return Err(format!(
-                "Port {TESTBETA_AGENT_PORT} is already occupied by a non-agent process. Free the port before starting the local testbeta agent."
+                "Port {TESTNET_AGENT_PORT} is already occupied by a non-agent process. Free the port before starting the local testnet agent."
             ));
         }
     }
@@ -368,7 +368,7 @@ pub async fn ensure_local_testbeta_agent_in_workspace(workspace_root: &Path) -> 
     let autostart_ok = match install_agent_autostart(workspace_root, &installed_binary) {
         Ok(()) => true,
         Err(error) => {
-            eprintln!("testbeta agent autostart warning: {error}");
+            eprintln!("testnet agent autostart warning: {error}");
             false
         }
     };
@@ -389,17 +389,17 @@ pub async fn ensure_local_testbeta_agent_in_workspace(workspace_root: &Path) -> 
         return Ok(());
     }
 
-    Err("Local testbeta agent did not become healthy after startup".to_string())
+    Err("Local testnet agent did not become healthy after startup".to_string())
 }
 
-pub async fn force_update_local_testbeta_agent_from_context(
+pub async fn force_update_local_testnet_agent_from_context(
     app_context: &AppContext,
 ) -> Result<PathBuf, String> {
     let workspace_root = crate::monitor::ensure_monitor_workspace_with_context(app_context)?;
-    force_update_local_testbeta_agent_in_workspace(&workspace_root).await
+    force_update_local_testnet_agent_in_workspace(&workspace_root).await
 }
 
-pub async fn force_update_local_testbeta_agent_in_workspace(
+pub async fn force_update_local_testnet_agent_in_workspace(
     workspace_root: &Path,
 ) -> Result<PathBuf, String> {
     let binary_source = resolve_agent_resource_binary(workspace_root)?;
@@ -408,7 +408,7 @@ pub async fn force_update_local_testbeta_agent_in_workspace(
     let autostart_ok = match install_agent_autostart(workspace_root, &installed_binary) {
         Ok(()) => true,
         Err(error) => {
-            eprintln!("testbeta agent autostart warning during update: {error}");
+            eprintln!("testnet agent autostart warning during update: {error}");
             false
         }
     };
@@ -421,7 +421,7 @@ pub async fn force_update_local_testbeta_agent_in_workspace(
         }
     }
 
-    Err("Local testbeta agent did not become healthy after update".to_string())
+    Err("Local testnet agent did not become healthy after update".to_string())
 }
 
 async fn local_agent_running() -> bool {
@@ -430,7 +430,7 @@ async fn local_agent_running() -> bool {
         .build()
         .unwrap_or_else(|_| Client::new());
     client
-        .get(format!("http://127.0.0.1:{TESTBETA_AGENT_PORT}/health"))
+        .get(format!("http://127.0.0.1:{TESTNET_AGENT_PORT}/health"))
         .send()
         .await
         .map(|response| response.status().is_success())
@@ -448,7 +448,7 @@ async fn wait_for_local_agent(attempts: usize, delay_ms: u64) -> bool {
 }
 
 fn local_agent_port_available() -> bool {
-    TcpListener::bind(("127.0.0.1", TESTBETA_AGENT_PORT)).is_ok()
+    TcpListener::bind(("127.0.0.1", TESTNET_AGENT_PORT)).is_ok()
 }
 
 fn resolve_agent_resource_binary(workspace_root: &Path) -> Result<PathBuf, String> {
@@ -467,8 +467,8 @@ fn resolve_agent_resource_binary(workspace_root: &Path) -> Result<PathBuf, Strin
         .find(|candidate| candidate.is_file())
         .ok_or_else(|| {
             format!(
-                "Bundled testbeta agent binary not found. Expected {} in workspace resources.",
-                agent_resource_binary_name().unwrap_or("synergy-testbeta-agent".to_string())
+                "Bundled testnet agent binary not found. Expected {} in workspace resources.",
+                agent_resource_binary_name().unwrap_or("synergy-testnet-agent".to_string())
             )
         })
 }
@@ -482,7 +482,7 @@ fn install_agent_binary(workspace_root: &Path, source: &Path) -> Result<PathBuf,
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
-                "Failed to create testbeta agent binary directory {}: {error}",
+                "Failed to create testnet agent binary directory {}: {error}",
                 parent.display()
             )
         })?;
@@ -490,7 +490,7 @@ fn install_agent_binary(workspace_root: &Path, source: &Path) -> Result<PathBuf,
 
     copy_file_atomic(source, &destination).map_err(|error| {
         format!(
-            "Failed to install testbeta agent binary {} -> {}: {error}",
+            "Failed to install testnet agent binary {} -> {}: {error}",
             source.display(),
             destination.display()
         )
@@ -501,7 +501,7 @@ fn install_agent_binary(workspace_root: &Path, source: &Path) -> Result<PathBuf,
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&destination, fs::Permissions::from_mode(0o755)).map_err(|error| {
             format!(
-                "Failed to mark testbeta agent binary executable {}: {error}",
+                "Failed to mark testnet agent binary executable {}: {error}",
                 destination.display()
             )
         })?;
@@ -514,7 +514,7 @@ fn copy_file_atomic(source: &Path, destination: &Path) -> Result<(), std::io::Er
     let destination_name = destination
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("testbeta-agent");
+        .unwrap_or("testnet-agent");
     let temp_name = format!(
         ".{}.tmp-{}-{}",
         destination_name,
@@ -555,7 +555,7 @@ fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), St
     let log_dir = workspace_root.join("agent").join("logs");
     fs::create_dir_all(&log_dir).map_err(|error| {
         format!(
-            "Failed to create testbeta agent log directory {}: {error}",
+            "Failed to create testnet agent log directory {}: {error}",
             log_dir.display()
         )
     })?;
@@ -564,19 +564,19 @@ fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), St
         .create(true)
         .append(true)
         .open(log_dir.join("agent.out.log"))
-        .map_err(|error| format!("Failed to open testbeta agent stdout log: {error}"))?;
+        .map_err(|error| format!("Failed to open testnet agent stdout log: {error}"))?;
     let stderr = OpenOptions::new()
         .create(true)
         .append(true)
         .open(log_dir.join("agent.err.log"))
-        .map_err(|error| format!("Failed to open testbeta agent stderr log: {error}"))?;
+        .map_err(|error| format!("Failed to open testnet agent stderr log: {error}"))?;
 
     let started_at = Utc::now().to_rfc3339();
     let startup_line = format!(
         "[{started_at}] local-agent-start workspace={} binary={} port={}\n",
         workspace_root.display(),
         binary_path.display(),
-        TESTBETA_AGENT_PORT
+        TESTNET_AGENT_PORT
     );
     let _ = fs::write(log_dir.join("last-startup.txt"), startup_line.as_bytes());
 
@@ -586,7 +586,7 @@ fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), St
         .arg("--workspace")
         .arg(workspace_root)
         .arg("--port")
-        .arg(TESTBETA_AGENT_PORT.to_string())
+        .arg(TESTNET_AGENT_PORT.to_string())
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
         .stdin(Stdio::null())
@@ -600,7 +600,7 @@ fn spawn_local_agent(workspace_root: &Path, binary_path: &Path) -> Result<(), St
 
     command
         .spawn()
-        .map_err(|error| format!("Failed to spawn local testbeta agent: {error}"))?;
+        .map_err(|error| format!("Failed to spawn local testnet agent: {error}"))?;
 
     Ok(())
 }
@@ -650,7 +650,7 @@ fn kill_local_agent_processes(workspace_root: &Path) {
     #[cfg(target_os = "windows")]
     {
         let _ = ProcessCommand::new("taskkill")
-            .args(["/F", "/IM", "synergy-testbeta-agent.exe"])
+            .args(["/F", "/IM", "synergy-testnet-agent.exe"])
             .output();
     }
 
@@ -690,14 +690,14 @@ fn install_agent_launchd(workspace_root: &Path, binary_path: &Path) -> Result<()
         )
     })?;
 
-    let plist_path = launch_agents.join("io.synergy.testbeta.agent.plist");
+    let plist_path = launch_agents.join("io.synergy.testnet.agent.plist");
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
     <key>Label</key>
-    <string>io.synergy.testbeta.agent</string>
+    <string>io.synergy.testnet.agent</string>
     <key>ProgramArguments</key>
     <array>
       <string>{}</string>
@@ -720,7 +720,7 @@ fn install_agent_launchd(workspace_root: &Path, binary_path: &Path) -> Result<()
 "#,
         binary_path.display(),
         workspace_root.display(),
-        TESTBETA_AGENT_PORT,
+        TESTNET_AGENT_PORT,
         workspace_root.join("agent/logs/launchd.out.log").display(),
         workspace_root.join("agent/logs/launchd.err.log").display(),
     );
@@ -759,13 +759,13 @@ fn install_agent_systemd_user(workspace_root: &Path, binary_path: &Path) -> Resu
         )
     })?;
 
-    let service_path = systemd_dir.join("synergy-testbeta-agent.service");
+    let service_path = systemd_dir.join("synergy-testnet-agent.service");
     // systemd unit directives expect raw absolute paths, not shell-quoted strings.
     let service = format!(
-        "[Unit]\nDescription=Synergy Testnet-Beta Agent\nAfter=network-online.target\n\n[Service]\nExecStart={} serve --workspace {} --port {}\nRestart=always\nRestartSec=2\nWorkingDirectory={}\n\n[Install]\nWantedBy=default.target\n",
+        "[Unit]\nDescription=Synergy Testnet Agent\nAfter=network-online.target\n\n[Service]\nExecStart={} serve --workspace {} --port {}\nRestart=always\nRestartSec=2\nWorkingDirectory={}\n\n[Install]\nWantedBy=default.target\n",
         binary_path.display(),
         workspace_root.display(),
-        TESTBETA_AGENT_PORT,
+        TESTNET_AGENT_PORT,
         workspace_root.display(),
     );
     fs::write(&service_path, service).map_err(|error| {
@@ -787,7 +787,7 @@ fn install_agent_systemd_user(workspace_root: &Path, binary_path: &Path) -> Resu
     }
 
     let enable = ProcessCommand::new("systemctl")
-        .args(["--user", "enable", "synergy-testbeta-agent.service"])
+        .args(["--user", "enable", "synergy-testnet-agent.service"])
         .output()
         .map_err(|error| format!("Failed to enable systemd user agent: {error}"))?;
     if !enable.status.success() {
@@ -798,7 +798,7 @@ fn install_agent_systemd_user(workspace_root: &Path, binary_path: &Path) -> Resu
     }
 
     let restart = ProcessCommand::new("systemctl")
-        .args(["--user", "restart", "synergy-testbeta-agent.service"])
+        .args(["--user", "restart", "synergy-testnet-agent.service"])
         .output()
         .map_err(|error| format!("Failed to restart systemd user agent: {error}"))?;
     if !restart.status.success() {
@@ -822,7 +822,7 @@ fn install_agent_windows_startup(workspace_root: &Path, binary_path: &Path) -> R
         )
     })?;
 
-    let startup_cmd = startup_dir.join("Synergy Testnet-Beta Agent.cmd");
+    let startup_cmd = startup_dir.join("Synergy Testnet Agent.cmd");
     let log_dir = workspace_root.join("agent").join("logs");
     fs::create_dir_all(&log_dir).map_err(|error| {
         format!(
@@ -834,7 +834,7 @@ fn install_agent_windows_startup(workspace_root: &Path, binary_path: &Path) -> R
         "@echo off\r\nstart \"\" /B \"{}\" serve --workspace \"{}\" --port {} 1>>\"{}\" 2>>\"{}\"\r\n",
         binary_path.display(),
         workspace_root.display(),
-        TESTBETA_AGENT_PORT,
+        TESTNET_AGENT_PORT,
         log_dir.join("startup.out.log").display(),
         log_dir.join("startup.err.log").display()
     );
@@ -854,20 +854,20 @@ fn shell_argument(path: &Path) -> String {
 
 fn agent_installed_binary_name() -> String {
     if cfg!(target_os = "windows") {
-        "synergy-testbeta-agent.exe".to_string()
+        "synergy-testnet-agent.exe".to_string()
     } else {
-        "synergy-testbeta-agent".to_string()
+        "synergy-testnet-agent".to_string()
     }
 }
 
 fn agent_resource_binary_name() -> Result<String, String> {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Ok("synergy-testbeta-agent-darwin-arm64".to_string())
+        Ok("synergy-testnet-agent-darwin-arm64".to_string())
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Ok("synergy-testbeta-agent-linux-amd64".to_string())
+        Ok("synergy-testnet-agent-linux-amd64".to_string())
     } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
-        Ok("synergy-testbeta-agent-windows-amd64.exe".to_string())
+        Ok("synergy-testnet-agent-windows-amd64.exe".to_string())
     } else {
-        Err("Unsupported platform for bundled testbeta agent binary".to_string())
+        Err("Unsupported platform for bundled testnet agent binary".to_string())
     }
 }

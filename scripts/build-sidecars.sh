@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-sidecars.sh — Build the synergy-testbeta-agent sidecar binary.
+# build-sidecars.sh — Build the synergy-testnet-agent sidecar binary.
 #
 # USAGE
 #   scripts/build-sidecars.sh               # native platform only (default)
@@ -9,12 +9,12 @@
 #   CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu scripts/build-sidecars.sh
 #
 # OUTPUT
-#   binaries/synergy-testbeta-agent-<platform>   e.g. synergy-testbeta-agent-linux-amd64
+#   binaries/synergy-testnet-agent-<platform>   e.g. synergy-testnet-agent-linux-amd64
 #
 # WHY --all / --linux?
-#   The testbeta remote machines run Linux (x86_64).  When you run the control
+#   The testnet remote machines run Linux (x86_64).  When you run the control
 #   panel on a Mac and click "Update All Agents", deploy_agent() copies
-#   binaries/synergy-testbeta-agent-linux-amd64 to each remote host.  If that
+#   binaries/synergy-testnet-agent-linux-amd64 to each remote host.  If that
 #   file is missing the deployment fails with "binary not found".
 #
 #   --all / --linux / --windows cross-compile via cargo-zigbuild (no Docker required).
@@ -32,8 +32,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CARGO_MANIFEST="$ROOT_DIR/control-service/testbeta-agent/Cargo.toml"
-SIDECAR_TARGET_DIR="$ROOT_DIR/control-service/testbeta-agent/target"
+CARGO_MANIFEST="$ROOT_DIR/control-service/testnet-agent/Cargo.toml"
+SIDECAR_TARGET_DIR="$ROOT_DIR/control-service/testnet-agent/target"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,25 +99,25 @@ build_native() {
       ;;
   esac
 
-  echo "Building Synergy Testnet-Beta Agent sidecar for $TARGET_TRIPLE..."
+  echo "Building Synergy Testnet Agent sidecar for $TARGET_TRIPLE..."
   cargo build \
     --manifest-path "$CARGO_MANIFEST" \
     --release \
     --target-dir "$SIDECAR_TARGET_DIR" \
     "${target_arg[@]}"
 
-  local compiled_binary="$SIDECAR_TARGET_DIR/${target_dir_segment}release/synergy-testbeta-agent${binary_ext}"
+  local compiled_binary="$SIDECAR_TARGET_DIR/${target_dir_segment}release/synergy-testnet-agent${binary_ext}"
   if [[ ! -f "$compiled_binary" ]]; then
     echo "Compiled agent binary not found at $compiled_binary" >&2
     exit 1
   fi
 
   rm -f \
-    "$ROOT_DIR/control-service/target/${target_dir_segment}release/synergy-testbeta-agent${binary_ext}" \
-    "$ROOT_DIR/control-service/target/${target_dir_segment}release/synergy-testbeta-agent.d"
+    "$ROOT_DIR/control-service/target/${target_dir_segment}release/synergy-testnet-agent${binary_ext}" \
+    "$ROOT_DIR/control-service/target/${target_dir_segment}release/synergy-testnet-agent.d"
 
   mkdir -p "$ROOT_DIR/binaries"
-  local output_binary="$ROOT_DIR/binaries/synergy-testbeta-agent-${platform_suffix}${binary_ext}"
+  local output_binary="$ROOT_DIR/binaries/synergy-testnet-agent-${platform_suffix}${binary_ext}"
   cp "$compiled_binary" "$output_binary"
 
   if [[ "$binary_ext" != ".exe" ]]; then
@@ -156,14 +156,14 @@ build_linux_via_zigbuild() {
     --target-dir "$SIDECAR_TARGET_DIR" \
     --target "${target}"
 
-  local compiled="$SIDECAR_TARGET_DIR/${target}/release/synergy-testbeta-agent"
+  local compiled="$SIDECAR_TARGET_DIR/${target}/release/synergy-testnet-agent"
   if [[ ! -f "$compiled" ]]; then
     echo "Cross-compiled binary not found at $compiled" >&2
     exit 1
   fi
 
   mkdir -p "$ROOT_DIR/binaries"
-  local output="$ROOT_DIR/binaries/synergy-testbeta-agent-${suffix}"
+  local output="$ROOT_DIR/binaries/synergy-testnet-agent-${suffix}"
   cp "$compiled" "$output"
   chmod +x "$output"
   echo "Agent sidecar ready: $output"
@@ -195,14 +195,14 @@ build_windows_via_zigbuild() {
     --target-dir "$SIDECAR_TARGET_DIR" \
     --target "${target}"
 
-  local compiled="$SIDECAR_TARGET_DIR/${target}/release/synergy-testbeta-agent.exe"
+  local compiled="$SIDECAR_TARGET_DIR/${target}/release/synergy-testnet-agent.exe"
   if [[ ! -f "$compiled" ]]; then
     echo "Cross-compiled binary not found at $compiled" >&2
     exit 1
   fi
 
   mkdir -p "$ROOT_DIR/binaries"
-  local output="$ROOT_DIR/binaries/synergy-testbeta-agent-${suffix}.exe"
+  local output="$ROOT_DIR/binaries/synergy-testnet-agent-${suffix}.exe"
   cp "$compiled" "$output"
   echo "Agent sidecar ready: $output"
 }
@@ -220,7 +220,7 @@ case "$MODE" in
     build_windows_via_zigbuild "x86_64-pc-windows-gnu"      "windows-amd64"
     echo ""
     echo "All agent binaries built:"
-    ls -la "$ROOT_DIR/binaries/synergy-testbeta-agent-"* 2>/dev/null || true
+    ls -la "$ROOT_DIR/binaries/synergy-testnet-agent-"* 2>/dev/null || true
     ;;
   --linux)
     build_linux_via_zigbuild "x86_64-unknown-linux-gnu" "linux-amd64"

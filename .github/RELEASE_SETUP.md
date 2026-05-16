@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Synergy Testnet-Beta Control Center uses a GitHub Actions pipeline to build
+The Synergy Testnet Control Center uses a GitHub Actions pipeline to build
 cross-platform installers (macOS, Linux, Windows) and publish them to a
 **public releases repository** so that:
 
@@ -11,7 +11,7 @@ cross-platform installers (macOS, Linux, Windows) and publish them to a
 
 ```
 Private source repo                     Public releases repo
-(testbeta-control-panel)                  (testbeta-control-panel-releases)
+(testnet-control-panel)                  (testnet-control-panel-releases)
         │                                        │
         │  push tag v2.0.2                       │
         ├──────────────────►  GitHub Actions      │
@@ -29,7 +29,7 @@ Private source repo                     Public releases repo
 
 ### 1. Add secrets to the PRIVATE source repo
 
-Go to **https://github.com/synergy-network-hq/testbeta-control-panel/settings/secrets/actions**
+Go to **https://github.com/synergy-network-hq/testnet-control-panel/settings/secrets/actions**
 and add these repository secrets:
 
 #### `CSC_LINK`
@@ -68,14 +68,14 @@ To create one:
 
 ### 2. Initialize the public releases repo
 
-The releases repo at `synergy-network-hq/testbeta-control-panel-releases`
+The releases repo at `synergy-network-hq/testnet-control-panel-releases`
 should be **public** and can start empty. The first release build will
 create the initial release automatically.
 
 Optionally add a README:
 
 ```markdown
-# Synergy Testnet-Beta Control Center — Releases
+# Synergy Testnet Control Center — Releases
 
 Download the latest installer for your platform from the
 [Releases page](../../releases).
@@ -142,7 +142,7 @@ the tag name (e.g., `v2.0.2`).
 ### Update endpoint
 
 ```
-https://github.com/synergy-network-hq/testbeta-control-panel-releases/releases/latest/download/latest.json
+https://github.com/synergy-network-hq/testnet-control-panel-releases/releases/latest/download/latest.json
 ```
 
 This URL always resolves to the `latest.json` from the most recent release.

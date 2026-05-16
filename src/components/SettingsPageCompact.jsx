@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getVersion, invoke, openPath } from '../lib/desktopClient';
 import {
-  fetchTestnetBetaLiveStatus,
-  fetchTestnetBetaState,
-  peekTestnetBetaLiveStatus,
-  peekTestnetBetaState,
-} from '../lib/testnetBetaPageData';
+  fetchTestnetLiveStatus,
+  fetchTestnetState,
+  peekTestnetLiveStatus,
+  peekTestnetState,
+} from '../lib/testnetPageData';
 import { useDeveloperMode } from '../lib/developerMode';
 import { SNRGButton } from '../styles/SNRGButton';
 
@@ -65,8 +65,8 @@ function Definition({ label, value, detail }) {
 export default function SettingsPageCompact() {
   const navigate = useNavigate();
   const [developerModeEnabled, setDeveloperModeEnabled] = useDeveloperMode();
-  const [state, setState] = useState(() => peekTestnetBetaState());
-  const [liveStatus, setLiveStatus] = useState(() => peekTestnetBetaLiveStatus());
+  const [state, setState] = useState(() => peekTestnetState());
+  const [liveStatus, setLiveStatus] = useState(() => peekTestnetLiveStatus());
   const [version, setVersion] = useState('');
   const [status, setStatus] = useState('');
   const [eraseBusy, setEraseBusy] = useState(false);
@@ -79,8 +79,8 @@ export default function SettingsPageCompact() {
       if (!cancelled) setVersion(String(nextVersion || ''));
     }).catch(() => {});
     void Promise.allSettled([
-      fetchTestnetBetaState({ force: true }),
-      fetchTestnetBetaLiveStatus({ force: true }),
+      fetchTestnetState({ force: true }),
+      fetchTestnetLiveStatus({ force: true }),
     ]).then(([stateResult, liveResult]) => {
       if (cancelled) return;
       if (stateResult.status === 'fulfilled') setState(stateResult.value);
@@ -94,7 +94,7 @@ export default function SettingsPageCompact() {
   const storageRoot = useMemo(() => {
     const home = state?.device_profile?.home_directory;
     if (!home) return '';
-    return `${home.replace(/[\\/]+$/, '')}/.synergy/testnet-beta`;
+    return `${home.replace(/[\\/]+$/, '')}/.synergy/testnet`;
   }, [state?.device_profile?.home_directory]);
 
   const provisionedNodes = Array.isArray(state?.nodes) ? state.nodes : [];
@@ -127,7 +127,7 @@ export default function SettingsPageCompact() {
     setEraseBusy(true);
     setStatus(`Erasing local ${platformLabel} node data...`);
     try {
-      const result = await invoke('testbeta_erase_local_machine_data', {
+      const result = await invoke('testnet_erase_local_machine_data', {
         targetOs: platformKind,
       });
       setStatus(result?.message || `Erased local ${platformLabel} node data.`);
@@ -159,7 +159,7 @@ export default function SettingsPageCompact() {
         <SettingsCard kicker="General" title="General Preferences">
           <div className="settings-shell-definition-grid">
             <Definition label="App" value="Synergy Node Control Panel" detail={version || 'Version not reported'} />
-            <Definition label="Environment" value={state?.display_name || 'Testnet-Beta'} detail={`Chain ID ${state?.network_profile?.chain_id || 338639}`} />
+            <Definition label="Environment" value={state?.display_name || 'Testnet'} detail={`Chain ID ${state?.network_profile?.chain_id || 1263}`} />
             <Definition label="Machine" value={state?.device_profile?.hostname || 'Unknown'} detail={state?.device_profile?.operating_system || 'Local operator host'} />
           </div>
         </SettingsCard>
@@ -225,7 +225,7 @@ export default function SettingsPageCompact() {
             <div className="settings-shell-feature-copy">
               <span className="settings-shell-feature-kicker">Clean Install Reset</span>
               <strong>{eraseLabel}</strong>
-              <p>This stops local Synergy processes and removes this machine&apos;s local Testnet-Beta workspace. Remote validators and remote chain data are not changed.</p>
+              <p>This stops local Synergy processes and removes this machine&apos;s local Testnet workspace. Remote validators and remote chain data are not changed.</p>
             </div>
           </div>
           <label className="settings-shell-port-field">

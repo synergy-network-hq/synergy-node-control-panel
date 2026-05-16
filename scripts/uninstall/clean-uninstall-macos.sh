@@ -21,9 +21,9 @@ prune_empty_dir() {
 }
 
 prune_user_synergy_dirs() {
-  prune_empty_dir "$HOME/.synergy/testnet-beta/ceremony/imports"
-  prune_empty_dir "$HOME/.synergy/testnet-beta/ceremony"
-  prune_empty_dir "$HOME/.synergy/testnet-beta"
+  prune_empty_dir "$HOME/.synergy/testnet/ceremony/imports"
+  prune_empty_dir "$HOME/.synergy/testnet/ceremony"
+  prune_empty_dir "$HOME/.synergy/testnet"
   prune_empty_dir "$HOME/.synergy"
 }
 
@@ -62,11 +62,11 @@ confirm_destructive_action() {
   cat <<'EOF'
 This will permanently delete:
   - Synergy Node Control Panel.app
-  - local validator/node workspaces under ~/.synergy/testnet-beta
+  - local validator/node workspaces under ~/.synergy/testnet
   - monitor workspaces under ~/.synergy-node-control-panel
   - legacy control-panel roots
   - local launch agents and validator launch daemons
-  - validator/node bundles staged under /Users/Shared/Synergy/testbeta
+  - validator/node bundles staged under /Users/Shared/Synergy/testnet
 
 Bootnode and seed-server services/directories are intentionally preserved.
 EOF
@@ -87,10 +87,10 @@ stop_known_processes() {
   local patterns=(
     "Synergy Node Control Panel"
     "synergy-node-control-panel"
-    "synergy-testbeta-agent"
+    "synergy-testnet-agent"
     "control-service"
-    "$HOME/.synergy/testnet-beta/nodes/"
-    "/Users/Shared/Synergy/testbeta/validator"
+    "$HOME/.synergy/testnet/nodes/"
+    "/Users/Shared/Synergy/testnet/validator"
   )
 
   for pattern in "${patterns[@]}"; do
@@ -104,8 +104,8 @@ stop_known_processes() {
 }
 
 remove_user_launch_agents() {
-  local plist="$HOME/Library/LaunchAgents/io.synergy.testbeta.agent.plist"
-  local label="io.synergy.testbeta.agent"
+  local plist="$HOME/Library/LaunchAgents/io.synergy.testnet.agent.plist"
+  local label="io.synergy.testnet.agent"
 
   if [[ -f "$plist" || -L "$plist" ]]; then
     launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
@@ -117,7 +117,7 @@ remove_user_launch_agents() {
 
 remove_system_launch_daemons() {
   local plist label
-  for plist in /Library/LaunchDaemons/io.synergy.testbeta.validator*.plist; do
+  for plist in /Library/LaunchDaemons/io.synergy.testnet.validator*.plist; do
     label="$(basename "$plist" .plist)"
     run_root launchctl bootout "system/$label" 2>/dev/null || true
     run_root launchctl disable "system/$label" 2>/dev/null || true
@@ -129,12 +129,12 @@ remove_system_launch_daemons() {
 remove_user_files() {
   local paths=(
     "$HOME/.synergy-node-control-panel"
-    "$HOME/.synergy-testbeta-control-panel"
+    "$HOME/.synergy-testnet-control-panel"
     "$HOME/.synergy-node-monitor"
     "$HOME/.synergy/node"
-    "$HOME/.synergy/testnet-beta/nodes"
-    "$HOME/.synergy/testnet-beta/network"
-    "$HOME/.synergy/testnet-beta/wallets"
+    "$HOME/.synergy/testnet/nodes"
+    "$HOME/.synergy/testnet/network"
+    "$HOME/.synergy/testnet/wallets"
     "$HOME/Applications/Synergy Node Control Panel.app"
     "$HOME/Library/Application Support/Synergy Node Control Panel"
     "$HOME/Library/Application Support/synergy-node-control-panel"
@@ -156,7 +156,7 @@ remove_user_files() {
     "$HOME/Library/WebKit/com.synergy.node-monitor"
     "$HOME/Library/Cookies/io.synergy-network.node-control-panel.binarycookies"
     "$HOME/Library/Cookies/com.synergy.node-monitor.binarycookies"
-    "$HOME/synergy-testbeta-agent.log"
+    "$HOME/synergy-testnet-agent.log"
   )
 
   local path
@@ -185,16 +185,16 @@ remove_system_files() {
     remove_root_path "$path"
   done
 
-  for validator_dir in /Users/Shared/Synergy/testbeta/validator*; do
+  for validator_dir in /Users/Shared/Synergy/testnet/validator*; do
     remove_root_path "$validator_dir"
   done
 
-  for package_file in /Users/Shared/Synergy/testbeta/control-panel/validator-*-setup-package.json; do
+  for package_file in /Users/Shared/Synergy/testnet/control-panel/validator-*-setup-package.json; do
     remove_root_path "$package_file"
   done
 
-  run_root rmdir /Users/Shared/Synergy/testbeta/control-panel 2>/dev/null || true
-  run_root rmdir /Users/Shared/Synergy/testbeta 2>/dev/null || true
+  run_root rmdir /Users/Shared/Synergy/testnet/control-panel 2>/dev/null || true
+  run_root rmdir /Users/Shared/Synergy/testnet 2>/dev/null || true
   run_root rmdir /Users/Shared/Synergy 2>/dev/null || true
 }
 

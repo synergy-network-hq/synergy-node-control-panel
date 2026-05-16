@@ -15,9 +15,9 @@
 ## 1. Role-Bound Runtime Completion
 
 - [ ] Confirm the final list of supported public-test roles.
-- [x] For each public-test role, document whether it is fully implemented, partially implemented, or intentionally deferred. Verified in `synergy-testnet-beta/docs/node-role-functions.md`, which now carries per-role current-runtime notes.
+- [x] For each public-test role, document whether it is fully implemented, partially implemented, or intentionally deferred. Verified in `synergy-testnet/docs/node-role-functions.md`, which now carries per-role current-runtime notes.
 - [ ] Complete the deeper role-local services for roles that still rely on placeholder or bounded-surface behavior.
-- [x] Verify that every specialized binary refuses mismatched `identity.role` and `role.compiled_profile` values. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet-Beta/synergy-testnet-beta/Cargo.toml role_runtime -- --nocapture`.
+- [x] Verify that every specialized binary refuses mismatched `identity.role` and `role.compiled_profile` values. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet/synergy-testnet/Cargo.toml role_runtime -- --nocapture`.
 - [ ] Verify that every specialized binary only starts the surfaces it is supposed to run.
 - [ ] Verify that non-validator roles cannot accidentally start validator-only consensus behavior.
 - [ ] Verify that service-only roles cannot accidentally inherit governance, treasury, or emergency authority.
@@ -38,9 +38,9 @@
 
 - [ ] Verify that every supported `NodeType` maps to the correct specialized binary on Windows, macOS, and Linux.
 - [ ] Remove or fully migrate any legacy setup path that still assumes one generic node executable.
-- [x] Verify that the Testnet-Beta setup flow writes correct role metadata into generated configs. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet-Beta/synergy-testbeta/tools/testbeta-control-panel/control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
+- [x] Verify that the Testnet setup flow writes correct role metadata into generated configs. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet/synergy-testnet/tools/testnet-control-panel/control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
 - [ ] Verify that the generic node-manager flow also writes correct role metadata when it is used.
-- [x] Verify that the control panel writes valid bootstrap inputs into generated config files. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet-Beta/synergy-testbeta/tools/testbeta-control-panel/control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
+- [x] Verify that the control panel writes valid bootstrap inputs into generated config files. Reconfirmed on March 15, 2026 by `cargo test --manifest-path /Users/devpup/Desktop/Testnet/synergy-testnet/tools/testnet-control-panel/control-service/Cargo.toml setup_node_writes_role_metadata_and_bootstrap_inputs -- --nocapture`.
 - [ ] Verify that setup, install, start, stop, restart, logs, status, and uninstall all work for every public-test role.
 - [ ] Verify that the control panel can recover cleanly from partial installs, interrupted downloads, or corrupted config files.
 - [ ] Verify that the control panel shows clear user-facing errors when a role cannot be installed or started.
@@ -100,7 +100,7 @@
 
 ## 9. Operator Documentation and UX
 
-- [x] Publish an operator-facing explanation of each supported node role. Published in `synergy-testnet-beta/docs/node-role-functions-operator.md`.
+- [x] Publish an operator-facing explanation of each supported node role. Published in `synergy-testnet/docs/node-role-functions-operator.md`.
 - [ ] Publish a public setup guide for clean installs on Windows, macOS, and Linux.
 - [ ] Publish a bootstrap and firewall guide that matches the real public-test network topology.
 - [ ] Publish troubleshooting steps for install failures, peer-discovery failures, and role-mismatch failures.

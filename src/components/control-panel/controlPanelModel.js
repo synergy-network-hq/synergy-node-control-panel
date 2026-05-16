@@ -2,7 +2,7 @@ import {
   formatPeerLastSeen,
   peerMeshStatus,
   peerValidatorRuntimeStatus,
-} from '../../lib/testnetBetaPeerInfo';
+} from '../../lib/testnetPeerInfo';
 
 export function safeArray(value) {
   return Array.isArray(value) ? value : [];

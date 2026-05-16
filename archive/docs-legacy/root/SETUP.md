@@ -1,8 +1,8 @@
-# Synergy Testnet-Beta Control Panel - Setup Guide
+# Synergy Testnet Control Panel - Setup Guide
 
 ## Overview
 
-The Synergy Testnet-Beta Control Panel is a sophisticated desktop application built with Electron (Rust + React) that provides an intuitive chat-based interface for setting up and managing multiple Synergy Network nodes with complete isolation and security.
+The Synergy Testnet Control Panel is a sophisticated desktop application built with Electron (Rust + React) that provides an intuitive chat-based interface for setting up and managing multiple Synergy Network nodes with complete isolation and security.
 
 ## Features
 
@@ -69,11 +69,11 @@ npm install
 
 ### 3. Place Node Binary
 
-Ensure the `synergy-testbeta` binary is in the project root:
+Ensure the `synergy-testnet` binary is in the project root:
 
 ```
 control-panel/
-├── synergy-testbeta          # Node binary (executable)
+├── synergy-testnet          # Node binary (executable)
 ├── templates/              # 19 node config templates
 ├── public/
 │   └── snrg.gif           # Loading animation
@@ -169,7 +169,7 @@ control-panel/
 ├── templates/                    # Node configuration templates
 ├── public/                       # Static assets
 │   └── snrg.gif
-├── synergy-testbeta               # Node binary
+├── synergy-testnet               # Node binary
 └── package.json
 ```
 
@@ -214,7 +214,7 @@ When running, the control panel creates:
 ```
 ~/.synergy/control-panel/
 ├── bin/
-│   └── synergy-testbeta           # Node binary
+│   └── synergy-testnet           # Node binary
 ├── templates/                    # Config templates
 ├── nodes/
 │   ├── <node-id-1>/
@@ -251,7 +251,7 @@ cargo build
 On Unix systems, ensure the binary is executable:
 
 ```bash
-chmod +x synergy-testbeta
+chmod +x synergy-testnet
 ```
 
 ## Development Tips

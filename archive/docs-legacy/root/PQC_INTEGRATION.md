@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Synergy Testnet-Beta Control Panel now integrates **post-quantum cryptography (PQC)** for node identity generation, class-based addressing, and automatic network registration.
+The Synergy Testnet Control Panel now integrates **post-quantum cryptography (PQC)** for node identity generation, class-based addressing, and automatic network registration.
 
 ## What Changed
 
@@ -31,8 +31,8 @@ These algorithms are quantum-resistant and protect against both classical and qu
 
 The control panel now:
 
-1. **Generates PQC Keys**: Calls `synergy-testbeta` binary to generate cryptographic keys
-2. **Registers with Network**: Automatically registers the node with Synergy testbeta
+1. **Generates PQC Keys**: Calls `synergy-testnet` binary to generate cryptographic keys
+2. **Registers with Network**: Automatically registers the node with Synergy testnet
 3. **Syncs Blockchain**: Performs initial blockchain synchronization
 4. **Stores Keys Securely**: Private keys stored in isolated `~/.synergy/control-panel/nodes/<node-id>/keys/` directory
 
@@ -87,8 +87,8 @@ pub async fn generate_pqc_keypair(
     node_class: NodeClass,
     keys_dir: &PathBuf,
 ) -> Result<NodeIdentity, String> {
-    // Calls synergy-testbeta binary:
-    // synergy-testbeta keygen --type ml-dsa-65 --output <keys_dir> --class <class_number>
+    // Calls synergy-testnet binary:
+    // synergy-testnet keygen --type ml-dsa-65 --output <keys_dir> --class <class_number>
 }
 
 pub async fn register_node_with_network(
@@ -96,16 +96,16 @@ pub async fn register_node_with_network(
     node_identity: &NodeIdentity,
     config_path: &PathBuf,
 ) -> Result<(), String> {
-    // Calls synergy-testbeta binary:
-    // synergy-testbeta register --config <config> --address <address> --key <private_key>
+    // Calls synergy-testnet binary:
+    // synergy-testnet register --config <config> --address <address> --key <private_key>
 }
 
 pub async fn connect_and_sync(
     binary_path: &PathBuf,
     config_path: &PathBuf,
 ) -> Result<(), String> {
-    // Calls synergy-testbeta binary:
-    // synergy-testbeta sync --config <config> --network testbeta --check-only
+    // Calls synergy-testnet binary:
+    // synergy-testnet sync --config <config> --network testnet --check-only
 }
 ```
 
@@ -195,7 +195,7 @@ await addMessage(
 );
 
 await addMessage(
-  `Connecting to Synergy testbeta, registering your node, and syncing with the network...`,
+  `Connecting to Synergy testnet, registering your node, and syncing with the network...`,
   'jarvis',
   800
 );
@@ -224,12 +224,12 @@ Each node now has the following directory structure:
 
 ## Binary Commands
 
-The control panel expects the `synergy-testbeta` binary to support the following commands:
+The control panel expects the `synergy-testnet` binary to support the following commands:
 
 ### Key Generation
 
 ```bash
-synergy-testbeta keygen \
+synergy-testnet keygen \
   --type ml-dsa-65 \
   --output /path/to/keys \
   --class <1-5>
@@ -240,36 +240,36 @@ synergy-testbeta keygen \
 ### Node Registration
 
 ```bash
-synergy-testbeta register \
+synergy-testnet register \
   --config /path/to/node.toml \
   --address sYnV1-<identifier> \
   --key /path/to/keys/private.key
 ```
 
-**Output:** Should register the node with the Synergy testbeta.
+**Output:** Should register the node with the Synergy testnet.
 
 ### Network Sync
 
 ```bash
-synergy-testbeta sync \
+synergy-testnet sync \
   --config /path/to/node.toml \
-  --network testbeta \
+  --network testnet \
   --check-only
 ```
 
-**Output:** Should verify connection to testbeta without performing full sync.
+**Output:** Should verify connection to testnet without performing full sync.
 
 ## Testing
 
-Currently, the crypto functions use **placeholder implementations** for testing without the actual `synergy-testbeta` binary:
+Currently, the crypto functions use **placeholder implementations** for testing without the actual `synergy-testnet` binary:
 
 - `generate_placeholder_public_key()`: Generates random 64-character hex string
 - `generate_class_based_address()`: Generates address with proper class prefix
 
 To test with the actual binary:
 
-1. Place `synergy-testbeta` binary in project root
-2. Ensure it has execute permissions: `chmod +x synergy-testbeta`
+1. Place `synergy-testnet` binary in project root
+2. Ensure it has execute permissions: `chmod +x synergy-testnet`
 3. Verify it supports the required commands
 4. Run the control panel: `npm run dev:electron`
 
@@ -284,7 +284,7 @@ To test with the actual binary:
 
 To complete the integration:
 
-1. **Binary Implementation**: Implement the required commands in `synergy-testbeta` binary
+1. **Binary Implementation**: Implement the required commands in `synergy-testnet` binary
 2. **Error Handling**: Add robust error handling for binary command failures
 3. **Key Backup**: Implement key backup and recovery mechanisms
 4. **Address Validation**: Add address format validation and checksum verification

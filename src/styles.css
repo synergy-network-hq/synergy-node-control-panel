@@ -2239,7 +2239,7 @@ code {
   animation-delay: 0.4s;
 }
 
-/* Testnet-Beta setup assistant overrides */
+/* Testnet setup assistant overrides */
 .jarvis-typing-stack {
   display: flex;
   flex-direction: column;

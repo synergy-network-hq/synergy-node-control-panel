@@ -220,7 +220,7 @@ impl BlockchainService {
                 Ok(result)
             }
             None => {
-                // Fallback to the published Testnet-Beta bootstrap set.
+                // Fallback to the published Testnet bootstrap set.
                 Ok(vec![
                     "bootnode1.synergynode.xyz:5620".to_string(),
                     "bootnode2.synergynode.xyz:5620".to_string(),

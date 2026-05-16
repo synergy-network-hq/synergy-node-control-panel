@@ -1,4 +1,4 @@
-# Synergy Testnet-Beta - PoSy Cluster Rotation & Consensus Testing Guide
+# Synergy Testnet - PoSy Cluster Rotation & Consensus Testing Guide
 **Testing Proof-of-Synergy Consensus with Multiple Validator Clusters**
 
 ---
@@ -59,11 +59,11 @@ Every Epoch (~1000 blocks / ~1 hour):
 
 ---
 
-## Current Testnet-Beta Configuration
+## Current Testnet Configuration
 
 ### Initial 3-Bootnode Cluster
 
-The testbeta starts with **1 cluster of 3 validators** (bootnodes):
+The testnet starts with **1 cluster of 3 validators** (bootnodes):
 
 | Validator | Address | Role | Initial Stake |
 |-----------|---------|------|---------------|

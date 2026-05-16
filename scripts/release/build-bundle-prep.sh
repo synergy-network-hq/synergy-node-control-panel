@@ -38,18 +38,18 @@ sync_platform_binaries() {
   local source_dir=""
   local candidates=()
 
-  if [[ -n "${SYNERGY_TESTBETA_BINARY_SOURCE_DIR:-}" ]]; then
-    candidates+=("${SYNERGY_TESTBETA_BINARY_SOURCE_DIR}")
+  if [[ -n "${SYNERGY_TESTNET_BINARY_SOURCE_DIR:-}" ]]; then
+    candidates+=("${SYNERGY_TESTNET_BINARY_SOURCE_DIR}")
   fi
 
-  if [[ -n "${SYNERGY_TESTBETA_SOURCE_REPO_ROOT:-}" ]]; then
-    candidates+=("${SYNERGY_TESTBETA_SOURCE_REPO_ROOT}/binaries")
+  if [[ -n "${SYNERGY_TESTNET_SOURCE_REPO_ROOT:-}" ]]; then
+    candidates+=("${SYNERGY_TESTNET_SOURCE_REPO_ROOT}/binaries")
   fi
 
   candidates+=(
     "$ROOT_DIR/../binaries"
-    "$ROOT_DIR/../../synergy-testnet-beta/binaries"
-    "$ROOT_DIR/../../../synergy-testnet-beta/binaries"
+    "$ROOT_DIR/../../synergy-testnet/binaries"
+    "$ROOT_DIR/../../../synergy-testnet/binaries"
   )
 
   mkdir -p "$target_dir"
@@ -75,9 +75,9 @@ sync_platform_binaries() {
   echo "Syncing platform binaries from $source_dir"
 
   for binary_name in \
-    synergy-testbeta-darwin-arm64 \
-    synergy-testbeta-linux-amd64 \
-    "synergy-testbeta-windows-amd64.exe"
+    synergy-testnet-darwin-arm64 \
+    synergy-testnet-linux-amd64 \
+    "synergy-testnet-windows-amd64.exe"
   do
     if [[ -f "$source_dir/$binary_name" ]]; then
       cp "$source_dir/$binary_name" "$target_dir/$binary_name"
@@ -90,10 +90,10 @@ refresh_platform_binary_checksums() {
   local binary_path
 
   for binary_path in \
-    "$ROOT_DIR/binaries/synergy-testbeta-darwin-arm64" \
-    "$ROOT_DIR/binaries/synergy-testbeta-macos-arm64" \
-    "$ROOT_DIR/binaries/synergy-testbeta-linux-amd64" \
-    "$ROOT_DIR/binaries/synergy-testbeta-windows-amd64.exe"
+    "$ROOT_DIR/binaries/synergy-testnet-darwin-arm64" \
+    "$ROOT_DIR/binaries/synergy-testnet-macos-arm64" \
+    "$ROOT_DIR/binaries/synergy-testnet-linux-amd64" \
+    "$ROOT_DIR/binaries/synergy-testnet-windows-amd64.exe"
   do
     if [[ -f "$binary_path" ]]; then
       if command -v shasum >/dev/null 2>&1; then
@@ -116,27 +116,27 @@ sha256_for_file() {
 
 write_bundle_binary_status() {
   local bundle_dir="$1"
-  local linux_path="$bundle_dir/bin/synergy-testbeta-linux-amd64"
-  local darwin_path="$bundle_dir/bin/synergy-testbeta-darwin-arm64"
-  local windows_path="$bundle_dir/bin/synergy-testbeta-windows-amd64.exe"
+  local linux_path="$bundle_dir/bin/synergy-testnet-linux-amd64"
+  local darwin_path="$bundle_dir/bin/synergy-testnet-darwin-arm64"
+  local windows_path="$bundle_dir/bin/synergy-testnet-windows-amd64.exe"
 
   cat > "$bundle_dir/BINARY_STATUS.txt" <<EOF
-Synergy Testnet-Beta Binary Status
+Synergy Testnet Binary Status
 ============================
 
 Linux Binary
 ------------
-Path: ./bin/synergy-testbeta-linux-amd64
+Path: ./bin/synergy-testnet-linux-amd64
 SHA-256: $(sha256_for_file "$linux_path")
 
 Darwin Binary
 -------------
-Path: ./bin/synergy-testbeta-darwin-arm64
+Path: ./bin/synergy-testnet-darwin-arm64
 SHA-256: $(sha256_for_file "$darwin_path")
 
 Windows Binary
 --------------
-Path: ./bin/synergy-testbeta-windows-amd64.exe
+Path: ./bin/synergy-testnet-windows-amd64.exe
 SHA-256: $(sha256_for_file "$windows_path")
 
 Interpretation
@@ -150,15 +150,15 @@ sync_bundle_binary_payload() {
   local bin_dir="$bundle_dir/bin"
 
   mkdir -p "$bin_dir"
-  cp "$ROOT_DIR/binaries/synergy-testbeta-linux-amd64" "$bin_dir/synergy-testbeta-linux-amd64"
-  cp "$ROOT_DIR/binaries/synergy-testbeta-darwin-arm64" "$bin_dir/synergy-testbeta-darwin-arm64"
-  cp "$ROOT_DIR/binaries/synergy-testbeta-windows-amd64.exe" "$bin_dir/synergy-testbeta-windows-amd64.exe"
-  chmod +x "$bin_dir/synergy-testbeta-linux-amd64" "$bin_dir/synergy-testbeta-darwin-arm64"
+  cp "$ROOT_DIR/binaries/synergy-testnet-linux-amd64" "$bin_dir/synergy-testnet-linux-amd64"
+  cp "$ROOT_DIR/binaries/synergy-testnet-darwin-arm64" "$bin_dir/synergy-testnet-darwin-arm64"
+  cp "$ROOT_DIR/binaries/synergy-testnet-windows-amd64.exe" "$bin_dir/synergy-testnet-windows-amd64.exe"
+  chmod +x "$bin_dir/synergy-testnet-linux-amd64" "$bin_dir/synergy-testnet-darwin-arm64"
   write_bundle_binary_status "$bundle_dir"
 }
 
 sync_installer_bundle_binaries() {
-  local installer_root="$ROOT_DIR/testbeta/runtime/installers"
+  local installer_root="$ROOT_DIR/testnet/runtime/installers"
   local bundle_dir
 
   [[ -d "$installer_root" ]] || return 0
@@ -183,17 +183,17 @@ sync_bootstrap_bundle_binaries() {
 
 sync_canonical_runtime_assets() {
   echo "Syncing canonical runtime genesis"
-  ./scripts/testbeta/generate-testbeta-genesis.sh
-  echo "Generating canonical Testnet-Beta node keys"
-  ./scripts/testbeta/generate-node-keys.sh
-  echo "Rendering canonical Testnet-Beta configs"
-  ./scripts/testbeta/render-configs.sh
-  echo "Using committed canonical Testnet-Beta installer templates"
+  ./scripts/testnet/generate-testnet-genesis.sh
+  echo "Generating canonical Testnet node keys"
+  ./scripts/testnet/generate-node-keys.sh
+  echo "Rendering canonical Testnet configs"
+  ./scripts/testnet/render-configs.sh
+  echo "Using committed canonical Testnet installer templates"
 }
 
 sync_installer_bundle_configs() {
-  local configs_root="$ROOT_DIR/testbeta/runtime/configs"
-  local installers_root="$ROOT_DIR/testbeta/runtime/installers"
+  local configs_root="$ROOT_DIR/testnet/runtime/configs"
+  local installers_root="$ROOT_DIR/testnet/runtime/installers"
   local config_path
   local node_id
   local bundle_dir
@@ -216,7 +216,7 @@ import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
-installers_root = root / "testbeta/runtime/installers"
+installers_root = root / "testnet/runtime/installers"
 
 def parse_value(raw):
     raw = raw.strip()
@@ -349,8 +349,8 @@ resolve_explorer_root() {
   local candidate=""
   local candidates=()
 
-  if [[ -n "${SYNERGY_TESTBETA_EXPLORER_APP_ROOT:-}" ]]; then
-    candidates+=("${SYNERGY_TESTBETA_EXPLORER_APP_ROOT}")
+  if [[ -n "${SYNERGY_TESTNET_EXPLORER_APP_ROOT:-}" ]]; then
+    candidates+=("${SYNERGY_TESTNET_EXPLORER_APP_ROOT}")
   fi
 
   candidates+=(
@@ -373,7 +373,7 @@ resolve_explorer_root() {
 sync_atlas_runtime_bundle() {
   local explorer_root node_exp_bundle frontend_dist_root
   explorer_root="$(resolve_explorer_root)"
-  node_exp_bundle="$ROOT_DIR/testbeta/runtime/installers/Node-EXP/explorer-app"
+  node_exp_bundle="$ROOT_DIR/testnet/runtime/installers/Node-EXP/explorer-app"
   frontend_dist_root="$node_exp_bundle/dist"
 
   echo "Building Atlas runtime from $explorer_root"
@@ -423,25 +423,25 @@ render_public_service_nginx_configs() {
   local rpc_host rpc_ws_host rpc_port ws_port
   local explorer_host atlas_api_host indexer_ws_host atlas_api_port indexer_ws_port explorer_static_root
 
-  rpc_bundle="$ROOT_DIR/testbeta/runtime/installers/Node-RPC"
-  explorer_bundle="$ROOT_DIR/testbeta/runtime/installers/Node-EXP"
+  rpc_bundle="$ROOT_DIR/testnet/runtime/installers/Node-RPC"
+  explorer_bundle="$ROOT_DIR/testnet/runtime/installers/Node-EXP"
 
   # shellcheck disable=SC1090
   source "$rpc_bundle/node.env"
   rpc_host="${HOSTNAME}"
-  rpc_ws_host="${RPC_WS_HOSTNAME:-testbeta-core-ws.synergy-network.io}"
+  rpc_ws_host="${RPC_WS_HOSTNAME:-testnet-core-ws.synergy-network.io}"
   rpc_port="${RPC_PORT}"
   ws_port="${WS_PORT}"
 
   cat > "$rpc_bundle/nginx.conf" <<EOF
-# Canonical Testnet-Beta RPC gateway reverse proxy.
+# Canonical Testnet RPC gateway reverse proxy.
 # Deploy this file on the public RPC host and enable it in nginx.
 
-upstream testbeta_rpc_http {
+upstream testnet_rpc_http {
   server 127.0.0.1:${rpc_port};
 }
 
-upstream testbeta_rpc_ws {
+upstream testnet_rpc_ws {
   server 127.0.0.1:${ws_port};
 }
 
@@ -469,7 +469,7 @@ server {
   }
 
   location / {
-    proxy_pass http://testbeta_rpc_http;
+    proxy_pass http://testnet_rpc_http;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
@@ -491,7 +491,7 @@ server {
   ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
   location / {
-    proxy_pass http://testbeta_rpc_ws;
+    proxy_pass http://testnet_rpc_ws;
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -504,21 +504,21 @@ EOF
   # shellcheck disable=SC1090
   source "$explorer_bundle/node.env"
   explorer_host="${EXPLORER_UI_HOSTNAME:-${HOSTNAME}}"
-  atlas_api_host="${ATLAS_API_HOSTNAME:-testbeta-atlas-api.synergy-network.io}"
-  indexer_ws_host="${INDEXER_WS_HOSTNAME:-testbeta-indexer.synergy-network.io}"
+  atlas_api_host="${ATLAS_API_HOSTNAME:-testnet-atlas-api.synergy-network.io}"
+  indexer_ws_host="${INDEXER_WS_HOSTNAME:-testnet-indexer.synergy-network.io}"
   atlas_api_port="${EXPLORER_API_PORT:-3020}"
   indexer_ws_port="${INDEXER_WS_PORT:-${WS_PORT}}"
-  explorer_static_root="${EXPLORER_STATIC_ROOT:-/opt/synergy/testbeta/indexer-explorer/explorer-app/dist}"
+  explorer_static_root="${EXPLORER_STATIC_ROOT:-/opt/synergy/testnet/indexer-explorer/explorer-app/dist}"
 
   cat > "$explorer_bundle/nginx.conf" <<EOF
-# Canonical Testnet-Beta Atlas and explorer reverse proxy.
+# Canonical Testnet Atlas and explorer reverse proxy.
 # Deploy this file on the public explorer host and enable it in nginx.
 
-upstream testbeta_atlas_api {
+upstream testnet_atlas_api {
   server 127.0.0.1:${atlas_api_port};
 }
 
-upstream testbeta_indexer_ws {
+upstream testnet_indexer_ws {
   server 127.0.0.1:${indexer_ws_port};
 }
 
@@ -545,7 +545,7 @@ server {
   index index.html;
 
   location /api/ {
-    proxy_pass http://testbeta_atlas_api;
+    proxy_pass http://testnet_atlas_api;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
@@ -555,11 +555,11 @@ server {
   }
 
   location = /healthz {
-    proxy_pass http://testbeta_atlas_api/healthz;
+    proxy_pass http://testnet_atlas_api/healthz;
   }
 
   location = /readyz {
-    proxy_pass http://testbeta_atlas_api/readyz;
+    proxy_pass http://testnet_atlas_api/readyz;
   }
 
   location / {
@@ -576,7 +576,7 @@ server {
   ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
   location / {
-    proxy_pass http://testbeta_atlas_api;
+    proxy_pass http://testnet_atlas_api;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
@@ -595,7 +595,7 @@ server {
   ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
   location / {
-    proxy_pass http://testbeta_indexer_ws;
+    proxy_pass http://testnet_indexer_ws;
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -608,8 +608,8 @@ EOF
 
 # Ensure Unix platform binaries are executable
 for binary_path in \
-  "$ROOT_DIR/binaries/synergy-testbeta-darwin-arm64" \
-  "$ROOT_DIR/binaries/synergy-testbeta-linux-amd64"
+  "$ROOT_DIR/binaries/synergy-testnet-darwin-arm64" \
+  "$ROOT_DIR/binaries/synergy-testnet-linux-amd64"
 do
   if [[ -f "$binary_path" ]]; then
     chmod +x "$binary_path"

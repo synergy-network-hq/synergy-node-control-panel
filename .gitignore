@@ -22,7 +22,7 @@ target
 # Tauri build artifacts
 control-service/target
 control-service/Cargo.lock
-control-service/testbeta-agent/Cargo.lock
+control-service/testnet-agent/Cargo.lock
 
 # Editor directories and files
 .vscode/*
@@ -37,9 +37,14 @@ control-service/testbeta-agent/Cargo.lock
 
 # Synergy Network specific
 .synergy/
-synergy-testbeta
+synergy-testnet
 templates.zip
-testbeta/runtime/installers/GenVal-*/config/launch-block1-transaction.json
+testnet/runtime/installers/GenVal-*/config/launch-block1-transaction.json
+testnet/runtime/keys/
+testnet/runtime/installers/*/keys/
+testnet/runtime/installers/*/keys/**
+**/private.key
+**/*.prv.json
 
 # OS files
 .DS_Store
@@ -52,10 +57,10 @@ Thumbs.db
 *.swo
 *~
 .tmp-release-assets-*
-binaries/synergy-testbeta-agent-*
-!binaries/synergy-testbeta-agent-darwin-arm64
-!binaries/synergy-testbeta-agent-linux-amd64
-!binaries/synergy-testbeta-agent-windows-amd64.exe
+binaries/synergy-testnet-agent-*
+!binaries/synergy-testnet-agent-darwin-arm64
+!binaries/synergy-testnet-agent-linux-amd64
+!binaries/synergy-testnet-agent-windows-amd64.exe
 
 # IDE
 .vscode/

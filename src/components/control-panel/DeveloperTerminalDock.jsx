@@ -15,8 +15,8 @@ import TerminalSessionView from './TerminalSessionView';
 import ActionAuditStream from './ActionAuditStream';
 import JsonInspectorPanel from './JsonInspectorPanel';
 
-const DOCK_HEIGHT_STORAGE_KEY = 'synergy:testbeta:terminal-dock-height:v1';
-const DOCK_COLLAPSED_STORAGE_KEY = 'synergy:testbeta:terminal-dock-collapsed:v1';
+const DOCK_HEIGHT_STORAGE_KEY = 'synergy:testnet:terminal-dock-height:v1';
+const DOCK_COLLAPSED_STORAGE_KEY = 'synergy:testnet:terminal-dock-collapsed:v1';
 
 function readDockHeight() {
   if (typeof window === 'undefined') {
@@ -37,7 +37,7 @@ function buildDockTabs(selectedNode) {
   const workspaceRoot = selectedNode?.workspace_directory || '';
   const logsPath = workspaceRoot ? `${workspaceRoot}/logs` : '';
   const nodeLogCommand = logsPath
-    ? `ls "${logsPath}" && tail -f "${logsPath}"/synergy-testbeta.log`
+    ? `ls "${logsPath}" && tail -f "${logsPath}"/synergy-testnet.log`
     : 'pwd';
 
   return [

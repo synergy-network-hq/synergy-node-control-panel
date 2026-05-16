@@ -2,7 +2,7 @@
 
 **Version:** FINAL v1.0 (Consolidated)  
 **Status:** Authoritative / Implementation‑Binding  
-**Scope:** Global + Testnet-Beta  
+**Scope:** Global + Testnet  
 **Excluded:** Testnet, Mainnet‑Beta, Mainnet  
 
 > This document is the single source of truth binding DNS, nginx, service ports,
@@ -29,29 +29,29 @@
 
 ---
 
-### 1.2 Testnet-Beta (Authoritative)
+### 1.2 Testnet (Authoritative)
 
 | Surface | URL |
 |------|-----|
-| Core RPC | https://testbeta-core-rpc.synergy-network.io |
-| Core WS | wss://testbeta-core-ws.synergy-network.io |
-| EVM RPC | https://testbeta-evm-rpc.synergy-network.io |
-| EVM WS | wss://testbeta-evm-ws.synergy-network.io |
-| REST API | https://testbeta-api.synergy-network.io |
-| Explorer UI | https://testbeta-explorer.synergy-network.io |
-| Explorer API | https://testbeta-atlas-api.synergy-network.io |
-| Indexer API | https://testbeta-indexer.synergy-network.io |
-| Faucet | https://testbeta-faucet.synergy-network.io |
-| Wallet API | https://testbeta-wallet-api.synergy-network.io |
-| SXCP API | https://testbeta-sxcp-api.synergy-network.io |
-| SXCP WS | wss://testbeta-sxcp-ws.synergy-network.io |
-| SynQ Verify | https://testbeta-synq-verify.synergy-network.io |
+| Core RPC | https://testnet-core-rpc.synergy-network.io |
+| Core WS | wss://testnet-core-ws.synergy-network.io |
+| EVM RPC | https://testnet-evm-rpc.synergy-network.io |
+| EVM WS | wss://testnet-evm-ws.synergy-network.io |
+| REST API | https://testnet-api.synergy-network.io |
+| Explorer UI | https://testnet-explorer.synergy-network.io |
+| Explorer API | https://testnet-atlas-api.synergy-network.io |
+| Indexer API | https://testnet-indexer.synergy-network.io |
+| Faucet | https://testnet-faucet.synergy-network.io |
+| Wallet API | https://testnet-wallet-api.synergy-network.io |
+| SXCP API | https://testnet-sxcp-api.synergy-network.io |
+| SXCP WS | wss://testnet-sxcp-ws.synergy-network.io |
+| SynQ Verify | https://testnet-synq-verify.synergy-network.io |
 
 ---
 
 ## 2. Canonical Port Allocation
 
-### 2.1 L1 Node (Testnet-Beta)
+### 2.1 L1 Node (Testnet)
 
 | Purpose | Port |
 |-----|----:|
@@ -62,7 +62,7 @@
 
 ---
 
-### 2.2 EVM RPC (Testnet-Beta)
+### 2.2 EVM RPC (Testnet)
 
 | Purpose | Port |
 |-----|----:|
@@ -71,7 +71,7 @@
 
 ---
 
-### 2.3 Microservices (Testnet-Beta)
+### 2.3 Microservices (Testnet)
 
 | Service | Port |
 |------|----:|
@@ -89,26 +89,26 @@
 
 ---
 
-## 3. Nginx — Testnet-Beta Upstream Map
+## 3. Nginx — Testnet Upstream Map
 
 ```nginx
-upstream testbeta_core_rpc       { server 127.0.0.1:48638; }
-upstream testbeta_core_ws        { server 127.0.0.1:58638; }
+upstream testnet_core_rpc       { server 127.0.0.1:48638; }
+upstream testnet_core_ws        { server 127.0.0.1:58638; }
 
-upstream testbeta_evm_rpc        { server 127.0.0.1:8545; }
-upstream testbeta_evm_ws         { server 127.0.0.1:8546; }
+upstream testnet_evm_rpc        { server 127.0.0.1:8545; }
+upstream testnet_evm_ws         { server 127.0.0.1:8546; }
 
-upstream testbeta_api            { server 127.0.0.1:3001; }
-upstream testbeta_explorer_ui    { server 127.0.0.1:80; }
-upstream testbeta_explorer_api   { server 127.0.0.1:3020; }
-upstream testbeta_indexer_api    { server 127.0.0.1:3011; }
-upstream testbeta_wallet_api     { server 127.0.0.1:3003; }
-upstream testbeta_faucet         { server 127.0.0.1:3002; }
+upstream testnet_api            { server 127.0.0.1:3001; }
+upstream testnet_explorer_ui    { server 127.0.0.1:80; }
+upstream testnet_explorer_api   { server 127.0.0.1:3020; }
+upstream testnet_indexer_api    { server 127.0.0.1:3011; }
+upstream testnet_wallet_api     { server 127.0.0.1:3003; }
+upstream testnet_faucet         { server 127.0.0.1:3002; }
 
-upstream testbeta_sxcp_api       { server 127.0.0.1:3040; }
-upstream testbeta_sxcp_ws        { server 127.0.0.1:3041; }
+upstream testnet_sxcp_api       { server 127.0.0.1:3040; }
+upstream testnet_sxcp_ws        { server 127.0.0.1:3041; }
 
-upstream testbeta_synq_verify    { server 127.0.0.1:3030; }
+upstream testnet_synq_verify    { server 127.0.0.1:3030; }
 ```
 
 ---
@@ -130,24 +130,24 @@ proxy_http_version 1.1;
 
 ---
 
-## 5. Nginx — Testnet-Beta VHost Map (Exact DNS Match)
+## 5. Nginx — Testnet VHost Map (Exact DNS Match)
 
 ### 5.1 Core RPC / WS
 
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name testbeta-core-rpc.synergy-network.io;
+    server_name testnet-core-rpc.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_core_rpc; }
+    location / { proxy_pass http://testnet_core_rpc; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-core-ws.synergy-network.io;
+    server_name testnet-core-ws.synergy-network.io;
     include snippets/ssl.conf;
     location / {
-        proxy_pass http://testbeta_core_ws;
+        proxy_pass http://testnet_core_ws;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
     }
@@ -159,17 +159,17 @@ server {
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name testbeta-evm-rpc.synergy-network.io;
+    server_name testnet-evm-rpc.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_evm_rpc; }
+    location / { proxy_pass http://testnet_evm_rpc; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-evm-ws.synergy-network.io;
+    server_name testnet-evm-ws.synergy-network.io;
     include snippets/ssl.conf;
     location / {
-        proxy_pass http://testbeta_evm_ws;
+        proxy_pass http://testnet_evm_ws;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
     }
@@ -181,30 +181,30 @@ server {
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name testbeta-api.synergy-network.io;
+    server_name testnet-api.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_api; }
+    location / { proxy_pass http://testnet_api; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-explorer.synergy-network.io;
+    server_name testnet-explorer.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_explorer_ui; }
+    location / { proxy_pass http://testnet_explorer_ui; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-atlas-api.synergy-network.io;
+    server_name testnet-atlas-api.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_explorer_api; }
+    location / { proxy_pass http://testnet_explorer_api; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-indexer.synergy-network.io;
+    server_name testnet-indexer.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_indexer_api; }
+    location / { proxy_pass http://testnet_indexer_api; }
 }
 ```
 
@@ -213,31 +213,31 @@ server {
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name testbeta-wallet-api.synergy-network.io;
+    server_name testnet-wallet-api.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_wallet_api; }
+    location / { proxy_pass http://testnet_wallet_api; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-faucet.synergy-network.io;
+    server_name testnet-faucet.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_faucet; }
+    location / { proxy_pass http://testnet_faucet; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-sxcp-api.synergy-network.io;
+    server_name testnet-sxcp-api.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_sxcp_api; }
+    location / { proxy_pass http://testnet_sxcp_api; }
 }
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-sxcp-ws.synergy-network.io;
+    server_name testnet-sxcp-ws.synergy-network.io;
     include snippets/ssl.conf;
     location / {
-        proxy_pass http://testbeta_sxcp_ws;
+        proxy_pass http://testnet_sxcp_ws;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
     }
@@ -245,9 +245,9 @@ server {
 
 server {
     listen 443 ssl http2;
-    server_name testbeta-synq-verify.synergy-network.io;
+    server_name testnet-synq-verify.synergy-network.io;
     include snippets/ssl.conf;
-    location / { proxy_pass http://testbeta_synq_verify; }
+    location / { proxy_pass http://testnet_synq_verify; }
 }
 ```
 
@@ -263,8 +263,8 @@ server {
     server_name rpc.synergy-network.io;
     include snippets/ssl.conf;
 
-    location /testbeta/ {
-        proxy_pass http://testbeta_core_rpc/;
+    location /testnet/ {
+        proxy_pass http://testnet_core_rpc/;
     }
 
     location /healthz { return 200 "ok\n"; }
@@ -281,8 +281,8 @@ server {
     server_name api.synergy-network.io;
     include snippets/ssl.conf;
 
-    location /testbeta/ {
-        proxy_pass http://testbeta_api/;
+    location /testnet/ {
+        proxy_pass http://testnet_api/;
     }
 
     location /healthz { return 200 "ok\n"; }
@@ -299,8 +299,8 @@ server {
     server_name ws.synergy-network.io;
     include snippets/ssl.conf;
 
-    location /testbeta/ {
-        proxy_pass http://testbeta_core_ws/;
+    location /testnet/ {
+        proxy_pass http://testnet_core_ws/;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
     }

@@ -10,8 +10,8 @@ compiled_profile = "cross_chain_verifier_node"
 services = []
 
 [network]
-id = 338639
-name = "synergy-testnet-beta"
+id = 1263
+name = "synergy-testnet"
 p2p_port = 5622
 rpc_port = 5640
 ws_port = 5660
@@ -25,7 +25,7 @@ persistent_peers = []
 [blockchain]
 block_time = 2
 max_gas_limit = "0x2fefd8"
-chain_id = 338639
+chain_id = 1263
 
 [consensus]
 algorithm = "Proof of Synergy"

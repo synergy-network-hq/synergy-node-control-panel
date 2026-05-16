@@ -6,16 +6,16 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { buildKnownValidatorAddressMap, buildValidatorNodeMap } from '../../lib/testnetBetaPeerInfo';
+import { buildKnownValidatorAddressMap, buildValidatorNodeMap } from '../../lib/testnetPeerInfo';
 import { usePanelViewMode } from '../../lib/panelViewMode';
 import { getViewProfile } from './viewProfiles';
 import {
-  clearTestnetBetaPageDataCache,
-  fetchTestnetBetaLiveStatus,
-  fetchTestnetBetaState,
-  peekTestnetBetaLiveStatus,
-  peekTestnetBetaState,
-} from '../../lib/testnetBetaPageData';
+  clearTestnetPageDataCache,
+  fetchTestnetLiveStatus,
+  fetchTestnetState,
+  peekTestnetLiveStatus,
+  peekTestnetState,
+} from '../../lib/testnetPageData';
 
 const POLL_INTERVAL_MS = 8000;
 const HISTORY_MAX_POINTS = 90;
@@ -118,16 +118,16 @@ function createAuditEntry(entry = {}) {
   };
 }
 
-export function clearTestnetBetaDashboardCache() {
-  clearTestnetBetaPageDataCache();
+export function clearTestnetDashboardCache() {
+  clearTestnetPageDataCache();
 }
 
 export function ControlPanelProvider({ children }) {
   const [viewMode, setViewMode] = usePanelViewMode();
-  const [state, setState] = useState(() => peekTestnetBetaState());
-  const [liveStatus, setLiveStatus] = useState(() => peekTestnetBetaLiveStatus());
+  const [state, setState] = useState(() => peekTestnetState());
+  const [liveStatus, setLiveStatus] = useState(() => peekTestnetLiveStatus());
   const [telemetryHistory, setTelemetryHistory] = useState(() => {
-    const initialLiveStatus = peekTestnetBetaLiveStatus();
+    const initialLiveStatus = peekTestnetLiveStatus();
     const snapshot = initialLiveStatus ? buildTelemetrySnapshot(initialLiveStatus) : null;
     return snapshot
       ? mergeTelemetryHistory({ network: [], byNodeId: {} }, snapshot)
@@ -135,7 +135,7 @@ export function ControlPanelProvider({ children }) {
   });
   const [actionAudit, setActionAudit] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState('');
-  const [loading, setLoading] = useState(() => peekTestnetBetaState() == null);
+  const [loading, setLoading] = useState(() => peekTestnetState() == null);
   const [error, setError] = useState('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
   const [timeRange, setTimeRange] = useState('6h');
@@ -166,8 +166,8 @@ export function ControlPanelProvider({ children }) {
     }
 
     const [stateResult, liveResult] = await Promise.allSettled([
-      fetchTestnetBetaState({ force: true }),
-      fetchTestnetBetaLiveStatus({ force: true }),
+      fetchTestnetState({ force: true }),
+      fetchTestnetLiveStatus({ force: true }),
     ]);
 
     const nextError = [];

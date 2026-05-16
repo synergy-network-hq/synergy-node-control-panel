@@ -179,7 +179,7 @@ function HelpArticlesPage() {
             <span className="help-meta-pill">
               Manual
               {' '}
-              <code>guides/SYNERGY_TESTNET_BETA_CONTROL_PANEL_USER_MANUAL.md</code>
+              <code>guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md</code>
             </span>
           </div>
         </div>
@@ -189,7 +189,7 @@ function HelpArticlesPage() {
           </Link>
           <a
             className="monitor-link-btn"
-            href="https://testbeta-explorer.synergy-network.io"
+            href="https://testnet-explorer.synergy-network.io"
             target="_blank"
             rel="noreferrer"
           >
@@ -275,7 +275,7 @@ function HelpArticlesPage() {
           <div className="help-source-note">
             Source:
             {' '}
-            <code>{workspacePath}/guides/SYNERGY_TESTNET_BETA_CONTROL_PANEL_USER_MANUAL.md</code>
+            <code>{workspacePath}/guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md</code>
           </div>
           <div className="help-markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>

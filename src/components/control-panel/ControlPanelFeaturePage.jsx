@@ -87,7 +87,21 @@ function chainBlocks(snapshot) {
 }
 
 function graphSnapshot(snapshot) {
+  const dagGraph = readObject(snapshot?.dag?.graph);
+  if (safeArray(dagGraph.nodes).length || safeArray(dagGraph.edges).length) {
+    return dagGraph;
+  }
   return readObject(snapshot?.chain?.graph);
+}
+
+function mempoolTransactions(snapshot) {
+  const structured = safeArray(snapshot?.mempool?.transactions);
+  return structured.length ? structured : arrayProbeResult(snapshot, 'synergy_getTransactionPool');
+}
+
+function pendingTransactions(snapshot) {
+  const structured = mempoolTransactions(snapshot);
+  return structured.length ? structured : arrayProbeResult(snapshot, 'synergy_getPendingTransactions');
 }
 
 function nodeAddress(snapshot) {
@@ -114,8 +128,10 @@ function buildMetrics(featureKey, snapshot, selectedNodeLive, networkStats) {
   const validator = probeResult(snapshot, 'synergy_getValidator');
   const validatorPerformance = probeResult(snapshot, 'synergy_getValidatorPerformance');
   const slashing = probeResult(snapshot, 'synergy_getValidatorSlashingHistory');
-  const pool = arrayProbeResult(snapshot, 'synergy_getTransactionPool');
-  const pendingPool = arrayProbeResult(snapshot, 'synergy_getPendingTransactions');
+  const pool = mempoolTransactions(snapshot);
+  const pendingPool = pendingTransactions(snapshot);
+  const mempoolStats = readObject(snapshot?.mempool?.stats);
+  const dag = readObject(snapshot?.dag);
   const processCount = safeArray(snapshot?.diagnostics?.processes).length;
 
   const common = [
@@ -162,19 +178,24 @@ function buildMetrics(featureKey, snapshot, selectedNodeLive, networkStats) {
   }
 
   if (featureKey === 'dag') {
+    const certificateValue = dag.certificates;
+    const certificateCount = Array.isArray(certificateValue)
+      ? certificateValue.length
+      : safeArray(readObject(certificateValue).certificates).length;
+    const dagStatus = dag.available ? 'Dedicated DAG' : 'PoSy fallback';
     return [
-      metric('Graph nodes', formatNumber(safeArray(graph.nodes).length), 'Recent blocks in local graph', 'cyan', 'schema'),
-      metric('Parent links', formatNumber(safeArray(graph.edges).length), 'Parent hash links returned by blocks', 'purple', 'share'),
-      metric('Latest block txs', formatNumber(safeArray(latestBlock.transactions).length), 'Transactions in latest returned block', 'good', 'swap_horiz'),
-      metric('Recent producers', formatNumber(new Set(blocks.map((block) => block.validator || block.validator_id).filter(Boolean)).size), 'Distinct validators in recent blocks', 'cyan', 'how_to_vote'),
+      metric('DAG source', dagStatus, dag.detail || 'DAG snapshot source', dag.available ? 'good' : 'warn', 'schema'),
+      metric('Vertices', formatNumber(safeArray(dag.vertices).length || safeArray(graph.nodes).length), 'Dedicated DAG vertices or finalized evidence nodes', 'cyan', 'account_tree'),
+      metric('Certificates', formatNumber(certificateCount), 'Availability/certification evidence returned by node RPC', certificateCount ? 'good' : 'warn', 'verified'),
+      metric('Parent links', formatNumber(safeArray(graph.edges).length), 'Graph links returned by DAG or PoSy evidence', 'purple', 'share'),
     ];
   }
 
   if (featureKey === 'transactions') {
     return [
-      metric('Pending pool', formatNumber(pool.length || pendingPool.length), 'Transactions returned by pool RPC', pool.length || pendingPool.length ? 'warn' : 'good', 'pending_actions'),
+      metric('Pending pool', formatNumber(pool.length || pendingPool.length), `Selected node mempool via ${snapshot?.mempool?.sourceMethod || 'RPC probe'}`, pool.length || pendingPool.length ? 'warn' : 'good', 'pending_actions'),
       metric('Latest block txs', formatNumber(safeArray(latestBlock.transactions).length), 'Transactions in latest local block', 'cyan', 'receipt_long'),
-      metric('Gas price', String(firstProbe(snapshot, 'synergy_gasPrice')?.summary || 'No gas value'), 'synergy_gasPrice response', 'purple', 'payments'),
+      metric('Avg gas price', formatNumber(mempoolStats.avgGasPriceNwei || 0), 'Average nWei gas price across pending transactions', 'purple', 'payments'),
       metric('RPC probes', `${formatNumber(probes.passing)}/${formatNumber(probes.total)}`, 'Transaction RPC health', probes.failing ? 'warn' : 'good', 'terminal'),
     ];
   }
@@ -225,7 +246,7 @@ function buildMetrics(featureKey, snapshot, selectedNodeLive, networkStats) {
     return [
       metric('Config files', `${formatNumber(present)}/${formatNumber(files.length)}`, 'Files read from workspace', present === files.length ? 'good' : 'warn', 'description'),
       metric('RPC endpoint', snapshot?.rpc?.endpoint || 'Endpoint not resolved', 'Resolved from node.toml', 'cyan', 'terminal'),
-      metric('Chain ID', String(snapshot?.network?.chainId || ''), 'Bundled Testnet-Beta network profile', 'purple', 'tag'),
+      metric('Chain ID', String(snapshot?.network?.chainId || ''), 'Bundled Testnet network profile', 'purple', 'tag'),
       metric('Bootstrap entries', formatNumber(safeArray(snapshot?.network?.bootnodes).length + safeArray(snapshot?.network?.seedServers).length), 'Bootnodes and seed servers in network profile', 'blue', 'hub'),
     ];
   }
@@ -358,10 +379,10 @@ function buildTable(featureKey, snapshot) {
   }
 
   if (featureKey === 'transactions') {
-    const pool = arrayProbeResult(snapshot, 'synergy_getTransactionPool');
+    const pool = mempoolTransactions(snapshot);
     const latestTransactions = safeArray(blocks[0]?.transactions);
     return {
-      title: 'Transaction evidence',
+      title: 'Selected node mempool',
       columns: ['Hash', 'State', 'Amount/Fee', 'Source'],
       rows: [
         ...pool.slice(0, 8).map((tx) => [
@@ -381,8 +402,22 @@ function buildTable(featureKey, snapshot) {
   }
 
   if (featureKey === 'dag') {
+    const dag = readObject(snapshot?.dag);
+    const vertices = safeArray(dag.vertices);
+    if (vertices.length) {
+      return {
+        title: 'DAG vertex evidence',
+        columns: ['Vertex', 'Round/Height', 'Author', 'Certified'],
+        rows: vertices.slice(0, 16).map((vertex, index) => [
+          vertex.id || vertex.vertex_id || vertex.hash || `vertex-${index}`,
+          formatNumber(vertex.round ?? vertex.height ?? vertex.block_height ?? 0),
+          vertex.author || vertex.validator || vertex.validator_id || '',
+          String(vertex.certified ?? vertex.available ?? false),
+        ]),
+      };
+    }
     return {
-      title: 'Recent block graph',
+      title: dag.available ? 'DAG graph evidence' : 'PoSy finalized block evidence',
       columns: ['Height', 'Hash', 'Parent', 'Validator'],
       rows: blocks.slice(0, 16).map((block) => [
         formatNumber(block.number ?? block.block_index ?? block.blockNumber ?? 0),
@@ -542,7 +577,7 @@ export default function ControlPanelFeaturePage({ screenKey }) {
     if (!feature) return;
     setLoading(true);
     try {
-      const nextSnapshot = await invoke('testbeta_get_feature_snapshot', {
+      const nextSnapshot = await invoke('testnet_get_feature_snapshot', {
         input: {
           screenKey: feature.key,
           nodeId: selectedNode?.id,
@@ -620,21 +655,21 @@ export default function ControlPanelFeaturePage({ screenKey }) {
         detail = await rejoinNetworkAction({ node: selectedNode, network });
         await refresh({ silent: true });
       } else if (action.id === 'run-readiness-check') {
-        const report = await invoke('testbeta_get_node_readiness', { nodeId: selectedNode.id });
+        const report = await invoke('testnet_get_node_readiness', { nodeId: selectedNode.id });
         detail = `Readiness ${report?.overall_status || 'reported'}: ${formatNumber(report?.ready_count)} of ${formatNumber(report?.total_count)} checks passing.`;
       } else if (action.id === 'inspect-recent-logs') {
-        const bundle = await invoke('testbeta_get_node_logs', { nodeId: selectedNode.id, lines: 80 });
+        const bundle = await invoke('testnet_get_node_logs', { nodeId: selectedNode.id, lines: 80 });
         const entries = safeArray(bundle?.entries);
         const latest = entries[entries.length - 1];
         detail = entries.length
           ? `Loaded ${formatNumber(entries.length)} log entries. Latest: ${latest?.level || 'INFO'} ${latest?.message || latest?.raw || 'runtime event'}.`
           : 'The log reader returned zero entries for the selected node.';
       } else if (action.id === 'activation-preflight') {
-        const result = await invoke('testbeta_get_validator_activation_preflight', { nodeId: selectedNode.id });
+        const result = await invoke('testnet_get_validator_activation_preflight', { nodeId: selectedNode.id });
         const ready = result?.canActivate || result?.can_activate;
         detail = ready ? 'Validator activation preflight is passing.' : 'Validator activation preflight returned blocking checks.';
       } else if (action.id === 'activate-validator') {
-        const result = await invoke('testbeta_activate_validator', {
+        const result = await invoke('testnet_activate_validator', {
           input: {
             nodeId: selectedNode.id,
             displayName: selectedNode.display_label || selectedNode.role_display_name || 'Validator',

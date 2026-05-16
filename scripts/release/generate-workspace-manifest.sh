@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-MANIFEST_PATH="$ROOT_DIR/testbeta/runtime/workspace-manifest.json"
+MANIFEST_PATH="$ROOT_DIR/testnet/runtime/workspace-manifest.json"
 APP_VERSION="$(node -e 'const fs=require("fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));process.stdout.write(pkg.version);')"
 python3 - <<'PY' "$ROOT_DIR" "$MANIFEST_PATH" "$APP_VERSION"
 import hashlib
@@ -19,9 +19,9 @@ app_version = sys.argv[3]
 # Only the three platform binaries that are bundled into the Electron app.
 # Configs, installers, and keys are not bundled and must not drive the digest.
 platform_binaries = [
-    "binaries/synergy-testbeta-darwin-arm64",
-    "binaries/synergy-testbeta-linux-amd64",
-    "binaries/synergy-testbeta-windows-amd64.exe",
+    "binaries/synergy-testnet-darwin-arm64",
+    "binaries/synergy-testnet-linux-amd64",
+    "binaries/synergy-testnet-windows-amd64.exe",
 ]
 
 def sha256_file(path: pathlib.Path) -> str:
@@ -41,33 +41,42 @@ for rel in platform_binaries:
     bundle_hasher.update(digest.encode("utf-8"))
 
 bundle_digest = bundle_hasher.hexdigest()
+genesis_path = root / "testnet/runtime/configs/genesis/genesis.json"
+genesis = json.loads(genesis_path.read_text(encoding="utf-8"))
+genesis_hash = str(genesis.get("integrity", {}).get("genesis_hash", ""))
+network_magic_bytes = str(genesis.get("p2p_identity", {}).get("network_magic_bytes", ""))
 
 manifest = {
     "workspace_resource_version": f"{app_version}+{bundle_digest[:12]}",
     "app_version": app_version,
+    "chain_id": int(genesis.get("network", {}).get("chain_id", 1263)),
+    "network_id": int(genesis.get("network", {}).get("network_id", 1263)),
+    "network_slug": "synergy-testnet",
+    "genesis_hash": genesis_hash,
+    "network_magic_bytes": network_magic_bytes,
     "bundle_digest": bundle_digest,
     "platform_binaries": platform_binaries,
     "required_paths": [
-        "testbeta/runtime/workspace-manifest.json",
-        "testbeta/runtime/configs/genesis/genesis.json",
-        "testbeta/runtime/installers/GenVal-01/config/genesis.json",
-        "testbeta/runtime/installers/GenVal-01/config/peers.toml",
-        "testbeta/runtime/installers/GenVal-01/keys/setup-package.json",
-        "testbeta/runtime/installers/Node-RPC/nginx.conf",
-        "testbeta/runtime/installers/Node-EXP/nginx.conf",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/dist/index.html",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/dist/assets",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/backend/dist",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/backend/scripts/migrate.js",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/backend/migrations",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/backend/node_modules/fastify/package.json",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/dist",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/scripts/migrate.js",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/migrations",
-        "testbeta/runtime/installers/Node-EXP/explorer-app/indexer/node_modules/pg/package.json",
-        "scripts/testbeta/remote-node-orchestrator.sh",
-        "scripts/reset-testbeta.sh",
-        "guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md",
+        "testnet/runtime/workspace-manifest.json",
+        "testnet/runtime/configs/genesis/genesis.json",
+        "testnet/runtime/installers/GenVal-01/config/genesis.json",
+        "testnet/runtime/installers/GenVal-01/config/peers.toml",
+        "testnet/runtime/installers/GenVal-01/keys/setup-package.json",
+        "testnet/runtime/installers/Node-RPC/nginx.conf",
+        "testnet/runtime/installers/Node-EXP/nginx.conf",
+        "testnet/runtime/installers/Node-EXP/explorer-app/dist/index.html",
+        "testnet/runtime/installers/Node-EXP/explorer-app/dist/assets",
+        "testnet/runtime/installers/Node-EXP/explorer-app/backend/dist",
+        "testnet/runtime/installers/Node-EXP/explorer-app/backend/scripts/migrate.js",
+        "testnet/runtime/installers/Node-EXP/explorer-app/backend/migrations",
+        "testnet/runtime/installers/Node-EXP/explorer-app/backend/node_modules/fastify/package.json",
+        "testnet/runtime/installers/Node-EXP/explorer-app/indexer/dist",
+        "testnet/runtime/installers/Node-EXP/explorer-app/indexer/scripts/migrate.js",
+        "testnet/runtime/installers/Node-EXP/explorer-app/indexer/migrations",
+        "testnet/runtime/installers/Node-EXP/explorer-app/indexer/node_modules/pg/package.json",
+        "scripts/testnet/remote-node-orchestrator.sh",
+        "scripts/reset-testnet.sh",
+        "guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md",
     ],
     "checksums": checksums,
 }

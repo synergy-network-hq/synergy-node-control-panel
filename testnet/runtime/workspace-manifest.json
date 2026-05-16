@@ -1,0 +1,42 @@
+{
+  "workspace_resource_version": "12.2.2+90a0e415c53f",
+  "app_version": "12.2.2",
+  "chain_id": 1263,
+  "network_id": 1263,
+  "network_slug": "synergy-testnet",
+  "genesis_hash": "dd9ad8cfc74be1ab17a0a0fce9db65281df1b325fe5a2530130dce8935e450b8",
+  "network_magic_bytes": "d5d5bb99",
+  "bundle_digest": "90a0e415c53f72624ccb54383a904d9bdc964b5aa4b800e5384e0fb2d40caba3",
+  "platform_binaries": [
+    "binaries/synergy-testnet-darwin-arm64",
+    "binaries/synergy-testnet-linux-amd64",
+    "binaries/synergy-testnet-windows-amd64.exe"
+  ],
+  "required_paths": [
+    "testnet/runtime/workspace-manifest.json",
+    "testnet/runtime/configs/genesis/genesis.json",
+    "testnet/runtime/installers/GenVal-01/config/genesis.json",
+    "testnet/runtime/installers/GenVal-01/config/peers.toml",
+    "testnet/runtime/installers/GenVal-01/keys/setup-package.json",
+    "testnet/runtime/installers/Node-RPC/nginx.conf",
+    "testnet/runtime/installers/Node-EXP/nginx.conf",
+    "testnet/runtime/installers/Node-EXP/explorer-app/dist/index.html",
+    "testnet/runtime/installers/Node-EXP/explorer-app/dist/assets",
+    "testnet/runtime/installers/Node-EXP/explorer-app/backend/dist",
+    "testnet/runtime/installers/Node-EXP/explorer-app/backend/scripts/migrate.js",
+    "testnet/runtime/installers/Node-EXP/explorer-app/backend/migrations",
+    "testnet/runtime/installers/Node-EXP/explorer-app/backend/node_modules/fastify/package.json",
+    "testnet/runtime/installers/Node-EXP/explorer-app/indexer/dist",
+    "testnet/runtime/installers/Node-EXP/explorer-app/indexer/scripts/migrate.js",
+    "testnet/runtime/installers/Node-EXP/explorer-app/indexer/migrations",
+    "testnet/runtime/installers/Node-EXP/explorer-app/indexer/node_modules/pg/package.json",
+    "scripts/testnet/remote-node-orchestrator.sh",
+    "scripts/reset-testnet.sh",
+    "guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md"
+  ],
+  "checksums": {
+    "binaries/synergy-testnet-darwin-arm64": "0a453f97ceb89cd9ee2139995f72a18f84226ee067f06b26ef03690c59d6d594",
+    "binaries/synergy-testnet-linux-amd64": "431fb55f5215b17d42a244af21d2eb1a4c9469fd53b64bd4aed1ee1ca2f6fa5f",
+    "binaries/synergy-testnet-windows-amd64.exe": "e2977213c16abd5e482331b355a850ffb040106c94c97564f2d3e36671e2d38a"
+  }
+}

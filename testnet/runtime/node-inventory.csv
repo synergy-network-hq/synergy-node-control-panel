@@ -1,0 +1,11 @@
+node_slot_id,node_alias,role_group,role,node_type,address_class,p2p_port,rpc_port,ws_port,grpc_port,discovery_port,host,management_host,physical_machine_id,auto_register_validator,enable_pruning,vrf_enabled,operator,device,operating_system,public_ip,local_ip
+Node-0A,bootnode1,bootstrap,bootnode,bootnode,0,5620,5640,5660,50051,5680,bootnode1.synergynode.xyz,bootnode1.synergynode.xyz,Node-0A,false,true,false,Network,Ionos VPS,Ubuntu 25.10 Server,170.64.187.206,
+Node-0B,bootnode2,bootstrap,bootnode,bootnode,0,5620,5640,5660,50051,5680,bootnode2.synergynode.xyz,bootnode2.synergynode.xyz,Node-0B,false,true,false,Network,DigitalOcean VPS,Ubuntu 25.10 Server,146.190.210.121,
+Node-0C,bootnode3,bootstrap,bootnode,bootnode,0,5620,5640,5660,50051,5680,bootnode3.synergynode.xyz,bootnode3.synergynode.xyz,Node-0C,false,true,false,Network,DigitalOcean VPS,Ubuntu 25.10 Server,157.245.226.240,
+Node-EXP,genesisindexer,services,indexer,indexer,5,5627,5647,5667,5647,5687,testnet-explorer.synergy-network.io,testnet-explorer.synergy-network.io,Node-EXP,false,false,false,Network,Ionos VPS,Ubuntu 25.10 Server,74.208.227.23,
+Node-RPC,genesisrpc,services,rpc-gateway,rpc-gateway,5,5626,5646,5666,5646,5686,testnet-core-rpc.synergy-network.io,testnet-core-rpc.synergy-network.io,Node-RPC,false,false,false,Network,Ionos VPS,Ubuntu 25.10 Server,74.208.227.23,
+GenVal-01,genesisval1,consensus,validator,validator,1,5622,5640,5660,5640,5680,10.69.0.1,10.69.0.1,GenVal-01,false,false,true,Justin,Mac Mini,MacOS 26 Tahoe (beta),62.146.182.207,10.69.0.1
+GenVal-02,genesisval2,consensus,validator,validator,1,5622,5640,5660,5640,5680,10.69.0.2,10.69.0.2,GenVal-02,false,false,true,Rob,Synergy Mini,MacOS 26 Tahoe (beta),62.146.182.208,10.69.0.2
+GenVal-03,genesisval3,consensus,validator,validator,1,5622,5640,5660,5640,5680,10.69.0.3,10.69.0.3,GenVal-03,false,false,true,Rob,,Windows 11,62.146.182.209,10.69.0.3
+GenVal-04,genesisval4,consensus,validator,validator,1,5622,5640,5660,5640,5680,10.69.0.4,10.69.0.4,GenVal-04,false,false,true,Rob,,Windows 11,71.182.137.118,10.69.0.4
+GenVal-05,genesisval5,consensus,validator,validator,1,5622,5640,5660,5640,5680,10.69.0.5,10.69.0.5,GenVal-05,false,false,true,David,Ubuntu VPS,Ubuntu 24.04 Server,194.163.183.166,10.69.0.5

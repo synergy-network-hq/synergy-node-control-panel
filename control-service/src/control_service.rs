@@ -7,7 +7,7 @@ use crate::event_bus::EventBus;
 use crate::monitor::{
     get_monitor_agent_snapshot, get_monitor_inventory_path, get_monitor_node_details,
     get_monitor_security_state, get_monitor_snapshot, get_monitor_user_manual_markdown,
-    get_monitor_workspace_path, monitor_apply_testbeta_topology_from_context,
+    get_monitor_workspace_path, monitor_apply_testnet_topology_from_context,
     monitor_assign_ssh_binding, monitor_bulk_node_control, monitor_delete_operator,
     monitor_delete_ssh_profile, monitor_detect_local_machine_identity,
     monitor_ensure_ssh_keypair_from_context, monitor_export_node_data, monitor_get_setup_status,
@@ -16,21 +16,19 @@ use crate::monitor::{
     monitor_update_local_agent_from_context, monitor_upsert_operator, monitor_upsert_ssh_profile,
     MonitorOperatorInput, MonitorSshBindingInput, MonitorSshProfileInput,
 };
-use crate::testnet_beta::{
-    testbeta_activate_validator, testbeta_boost_sync, testbeta_erase_local_machine_data,
-    testbeta_force_peer_connect, testbeta_get_catalog, testbeta_get_chain_blocks,
-    testbeta_get_device_profile, testbeta_get_feature_snapshot, testbeta_get_live_status,
-    testbeta_get_node_logs, testbeta_get_node_readiness, testbeta_get_rewards_data,
-    testbeta_get_state, testbeta_get_validator_activation_preflight,
-    testbeta_import_ceremony_package, testbeta_inspect_ceremony_package, testbeta_node_control,
-    testbeta_remove_node, testbeta_run_register_with_seeds, testbeta_setup_node,
-    testbeta_stake_validator, testbeta_sync_catch_up_rejoin, testbeta_transfer_validator_tokens,
-    testbeta_unstake_validator, TestnetBetaEraseNodeDataInput, TestnetBetaFeatureSnapshotInput,
-    TestnetBetaForcePeerConnectInput, TestnetBetaImportCeremonyPackageInput,
-    TestnetBetaInspectCeremonyPackageInput, TestnetBetaNodeControlInput,
-    TestnetBetaRemoveNodeInput, TestnetBetaSetupInput, TestnetBetaValidatorActivateInput,
-    TestnetBetaValidatorCatchUpInput, TestnetBetaValidatorStakeInput,
-    TestnetBetaValidatorTransferInput, TestnetBetaValidatorUnstakeInput,
+use crate::testnet::{
+    testnet_activate_validator, testnet_boost_sync, testnet_erase_local_machine_data,
+    testnet_force_peer_connect, testnet_get_catalog, testnet_get_chain_blocks,
+    testnet_get_device_profile, testnet_get_feature_snapshot, testnet_get_live_status,
+    testnet_get_node_logs, testnet_get_node_readiness, testnet_get_rewards_data,
+    testnet_get_state, testnet_get_validator_activation_preflight, testnet_node_control,
+    testnet_remove_node, testnet_run_register_with_seeds, testnet_setup_node,
+    testnet_stake_validator, testnet_sync_catch_up_rejoin, testnet_transfer_validator_tokens,
+    testnet_unstake_validator, TestnetEraseNodeDataInput, TestnetFeatureSnapshotInput,
+    TestnetForcePeerConnectInput, TestnetNodeControlInput,
+    TestnetRemoveNodeInput, TestnetSetupInput, TestnetValidatorActivateInput,
+    TestnetValidatorCatchUpInput, TestnetValidatorStakeInput,
+    TestnetValidatorTransferInput, TestnetValidatorUnstakeInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -108,7 +106,7 @@ struct BulkActionArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaEraseNodeDataArgs {
+struct TestnetEraseNodeDataArgs {
     target_os: String,
 }
 
@@ -147,33 +145,23 @@ struct TerminalCommandArgs {
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaSetupArgs {
-    input: TestnetBetaSetupInput,
+struct TestnetSetupArgs {
+    input: TestnetSetupInput,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaImportCeremonyPackageArgs {
-    input: TestnetBetaImportCeremonyPackageInput,
+struct TestnetNodeControlArgs {
+    input: TestnetNodeControlInput,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaInspectCeremonyPackageArgs {
-    input: TestnetBetaInspectCeremonyPackageInput,
-}
-
-#[derive(Debug, Deserialize)]
-struct TestnetBetaNodeControlArgs {
-    input: TestnetBetaNodeControlInput,
-}
-
-#[derive(Debug, Deserialize)]
-struct TestnetBetaRemoveNodeArgs {
-    input: TestnetBetaRemoveNodeInput,
+struct TestnetRemoveNodeArgs {
+    input: TestnetRemoveNodeInput,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaNodeLogsArgs {
+struct TestnetNodeLogsArgs {
     node_id: String,
     #[serde(default)]
     lines: Option<usize>,
@@ -181,13 +169,13 @@ struct TestnetBetaNodeLogsArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaFeatureSnapshotArgs {
-    input: TestnetBetaFeatureSnapshotInput,
+struct TestnetFeatureSnapshotArgs {
+    input: TestnetFeatureSnapshotInput,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaChainBlocksArgs {
+struct TestnetChainBlocksArgs {
     node_id: String,
     #[serde(default)]
     count: Option<u64>,
@@ -195,62 +183,62 @@ struct TestnetBetaChainBlocksArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaRegisterWithSeedsArgs {
+struct TestnetRegisterWithSeedsArgs {
     node_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaReadinessArgs {
+struct TestnetReadinessArgs {
     node_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaRewardsArgs {
+struct TestnetRewardsArgs {
     node_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaBoostSyncArgs {
+struct TestnetBoostSyncArgs {
     node_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TestnetBetaValidatorActivationPreflightArgs {
+struct TestnetValidatorActivationPreflightArgs {
     node_id: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaValidatorStakeArgs {
-    input: TestnetBetaValidatorStakeInput,
+struct TestnetValidatorStakeArgs {
+    input: TestnetValidatorStakeInput,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaValidatorUnstakeArgs {
-    input: TestnetBetaValidatorUnstakeInput,
+struct TestnetValidatorUnstakeArgs {
+    input: TestnetValidatorUnstakeInput,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaValidatorTransferArgs {
-    input: TestnetBetaValidatorTransferInput,
+struct TestnetValidatorTransferArgs {
+    input: TestnetValidatorTransferInput,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaValidatorActivateArgs {
-    input: TestnetBetaValidatorActivateInput,
+struct TestnetValidatorActivateArgs {
+    input: TestnetValidatorActivateInput,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaValidatorCatchUpArgs {
-    input: TestnetBetaValidatorCatchUpInput,
+struct TestnetValidatorCatchUpArgs {
+    input: TestnetValidatorCatchUpInput,
 }
 
 #[derive(Debug, Deserialize)]
-struct TestnetBetaForcePeerConnectArgs {
-    input: TestnetBetaForcePeerConnectInput,
+struct TestnetForcePeerConnectArgs {
+    input: TestnetForcePeerConnectInput,
 }
 
 pub async fn serve(port: u16, token: String, app_context: AppContext) -> Result<(), String> {
@@ -273,7 +261,7 @@ pub async fn serve(port: u16, token: String, app_context: AppContext) -> Result<
         }
     }
 
-    if let Err(error) = agent::ensure_local_testbeta_agent_from_context(&app_context).await {
+    if let Err(error) = agent::ensure_local_testnet_agent_from_context(&app_context).await {
         eprintln!("control-service local agent startup warning: {error}");
     }
 
@@ -400,8 +388,8 @@ async fn dispatch_command(
         "monitor_initialize_workspace" => to_value(monitor_initialize_workspace_from_context(
             &state.app_context,
         )?),
-        "monitor_apply_testbeta_topology" => to_value(
-            monitor_apply_testbeta_topology_from_context(&state.app_context)?,
+        "monitor_apply_testnet_topology" => to_value(
+            monitor_apply_testnet_topology_from_context(&state.app_context)?,
         ),
         "monitor_get_setup_status" => to_value(monitor_get_setup_status()?),
         "get_monitor_snapshot" => to_value(get_monitor_snapshot().await?),
@@ -452,97 +440,89 @@ async fn dispatch_command(
             let args: TerminalCommandArgs = parse_args(request.args)?;
             to_value(monitor_run_terminal_command(args.command, args.cwd).await?)
         }
-        "testbeta_get_state" => to_value(testbeta_get_state()?),
-        "testbeta_get_live_status" => to_value(testbeta_get_live_status().await?),
-        "testbeta_get_device_profile" => to_value(testbeta_get_device_profile()?),
-        "testbeta_get_catalog" => to_value(testbeta_get_catalog()?),
-        "testbeta_erase_local_machine_data" => {
-            let args: TestnetBetaEraseNodeDataArgs = parse_args(request.args)?;
+        "testnet_get_state" => to_value(testnet_get_state()?),
+        "testnet_get_live_status" => to_value(testnet_get_live_status().await?),
+        "testnet_get_device_profile" => to_value(testnet_get_device_profile()?),
+        "testnet_get_catalog" => to_value(testnet_get_catalog()?),
+        "testnet_erase_local_machine_data" => {
+            let args: TestnetEraseNodeDataArgs = parse_args(request.args)?;
             to_value(
-                testbeta_erase_local_machine_data(
+                testnet_erase_local_machine_data(
                     &state.app_context,
-                    TestnetBetaEraseNodeDataInput {
+                    TestnetEraseNodeDataInput {
                         target_os: args.target_os,
                     },
                 )
                 .await?,
             )
         }
-        "testbeta_setup_node" => {
-            let args: TestnetBetaSetupArgs = parse_args(request.args)?;
-            to_value(testbeta_setup_node(args.input).await?)
+        "testnet_setup_node" => {
+            let args: TestnetSetupArgs = parse_args(request.args)?;
+            to_value(testnet_setup_node(args.input).await?)
         }
-        "testbeta_import_ceremony_package" => {
-            let args: TestnetBetaImportCeremonyPackageArgs = parse_args(request.args)?;
-            to_value(testbeta_import_ceremony_package(args.input).await?)
+        "testnet_node_control" => {
+            let args: TestnetNodeControlArgs = parse_args(request.args)?;
+            to_value(testnet_node_control(&state.app_context, args.input).await?)
         }
-        "testbeta_inspect_ceremony_package" => {
-            let args: TestnetBetaInspectCeremonyPackageArgs = parse_args(request.args)?;
-            to_value(testbeta_inspect_ceremony_package(args.input)?)
+        "testnet_remove_node" => {
+            let args: TestnetRemoveNodeArgs = parse_args(request.args)?;
+            to_value(testnet_remove_node(&state.app_context, args.input).await?)
         }
-        "testbeta_node_control" => {
-            let args: TestnetBetaNodeControlArgs = parse_args(request.args)?;
-            to_value(testbeta_node_control(&state.app_context, args.input).await?)
+        "testnet_get_node_logs" => {
+            let args: TestnetNodeLogsArgs = parse_args(request.args)?;
+            to_value(testnet_get_node_logs(args.node_id, args.lines)?)
         }
-        "testbeta_remove_node" => {
-            let args: TestnetBetaRemoveNodeArgs = parse_args(request.args)?;
-            to_value(testbeta_remove_node(&state.app_context, args.input).await?)
+        "testnet_get_feature_snapshot" => {
+            let args: TestnetFeatureSnapshotArgs = parse_args(request.args)?;
+            to_value(testnet_get_feature_snapshot(args.input).await?)
         }
-        "testbeta_get_node_logs" => {
-            let args: TestnetBetaNodeLogsArgs = parse_args(request.args)?;
-            to_value(testbeta_get_node_logs(args.node_id, args.lines)?)
+        "testnet_get_chain_blocks" => {
+            let args: TestnetChainBlocksArgs = parse_args(request.args)?;
+            to_value(testnet_get_chain_blocks(args.node_id, args.count).await?)
         }
-        "testbeta_get_feature_snapshot" => {
-            let args: TestnetBetaFeatureSnapshotArgs = parse_args(request.args)?;
-            to_value(testbeta_get_feature_snapshot(args.input).await?)
+        "testnet_run_register_with_seeds" => {
+            let args: TestnetRegisterWithSeedsArgs = parse_args(request.args)?;
+            to_value(testnet_run_register_with_seeds(args.node_id).await?)
         }
-        "testbeta_get_chain_blocks" => {
-            let args: TestnetBetaChainBlocksArgs = parse_args(request.args)?;
-            to_value(testbeta_get_chain_blocks(args.node_id, args.count).await?)
+        "testnet_get_node_readiness" => {
+            let args: TestnetReadinessArgs = parse_args(request.args)?;
+            to_value(testnet_get_node_readiness(args.node_id).await?)
         }
-        "testbeta_run_register_with_seeds" => {
-            let args: TestnetBetaRegisterWithSeedsArgs = parse_args(request.args)?;
-            to_value(testbeta_run_register_with_seeds(args.node_id).await?)
+        "get_rewards_data" | "testnet_get_rewards_data" => {
+            let args: TestnetRewardsArgs = parse_args(request.args)?;
+            to_value(testnet_get_rewards_data(args.node_id).await?)
         }
-        "testbeta_get_node_readiness" => {
-            let args: TestnetBetaReadinessArgs = parse_args(request.args)?;
-            to_value(testbeta_get_node_readiness(args.node_id).await?)
+        "testnet_boost_sync" => {
+            let args: TestnetBoostSyncArgs = parse_args(request.args)?;
+            to_value(testnet_boost_sync(&state.app_context, args.node_id).await?)
         }
-        "get_rewards_data" | "testbeta_get_rewards_data" => {
-            let args: TestnetBetaRewardsArgs = parse_args(request.args)?;
-            to_value(testbeta_get_rewards_data(args.node_id).await?)
+        "testnet_get_validator_activation_preflight" => {
+            let args: TestnetValidatorActivationPreflightArgs = parse_args(request.args)?;
+            to_value(testnet_get_validator_activation_preflight(args.node_id).await?)
         }
-        "testbeta_boost_sync" => {
-            let args: TestnetBetaBoostSyncArgs = parse_args(request.args)?;
-            to_value(testbeta_boost_sync(&state.app_context, args.node_id).await?)
+        "testnet_stake_validator" => {
+            let args: TestnetValidatorStakeArgs = parse_args(request.args)?;
+            to_value(testnet_stake_validator(args.input).await?)
         }
-        "testbeta_get_validator_activation_preflight" => {
-            let args: TestnetBetaValidatorActivationPreflightArgs = parse_args(request.args)?;
-            to_value(testbeta_get_validator_activation_preflight(args.node_id).await?)
+        "testnet_unstake_validator" => {
+            let args: TestnetValidatorUnstakeArgs = parse_args(request.args)?;
+            to_value(testnet_unstake_validator(args.input).await?)
         }
-        "testbeta_stake_validator" => {
-            let args: TestnetBetaValidatorStakeArgs = parse_args(request.args)?;
-            to_value(testbeta_stake_validator(args.input).await?)
+        "testnet_transfer_validator_tokens" => {
+            let args: TestnetValidatorTransferArgs = parse_args(request.args)?;
+            to_value(testnet_transfer_validator_tokens(args.input).await?)
         }
-        "testbeta_unstake_validator" => {
-            let args: TestnetBetaValidatorUnstakeArgs = parse_args(request.args)?;
-            to_value(testbeta_unstake_validator(args.input).await?)
+        "testnet_activate_validator" => {
+            let args: TestnetValidatorActivateArgs = parse_args(request.args)?;
+            to_value(testnet_activate_validator(args.input).await?)
         }
-        "testbeta_transfer_validator_tokens" => {
-            let args: TestnetBetaValidatorTransferArgs = parse_args(request.args)?;
-            to_value(testbeta_transfer_validator_tokens(args.input).await?)
+        "testnet_sync_catch_up_rejoin" => {
+            let args: TestnetValidatorCatchUpArgs = parse_args(request.args)?;
+            to_value(testnet_sync_catch_up_rejoin(&state.app_context, args.input).await?)
         }
-        "testbeta_activate_validator" => {
-            let args: TestnetBetaValidatorActivateArgs = parse_args(request.args)?;
-            to_value(testbeta_activate_validator(args.input).await?)
-        }
-        "testbeta_sync_catch_up_rejoin" => {
-            let args: TestnetBetaValidatorCatchUpArgs = parse_args(request.args)?;
-            to_value(testbeta_sync_catch_up_rejoin(&state.app_context, args.input).await?)
-        }
-        "testbeta_force_peer_connect" => {
-            let args: TestnetBetaForcePeerConnectArgs = parse_args(request.args)?;
-            to_value(testbeta_force_peer_connect(&state.app_context, args.input).await?)
+        "testnet_force_peer_connect" => {
+            let args: TestnetForcePeerConnectArgs = parse_args(request.args)?;
+            to_value(testnet_force_peer_connect(&state.app_context, args.input).await?)
         }
         "monitor_mark_setup_complete" => {
             let args: SetupCompleteArgs = parse_args(request.args)?;

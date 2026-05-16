@@ -113,7 +113,7 @@ export default function NodeSyncGateModal({ nodeId, onComplete }) {
         detail: message,
         status: 'info',
         source: 'sync-gate',
-        command: 'testbeta_node_control:start',
+        command: 'testnet_node_control:start',
         payload: { nodeId: targetNode.id },
       });
       await refresh({ silent: true });
@@ -126,7 +126,7 @@ export default function NodeSyncGateModal({ nodeId, onComplete }) {
         detail: message,
         status: 'error',
         source: 'sync-gate',
-        command: 'testbeta_node_control:start',
+        command: 'testnet_node_control:start',
         payload: { nodeId: targetNode.id },
       });
     } finally {
@@ -156,7 +156,7 @@ export default function NodeSyncGateModal({ nodeId, onComplete }) {
         detail: message,
         status: 'warn',
         source: 'sync-gate',
-        command: 'testbeta_node_control:stop',
+        command: 'testnet_node_control:stop',
         payload: { nodeId: targetNode.id },
       });
       await refresh({ silent: true });

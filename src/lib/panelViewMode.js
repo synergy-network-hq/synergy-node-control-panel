@@ -4,9 +4,9 @@ import {
   normalizePanelViewMode,
 } from '../components/control-panel/viewProfiles';
 
-const VIEW_MODE_STORAGE_KEY = 'synergy:testbeta:view-mode:v2';
-const LEGACY_VIEW_MODE_STORAGE_KEY = 'synergy:testbeta:view-mode:v1';
-const VIEW_MODE_EVENT = 'synergy:testbeta:view-mode-change';
+const VIEW_MODE_STORAGE_KEY = 'synergy:testnet:view-mode:v2';
+const LEGACY_VIEW_MODE_STORAGE_KEY = 'synergy:testnet:view-mode:v1';
+const VIEW_MODE_EVENT = 'synergy:testnet:view-mode-change';
 
 function getLocalStorage() {
   if (typeof window === 'undefined') {

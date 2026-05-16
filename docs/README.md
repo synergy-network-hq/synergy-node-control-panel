@@ -9,10 +9,10 @@ Superseded or one-off material lives in `archive/`.
 
 - `developer/github-ssh-key.md`: GitHub SSH key setup for contributors/operators
 - `developer/git-remote.md`: repo remote/push setup for this project
-- `developer/testnet-beta-validator-debug-cheatsheet-macos.md`: live validator debug commands for macOS
-- `developer/testnet-beta-validator-debug-cheatsheet-linux.md`: live validator debug commands for Linux
-- `developer/testnet-beta-validator-debug-cheatsheet-windows.md`: live validator debug commands for Windows PowerShell
-- `developer/testnet-beta-validator-update-workflow.md`: source-of-truth and regeneration workflow for validator config changes
+- `developer/testnet-validator-debug-cheatsheet-macos.md`: live validator debug commands for macOS
+- `developer/testnet-validator-debug-cheatsheet-linux.md`: live validator debug commands for Linux
+- `developer/testnet-validator-debug-cheatsheet-windows.md`: live validator debug commands for Windows PowerShell
+- `developer/testnet-validator-update-workflow.md`: source-of-truth and regeneration workflow for validator config changes
 - `operator/firewall-privilege-escalation.md`: sudo / `pkexec` notes for installer-driven firewall changes
 - `operator/non-genesis-validator-control-panel-setup.md`: step-by-step setup, funding, staking, and activation process for a non-genesis validator
 - `operator/public-testing-readiness-checklist.md`: production-readiness checklist before outside testers use the control panel
@@ -20,5 +20,5 @@ Superseded or one-off material lives in `archive/`.
 
 ## Bundled App Help
 
-- `guides/SYNERGY_TESTBETA_CONTROL_PANEL_USER_MANUAL.md`
-- `guides/SYNERGY_TESTBETA_CONTROL_PANEL_QUICK_OPS_CHEAT_SHEET.md`
+- `guides/SYNERGY_TESTNET_CONTROL_PANEL_USER_MANUAL.md`
+- `guides/SYNERGY_TESTNET_CONTROL_PANEL_QUICK_OPS_CHEAT_SHEET.md`

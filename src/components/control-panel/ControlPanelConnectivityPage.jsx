@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { invoke, resolvePeerTopology } from '../../lib/desktopClient';
-import { normalizePeerInfoPayload } from '../../lib/testnetBetaPeerInfo';
+import { normalizePeerInfoPayload } from '../../lib/testnetPeerInfo';
 import { SNRGButton } from '../../styles/SNRGButton';
 import { useControlPanel } from './ControlPanelProvider';
 import {
@@ -195,7 +195,7 @@ export default function ControlPanelConnectivityPage() {
       }
 
       try {
-        const report = await invoke('testbeta_get_node_readiness', { nodeId: selectedNode.id });
+        const report = await invoke('testnet_get_node_readiness', { nodeId: selectedNode.id });
         if (!cancelled) {
           setReadinessReport(report);
         }

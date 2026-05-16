@@ -1,17 +1,17 @@
 # Non-Genesis Validator Setup With Synergy Node Control Panel
 
-This guide explains how to bring a new validator onto Testnet-Beta after genesis. It is for operators using Synergy Node Control Panel, not for the five genesis validators that are already in the genesis file.
+This guide explains how to bring a new validator onto Testnet after genesis. It is for operators using Synergy Node Control Panel, not for the five genesis validators that are already in the genesis file.
 
 The current validator lifecycle in the control panel is:
 
-1. Let Jarvis create a validator workspace on the target machine, or import a package that was prepared elsewhere.
+1. Let Jarvis create a validator workspace on the target machine.
 2. Start the node and let it sync close to chain head.
 3. Register the node with the seed servers.
 4. Fund the validator address with liquid SNRG.
 5. Bond the required validator stake.
 6. Activate the validator so it can join consensus.
 
-## Jarvis Workspace Creation vs Setup Packages
+## Jarvis Workspace Creation
 
 For a normal new non-genesis validator, Jarvis creates the needed workspace during initial setup. You do not need to manually create or import a setup package first.
 
@@ -22,7 +22,7 @@ Use the normal Jarvis setup flow when you are sitting on the machine that will r
 3. Confirm the workspace folder.
 4. Let Jarvis create the node wallet, `node.toml`, `peers.toml`, bootstrap manifest, funding manifest, and local workspace files.
 
-A setup package is only needed when the validator identity and config were generated somewhere else and must be imported into this machine. That is the genesis/ceremony style flow. The five genesis validator packages under the bundled runtime are examples of that import flow, and they must not be reused for a new public validator.
+Do not reuse one of the five genesis validator packages for a new validator. A new non-genesis validator needs its own validator identity, generated locally through the standard onboarding flow.
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ A setup package is only needed when the validator identity and config were gener
 - A machine with a stable public IP or DNS name.
 - Open inbound P2P on the validator port shown by Jarvis. The default public validator P2P port is `5622` unless the setup flow assigns another port.
 - Enough SNRG in the faucet or funding wallet to send the required stake.
-- Access to the public RPC endpoint: `https://testbeta-core-rpc.synergy-network.io`.
+- Access to the public RPC endpoint: `https://testnet-core-rpc.synergy-network.io`.
 
 The required stake is `50,000 SNRG`, which is `50,000,000,000,000 nWei`.
 
@@ -43,26 +43,24 @@ The validator address must start with `synv1`. Do not send the staking funds to 
 In the control panel, use the address shown on the validator node detail page as the node address. You can also confirm it from the installed workspace:
 
 ```bash
-cat ~/.synergy/testnet-beta/nodes/validator-workspace/keys/address.txt
+cat ~/.synergy/testnet/nodes/validator-workspace/keys/address.txt
 ```
 
 ## 1. Prepare The Machine
 
 1. Assign a public IP or DNS name that other peers can reach.
-2. Open the P2P port from the setup package.
+2. Open the P2P port shown by Jarvis.
 3. Keep RPC and metrics local unless the package explicitly exposes them.
 4. Install Synergy Node Control Panel on the machine.
-5. Launch the control panel once so the local testbeta agent is installed.
+5. Launch the control panel once so the local testnet agent is installed.
 
 For a Linux validator installed by the current packages, the managed workspace is:
 
 ```bash
-~/.synergy/testnet-beta/nodes/validator-workspace
+~/.synergy/testnet/nodes/validator-workspace
 ```
 
-## 2. Create Or Import The Validator Workspace
-
-### Standard Jarvis Flow
+## 2. Create The Validator Workspace
 
 1. Open Synergy Node Control Panel.
 2. Go to the setup or node installation flow.
@@ -75,17 +73,7 @@ For a Linux validator installed by the current packages, the managed workspace i
 9. Confirm the role is `validator`.
 10. Confirm the node address starts with `synv1`.
 
-### Package Import Flow
-
-Use this only when an approved package already exists.
-
-1. Open Synergy Node Control Panel.
-2. Choose the package import or ceremony setup flow.
-3. Select the approved setup package JSON for this machine.
-4. Import the package.
-5. Confirm the role, address, ports, and public endpoint before starting the node.
-
-Do not reuse one of the five genesis validator packages for a new validator. A new non-genesis validator needs its own validator identity. Jarvis creates that identity in the standard flow; an imported package must contain a separate identity that was generated specifically for that new validator.
+Do not edit genesis for a new validator. Admission, bonding, and activation happen through finalized chain state after the node is synced.
 
 ## 3. Start And Sync
 
@@ -110,7 +98,7 @@ curl -s http://127.0.0.1:5640 \
 Compare that value with the public chain:
 
 ```bash
-curl -s https://testbeta-core-rpc.synergy-network.io \
+curl -s https://testnet-core-rpc.synergy-network.io \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"synergy_blockNumber","params":[]}'
 ```
@@ -135,7 +123,7 @@ After sending, verify the liquid balance against the same validator address:
 ```bash
 VALIDATOR_ADDRESS='synv1...'
 
-curl -s https://testbeta-core-rpc.synergy-network.io \
+curl -s https://testnet-core-rpc.synergy-network.io \
   -H 'Content-Type: application/json' \
   --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"synergy_getBalance\",\"params\":[\"$VALIDATOR_ADDRESS\"]}"
 ```
@@ -166,7 +154,7 @@ You can verify bonded stake with:
 ```bash
 VALIDATOR_ADDRESS='synv1...'
 
-curl -s https://testbeta-core-rpc.synergy-network.io \
+curl -s https://testnet-core-rpc.synergy-network.io \
   -H 'Content-Type: application/json' \
   --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"synergy_getStakedBalance\",\"params\":[\"$VALIDATOR_ADDRESS\",\"SNRG\"]}"
 ```
@@ -202,7 +190,7 @@ Keep the validator running after activation. The runtime watches the synced vali
 Check the public validator list:
 
 ```bash
-curl -s https://testbeta-core-rpc.synergy-network.io \
+curl -s https://testnet-core-rpc.synergy-network.io \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"synergy_getValidators","params":[]}'
 ```
@@ -210,7 +198,7 @@ curl -s https://testbeta-core-rpc.synergy-network.io \
 Then check Atlas:
 
 ```bash
-curl -s https://testbeta-explorer.synergy-network.io/api/v1/validators
+curl -s https://testnet-explorer.synergy-network.io/api/v1/validators
 ```
 
 The validator should appear as active after indexing catches up. It should also begin showing block production or consensus activity over time.

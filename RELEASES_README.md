@@ -1,6 +1,6 @@
 # Synergy Node Control Panel — Releases
 
-Official installer downloads for the **Synergy Node Control Panel**, the desktop operator console for the Synergy Testnet-Beta network.
+Official installer downloads for the **Synergy Node Control Panel**, the desktop operator console for the Synergy Testnet network.
 
 ---
 
@@ -204,17 +204,17 @@ The control panel bundles pre-compiled node binaries. If the setup wizard report
 
 ## Network Information
 
-The control panel connects to the Synergy Testnet-Beta network:
+The control panel connects to the Synergy Testnet network:
 
 | Service | Endpoint |
 |---------|----------|
-| RPC | `https://testbeta-core-rpc.synergy-network.io` |
-| WebSocket | `wss://testbeta-core-ws.synergy-network.io` |
-| API | `https://testbeta-api.synergy-network.io` |
-| Explorer | `https://testbeta-explorer.synergy-network.io` |
-| Faucet | `https://testbeta-faucet.synergy-network.io` |
+| RPC | `https://testnet-core-rpc.synergy-network.io` |
+| WebSocket | `wss://testnet-core-ws.synergy-network.io` |
+| API | `https://testnet-api.synergy-network.io` |
+| Explorer | `https://testnet-explorer.synergy-network.io` |
+| Faucet | `https://testnet-faucet.synergy-network.io` |
 
-**Chain ID:** `338639`
+**Chain ID:** `1262`
 
 **Default Ports:**
 

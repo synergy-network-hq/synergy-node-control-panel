@@ -3713,46 +3713,46 @@
   box-shadow: none;
 }
 
-.testbeta-shell .dashboard {
+.testnet-shell .dashboard {
   background: transparent;
   padding: 0;
 }
 
-.testbeta-hero-actions {
+.testnet-hero-actions {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   gap: 0.65rem;
 }
 
-.testbeta-panels-grid {
+.testnet-panels-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1rem;
   margin-top: 1rem;
 }
 
-.testbeta-tab-panel {
+.testnet-tab-panel {
   margin-top: 1rem;
 }
 
-.testbeta-list {
+.testnet-list {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
 }
 
-.testbeta-catalog-section + .testbeta-catalog-section {
+.testnet-catalog-section + .testnet-catalog-section {
   margin-top: 1rem;
 }
 
-.testbeta-catalog-grid {
+.testnet-catalog-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 0.85rem;
 }
 
-.testbeta-role-card {
+.testnet-role-card {
   padding: 0.95rem 1rem;
   border-radius: 14px;
   border: 1px solid rgba(112, 148, 255, 0.24);
@@ -3761,51 +3761,51 @@
     radial-gradient(circle at top left, rgba(158, 255, 211, 0.08), transparent 38%);
 }
 
-.testbeta-role-card h4 {
+.testnet-role-card h4 {
   margin: 0.15rem 0 0.4rem;
   font-family: var(--snrg-font-primary);
   font-size: 1rem;
 }
 
-.testbeta-role-card p {
+.testnet-role-card p {
   margin: 0;
   color: var(--snrg-text-secondary);
   line-height: 1.45;
 }
 
-.testbeta-role-class {
+.testnet-role-class {
   color: rgba(198, 223, 245, 0.76) !important;
   font-size: 0.7rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
-.testbeta-table-path {
+.testnet-table-path {
   max-width: 420px;
   overflow-wrap: anywhere;
 }
 
-.testbeta-dashboard-shell .dashboard-layout {
+.testnet-dashboard-shell .dashboard-layout {
   height: calc(100vh - 138px);
 }
 
-.testbeta-dashboard-header {
+.testnet-dashboard-header {
   margin-bottom: 1.25rem;
 }
 
-.testbeta-sidebar-empty {
+.testnet-sidebar-empty {
   padding: 1rem 0.85rem;
   border: 1px dashed rgba(128, 223, 229, 0.22);
   border-radius: 12px;
   background: rgba(6, 16, 34, 0.54);
 }
 
-.testbeta-sidebar-action {
+.testnet-sidebar-action {
   width: 100%;
   justify-content: center;
 }
 
-.testbeta-empty-panel {
+.testnet-empty-panel {
   text-align: left;
   margin-bottom: 1.5rem;
   padding: 1.25rem 1.35rem;
@@ -3814,15 +3814,15 @@
   background: linear-gradient(135deg, rgba(9, 20, 42, 0.92), rgba(6, 14, 28, 0.88));
 }
 
-.testbeta-empty-panel p {
+.testnet-empty-panel p {
   margin: 0 0 1rem;
 }
 
-.testbeta-metric-card {
+.testnet-metric-card {
   min-height: 132px;
 }
 
-.testbeta-metric-value-compact {
+.testnet-metric-value-compact {
   font-size: 1rem !important;
   line-height: 1.45 !important;
   word-break: break-word;
@@ -3831,7 +3831,7 @@
   color: var(--text-primary);
 }
 
-.testbeta-address-value {
+.testnet-address-value {
   font-size: 0.94rem !important;
   line-height: 1.5 !important;
   color: #b98cff;
@@ -3847,29 +3847,29 @@
   box-shadow: 0 0 10px rgba(255, 184, 0, 0.45);
 }
 
-.testbeta-tab-stack {
+.testnet-tab-stack {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.testbeta-section-grid {
+.testnet-section-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1rem;
 }
 
-.testbeta-section-grid .metrics-section {
+.testnet-section-grid .metrics-section {
   margin-bottom: 0;
 }
 
-.testbeta-list-stack {
+.testnet-list-stack {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
 }
 
-.testbeta-list-panel {
+.testnet-list-panel {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -3879,7 +3879,7 @@
   background: rgba(5, 12, 24, 0.46);
 }
 
-.testbeta-bullet-list {
+.testnet-bullet-list {
   margin: 0;
   padding-left: 1.1rem;
   display: grid;
@@ -3887,18 +3887,18 @@
   color: var(--text-primary);
 }
 
-.testbeta-bullet-list li {
+.testnet-bullet-list li {
   color: var(--text-primary);
   line-height: 1.55;
 }
 
-.testbeta-path-list {
+.testnet-path-list {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
-.testbeta-path-item {
+.testnet-path-item {
   padding: 0.8rem 0.95rem;
   border-radius: 12px;
   border: 1px solid rgba(128, 223, 229, 0.14);
@@ -3911,24 +3911,24 @@
 }
 
 @media (max-width: 1180px) {
-  .testbeta-dashboard-shell .dashboard-layout {
+  .testnet-dashboard-shell .dashboard-layout {
     grid-template-columns: 240px 1fr;
   }
 }
 
 @media (max-width: 980px) {
-  .testbeta-dashboard-shell .dashboard-layout {
+  .testnet-dashboard-shell .dashboard-layout {
     grid-template-columns: 1fr;
     height: auto;
   }
 
-  .testbeta-dashboard-header {
+  .testnet-dashboard-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.85rem;
   }
 
-  .testbeta-section-grid {
+  .testnet-section-grid {
     grid-template-columns: 1fr;
   }
 }

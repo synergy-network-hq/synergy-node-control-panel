@@ -1,4 +1,4 @@
-# ✅ Synergy Testnet-Beta Validator System - READY FOR TEAM ONBOARDING
+# ✅ Synergy Testnet Validator System - READY FOR TEAM ONBOARDING
 
 **Date:** December 6, 2025  
 **Status:** Production Ready for Team Member Validators
@@ -7,7 +7,7 @@
 
 ## 🎯 What's Been Set Up
 
-The Synergy Testnet-Beta now supports **dynamic validator onboarding** for team members who want to run validators on their own remote systems.
+The Synergy Testnet now supports **dynamic validator onboarding** for team members who want to run validators on their own remote systems.
 
 ### ✅ Core Features Implemented
 
@@ -94,7 +94,7 @@ Located in `scripts/` directory:
   "consensus": {
     "parameters": {
       "max_validators": 100,          // Increased from 21
-      "min_stake_amount": "0",        // Set to 0 for testbeta
+      "min_stake_amount": "0",        // Set to 0 for testnet
       "allow_zero_stake_validators": true,
       "dynamic_validator_registration": true
     }
@@ -116,8 +116,8 @@ Located in `scripts/` directory:
 
 1. **Clone & Build**
    ```bash
-   git clone https://github.com/synergy-network-hq/synergy-testbeta.git
-   cd synergy-testbeta
+   git clone https://github.com/synergy-network-hq/synergy-testnet.git
+   cd synergy-testnet
    cargo build --release
    ```
 
@@ -133,7 +133,7 @@ Located in `scripts/` directory:
 
 4. **Start Validator Node**
    ```bash
-   ./target/release/synergy-testbeta start --config config/my-validator-config.toml
+   ./target/release/synergy-testnet start --config config/my-validator-config.toml
    ```
 
 5. **Receive SNRG Tokens**
@@ -175,7 +175,7 @@ Located in `scripts/` directory:
 
 ---
 
-## 💰 Token Economics (Testnet-Beta)
+## 💰 Token Economics (Testnet)
 
 ### Faucet Allocation
 - **Address:** `synw1lfgerdqglc6p74p9u6k8ghfssl59q8jzhuwm07`
@@ -277,12 +277,12 @@ Before inviting team members:
 ## 🚨 Important Notes
 
 ### Security:
-- ⚠️ **Private keys in plaintext** - Acceptable for testbeta only
+- ⚠️ **Private keys in plaintext** - Acceptable for testnet only
 - ⚠️ **No staking** - Validators can join with 0 SNRG
 - ⚠️ **Open RPC** - Firewall correctly if exposing publicly
 
 ### Limitations:
-- **Testnet-Beta only** - Do not use for testnet/mainnet
+- **Testnet only** - Do not use for testnet/mainnet
 - **Team members only** - Not public validator recruitment
 - **Manual coordination** - Registration requires coordinator approval
 
@@ -297,13 +297,13 @@ Before inviting team members:
 ## 📞 Support Channels
 
 ### For Team Members:
-- **Discord:** #testbeta-validators
-- **Telegram:** @synergy_testbeta
-- **Email:** testbeta-support@synergy.network
+- **Discord:** #testnet-validators
+- **Telegram:** @synergy_testnet
+- **Email:** testnet-support@synergy.network
 
 ### For Coordinators:
-- **Discord DM:** Testnet-Beta coordinator
-- **Emergency:** testbeta-admin@synergy.network
+- **Discord DM:** Testnet coordinator
+- **Emergency:** testnet-admin@synergy.network
 
 ---
 
@@ -325,6 +325,6 @@ Before inviting team members:
 
 ---
 
-**The Synergy Testnet-Beta is now ready for your team to join as validators!**
+**The Synergy Testnet is now ready for your team to join as validators!**
 
 Share `VALIDATOR_ONBOARDING_GUIDE.md` with team members who want to participate.
