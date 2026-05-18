@@ -50,8 +50,8 @@ network_magic_bytes = str(genesis.get("p2p_identity", {}).get("network_magic_byt
 manifest = {
     "workspace_resource_version": f"{app_version}+{bundle_digest[:12]}",
     "app_version": app_version,
-    "chain_id": int(genesis.get("network", {}).get("chain_id", 1263)),
-    "network_id": int(genesis.get("network", {}).get("network_id", 1263)),
+    "chain_id": int(genesis.get("network", {}).get("chain_id", 1264)),
+    "network_id": int(genesis.get("network", {}).get("network_id", 1264)),
     "network_slug": "synergy-testnet",
     "genesis_hash": genesis_hash,
     "network_magic_bytes": network_magic_bytes,

@@ -363,7 +363,7 @@ run_prestart_sync() {
   local rpc_bind_address
   rpc_bind_address="${SYNERGY_RPC_BIND_ADDRESS:-${RPC_BIND_ADDRESS:-}}"
   local configured_chain_id
-  configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-1263}}"
+  configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-1264}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
   build_runtime_env_args \
@@ -435,7 +435,7 @@ start_node() {
   local rpc_bind_address
   rpc_bind_address="${SYNERGY_RPC_BIND_ADDRESS:-${RPC_BIND_ADDRESS:-}}"
   local configured_chain_id
-  configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-1263}}"
+  configured_chain_id="${SYNERGY_CHAIN_ID:-${CHAIN_ID:-1264}}"
   local config_path
   config_path="$BASE_DIR/config/node.toml"
   build_runtime_env_args \

@@ -16,7 +16,7 @@ compiled_profile = "indexer_and_explorer_node"
 services = []
 
 [network]
-id = 1263
+id = 1264
 name = "synergy-testnet"
 p2p_port = 5627
 rpc_port = 5647
@@ -31,7 +31,7 @@ persistent_peers = ["snr://sentry1@relay1.synergynode.xyz:5622","snr://sentry2@r
 [blockchain]
 block_time = 2
 max_gas_limit = "0x2fefd8"
-chain_id = 1263
+chain_id = 1264
 
 [consensus]
 algorithm = "Proof of Synergy"

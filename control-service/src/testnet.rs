@@ -34,7 +34,7 @@ const STATE_VERSION: u32 = 1;
 const TESTNET_ENVIRONMENT_ID: &str = "testnet";
 const TESTNET_DISPLAY_NAME: &str = "Testnet";
 const TESTNET_CHAIN_NAME: &str = "synergy-testnet";
-const TESTNET_CHAIN_ID: u64 = 1263;
+const TESTNET_CHAIN_ID: u64 = 1264;
 const TESTNET_BOOTNODE_PORT: u16 = 5620;
 const TESTNET_SEED_PORT: u16 = 5621;
 const TESTNET_P2P_PORT: u16 = 5622;
@@ -2758,7 +2758,7 @@ pub async fn testnet_activate_validator(
     let amount_snrg = input.amount_snrg.unwrap_or(MINIMUM_STAKE_SNRG);
     let preflight = build_validator_activation_preflight(&state, &node).await?;
     if !preflight.can_activate {
-        return Err("Validator activation preflight is not passing yet. The node must be on canonical chain 1263, within two blocks of head, visible through relayer peers, registered with seeds, and bonded before activation.".to_string());
+        return Err("Validator activation preflight is not passing yet. The node must be on canonical chain 1264, within two blocks of head, visible through relayer peers, registered with seeds, and bonded before activation.".to_string());
     }
 
     let rpc_endpoint = rpc_endpoint_for_workspace(&node)?;
@@ -3141,14 +3141,14 @@ async fn build_validator_activation_preflight(
         "canonical-workspace-genesis",
         "Canonical workspace genesis",
         workspace_genesis_ok,
-        "The validator workspace has the canonical chain 1263 genesis hash.",
+        "The validator workspace has the canonical chain 1264 genesis hash.",
         "Re-provision this workspace with the canonical Testnet bundle before staking or activation.",
     ));
     checks.push(preflight_check(
         "canonical-chain-state",
         "Canonical chain state",
         chain_state_genesis_ok,
-        "Existing local chain data belongs to the canonical chain 1263 genesis.",
+        "Existing local chain data belongs to the canonical chain 1264 genesis.",
         "Stop the node and reset stale local chain data before staking or activation.",
     ));
     checks.push(preflight_check(
@@ -7093,13 +7093,13 @@ async fn build_node_readiness_report(
         label: "Canonical Genesis".to_string(),
         status: if canonical_genesis_status { "pass" } else { "fail" }.to_string(),
         detail: if canonical_genesis_status && is_genesis_validator {
-            "Canonical chain 1263 genesis is present and includes this genesis validator address."
+            "Canonical chain 1264 genesis is present and includes this genesis validator address."
                 .to_string()
         } else if canonical_genesis_status && role_supports_validator_registration(&node.role_id) {
-            "Canonical chain 1263 genesis is present and does not include this non-genesis validator address."
+            "Canonical chain 1264 genesis is present and does not include this non-genesis validator address."
                 .to_string()
         } else if canonical_genesis_status {
-            "Canonical chain 1263 genesis is present.".to_string()
+            "Canonical chain 1264 genesis is present.".to_string()
         } else if is_genesis_validator {
             "Genesis validator workspace is missing the canonical genesis or its genesis address."
                 .to_string()
@@ -7107,14 +7107,14 @@ async fn build_node_readiness_report(
             "This non-genesis validator address appears in genesis.json, which would create a non-canonical chain identity."
                 .to_string()
         } else {
-            "Canonical chain 1263 genesis is missing or has the wrong genesis hash.".to_string()
+            "Canonical chain 1264 genesis is missing or has the wrong genesis hash.".to_string()
         },
         suggestion: if canonical_genesis_status {
             None
         } else if role_supports_validator_registration(&node.role_id) && genesis_address_present {
             Some("Do not edit genesis for new validators. Re-provision from the canonical Testnet bundle before starting this node.".to_string())
         } else {
-            Some("Re-run setup with the updated Control Panel so the workspace receives the canonical chain 1263 genesis.".to_string())
+            Some("Re-run setup with the updated Control Panel so the workspace receives the canonical chain 1264 genesis.".to_string())
         },
     });
 

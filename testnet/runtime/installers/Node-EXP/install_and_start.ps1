@@ -55,7 +55,7 @@ function Initialize-NodeRuntimeEnv {
 
   $configuredChainId = Get-NodeEnvValue "SYNERGY_CHAIN_ID"
   if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = Get-NodeEnvValue "CHAIN_ID" }
-  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = "1263" }
+  if ([string]::IsNullOrWhiteSpace($configuredChainId)) { $configuredChainId = "1264" }
   $env:SYNERGY_CHAIN_ID = $configuredChainId
 
   $configuredNetworkId = Get-NodeEnvValue "SYNERGY_NETWORK_ID"

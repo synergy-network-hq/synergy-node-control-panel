@@ -476,7 +476,7 @@ app.register(async (api) => {
                     symbol: 'SNRG',
                     name: 'Synergy Testnet Token',
                     category: 'Native testnet beta token',
-                    summary: 'Native Synergy Testnet-Beta asset used for balances, transfers, fees, staking, and validator onboarding.',
+                    summary: 'Native Synergy Testnet asset used for balances, transfers, fees, staking, and validator onboarding.',
                     priceUsd: '0.00 USD',
                     change24h: '0.00%',
                     holders,

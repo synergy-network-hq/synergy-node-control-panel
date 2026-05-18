@@ -2,8 +2,8 @@
   "version": 2,
   "environment_id": "testnet",
   "display_name": "Synergy Testnet",
-  "network_id": 1263,
-  "chain_id": 1263,
+  "network_id": 1264,
+  "chain_id": 1264,
   "token": {
     "symbol": "SNRG",
     "denom": "SNRG",

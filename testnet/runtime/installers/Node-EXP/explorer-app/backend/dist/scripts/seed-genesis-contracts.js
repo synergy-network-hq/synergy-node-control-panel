@@ -22,7 +22,7 @@ if (!DB_URL) {
     process.exit(1);
 }
 // Resolve genesis.json relative to the repo root
-const GENESIS_PATH = path.resolve(process.cwd(), '../../../synergy-testnet-beta/config/genesis.json');
+const GENESIS_PATH = path.resolve(process.cwd(), '../../../synergy-testnet/config/genesis.json');
 // Human-readable labels for each genesis contract key
 const CONTRACT_LABELS = {
     governance: 'Governance',

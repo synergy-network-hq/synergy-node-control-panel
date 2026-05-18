@@ -158,7 +158,7 @@ function ValidatorActivationGuide({
   const steps = [
     {
       id: 'canonical',
-      label: 'Verify canonical chain 1263',
+      label: 'Verify canonical chain 1264',
       done: canonicalReady,
       detail: 'The workspace must use the canonical genesis hash and must not add this new validator to genesis.',
       action: (

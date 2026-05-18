@@ -5,7 +5,7 @@ Historical release notes reconstructed from local git tag ranges for the control
 ## v12.2.3 - 2026-05-17
 
 - Added a guided Node Overview activation flow for non-genesis validators, including Core team funding instructions for the validator `synv1...` address, balance detection, staking, and activation gating.
-- Hardened validator activation preflight around canonical chain 1263 genesis, canonical local chain data, two-block sync tolerance, relayer peer visibility, seed registration, wallet readiness, and bonded stake.
+- Hardened validator activation preflight around canonical chain 1264 genesis, canonical local chain data, two-block sync tolerance, relayer peer visibility, seed registration, wallet readiness, and bonded stake.
 - Added a bundled operational manifest and release validation for relayer-only public onboarding, including the canonical relayer-1 private address used by observer and release assets.
 
 ## v12.1.0 - 2026-05-13

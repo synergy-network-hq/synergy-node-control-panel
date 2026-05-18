@@ -159,7 +159,7 @@ export default function SettingsPageCompact() {
         <SettingsCard kicker="General" title="General Preferences">
           <div className="settings-shell-definition-grid">
             <Definition label="App" value="Synergy Node Control Panel" detail={version || 'Version not reported'} />
-            <Definition label="Environment" value={state?.display_name || 'Testnet'} detail={`Chain ID ${state?.network_profile?.chain_id || 1263}`} />
+            <Definition label="Environment" value={state?.display_name || 'Testnet'} detail={`Chain ID ${state?.network_profile?.chain_id || 1264}`} />
             <Definition label="Machine" value={state?.device_profile?.hostname || 'Unknown'} detail={state?.device_profile?.operating_system || 'Local operator host'} />
           </div>
         </SettingsCard>

@@ -73,26 +73,6 @@
       "address": "synw17nh265ug2fgc8guv2ad7tt8kv0wlhesxndl8"
     },
     {
-      "account_type": "ValidatorCluster",
-      "address": "syngrp110a369l8fnpv9egwyn6f3e96sry7gcs8uy"
-    },
-    {
-      "account_type": "ValidatorCluster",
-      "address": "syngrp1159hxz2dqatcd4422lh2ahkyplxe7uwj3c"
-    },
-    {
-      "account_type": "ValidatorCluster",
-      "address": "syngrp11h0gdcn2305t5v64s2eayc62n287mldk9z"
-    },
-    {
-      "account_type": "ValidatorCluster",
-      "address": "syngrp11xyv9wugqt82mj78mudtzcfv3p4e8fzs0r"
-    },
-    {
-      "account_type": "ValidatorCluster",
-      "address": "syngrp11ztjymct0r3fds5a2dtd6rprwm390cz8tw"
-    },
-    {
       "account_type": "ValidatorSecurityPool",
       "address": "synw1at607x35rkmsmvgz069nx0j3q5km93krrvge"
     }
@@ -238,26 +218,6 @@
   "balances": [
     {
       "address": "synf1y42p7p6jrxrg472ts6jea5y34yg7tgj6qg2j",
-      "balance_nwei": "0"
-    },
-    {
-      "address": "syngrp110a369l8fnpv9egwyn6f3e96sry7gcs8uy",
-      "balance_nwei": "0"
-    },
-    {
-      "address": "syngrp1159hxz2dqatcd4422lh2ahkyplxe7uwj3c",
-      "balance_nwei": "0"
-    },
-    {
-      "address": "syngrp11h0gdcn2305t5v64s2eayc62n287mldk9z",
-      "balance_nwei": "0"
-    },
-    {
-      "address": "syngrp11xyv9wugqt82mj78mudtzcfv3p4e8fzs0r",
-      "balance_nwei": "0"
-    },
-    {
-      "address": "syngrp11ztjymct0r3fds5a2dtd6rprwm390cz8tw",
       "balance_nwei": "0"
     },
     {
@@ -768,7 +728,7 @@
     "immutable": true,
     "included_in_genesis_hash": true,
     "max_bytes": 512,
-    "value": "16 May 2026 - Synergy Testnet chain 1263 resets the public testnet with a post-quantum Proof of Synergy network with cluster-local certified DAG data availability and dual-quorum finality."
+    "value": "16 May 2026 - Synergy Testnet chain 1264 resets the public testnet with a post-quantum Proof of Synergy network with cluster-local certified DAG data availability and dual-quorum finality."
   },
   "governance": {
     "approval_pct": 0.5,
@@ -809,21 +769,21 @@
       "seal": null
     },
     "data_root": "8ad43956cdf5b48e70c76cb9a2833acb17d4e695df81297b53ca6398bcc81b71",
-    "extra_data": "16 May 2026 - Synergy Testnet chain 1263 resets the public testnet with a post-quantum Proof of Synergy network with cluster-local certified DAG data availability and dual-quorum finality.",
+    "extra_data": "16 May 2026 - Synergy Testnet chain 1264 resets the public testnet with a post-quantum Proof of Synergy network with cluster-local certified DAG data availability and dual-quorum finality.",
     "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "receipts_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
-    "state_root": "14d22b78dcd64554bceab123bfef14b22fd642403ba07058bc13b7e1b46efa76",
+    "state_root": "989d45295a07a0fd848235342505be89c74980fbc630b9b6fa108926bedb92c3",
     "timestamp": 1775044800,
     "transactions_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
   },
   "integrity": {
     "allocation_hash": "e4db5cbe7fccce3efb9cc452df0936ee226338866368059defeb4c5eb3288a13",
     "contract_hash": "34baa1f3afd82115b68dc1e995131d647f8918fe7917a0f6660cfd7006421425",
-    "genesis_hash": "dd9ad8cfc74be1ab17a0a0fce9db65281df1b325fe5a2530130dce8935e450b8",
+    "genesis_hash": "85b26d520e1621adaa212012dae540dcb223e0a9648666b919d64cb8c4394c75",
     "recompute_reason": "final canonical recompute completed",
     "recompute_required": false,
     "signed_by": [],
-    "state_root": "14d22b78dcd64554bceab123bfef14b22fd642403ba07058bc13b7e1b46efa76",
+    "state_root": "989d45295a07a0fd848235342505be89c74980fbc630b9b6fa108926bedb92c3",
     "validator_hash": "8fff4be7ac953841f5731b360fd69985e8cd68f160f1d990d93666f6c959ee8f",
     "validator_set_hash": "8b2cb9f8eb296dd1491d3ed777da3f7264dd4d0bc467556902ebe63363577dfc"
   },
@@ -1077,10 +1037,10 @@
     }
   },
   "network": {
-    "chain_id": 1263,
+    "chain_id": 1264,
     "consensus_version": "posy/1.0.0",
     "genesis_schema_version": "v2",
-    "network_id": 1263,
+    "network_id": 1264,
     "network_type": "testnet",
     "protocol_name": "Synergy Network",
     "protocol_version": "1.0.0"
@@ -1103,18 +1063,18 @@
       "eip155": {
         "activation_condition": "Activate only when EVM/EIP-155 compatibility is implemented and publicly supported.",
         "namespace": "eip155",
-        "reference": "1263",
+        "reference": "1264",
         "status": "reserved_inactive",
-        "value": "eip155:1263"
+        "value": "eip155:1264"
       }
     },
-    "synergy_native_chain_id": 1263,
+    "synergy_native_chain_id": 1264,
     "synergy_native_chain_id_hex": "0x4ef"
   },
   "p2p_identity": {
     "derivation": "first_4_bytes(blake3('synergy-network-magic-v1' || 'synergy:testnet' || final_genesis_hash))",
     "length_bytes": 4,
-    "network_magic_bytes": "d5d5bb99",
+    "network_magic_bytes": "e312fa40",
     "network_magic_bytes_format": "lowercase_hex_without_0x",
     "peer_id_format": "synergy_node_peer_id",
     "status": "final"

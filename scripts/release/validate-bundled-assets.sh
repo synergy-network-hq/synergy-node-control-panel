@@ -141,8 +141,8 @@ EOF
   fi
 done
 
-if ! rg -q '"chain_id"[[:space:]]*:[[:space:]]*1263' "$runtime_operational_manifest_path"; then
-  echo "Runtime operational manifest is not pinned to chain_id 1263" >&2
+if ! rg -q '"chain_id"[[:space:]]*:[[:space:]]*1264' "$runtime_operational_manifest_path"; then
+  echo "Runtime operational manifest is not pinned to chain_id 1264" >&2
   exit 1
 fi
 
