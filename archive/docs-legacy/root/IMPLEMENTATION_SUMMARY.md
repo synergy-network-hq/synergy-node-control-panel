@@ -240,7 +240,7 @@ return (
 ```
 [Jarvis] Loading configuration template...
 [Config] Template: validator.toml
-[Config] Setting network ID: 1262 (Synergy Testnet)
+[Config] Setting network ID: 1264 (Synergy Testnet)
 [Config] Setting P2P port: 38638
 [Config] Setting RPC port: 48638
 [Config] Setting WebSocket port: 58638

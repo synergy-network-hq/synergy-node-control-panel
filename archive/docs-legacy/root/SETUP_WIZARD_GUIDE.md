@@ -126,7 +126,7 @@ The wizard performs these steps automatically:
 ```
 [Jarvis] Loading configuration template...
 [Config] Template: validator.toml
-[Config] Setting network ID: 1262 (Synergy Testnet)
+[Config] Setting network ID: 1264 (Synergy Testnet)
 [Config] Setting P2P port: 38638
 [Config] Setting RPC port: 48638
 [Config] Setting WebSocket port: 58638
@@ -218,7 +218,7 @@ Displays four critical metrics in highlighted cards:
 Three cards showing:
 - **⏱️ Uptime**: How long the node has been running
 - **📦 Current Block**: Local and network block heights
-- **🌍 Network**: Synergy Testnet (Chain ID: 1262)
+- **🌍 Network**: Synergy Testnet (Chain ID: 1264)
 
 #### **Node Information**
 - Config path
@@ -396,7 +396,7 @@ bootnode3.synergy-network.io:38638
 ```
 
 ### Chain ID
-- **Testnet**: 1262
+- **Testnet**: 1264
 
 ---
 

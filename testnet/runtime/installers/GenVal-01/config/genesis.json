@@ -772,18 +772,18 @@
     "extra_data": "16 May 2026 - Synergy Testnet chain 1264 resets the public testnet with a post-quantum Proof of Synergy network with cluster-local certified DAG data availability and dual-quorum finality.",
     "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "receipts_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
-    "state_root": "a2d43eb9d19de9e9d50ac78271e013313047fcbc63ecc251c650c97cca8f0a1c",
+    "state_root": "34c374780ae9e9467a02b74f2214e0b9fe026a747c545b57237a8ffa11178d16",
     "timestamp": 1775044800,
     "transactions_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
   },
   "integrity": {
     "allocation_hash": "e4db5cbe7fccce3efb9cc452df0936ee226338866368059defeb4c5eb3288a13",
     "contract_hash": "34baa1f3afd82115b68dc1e995131d647f8918fe7917a0f6660cfd7006421425",
-    "genesis_hash": "69cd6ae25399d542632ac770a3263761bac585003d2b48dac74e9902f4b5d75c",
+    "genesis_hash": "5809ed3fe0a1ae40bad1f7db6309917e47bfc0b1734cbc170b738ebc38b312ba",
     "recompute_reason": "final canonical recompute completed",
     "recompute_required": false,
     "signed_by": [],
-    "state_root": "a2d43eb9d19de9e9d50ac78271e013313047fcbc63ecc251c650c97cca8f0a1c",
+    "state_root": "34c374780ae9e9467a02b74f2214e0b9fe026a747c545b57237a8ffa11178d16",
     "validator_hash": "c18a6f16fc55fed0d6b4d205a5f11c4e1c240b5568ae4f4702295fdada64ae32",
     "validator_set_hash": "8b2cb9f8eb296dd1491d3ed777da3f7264dd4d0bc467556902ebe63363577dfc"
   },
@@ -1069,12 +1069,12 @@
       }
     },
     "synergy_native_chain_id": 1264,
-    "synergy_native_chain_id_hex": "0x4ef"
+    "synergy_native_chain_id_hex": "0x4f0"
   },
   "p2p_identity": {
     "derivation": "first_4_bytes(blake3('synergy-network-magic-v1' || 'synergy:testnet' || final_genesis_hash))",
     "length_bytes": 4,
-    "network_magic_bytes": "76350cb6",
+    "network_magic_bytes": "f133316a",
     "network_magic_bytes_format": "lowercase_hex_without_0x",
     "peer_id_format": "synergy_node_peer_id",
     "status": "final"

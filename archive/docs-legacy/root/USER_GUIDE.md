@@ -151,7 +151,7 @@ The **Network** tab shows other nodes discovered on the Synergy network.
 
 - **Discovered Peers**: Total peers found across the network
 - **Bootstrap Nodes**: How many bootstrap nodes are reachable
-- **Chain ID**: The network chain identifier (1262 for testnet)
+- **Chain ID**: The network chain identifier (1264 for testnet)
 - **Current Block**: Latest block height
 
 ### Peer Table
@@ -212,7 +212,7 @@ Click **+ Add Node** in the sidebar to return to the Jarvis setup assistant and 
 
 ```toml
 [network]
-id = 1262                    # Chain ID
+id = 1264                    # Chain ID
 name = "synergy-testnet"        # Network name
 p2p_port = 38638              # P2P listening port
 rpc_port = 48638              # RPC API port
@@ -391,5 +391,5 @@ For issues and feature requests:
 
 - **Control Panel Version**: 1.0.0
 - **Network**: Synergy Testnet
-- **Chain ID**: 1262
+- **Chain ID**: 1264
 - **Consensus**: Proof of Synergy (PoSy)
