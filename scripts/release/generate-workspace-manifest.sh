@@ -17,7 +17,8 @@ manifest_path = pathlib.Path(sys.argv[2])
 app_version = sys.argv[3]
 
 # Only the three platform binaries that are bundled into the Electron app.
-# Configs, installers, and keys are not bundled and must not drive the digest.
+# Runtime configs are validated separately; ignored key/setup-package material
+# must not drive the digest.
 platform_binaries = [
     "binaries/synergy-testnet-darwin-arm64",
     "binaries/synergy-testnet-linux-amd64",
@@ -59,9 +60,9 @@ manifest = {
     "required_paths": [
         "testnet/runtime/workspace-manifest.json",
         "testnet/runtime/configs/genesis/genesis.json",
+        "testnet/runtime/configs/operational/operational-manifest.json",
         "testnet/runtime/installers/GenVal-01/config/genesis.json",
         "testnet/runtime/installers/GenVal-01/config/peers.toml",
-        "testnet/runtime/installers/GenVal-01/keys/setup-package.json",
         "testnet/runtime/installers/Node-RPC/nginx.conf",
         "testnet/runtime/installers/Node-EXP/nginx.conf",
         "testnet/runtime/installers/Node-EXP/explorer-app/dist/index.html",

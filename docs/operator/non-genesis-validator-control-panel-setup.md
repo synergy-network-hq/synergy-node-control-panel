@@ -84,7 +84,7 @@ On the validator node detail page:
 3. Click `Bootstrap / reconnect` if the node has no peers or is behind.
 4. Wait until the sync lag is near zero.
 
-The activation preflight currently accepts a sync gap of `32` blocks or less.
+The activation preflight accepts a sync gap of `2` blocks or less.
 The packaged validator config allows up to `100` active consensus validators, so a bonded and activated non-genesis validator is not capped out by the five genesis validators.
 
 You can verify sync from the machine:
@@ -114,11 +114,11 @@ On the validator node detail page:
 
 The preflight should show the seed registration check as passing before activation.
 
-## 5. Fund The Validator Address
+## 5. Request Funding For The Validator Address
 
-Send at least `50,000 SNRG` to the validator `synv1...` address from the faucet or another funded wallet.
+Ask the Synergy Core team to send `50,000 SNRG` to the validator `synv1...` address shown in the Node Overview activation guide. Do not request funding to a regular `synw...` wallet address.
 
-After sending, verify the liquid balance against the same validator address:
+The Node Overview activation guide watches the validator balance and alerts the operator when the required tokens are visible. You can also verify the liquid balance against the same validator address:
 
 ```bash
 VALIDATOR_ADDRESS='synv1...'
@@ -138,7 +138,7 @@ On the validator node detail page:
 
 1. Click `Activation Preflight`.
 2. Confirm `Wallet funding` passes.
-3. Click `Stake Validator`.
+3. Click `Stake Validator` in the Node Overview activation guide.
 4. Wait for the submitted transaction to be included.
 5. Click `Activation Preflight` again.
 6. Confirm `Bonded stake` passes.
@@ -166,10 +166,12 @@ The bonded balance must be at least `50000000000000` nWei.
 Run `Activation Preflight` again and confirm these checks pass:
 
 - Validator role
+- Canonical workspace genesis
+- Canonical chain state
 - Public P2P endpoint
 - Local RPC ready
 - Synced near chain head
-- Peers visible
+- Relayer peers visible
 - Seed registration
 - Wallet funding
 - Bonded stake
@@ -182,7 +184,7 @@ The control panel submits:
 synergy_activateValidator(validator_address, display_name, 50000)
 ```
 
-The validator joins consensus after the activation transaction is included and observed by the active validator set.
+The validator joins consensus after the activation transaction is included, observed by the active validator set, and accepted by the deterministic epoch-boundary activation logic.
 Keep the validator running after activation. The runtime watches the synced validator registry and starts consensus automatically when it sees its own activation; if the node was stopped during activation, start it again after the transaction is included.
 
 ## 8. Confirm Consensus Participation
@@ -221,9 +223,11 @@ If the transaction exists on-chain but Atlas does not show details, use the RPC 
 If `Activation Preflight` fails:
 
 - `Public P2P endpoint`: fix the public host or firewall before trying again.
+- `Canonical workspace genesis`: re-provision from the current Testnet bundle.
+- `Canonical chain state`: stop the node and reset stale local chain data before retrying.
 - `Local RPC ready`: start or restart the node.
 - `Synced near chain head`: click `Bootstrap / reconnect` and wait.
-- `Peers visible`: check P2P reachability and seed registration.
+- `Relayer peers visible`: check relayer reachability, P2P firewall rules, and seed registration.
 - `Seed registration`: click `Re-register`.
 - `Wallet funding`: send SNRG to the validator `synv1...` address.
 - `Bonded stake`: click `Stake Validator` after funding is visible.

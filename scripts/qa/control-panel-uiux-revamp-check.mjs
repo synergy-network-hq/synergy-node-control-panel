@@ -63,7 +63,10 @@ assert(shellSource.includes('aria-label="Open Help"'), 'Topbar Help button is mi
 
 const nodeDetailsSource = read('src/components/control-panel/TestnetNodeDetailRevamp.jsx');
 assert(nodeDetailsSource.includes('Sync Catch Up'), 'Node Details must expose the dedicated Sync Catch Up workflow.');
-for (const forbidden of ['Connect Wallet', 'Copy Deposit Address', 'Stake Validator', 'Stake SNRG', 'Unstake', 'Withdraw']) {
+assert(nodeDetailsSource.includes('Validator activation guide'), 'Node Details must expose the guided validator activation workflow.');
+assert(nodeDetailsSource.includes('Synergy Core team'), 'Node Details activation guide must instruct operators to request Core team funding.');
+assert(nodeDetailsSource.includes('Stake Validator'), 'Node Details activation guide must include the stake action after funding is detected.');
+for (const forbidden of ['Connect Wallet', 'Copy Deposit Address', 'Stake SNRG', 'Unstake', 'Withdraw']) {
   assert(!nodeDetailsSource.includes(forbidden), `Node Details still contains forbidden wallet/stake control: ${forbidden}`);
 }
 

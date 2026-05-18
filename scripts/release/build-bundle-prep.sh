@@ -342,6 +342,21 @@ for package_path in sorted(installers_root.glob("GenVal-*/keys/setup-package.jso
     }
 
     package_path.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+
+canonical_packages = sorted(installers_root.glob("GenVal-*/keys/setup-package.json"))
+if canonical_packages:
+    package = json.loads(canonical_packages[0].read_text(encoding="utf-8"))
+    operational_manifest = package.get("artifacts", {}).get("operational_manifest")
+    if not isinstance(operational_manifest, dict) or not operational_manifest:
+        raise SystemExit(
+            f"{canonical_packages[0]} is missing artifacts.operational_manifest"
+        )
+    for sentry in operational_manifest.get("bootstrap", {}).get("sentries", []):
+        if sentry.get("label") == "sentry1":
+            sentry["private_host"] = "10.69.0.20"
+    target = root / "testnet/runtime/configs/operational/operational-manifest.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(operational_manifest, indent=2) + "\n", encoding="utf-8")
 PY
 }
 

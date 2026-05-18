@@ -103,7 +103,7 @@ export default function ValidatorCatchUpCard({
   }
 
   const syncGap = Number(nodeLive?.sync_gap ?? 0);
-  const isBehind = syncGap > 32;
+  const isBehind = syncGap > 2;
   const isBusy = actionBusy === 'sync-catch-up';
   const steps = safeArray(lastResult?.steps).length ? safeArray(lastResult.steps) : defaultSteps(isBehind);
   const repairActions = normalizeRepairActions(lastResult, preflight, mode);

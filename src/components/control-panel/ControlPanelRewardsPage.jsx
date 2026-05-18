@@ -197,7 +197,7 @@ function participationState(selectedNodeLive) {
       tone: 'warn',
     };
   }
-  if ((Number(selectedNodeLive?.sync_gap) || 0) > 32) {
+  if ((Number(selectedNodeLive?.sync_gap) || 0) > 2) {
     return {
       label: 'Catching up',
       detail: 'Rewards can lag while the validator is still syncing toward the live head.',
@@ -352,7 +352,7 @@ export default function ControlPanelRewardsPage() {
   const missingRewardNotes = [
     !selectedNodeLive?.is_running ? 'The node is not running right now.' : '',
     selectedNodeLive?.local_rpc_ready === false ? 'The node is still starting its local runtime services.' : '',
-    (Number(selectedNodeLive?.sync_gap) || 0) > 32 ? 'The node is behind the live chain head, so rewards may lag until sync catches up.' : '',
+    (Number(selectedNodeLive?.sync_gap) || 0) > 2 ? 'The node is behind the live chain head, so rewards may lag until sync catches up.' : '',
     Number(selectedNodeLive?.local_peer_count || 0) <= 0 ? 'The node has no visible peers, which can block steady participation.' : '',
     ...safeArray(payload.telemetry.telemetry_gaps || []),
   ].filter(Boolean).slice(0, 6);

@@ -41,7 +41,7 @@ function buildTelemetrySnapshot(liveStatus) {
       syncedNodes: nodes.filter((entry) => (
         entry?.is_running
         && entry?.local_rpc_ready !== false
-        && (Number(entry?.sync_gap) || 0) <= 32
+        && (Number(entry?.sync_gap) || 0) <= 2
       )).length,
       totalPeers: nodes.reduce((highest, entry) => {
         const peerCount = Number(entry?.local_peer_count);
@@ -245,7 +245,7 @@ export function ControlPanelProvider({ children }) {
     const syncedNodes = liveNodes.filter((entry) => (
       entry?.is_running
       && entry?.local_rpc_ready !== false
-      && (Number(entry?.sync_gap) || 0) <= 32
+      && (Number(entry?.sync_gap) || 0) <= 2
     )).length;
     const healthyBootnodes = (liveStatus?.bootnodes || []).filter((entry) => entry?.reachable).length;
     const totalPeers = liveNodes.reduce((highest, entry) => {

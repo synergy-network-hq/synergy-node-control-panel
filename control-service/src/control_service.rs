@@ -20,14 +20,13 @@ use crate::testnet::{
     testnet_activate_validator, testnet_boost_sync, testnet_erase_local_machine_data,
     testnet_force_peer_connect, testnet_get_catalog, testnet_get_chain_blocks,
     testnet_get_device_profile, testnet_get_feature_snapshot, testnet_get_live_status,
-    testnet_get_node_logs, testnet_get_node_readiness, testnet_get_rewards_data,
-    testnet_get_state, testnet_get_validator_activation_preflight, testnet_node_control,
-    testnet_remove_node, testnet_run_register_with_seeds, testnet_setup_node,
-    testnet_stake_validator, testnet_sync_catch_up_rejoin, testnet_transfer_validator_tokens,
-    testnet_unstake_validator, TestnetEraseNodeDataInput, TestnetFeatureSnapshotInput,
-    TestnetForcePeerConnectInput, TestnetNodeControlInput,
-    TestnetRemoveNodeInput, TestnetSetupInput, TestnetValidatorActivateInput,
-    TestnetValidatorCatchUpInput, TestnetValidatorStakeInput,
+    testnet_get_node_logs, testnet_get_node_readiness, testnet_get_rewards_data, testnet_get_state,
+    testnet_get_validator_activation_preflight, testnet_node_control, testnet_remove_node,
+    testnet_run_register_with_seeds, testnet_setup_node, testnet_stake_validator,
+    testnet_sync_catch_up_rejoin, testnet_transfer_validator_tokens, testnet_unstake_validator,
+    TestnetEraseNodeDataInput, TestnetFeatureSnapshotInput, TestnetForcePeerConnectInput,
+    TestnetNodeControlInput, TestnetRemoveNodeInput, TestnetSetupInput,
+    TestnetValidatorActivateInput, TestnetValidatorCatchUpInput, TestnetValidatorStakeInput,
     TestnetValidatorTransferInput, TestnetValidatorUnstakeInput,
 };
 use async_stream::stream;
@@ -388,9 +387,9 @@ async fn dispatch_command(
         "monitor_initialize_workspace" => to_value(monitor_initialize_workspace_from_context(
             &state.app_context,
         )?),
-        "monitor_apply_testnet_topology" => to_value(
-            monitor_apply_testnet_topology_from_context(&state.app_context)?,
-        ),
+        "monitor_apply_testnet_topology" => to_value(monitor_apply_testnet_topology_from_context(
+            &state.app_context,
+        )?),
         "monitor_get_setup_status" => to_value(monitor_get_setup_status()?),
         "get_monitor_snapshot" => to_value(get_monitor_snapshot().await?),
         "get_monitor_agent_snapshot" => to_value(get_monitor_agent_snapshot().await?),

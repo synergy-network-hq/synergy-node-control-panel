@@ -11,7 +11,7 @@ import {
 import { runNodeControlAction } from './controlPanelActions';
 
 const SYNC_POLL_MS = 2500;
-const SYNC_READY_GAP = 32;
+const SYNC_READY_GAP = 2;
 
 function formatEta(secondsValue) {
   const seconds = Number(secondsValue);

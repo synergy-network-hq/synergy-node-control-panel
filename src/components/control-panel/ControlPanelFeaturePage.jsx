@@ -28,7 +28,7 @@ import {
   syncCatchUpRejoinAction,
 } from './controlPanelActions';
 
-const SYNC_READY_GAP = 32;
+const SYNC_READY_GAP = 2;
 
 function safeArray(value) {
   return Array.isArray(value) ? value : [];

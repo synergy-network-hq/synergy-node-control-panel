@@ -82,6 +82,17 @@ function activationPreflightMessage(result) {
   return `Validator preflight is ${ready}. Liquid ${formatNumber(result?.balance_nwei || 0)} nWei; staked ${formatNumber(result?.staked_balance_nwei || 0)} / ${formatNumber(result?.required_stake_nwei || 0)} nWei.${blockedBy}`;
 }
 
+const REQUIRED_VALIDATOR_STAKE_SNRG = 50000;
+const NWEI_PER_SNRG = 1000000000;
+
+function nweiToSnrg(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+  return number / NWEI_PER_SNRG;
+}
+
 function formatSnrg(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) {
@@ -90,6 +101,198 @@ function formatSnrg(value) {
   return number.toLocaleString(undefined, {
     maximumFractionDigits: 9,
   });
+}
+
+function camelOrSnake(value, camelKey, snakeKey) {
+  return value?.[camelKey] ?? value?.[snakeKey];
+}
+
+function preflightCheckPassed(report, ids) {
+  const wanted = new Set(safeArray(ids).map(String));
+  return safeArray(report?.checks).some((check) => (
+    wanted.has(String(check?.id || '')) && String(check?.status || '').toLowerCase() === 'pass'
+  ));
+}
+
+function firstOpenActivationStep(steps) {
+  return steps.find((step) => !step.done)?.id || steps[steps.length - 1]?.id || '';
+}
+
+function ValidatorActivationGuide({
+  node,
+  nodeLive,
+  activationReport,
+  walletBalanceSnrg,
+  stakedBalanceSnrg,
+  validatorStatus,
+  actionBusy,
+  onAction,
+  onCopyAddress,
+  onOpenRewards,
+}) {
+  if (String(node?.role_id || '').trim().toLowerCase() !== 'validator') {
+    return null;
+  }
+
+  const requiredStakeSnrg = nweiToSnrg(camelOrSnake(activationReport, 'requiredStakeNwei', 'required_stake_nwei'))
+    || REQUIRED_VALIDATOR_STAKE_SNRG;
+  const liquidBalanceSnrg = nweiToSnrg(camelOrSnake(activationReport, 'balanceNwei', 'balance_nwei'));
+  const bondedBalanceSnrg = nweiToSnrg(camelOrSnake(activationReport, 'stakedBalanceNwei', 'staked_balance_nwei'));
+  const effectiveLiquidBalance = liquidBalanceSnrg ?? Number(walletBalanceSnrg || 0);
+  const effectiveBondedBalance = bondedBalanceSnrg ?? Number(stakedBalanceSnrg || 0);
+  const fundingReceived = effectiveLiquidBalance >= requiredStakeSnrg || effectiveBondedBalance >= requiredStakeSnrg;
+  const stakeBonded = effectiveBondedBalance >= requiredStakeSnrg;
+  const canStake = camelOrSnake(activationReport, 'canStake', 'can_stake') === true;
+  const canActivate = camelOrSnake(activationReport, 'canActivate', 'can_activate') === true;
+  const canonicalReady = preflightCheckPassed(activationReport, [
+    'canonical-workspace-genesis',
+    'canonical-chain-state',
+    'canonical_genesis',
+  ]);
+  const syncReady = preflightCheckPassed(activationReport, ['sync-gap', 'synced'])
+    || (nodeLive?.is_running && nodeLive?.local_rpc_ready !== false && (Number(nodeLive?.sync_gap) || 0) <= 2);
+  const seedReady = preflightCheckPassed(activationReport, ['seed-registration', 'seed_registered']);
+  const peerReady = preflightCheckPassed(activationReport, ['peers-visible', 'peers_connected'])
+    || Number(nodeLive?.local_peer_count || 0) >= 2;
+  const active = String(validatorStatus || '').toLowerCase() === 'active';
+  const steps = [
+    {
+      id: 'canonical',
+      label: 'Verify canonical chain 1263',
+      done: canonicalReady,
+      detail: 'The workspace must use the canonical genesis hash and must not add this new validator to genesis.',
+      action: (
+        <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => onAction('activation-preflight')}>
+          {actionBusy === 'activation-preflight' ? 'Checking...' : 'Run Preflight'}
+        </SNRGButton>
+      ),
+    },
+    {
+      id: 'sync',
+      label: 'Sync through relayers and register discovery',
+      done: syncReady && peerReady && seedReady,
+      detail: `The node must be running, within two blocks of head, visible through relayer peers, and registered with seed services. Current lag: ${formatNumber(nodeLive?.sync_gap ?? 0)} blocks.`,
+      action: (
+        <>
+          <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'sync-catch-up'} onClick={() => onAction('sync-catch-up')}>
+            {actionBusy === 'sync-catch-up' ? 'Syncing...' : 'Sync Catch Up'}
+          </SNRGButton>
+          <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'register'} onClick={() => onAction('register')}>
+            {actionBusy === 'register' ? 'Registering...' : 'Re-register'}
+          </SNRGButton>
+        </>
+      ),
+    },
+    {
+      id: 'funding',
+      label: fundingReceived ? 'Funding received' : 'Request Core team funding',
+      done: fundingReceived,
+      detail: fundingReceived
+        ? `${formatSnrg(effectiveLiquidBalance)} SNRG is visible as liquid balance and ${formatSnrg(effectiveBondedBalance)} SNRG is bonded.`
+        : `Ask the Synergy Core team to send ${formatSnrg(requiredStakeSnrg)} SNRG to this validator address: ${node.node_address}.`,
+      action: (
+        <>
+          <SNRGButton variant="lime" size="sm" onClick={onCopyAddress}>Copy Address</SNRGButton>
+          <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => onAction('activation-preflight')}>
+            {fundingReceived ? 'Refresh Balance' : 'Check Balance'}
+          </SNRGButton>
+        </>
+      ),
+    },
+    {
+      id: 'stake',
+      label: stakeBonded ? 'Stake bonded' : 'Stake the received SNRG',
+      done: stakeBonded,
+      detail: stakeBonded
+        ? `${formatSnrg(effectiveBondedBalance)} SNRG is bonded for this validator.`
+        : fundingReceived
+          ? 'Tokens have been received. Click Stake Validator to bond the required stake from this validator address.'
+          : 'Stake unlocks after the validator address receives the Core team funding.',
+      action: (
+        <SNRGButton
+          variant="purple"
+          size="sm"
+          disabled={!fundingReceived || stakeBonded || !canStake || actionBusy === 'stake-validator'}
+          onClick={() => onAction('stake-validator')}
+        >
+          {actionBusy === 'stake-validator' ? 'Staking...' : 'Stake Validator'}
+        </SNRGButton>
+      ),
+    },
+    {
+      id: 'activate',
+      label: active ? 'Validator active' : 'Activate at the safe gate',
+      done: active,
+      detail: active
+        ? 'The validator is active on the network.'
+        : 'Activation is enabled only after canonical genesis, sync, relayer peers, seed registration, wallet funding, and bonded stake checks pass.',
+      action: (
+        <>
+          <SNRGButton variant="blue" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => onAction('activation-preflight')}>
+            Run Preflight
+          </SNRGButton>
+          <SNRGButton variant="lime" size="sm" disabled={!canActivate || actionBusy === 'activate-validator'} onClick={() => onAction('activate-validator')}>
+            {actionBusy === 'activate-validator' ? 'Activating...' : 'Activate Validator'}
+          </SNRGButton>
+        </>
+      ),
+    },
+  ];
+  const openStep = firstOpenActivationStep(steps);
+
+  return (
+    <PanelCard
+      title="Validator activation guide"
+      detail="Step-by-step network activation for this non-genesis validator."
+      action={<StatusPill tone={active || canActivate ? 'good' : fundingReceived ? 'warn' : 'cyan'}>{active ? 'Active' : canActivate ? 'Ready' : fundingReceived ? 'Funded' : 'Guided'}</StatusPill>}
+    >
+      <div className="cp-definition-list cp-definition-list-compact">
+        <div className="cp-definition-item">
+          <span>Validator address</span>
+          <strong>{truncateMiddle(node.node_address, 12, 10)}</strong>
+        </div>
+        <div className="cp-definition-item">
+          <span>Required stake</span>
+          <strong>{formatSnrg(requiredStakeSnrg)} SNRG</strong>
+        </div>
+        <div className="cp-definition-item">
+          <span>Liquid balance</span>
+          <strong>{formatSnrg(effectiveLiquidBalance)} SNRG</strong>
+        </div>
+        <div className="cp-definition-item">
+          <span>Bonded stake</span>
+          <strong>{formatSnrg(effectiveBondedBalance)} SNRG</strong>
+        </div>
+      </div>
+
+      {fundingReceived && !stakeBonded ? (
+        <div className="cp-inline-notice tone-good">
+          Funding is visible on this validator. Click Stake Validator to bond the received SNRG.
+        </div>
+      ) : null}
+
+      <div className="cp-guidance-checklist cp-validator-activation-guide">
+        {steps.map((step, index) => (
+          <article key={step.id} className={`cp-guidance-step ${step.done ? 'is-complete' : ''} ${step.id === openStep ? 'is-active' : ''}`}>
+            <div className="cp-guidance-marker">{step.done ? 'OK' : String(index + 1)}</div>
+            <div>
+              <div className="cp-guidance-step-head">
+                <strong>{step.label}</strong>
+                {step.id === openStep && !step.done ? <StatusPill tone="warn">Current step</StatusPill> : null}
+              </div>
+              <p>{step.detail}</p>
+              <div className="cp-guidance-actions">{step.action}</div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="cp-button-grid">
+        <SNRGButton variant="blue" size="sm" onClick={onOpenRewards}>Open Rewards Ledger</SNRGButton>
+        <SNRGButton variant="purple" size="sm" disabled={actionBusy === 'activation-preflight'} onClick={() => onAction('activation-preflight')}>Refresh Activation State</SNRGButton>
+      </div>
+    </PanelCard>
+  );
 }
 
 export default function TestnetNodeDetailRevamp() {
@@ -335,7 +538,19 @@ export default function TestnetNodeDetailRevamp() {
         message = await registerWithSeedsAction(node.id);
       } else if (kind === 'activation-preflight') {
         const result = await invoke('testnet_get_validator_activation_preflight', { nodeId: node.id });
+        setActivationReport(result);
         message = activationPreflightMessage(result);
+      } else if (kind === 'stake-validator') {
+        const result = await invoke('testnet_stake_validator', {
+          input: {
+            nodeId: node.id,
+            amountSnrg: REQUIRED_VALIDATOR_STAKE_SNRG,
+          },
+        });
+        if (result?.preflight) {
+          setActivationReport(result.preflight);
+        }
+        message = result?.message || `Validator stake submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else if (kind === 'activate-validator') {
         const result = await invoke('testnet_activate_validator', {
           input: {
@@ -343,6 +558,9 @@ export default function TestnetNodeDetailRevamp() {
             displayName: node.display_label || node.role_display_name || 'Validator',
           },
         });
+        if (result?.preflight) {
+          setActivationReport(result.preflight);
+        }
         message = result?.message || `Validator activation submitted${result?.tx_hash ? `: ${result.tx_hash}` : ''}.`;
       } else {
         const result = await runNodeControlAction({
@@ -401,6 +619,27 @@ export default function TestnetNodeDetailRevamp() {
       return;
     }
     void handleAction(action);
+  };
+
+  const copyValidatorAddress = async () => {
+    if (!node?.node_address) {
+      setNotice('No validator address is available to copy.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(node.node_address);
+      setNotice('Validator synv1 address copied for Core team funding request.');
+      recordAction({
+        title: 'Validator address copied',
+        detail: 'The validator address was copied for the funding request.',
+        status: 'good',
+        source: 'node-detail',
+        command: 'copy-validator-address',
+      });
+    } catch (copyError) {
+      setNotice(String(copyError));
+    }
   };
 
   const topologyModel = useMemo(
@@ -547,6 +786,19 @@ export default function TestnetNodeDetailRevamp() {
               </div>
             </PanelCard>
 
+            <ValidatorActivationGuide
+              node={node}
+              nodeLive={nodeLive}
+              activationReport={activationReport}
+              walletBalanceSnrg={walletBalanceSnrg}
+              stakedBalanceSnrg={stakedBalanceSnrg}
+              validatorStatus={validatorStatus}
+              actionBusy={actionBusy}
+              onAction={(kind) => void handleAction(kind)}
+              onCopyAddress={() => void copyValidatorAddress()}
+              onOpenRewards={() => navigate('/rewards')}
+            />
+
             <ValidatorCatchUpCard
               node={node}
               nodeLive={nodeLive}
@@ -660,6 +912,19 @@ export default function TestnetNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Open logs</SNRGButton>
               </div>
             </PanelCard>
+
+            <ValidatorActivationGuide
+              node={node}
+              nodeLive={nodeLive}
+              activationReport={activationReport}
+              walletBalanceSnrg={walletBalanceSnrg}
+              stakedBalanceSnrg={stakedBalanceSnrg}
+              validatorStatus={validatorStatus}
+              actionBusy={actionBusy}
+              onAction={(kind) => void handleAction(kind)}
+              onCopyAddress={() => void copyValidatorAddress()}
+              onOpenRewards={() => navigate('/rewards')}
+            />
 
             <ValidatorCatchUpCard
               node={node}
@@ -805,6 +1070,19 @@ export default function TestnetNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Tail logs</SNRGButton>
               </div>
             </PanelCard>
+
+            <ValidatorActivationGuide
+              node={node}
+              nodeLive={nodeLive}
+              activationReport={activationReport}
+              walletBalanceSnrg={walletBalanceSnrg}
+              stakedBalanceSnrg={stakedBalanceSnrg}
+              validatorStatus={validatorStatus}
+              actionBusy={actionBusy}
+              onAction={(kind) => void handleAction(kind)}
+              onCopyAddress={() => void copyValidatorAddress()}
+              onOpenRewards={() => navigate('/rewards')}
+            />
 
             <ValidatorCatchUpCard
               node={node}

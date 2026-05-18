@@ -7,9 +7,9 @@ cd "$ROOT_DIR"
 host_os="$(uname -s)"
 
 # --- Platform binaries ---------------------------------------------------------
-# The three testnet platform binaries are the only bundled assets that must
-# exist. Configs, installers, and keys are not included in the Electron app
-# and must not be validated here.
+# The three testnet platform binaries are the only bundled executables that
+# must exist here. Runtime configs are checked below; ignored key/setup-package
+# material must never be required for the public Electron bundle.
 
 unix_binaries=(
   "binaries/synergy-testnet-darwin-arm64"
@@ -68,7 +68,10 @@ fi
 # manifest before committing the result.
 skip_git_clean_guard="${SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK:-${ALLOW_DIRTY_BUNDLE_PREP:-0}}"
 if [[ "$skip_git_clean_guard" != "1" ]]; then
-  BUNDLE_PATHS=(testnet/runtime/workspace-manifest.json)
+  BUNDLE_PATHS=(
+    testnet/runtime/workspace-manifest.json
+    testnet/runtime/configs/operational/operational-manifest.json
+  )
 
   untracked="$(git status --short --untracked-files=all -- "${BUNDLE_PATHS[@]}" | grep '^??' || true)"
   content_diff="$(git diff --ignore-cr-at-eol -- "${BUNDLE_PATHS[@]}" 2>/dev/null || true)"
@@ -84,12 +87,14 @@ fi
 # --- Canonical genesis consistency ---------------------------------------------
 canonical_genesis_path="../config/genesis.json"
 runtime_genesis_path="testnet/runtime/configs/genesis/genesis.json"
+runtime_operational_manifest_path="testnet/runtime/configs/operational/operational-manifest.json"
 installer_genesis_path="testnet/runtime/installers/GenVal-01/config/genesis.json"
 installer_peers_path="testnet/runtime/installers/GenVal-01/config/peers.toml"
 
 for required_path in \
   "$canonical_genesis_path" \
   "$runtime_genesis_path" \
+  "$runtime_operational_manifest_path" \
   "$installer_genesis_path" \
   "$installer_peers_path"
 do
@@ -135,6 +140,26 @@ EOF
     exit 1
   fi
 done
+
+if ! rg -q '"chain_id"[[:space:]]*:[[:space:]]*1263' "$runtime_operational_manifest_path"; then
+  echo "Runtime operational manifest is not pinned to chain_id 1263" >&2
+  exit 1
+fi
+
+if ! rg -q '"private_host"[[:space:]]*:[[:space:]]*"10\.69\.0\.20"' "$runtime_operational_manifest_path"; then
+  echo "Runtime operational manifest is missing the canonical relayer-1 private host 10.69.0.20" >&2
+  exit 1
+fi
+
+if rg -q '10\.69\.0\.201' "$runtime_operational_manifest_path"; then
+  echo "Runtime operational manifest contains stale relayer-1 private host 10.69.0.201" >&2
+  exit 1
+fi
+
+if ! rg -q 'relay1\.synergynode\.xyz' "$runtime_operational_manifest_path"; then
+  echo "Runtime operational manifest is missing relay1.synergynode.xyz" >&2
+  exit 1
+fi
 
 if ! rg -q '^[[:space:]]*persistent_peers[[:space:]]*=' "$installer_peers_path"; then
   echo "Bundled peers.toml is missing global.persistent_peers" >&2

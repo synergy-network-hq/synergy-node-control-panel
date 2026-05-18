@@ -1,6 +1,6 @@
 {
-  "workspace_resource_version": "12.2.2+90a0e415c53f",
-  "app_version": "12.2.2",
+  "workspace_resource_version": "12.2.3+90a0e415c53f",
+  "app_version": "12.2.3",
   "chain_id": 1263,
   "network_id": 1263,
   "network_slug": "synergy-testnet",
@@ -15,9 +15,9 @@
   "required_paths": [
     "testnet/runtime/workspace-manifest.json",
     "testnet/runtime/configs/genesis/genesis.json",
+    "testnet/runtime/configs/operational/operational-manifest.json",
     "testnet/runtime/installers/GenVal-01/config/genesis.json",
     "testnet/runtime/installers/GenVal-01/config/peers.toml",
-    "testnet/runtime/installers/GenVal-01/keys/setup-package.json",
     "testnet/runtime/installers/Node-RPC/nginx.conf",
     "testnet/runtime/installers/Node-EXP/nginx.conf",
     "testnet/runtime/installers/Node-EXP/explorer-app/dist/index.html",

@@ -108,11 +108,11 @@ function buildChecklist({ selectedNodeLive, networkStats, activityItems }) {
     },
     {
       id: 'sync',
-      label: (Number(selectedNodeLive?.sync_gap) || 0) <= 32 ? 'Keep sync within range' : 'Wait for sync to complete',
-      detail: (Number(selectedNodeLive?.sync_gap) || 0) <= 32
+      label: (Number(selectedNodeLive?.sync_gap) || 0) <= 2 ? 'Keep sync within range' : 'Wait for sync to complete',
+      detail: (Number(selectedNodeLive?.sync_gap) || 0) <= 2
         ? 'The node is keeping up with the live chain.'
         : `${formatNumber(selectedNodeLive?.sync_gap)} blocks remain before the node is fully caught up.`,
-      done: (Number(selectedNodeLive?.sync_gap) || 0) <= 32,
+      done: (Number(selectedNodeLive?.sync_gap) || 0) <= 2,
     },
     {
       id: 'network',

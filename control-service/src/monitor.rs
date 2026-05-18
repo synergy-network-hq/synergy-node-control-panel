@@ -1,7 +1,6 @@
 use crate::app_context::AppContext;
 use crate::testnet_agent_service::{
-    TestnetAgentControlRequest, TestnetAgentControlResponse, TestnetAgentHealth,
-    TESTNET_AGENT_PORT,
+    TestnetAgentControlRequest, TestnetAgentControlResponse, TestnetAgentHealth, TESTNET_AGENT_PORT,
 };
 use chrono::Utc;
 use futures_util::future::join_all;
@@ -2095,32 +2094,32 @@ mod terminal_command_tests {
     #[test]
     fn binding_targets_follow_current_topology() {
         assert_eq!(
-            physical_machine_for_binding_target("node-14"),
-            Some("machine-01".to_string())
+            physical_machine_for_binding_target("GenVal-01"),
+            Some("genval-01".to_string())
         );
         assert_eq!(
-            physical_machine_for_binding_target("node-22"),
-            Some("machine-08".to_string())
+            physical_machine_for_binding_target("Node-RPC"),
+            Some("node-rpc".to_string())
         );
         assert_eq!(
-            physical_machine_for_binding_target("node-24"),
-            Some("machine-10".to_string())
+            physical_machine_for_binding_target("Node-0A"),
+            Some("node-0a".to_string())
         );
     }
 
     #[test]
     fn logical_nodes_follow_current_topology() {
         assert_eq!(
-            logical_nodes_for_physical_machine("machine-01").expect("machine-01 should resolve"),
-            vec!["node-01", "node-14"]
+            logical_nodes_for_physical_machine("GenVal-01").expect("GenVal-01 should resolve"),
+            vec!["genval-01"]
         );
         assert_eq!(
-            logical_nodes_for_physical_machine("machine-08").expect("machine-08 should resolve"),
-            vec!["node-15", "node-22"]
+            logical_nodes_for_physical_machine("Node-RPC").expect("Node-RPC should resolve"),
+            vec!["node-rpc"]
         );
         assert_eq!(
-            logical_nodes_for_physical_machine("machine-10").expect("machine-10 should resolve"),
-            vec!["node-24", "node-25"]
+            logical_nodes_for_physical_machine("Node-0A").expect("Node-0A should resolve"),
+            vec!["node-0a"]
         );
     }
 
@@ -5752,8 +5751,7 @@ async fn try_execute_monitor_agent_control(
     if agent_error_requires_ssh_fallback(&text) {
         return AgentControlAttempt::Unavailable;
     }
-    let result = if let Ok(payload) = serde_json::from_str::<TestnetAgentControlResponse>(&text)
-    {
+    let result = if let Ok(payload) = serde_json::from_str::<TestnetAgentControlResponse>(&text) {
         let payload = if let Some(job_id) = payload.job_id.clone() {
             if agent_phase_is_terminal(payload.phase.as_deref()) {
                 payload

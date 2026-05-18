@@ -1074,6 +1074,33 @@ body,
   border-color: rgba(62, 247, 161, 0.48);
 }
 
+.cp-guidance-step.is-active {
+  border-color: rgba(255, 199, 91, 0.32);
+  background: rgba(48, 32, 12, 0.28);
+}
+
+.cp-guidance-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cp-guidance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.cp-validator-activation-guide {
+  margin-top: 14px;
+}
+
+.cp-definition-list-compact {
+  margin-bottom: 12px;
+}
+
 .cp-feature-page .cp-section-header {
   align-items: start;
 }

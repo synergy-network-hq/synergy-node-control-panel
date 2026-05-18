@@ -26,7 +26,7 @@ import {
 } from './routeRegistry';
 
 const UPDATE_POLL_MS = 30 * 60 * 1000;
-const SETUP_UNAVAILABLE_MESSAGE = 'Setup is only available during the initial onboarding flow before a node exists on this machine. This control panel is already managing a configured node. I can help with diagnostics, validator readiness, rewards, connectivity, or maintenance instead.';
+const SETUP_UNAVAILABLE_MESSAGE = 'Genesis setup is only available during the initial setup flow before a node exists on this machine. This control panel is already managing a configured node. I can help with diagnostics, validator readiness, rewards, connectivity, or maintenance instead.';
 
 function updateButtonLabel(updateState) {
   switch (updateState.status) {

@@ -28,8 +28,8 @@ const NON_GENESIS_VALIDATOR_STEPS = [
   'Enter the public IP address or DNS name that peers can reach, then confirm the workspace folder.',
   'Enter an identity encryption passphrase when Jarvis asks for it. Jarvis uses the address engine to generate a validator-class synv1 address and local signing key.',
   'Provision the node, open the validator detail page, and confirm the generated address starts with synv1.',
-  'Start the node, re-register with seed servers, and wait until sync lag is 32 blocks or less.',
-  'Fund the validator address with at least 50,000 SNRG, run Activation Preflight, then run Stake Validator and Activate Validator.',
+  'Start the node, re-register with seed servers, and wait until sync lag is two blocks or less.',
+  'Request 50,000 SNRG from the Synergy Core team for the validator synv1 address; after the panel shows funding received, click Stake Validator, then Activate Validator.',
 ];
 
 function HelpArticlesPage() {
