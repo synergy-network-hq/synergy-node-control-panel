@@ -1,11 +1,11 @@
 {
-  "workspace_resource_version": "12.2.7+90a0e415c53f",
-  "app_version": "12.2.7",
+  "workspace_resource_version": "12.2.8+90a0e415c53f",
+  "app_version": "12.2.8",
   "chain_id": 1264,
   "network_id": 1264,
   "network_slug": "synergy-testnet",
-  "genesis_hash": "5809ed3fe0a1ae40bad1f7db6309917e47bfc0b1734cbc170b738ebc38b312ba",
-  "network_magic_bytes": "f133316a",
+  "genesis_hash": "f79011f2aaddd40b120d47ba723104fafe3c998d4a17097fae018914b95f1789",
+  "network_magic_bytes": "ec6a253c",
   "bundle_digest": "90a0e415c53f72624ccb54383a904d9bdc964b5aa4b800e5384e0fb2d40caba3",
   "platform_binaries": [
     "binaries/synergy-testnet-darwin-arm64",

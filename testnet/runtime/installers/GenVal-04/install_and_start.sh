@@ -120,6 +120,8 @@ build_runtime_env_args() {
     SYNERGY_CHAIN_ID="$configured_chain_id"
     SYNERGY_CONFIG_PATH="$config_path"
     SYNERGY_PROJECT_ROOT="$BASE_DIR"
+    SYNERGY_VALIDATOR_CONSENSUS_PRIVATE_KEY_FILE="${SYNERGY_VALIDATOR_CONSENSUS_PRIVATE_KEY_FILE:-$BASE_DIR/keys/private.key}"
+    SYNERGY_CONSENSUS_PRIVATE_KEY_FILE="${SYNERGY_CONSENSUS_PRIVATE_KEY_FILE:-$BASE_DIR/keys/private.key}"
   )
 
   if [[ -n "$p2p_port_value" ]]; then

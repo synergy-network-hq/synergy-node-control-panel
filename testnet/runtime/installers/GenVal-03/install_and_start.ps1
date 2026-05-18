@@ -168,6 +168,11 @@ function Initialize-NodeRuntimeEnv {
 
   $env:SYNERGY_CONFIG_PATH = $ConfigPath
   $env:SYNERGY_PROJECT_ROOT = $BaseDir
+
+  $consensusPrivateKeyFile = Get-NodeEnvValue "SYNERGY_VALIDATOR_CONSENSUS_PRIVATE_KEY_FILE"
+  if ([string]::IsNullOrWhiteSpace($consensusPrivateKeyFile)) { $consensusPrivateKeyFile = Join-Path $BaseDir "keys/private.key" }
+  $env:SYNERGY_VALIDATOR_CONSENSUS_PRIVATE_KEY_FILE = $consensusPrivateKeyFile
+  $env:SYNERGY_CONSENSUS_PRIVATE_KEY_FILE = $consensusPrivateKeyFile
 }
 
 function Test-Admin {
