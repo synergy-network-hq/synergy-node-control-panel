@@ -103,6 +103,13 @@ echo -e "${YELLOW}[2/3] Resetting blockchain to block 0...${NC}"
 rm -f "$DATA_DIR/chain.json"
 rm -f "$DATA_DIR/token_state.json"
 rm -f "$DATA_DIR/validator_registry.json"
+rm -f "$DATA_DIR/committed_qcs.json"
+rm -f "$DATA_DIR/committed_qcs.json.tmp"
+rm -f "$DATA_DIR/canonical_locks.json"
+rm -f "$DATA_DIR/canonical_locks.json.tmp"
+rm -f "$DATA_DIR/consensus_vote_locks.json"
+rm -f "$DATA_DIR/consensus_vote_locks.json.tmp"
+rm -f "$DATA_DIR/dag_state.json"
 rm -f "$DATA_DIR"/*.pid
 
 # Find and reset bootnode1's chain data if it's running from a different location
@@ -124,12 +131,22 @@ for pid in $PGREP_OUTPUT; do
                 rm -f "$wd/data/chain.json"
                 echo "    ✓ Deleted chain.json from $wd/data/"
             fi
+            rm -f "$wd/data/committed_qcs.json" "$wd/data/committed_qcs.json.tmp"
+            rm -f "$wd/data/canonical_locks.json" "$wd/data/canonical_locks.json.tmp"
+            rm -f "$wd/data/consensus_vote_locks.json" "$wd/data/consensus_vote_locks.json.tmp"
+            rm -f "$wd/data/dag_state.json"
             # Also check for environment variable override
             if [ -f "/proc/$pid/environ" ] 2>/dev/null; then
                 data_path=$(timeout 2 cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n' | grep "^SYNERGY_DATA_PATH=" | cut -d= -f2 || echo "")
                 if [ -n "$data_path" ] && [ -f "$data_path/chain.json" ]; then
                     rm -f "$data_path/chain.json"
                     echo "    ✓ Deleted chain.json from SYNERGY_DATA_PATH: $data_path"
+                fi
+                if [ -n "$data_path" ]; then
+                    rm -f "$data_path/committed_qcs.json" "$data_path/committed_qcs.json.tmp"
+                    rm -f "$data_path/canonical_locks.json" "$data_path/canonical_locks.json.tmp"
+                    rm -f "$data_path/consensus_vote_locks.json" "$data_path/consensus_vote_locks.json.tmp"
+                    rm -f "$data_path/dag_state.json"
                 fi
             fi
         fi
@@ -148,6 +165,10 @@ if [ -f "$DATA_DIR/bootnode1.pid" ]; then
                 rm -f "$wd/data/chain.json"
                 echo "    ✓ Deleted chain.json from $wd/data/"
             fi
+            rm -f "$wd/data/committed_qcs.json" "$wd/data/committed_qcs.json.tmp"
+            rm -f "$wd/data/canonical_locks.json" "$wd/data/canonical_locks.json.tmp"
+            rm -f "$wd/data/consensus_vote_locks.json" "$wd/data/consensus_vote_locks.json.tmp"
+            rm -f "$wd/data/dag_state.json"
         fi
     fi
 fi

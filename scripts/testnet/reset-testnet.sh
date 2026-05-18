@@ -221,6 +221,13 @@ reset_local_state() {
   rm -f "$ROOT_DIR/data/chain.json"
   rm -f "$ROOT_DIR/data/token_state.json"
   rm -f "$ROOT_DIR/data/validator_registry.json"
+  rm -f "$ROOT_DIR/data/committed_qcs.json"
+  rm -f "$ROOT_DIR/data/committed_qcs.json.tmp"
+  rm -f "$ROOT_DIR/data/canonical_locks.json"
+  rm -f "$ROOT_DIR/data/canonical_locks.json.tmp"
+  rm -f "$ROOT_DIR/data/consensus_vote_locks.json"
+  rm -f "$ROOT_DIR/data/consensus_vote_locks.json.tmp"
+  rm -f "$ROOT_DIR/data/dag_state.json"
   rm -f "$ROOT_DIR/data/synergy-testnet.pid"
   rm -f "$ROOT_DIR/data/.reset_flag"
 
@@ -228,6 +235,10 @@ reset_local_state() {
     [[ -z "$node_slot_id" ]] && continue
     local_data_dir="$ROOT_DIR/data/testnet15/$node_slot_id"
     rm -rf "$local_data_dir/chain" "$local_data_dir/logs"
+    rm -f "$local_data_dir/committed_qcs.json" "$local_data_dir/committed_qcs.json.tmp"
+    rm -f "$local_data_dir/canonical_locks.json" "$local_data_dir/canonical_locks.json.tmp"
+    rm -f "$local_data_dir/consensus_vote_locks.json" "$local_data_dir/consensus_vote_locks.json.tmp"
+    rm -f "$local_data_dir/dag_state.json"
     mkdir -p "$local_data_dir/chain" "$local_data_dir/logs"
   done < <(inventory_node_slot_ids)
 }
