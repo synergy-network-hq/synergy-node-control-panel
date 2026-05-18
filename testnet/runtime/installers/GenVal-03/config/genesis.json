@@ -658,6 +658,7 @@
     }
   },
   "crypto": {
+    "classical_signature_supported": false,
     "domain_separation": {
       "consensus": "SNRG_CONS",
       "governance": "SNRG_GOV",
@@ -674,11 +675,10 @@
       "transaction": "ML-DSA-65",
       "validator": "ML-DSA-65"
     },
-    "legacy_ecdsa_supported": false,
     "reserve_algorithms": [
+      "FN-DSA-1024",
       "ML-DSA-87",
-      "ML-KEM-768",
-      "Ed25519"
+      "ML-KEM-768"
     ],
     "signature_algorithms": [
       "ML-DSA-65",
@@ -772,19 +772,19 @@
     "extra_data": "16 May 2026 - Synergy Testnet chain 1264 resets the public testnet with a post-quantum Proof of Synergy network with cluster-local certified DAG data availability and dual-quorum finality.",
     "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
     "receipts_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
-    "state_root": "989d45295a07a0fd848235342505be89c74980fbc630b9b6fa108926bedb92c3",
+    "state_root": "a2d43eb9d19de9e9d50ac78271e013313047fcbc63ecc251c650c97cca8f0a1c",
     "timestamp": 1775044800,
     "transactions_root": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
   },
   "integrity": {
     "allocation_hash": "e4db5cbe7fccce3efb9cc452df0936ee226338866368059defeb4c5eb3288a13",
     "contract_hash": "34baa1f3afd82115b68dc1e995131d647f8918fe7917a0f6660cfd7006421425",
-    "genesis_hash": "85b26d520e1621adaa212012dae540dcb223e0a9648666b919d64cb8c4394c75",
+    "genesis_hash": "69cd6ae25399d542632ac770a3263761bac585003d2b48dac74e9902f4b5d75c",
     "recompute_reason": "final canonical recompute completed",
     "recompute_required": false,
     "signed_by": [],
-    "state_root": "989d45295a07a0fd848235342505be89c74980fbc630b9b6fa108926bedb92c3",
-    "validator_hash": "8fff4be7ac953841f5731b360fd69985e8cd68f160f1d990d93666f6c959ee8f",
+    "state_root": "a2d43eb9d19de9e9d50ac78271e013313047fcbc63ecc251c650c97cca8f0a1c",
+    "validator_hash": "c18a6f16fc55fed0d6b4d205a5f11c4e1c240b5568ae4f4702295fdada64ae32",
     "validator_set_hash": "8b2cb9f8eb296dd1491d3ed777da3f7264dd4d0bc467556902ebe63363577dfc"
   },
   "modules": {
@@ -1074,7 +1074,7 @@
   "p2p_identity": {
     "derivation": "first_4_bytes(blake3('synergy-network-magic-v1' || 'synergy:testnet' || final_genesis_hash))",
     "length_bytes": 4,
-    "network_magic_bytes": "e312fa40",
+    "network_magic_bytes": "76350cb6",
     "network_magic_bytes_format": "lowercase_hex_without_0x",
     "peer_id_format": "synergy_node_peer_id",
     "status": "final"
@@ -1383,8 +1383,8 @@
       "key_bundle_hash": "5d7bbb39fd8720b1706198c577d7a5521a84b15b74ddf094c5faf1a942859c66",
       "metadata_hash": "84f94b276d04d56aa69c79065bfd67cf93bbd0fd31f4ebd552cd28a2e4a8899d",
       "moniker": "Synergy Genesis Validator 1",
-      "node_identity_key_type": "Ed25519",
-      "node_identity_public_key": "fcIL0svfhDQMV5RJQhOT7DK8503YddL2dWdLhCjNXQU=",
+      "node_identity_key_type": "FN-DSA-1024",
+      "node_identity_public_key": "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",
       "operator_address": "synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs",
       "peer_id": "fd7746c588d96c595c5e13a00758091f5e63069d3f43af5079cda1b76744c2d4",
       "reward_address": "synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs",
@@ -1411,8 +1411,8 @@
       "key_bundle_hash": "1a8044eebd98d483daa7d619f9f78711f896f862d51331cc87804710dc86c371",
       "metadata_hash": "40d6e1a1d4c44c9bff408b6fbfd9efb4121a5777f5133dd3d06fdec72180383c",
       "moniker": "Synergy Genesis Validator 2",
-      "node_identity_key_type": "Ed25519",
-      "node_identity_public_key": "I2e9/Dc96HB8/XbByAZNE4IVTDZ3ymDWWGSY7RVN31Y=",
+      "node_identity_key_type": "FN-DSA-1024",
+      "node_identity_public_key": "OppedQXzkxsmllyoEs6aSGNMRcZ7hOJrK1sqe2xq67VF+HBx3vR0fPgEaYxa5cPMMvm0jihb/7NJCHe1Mqvu0hFdnicNyX5BvBstFR7h34bmyObnFCsNTW2fB0j0t4/Xk7p0w4m2PBMK5dYIzOGHKbeBxRAl6COEXZXGtOrNxbHEwL5eumZHg3LA0/xR+FnxmBI7KBJt8Pvhuy1LPyNDG1TDHnaUE6jf7JhBdJrE9hreLsYGCMqezfpRm3OSGQsEo/amCfw8VjImtoFmeA3xfsO1uGkRV7MfI4d/vKBzoHdWPK1yQooSFki5ukrjy8ml1a264CmTnsu7uofRpzfA6IQlZIByBSNqVuHI3ZR+UfAFl+RnkqWu7jOPOEF8MG77SaSLsRfLEUoKRHJQkRJoqBl/EvKcJUOB5ZjYaHF8ERKslJRTKWKrCop96KLo0ss32KoB1pW7jDGwlzvQRVei+FnO1iJNTPNx4uDU0t+oggOGcWRUeOXEZ8RiUHa+F0jm/qbVp6UvbPw9fds7vtpO9xcOZcC+xxkKRdsCQG3kGJD44PUnVmI9l5BN2tEZ7jLJi4/yoekuh12xhtGA9fhwPCTKtWf4i9WGK9IuBTze9TWc1IRtyewMwoLm9a2HwNL80ieKfMbjKDbNGPa7/QNCu6qhvTPHz5QTZy4DdDnFk2Vbf3rvj2N1d8LVs6mAVuX18rlp7SRyxLaos355UQ1OAMWeBNp1fwT/6fCrF/KYDohn559kxB2AJA+K/X/qGgY7KXHJa76o+ecEnUWM8KIvzD2VrE12KIV6AgaWC7ajmbIaL+LhJaJpTxo5C6I9Y8KKt8UP8duhyN1NjCOR9mI75MSiXuaJT3jY/i1Ya7sArkxlk7n9S4ysFR6lQKW7s8LoArwfvP8wiy83EPXnfVIZz5uBXlYfeNPs72p0GzlCdVlMWobHzCUYwEwscc8zYOIid7SPpitClHSj2+hZx5KesHKLpPyXUUyeWBC6cC/6C3zvEyAB8iKfrKPXfHYfS5iY5dKbD2/FWXJVhXcHzLs7cQnjgg/plhMeVY9T+lfi/g9aCrOzl9GJGBe1nnh/P0p6ibULed3bOJQ0tPqmhPzEYz7Ia/F+xgUSFyskIY2PpakGqJTjtMgpCZ8twQ7eoNANUN415pfFQEdH4X0KYADtKBheaF05rhCpsj6uEL1H4MToCYUNNp06HSHVk4diMCSHY+ZihaHxpnptAP3TUjwSE5uS13CPB6dc9PVU/HWK9M8hP9nsBKg1qSd6JvNNXbeUqPqOm3ivbdJWsDpooIOYevfHg9bEP7UPTtwfuyNc9AiixpxnMNB+F6L2Lwg1Jp+sgdSB6VAAfuk+CG2JHq74rnL9h9TdMiNgkUnRkAmYnSDse0exs8xvW2M6BtFxhy70WJpnEw0p9080N6VqQPVkDclQvZmvDOPaTwYNDEQDsISxxMt1I7mrzJ+++bntjf76kSxBduvooLmkIuotyR7yu9toNn5Z9KQVZkBrCzodj9DQPNUV2PdTArlRWzgdpdB2SARLtxrc+M94O7Yz8rPgwZYauGBcO4rUFblXAps76MXvCgVqTOy8H/d4EuqETzCLlTed51TLEBm8u7JEZxCwpLdSJLxeDdZlmVsII4RUbROErq2q9/FM4nKhP1FCFaF3T+HAB7f6vgp4ESlam6oYGHdnXKTrtWoH2cI3MeLOuVStMllOXqdT2nfIkR9mGtOO933NZmzPtVfnbhMxUmYbLyUaPsbs2S480BhHBLewDk1xiQ1N6lhKeSWeeMnH6eaWc74siQaLiZAQ08MGa5uQDG9dTZms7yqmwXJ871xKe86JzyZy0xYG6kXF8c+JhMMUEvt0McMekkjgTSNwzX1oT6yUlNftS+GdFQD78WpoJg44XrjQ4kL3HjSGrt8741garASrAuw62D5Sy/eGE4oetUctnHzhwnzrcrAMuP6xM7gk/wV4lwbNrVcyji2d/QPNiBbio+jT1o9ivXiQfjb6DivpuR3EPGGxfimFKolhEqJHgP/46KqUcvr4FZv8Rw9STFoWf2l/leSQIQjiZZh+aCqv6iJlNYEYR5M6pE388YHEsGe0QVBaDwudkB0oZwcexmjMh1EHSVZI6VOAxSPxJAVJqVFBrkYmIo0hGuh8cxggzGiMl4RloRsMgSNZDVDjqjn2unM1jvs0eLcaCmO+B5je1R96A8cJt1DxIrBDlrwK7peQEMOIHNszVgp7jVAf0QRbbaOiyQIoCRbO1akdgnEgdEmoug8bC4d45sZEEWUTPbLo2kSpATOpPyrfQbuin4TIUdvcVeuWsRLRQkU7S3pjrOzjZvPETSBB462BEWjzHSMwd8hJZU0/5r4AeSRA0L+KeWELoUIZvwdvOmtWOh74mTqXWApy8DbRIygKd9/y6C6YmTEVIcuOm6abwVUr6BOzyrUrWxq947jhRjB0c731RbEAaLmwOuyk7WpLyKjgAD98n2kEh1YV7ORSbqiGyNZ86QU/MdC+M3YspJrpW9SkSawAit7A5dDj3kY0YcyZq7bNpl3k4SxUXS/Z0VFkloam+WuEGKjsOsWNpW29f4i0UN+LEGcq/+p9BNCRb9o=",
       "operator_address": "synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt",
       "peer_id": "6f05e1e14c285dcfeab3b55e97b464455b5194e6e0609e89312c2a9268aed9ff",
       "reward_address": "synv11s4wc6l4kg4jr0k5meg42cyzxa03cf863srt",
@@ -1439,8 +1439,8 @@
       "key_bundle_hash": "1c7004638f8c6104e0ebe4c5ef01a3529952d942688bacc92063507e75e1abec",
       "metadata_hash": "8e06ae9023bf9be935051fa21036064aee91bba20bcb06cd73c30bde3b665015",
       "moniker": "Synergy Genesis Validator 3",
-      "node_identity_key_type": "Ed25519",
-      "node_identity_public_key": "Alvgd4uPiLaxBMcV/rmhkth2YHuQylG/rxozCdRtVJs=",
+      "node_identity_key_type": "FN-DSA-1024",
+      "node_identity_public_key": "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",
       "operator_address": "synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re",
       "peer_id": "60a730b04af3219fe2bb78f1234a17e5f21dc49344af871c2b31df313a4d7939",
       "reward_address": "synv11e3ephsarcw6mey0fx5xtnygg2ewegnum4re",
@@ -1467,8 +1467,8 @@
       "key_bundle_hash": "629196b87de9bcd5bae10f86d1088ecdef38eb75da8753572a46a70691aade2c",
       "metadata_hash": "3132ffafacd4e5bb34ec7477b7d440143eff202903f5d52f2d8060a7da569423",
       "moniker": "Synergy Genesis Validator 4",
-      "node_identity_key_type": "Ed25519",
-      "node_identity_public_key": "ll7E0LeKq4iC/AkmozUtSQ2L6f+Gxa/laU3UK2wXwtA=",
+      "node_identity_key_type": "FN-DSA-1024",
+      "node_identity_public_key": "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",
       "operator_address": "synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5",
       "peer_id": "32c1d3b8f7a7dd1eb399df2a46c356db0f1dce39b06b854aafff6f9dc61f61c9",
       "reward_address": "synv11mka64uz049aekwhdvfrq6dvh75d0k7kmdp5",
@@ -1495,8 +1495,8 @@
       "key_bundle_hash": "ff084567fa565fc33626a011655a19815e1c279b63db1c7e5eac529ab865a1c0",
       "metadata_hash": "73e439684c9a589b9d6264ab72d918c1d26beecea4cecb7009cd3580545cd126",
       "moniker": "Synergy Genesis Validator 5",
-      "node_identity_key_type": "Ed25519",
-      "node_identity_public_key": "iXL/o+ETIBaer9UtVyGJ+BZ8RLduXyboRqCC3M7PwrE=",
+      "node_identity_key_type": "FN-DSA-1024",
+      "node_identity_public_key": "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",
       "operator_address": "synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f",
       "peer_id": "2c90bc89e4d9b4782c4b95a0d40d07c12653530a56d3e8ead25dcf14108778db",
       "reward_address": "synv11kguave5fpdpm9hru4acfvw0hcp4fcc7zv9f",

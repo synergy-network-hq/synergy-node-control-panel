@@ -4,8 +4,8 @@
   "chain_id": 1264,
   "network_id": 1264,
   "network_slug": "synergy-testnet",
-  "genesis_hash": "85b26d520e1621adaa212012dae540dcb223e0a9648666b919d64cb8c4394c75",
-  "network_magic_bytes": "e312fa40",
+  "genesis_hash": "69cd6ae25399d542632ac770a3263761bac585003d2b48dac74e9902f4b5d75c",
+  "network_magic_bytes": "76350cb6",
   "bundle_digest": "90a0e415c53f72624ccb54383a904d9bdc964b5aa4b800e5384e0fb2d40caba3",
   "platform_binaries": [
     "binaries/synergy-testnet-darwin-arm64",
