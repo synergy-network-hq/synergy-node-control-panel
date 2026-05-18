@@ -245,7 +245,7 @@ app.register(async (api) => {
         ]);
         return {
             env: cfg.synergyEnv,
-            chainId: String(nodeInfo?.chainId || nodeInfo?.networkId || 1262),
+            chainId: String(nodeInfo?.chainId || nodeInfo?.networkId || 1264),
             latestBlock: latestBlockRes.rows[0]?.number || String(snapshot?.latest_block || networkStats?.block_height || 0),
             avgBlockTimeSeconds: avgBlockTimeSeconds ?? snapshot?.average_block_time_seconds ?? null,
             totalTransactions: String(snapshot?.total_transactions || networkStats?.total_transactions || 0),

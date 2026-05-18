@@ -3,6 +3,28 @@ import path from 'node:path';
 import { Pool } from 'pg';
 import pino from 'pino';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+function firstString(values) {
+    for (const value of values) {
+        if (value === null || value === undefined)
+            continue;
+        const normalized = String(value).trim();
+        if (normalized)
+            return normalized;
+    }
+    return undefined;
+}
+function firstArray(values) {
+    for (const value of values) {
+        if (!Array.isArray(value))
+            continue;
+        const normalized = value
+            .map((item) => (item === null || item === undefined ? '' : String(item).trim()))
+            .filter(Boolean);
+        if (normalized.length > 0)
+            return normalized;
+    }
+    return [];
+}
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 const synergyEnv = (process.env.SYNERGY_ENV || 'testnet');
 const defaultsByEnv = {
@@ -164,15 +186,47 @@ async function upsertTransaction(transaction, block, index) {
     ]);
 }
 async function upsertDagVertex(vertex) {
-    const vertexHash = normalizeHash(vertex.hash);
+    const vertexHash = normalizeHash(firstString([
+        vertex.hash,
+        vertex.vertex_hash,
+        vertex.vertexHash,
+        vertex.dag_node_hash,
+        vertex.dagNodeHash,
+    ]));
     if (!vertexHash) {
         logger.warn({ vertex }, 'Skipping DAG vertex without hash');
         return;
     }
-    const transactionHashes = Array.isArray(vertex.transaction_hashes) && vertex.transaction_hashes.length > 0
-        ? vertex.transaction_hashes
-        : (vertex.transactions || []).map((tx) => tx.hash || tx.tx_hash).filter(Boolean);
-    const parentHashes = Array.isArray(vertex.parent_hashes) ? vertex.parent_hashes : [];
+    const transactionHashes = firstArray([
+        vertex.transaction_hashes,
+        vertex.transactionHashes,
+        vertex.tx_hashes,
+        vertex.txHashes,
+        vertex.tx_ids,
+        vertex.txIds,
+    ]);
+    const transactionHashFallbacks = (vertex.transactions || [])
+        .map((tx) => firstString([tx.hash, tx.tx_hash]))
+        .filter(Boolean);
+    const resolvedTransactionHashes = transactionHashes.length > 0 ? transactionHashes : transactionHashFallbacks;
+    const parentHashes = firstArray([vertex.parent_hashes, vertex.parentHashes, vertex.parents]);
+    const proposer = firstString([
+        vertex.proposer,
+        vertex.proposer_address,
+        vertex.proposerAddress,
+        vertex.proposer_validator_id,
+        vertex.proposerValidatorId,
+    ]);
+    const createdAt = vertex.created_at ?? vertex.createdAt;
+    const heightHint = vertex.height_hint ?? vertex.heightHint;
+    const blockNumber = vertex.block_number ?? vertex.blockNumber;
+    const blockHash = firstString([vertex.block_hash, vertex.blockHash]);
+    const availabilityCert = firstString([
+        vertex.availability_cert,
+        vertex.availabilityCert,
+        vertex.qc_hash,
+        vertex.qcHash,
+    ]);
     await pool.query(`INSERT INTO dag_vertices (
        hash, status, proposer_address, height_hint, block_number, block_hash,
        created_at, availability_cert, tx_count, updated_at
@@ -189,13 +243,13 @@ async function upsertDagVertex(vertex) {
        updated_at = NOW()`, [
         vertexHash,
         vertex.status || 'committed',
-        normalizeAddress(vertex.proposer),
-        vertex.height_hint == null ? null : String(vertex.height_hint),
-        vertex.block_number == null ? null : String(vertex.block_number),
-        normalizeHash(vertex.block_hash || undefined),
-        timestampIso(vertex.created_at),
-        normalizeHash(vertex.availability_cert || undefined),
-        transactionHashes.length,
+        normalizeAddress(proposer),
+        heightHint == null ? null : String(heightHint),
+        blockNumber == null ? null : String(blockNumber),
+        normalizeHash(blockHash),
+        timestampIso(createdAt),
+        normalizeHash(availabilityCert),
+        resolvedTransactionHashes.length,
     ]);
     await pool.query('DELETE FROM dag_edges WHERE child_hash = $1', [vertexHash]);
     for (const parentHashRaw of parentHashes) {
@@ -207,8 +261,8 @@ async function upsertDagVertex(vertex) {
        ON CONFLICT (parent_hash, child_hash) DO NOTHING`, [parentHash, vertexHash]);
     }
     await pool.query('DELETE FROM dag_vertex_transactions WHERE vertex_hash = $1', [vertexHash]);
-    for (let index = 0; index < transactionHashes.length; index += 1) {
-        const txHash = normalizeHash(transactionHashes[index]);
+    for (let index = 0; index < resolvedTransactionHashes.length; index += 1) {
+        const txHash = normalizeHash(resolvedTransactionHashes[index]);
         if (!txHash)
             continue;
         await pool.query(`INSERT INTO dag_vertex_transactions (vertex_hash, tx_hash, tx_index)
