@@ -96,7 +96,7 @@ cargo build --release --bin synergy-testnet
 
 ```toml
 [network]
-id = 1262
+id = 1264
 name = "Synergy Testnet"
 p2p_port = 5622
 rpc_port = 5640
@@ -120,7 +120,7 @@ external_ws = "wss://testnet-core-ws.synergy-network.io"
 [blockchain]
 block_time = 5
 max_gas_limit = "0x2fefd8"
-chain_id = 1262
+chain_id = 1264
 
 [storage]
 database = "rocksdb"

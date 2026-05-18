@@ -5,7 +5,7 @@ Scope: Synergy Testnet genesis ceremony and first-start operations
 
 ## 1. Core Facts
 
-- Chain ID: `1262`
+- Chain ID: `1264`
 - Network ID: `synergy-testnet`
 - Token: `SNRG`
 - Core RPC: `https://testnet-core-rpc.synergy-network.io`

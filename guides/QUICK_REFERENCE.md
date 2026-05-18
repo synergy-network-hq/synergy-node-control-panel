@@ -2,7 +2,7 @@
 
 ## Network Configuration
 
-- **Chain ID**: 1262
+- **Chain ID**: 1264
 - **P2P Port**: 5622
 - **RPC Port**: 5640
 - **WebSocket Port**: 5660

@@ -5,7 +5,7 @@ Applies to: Synergy Node Control Panel `11.0.1` or newer for Synergy Testnet
 
 ## 1. Network Baseline
 
-- Chain ID: `1262`
+- Chain ID: `1264`
 - Network ID: `synergy-testnet`
 - Token: `SNRG`
 - Core RPC: `https://testnet-core-rpc.synergy-network.io`
