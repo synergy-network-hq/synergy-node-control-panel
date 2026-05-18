@@ -191,6 +191,63 @@ sync_canonical_runtime_assets() {
   echo "Using committed canonical Testnet installer templates"
 }
 
+remove_generated_runtime_identity_files() {
+  local keys_root="$ROOT_DIR/testnet/runtime/keys"
+
+  [[ -d "$keys_root" ]] || return 0
+  echo "Removing generated local identity files from public runtime bundle"
+  find "$keys_root" -type f \( \
+    -iname 'identity.json' -o \
+    -iname 'identity.toml' -o \
+    -iname '*private*' -o \
+    -iname '*secret*' -o \
+    -iname '*mnemonic*' \
+  \) -delete
+}
+
+normalize_testnet_operational_manifests() {
+  echo "Normalizing Testnet chain and operational manifest metadata"
+  python3 - <<'PY' "$ROOT_DIR"
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+installers_root = root / "testnet/runtime/installers"
+runtime_manifest_path = root / "testnet/runtime/configs/operational/operational-manifest.json"
+
+def normalize_manifest(manifest):
+    if not isinstance(manifest, dict):
+        return manifest
+    manifest["chain_id"] = 1264
+    manifest["network_id"] = 1264
+    for sentry in manifest.get("bootstrap", {}).get("sentries", []):
+        if sentry.get("label") == "sentry1":
+            sentry["private_host"] = "10.69.0.20"
+    return manifest
+
+for package_path in sorted(installers_root.glob("GenVal-*/keys/setup-package.json")):
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    package["chain_id"] = 1264
+    operational_manifest = package.get("artifacts", {}).get("operational_manifest")
+    if isinstance(operational_manifest, dict):
+        normalize_manifest(operational_manifest)
+    package_path.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+
+if runtime_manifest_path.exists():
+    runtime_manifest = json.loads(runtime_manifest_path.read_text(encoding="utf-8"))
+elif (installers_root / "GenVal-01/keys/setup-package.json").exists():
+    package = json.loads((installers_root / "GenVal-01/keys/setup-package.json").read_text(encoding="utf-8"))
+    runtime_manifest = package.get("artifacts", {}).get("operational_manifest", {})
+else:
+    runtime_manifest = {}
+
+runtime_manifest = normalize_manifest(runtime_manifest)
+runtime_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+runtime_manifest_path.write_text(json.dumps(runtime_manifest, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
 sync_installer_bundle_configs() {
   local configs_root="$ROOT_DIR/testnet/runtime/configs"
   local installers_root="$ROOT_DIR/testnet/runtime/installers"
@@ -319,6 +376,7 @@ for package_path in sorted(installers_root.glob("GenVal-*/keys/setup-package.jso
 
     config = parse_node_toml(node_toml)
     package = json.loads(package_path.read_text(encoding="utf-8"))
+    package["chain_id"] = 1264
     runtime = package.setdefault("runtime_config", {})
 
     consensus = config.get("consensus", {})
@@ -340,6 +398,14 @@ for package_path in sorted(installers_root.glob("GenVal-*/keys/setup-package.jso
         for key in validator_keys
         if key in validator or key in existing_validator
     }
+
+    operational_manifest = package.get("artifacts", {}).get("operational_manifest")
+    if isinstance(operational_manifest, dict):
+        operational_manifest["chain_id"] = 1264
+        operational_manifest["network_id"] = 1264
+        for sentry in operational_manifest.get("bootstrap", {}).get("sentries", []):
+            if sentry.get("label") == "sentry1":
+                sentry["private_host"] = "10.69.0.20"
 
     package_path.write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
 
@@ -640,6 +706,8 @@ sync_installer_bundle_binaries
 sync_bootstrap_bundle_binaries
 sync_atlas_runtime_bundle
 render_public_service_nginx_configs
+remove_generated_runtime_identity_files
+normalize_testnet_operational_manifests
 ./scripts/release/generate-workspace-manifest.sh
 SKIP_BUNDLED_ASSET_GIT_CLEAN_CHECK=1 ./scripts/release/validate-bundled-assets.sh
 

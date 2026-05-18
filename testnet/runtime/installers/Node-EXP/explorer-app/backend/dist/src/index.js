@@ -130,7 +130,7 @@ async function resetIndexedChainState() {
     const previousBlockHeight = previousBlockHeightRes.rows[0]?.max ? Number(previousBlockHeightRes.rows[0].max) : 0;
     await pool.query('BEGIN');
     try {
-        await pool.query('TRUNCATE TABLE transactions, blocks, validators_current, network_snapshots, contracts RESTART IDENTITY CASCADE');
+        await pool.query('TRUNCATE TABLE dag_vertex_transactions, dag_edges, dag_vertices, transactions, blocks, validators_current, network_snapshots, contracts RESTART IDENTITY CASCADE');
         await pool.query('COMMIT');
     }
     catch (error) {
@@ -190,6 +190,49 @@ async function queryAverageBlockTimeSeconds() {
         return null;
     return spanMs / 1000 / (times.length - 1);
 }
+function dagVertexToApi(row, parentHashes = [], txHashes = []) {
+    return {
+        hash: row.hash,
+        status: row.status,
+        proposerAddress: row.proposer_address,
+        heightHint: row.height_hint,
+        blockNumber: row.block_number,
+        blockHash: row.block_hash,
+        createdAt: row.created_at,
+        availabilityCert: row.availability_cert,
+        txCount: row.tx_count,
+        parentHashes,
+        transactionHashes: txHashes,
+    };
+}
+async function queryDagMetadata(vertexHashes) {
+    if (vertexHashes.length === 0) {
+        return { parentMap: new Map(), txMap: new Map() };
+    }
+    const [edgeRes, txRes] = await Promise.all([
+        pool.query(`SELECT parent_hash, child_hash
+         FROM dag_edges
+        WHERE child_hash = ANY($1)
+        ORDER BY parent_hash ASC`, [vertexHashes]),
+        pool.query(`SELECT vertex_hash, tx_hash
+         FROM dag_vertex_transactions
+        WHERE vertex_hash = ANY($1)
+        ORDER BY vertex_hash ASC, tx_index ASC NULLS LAST`, [vertexHashes]),
+    ]);
+    const parentMap = new Map();
+    for (const edge of edgeRes.rows) {
+        const parents = parentMap.get(edge.child_hash) || [];
+        parents.push(edge.parent_hash);
+        parentMap.set(edge.child_hash, parents);
+    }
+    const txMap = new Map();
+    for (const tx of txRes.rows) {
+        const hashes = txMap.get(tx.vertex_hash) || [];
+        hashes.push(tx.tx_hash);
+        txMap.set(tx.vertex_hash, hashes);
+    }
+    return { parentMap, txMap };
+}
 app.register(async (api) => {
     api.post('/admin/reindex-from-genesis', handleReindexFromGenesis);
     api.get('/network/summary', async () => {
@@ -213,6 +256,95 @@ app.register(async (api) => {
             indexedAt: snapshot?.indexed_at || null,
             sourceRpc: cfg.synergyCoreRpcUrl,
             fallbackRpc: cfg.synergyCoreRpcFallbackUrl || null,
+        };
+    });
+    api.get('/dag/status', async () => {
+        const [countsRes, frontierRes, latestRes] = await Promise.all([
+            pool.query(`SELECT COUNT(*)::text AS vertex_count,
+                COALESCE(SUM(tx_count), 0)::text AS transaction_count
+           FROM dag_vertices`),
+            pool.query(`SELECT COUNT(*)::text AS count
+           FROM dag_vertices v
+          WHERE NOT EXISTS (
+            SELECT 1 FROM dag_edges e WHERE e.parent_hash = v.hash
+          )`),
+            pool.query(`SELECT hash, status, proposer_address, height_hint, block_number, block_hash,
+                created_at, availability_cert, tx_count, updated_at
+           FROM dag_vertices
+          ORDER BY block_number DESC NULLS LAST, height_hint DESC NULLS LAST, created_at DESC
+          LIMIT 1`),
+        ]);
+        const latestHash = latestRes.rows[0]?.hash;
+        const latestMetadata = latestHash ? await queryDagMetadata([latestHash]) : null;
+        return {
+            enabled: true,
+            dataSource: 'atlas_indexed_committed_dag',
+            root: 'synergy-dag-root',
+            vertexCount: countsRes.rows[0]?.vertex_count || '0',
+            transactionCount: countsRes.rows[0]?.transaction_count || '0',
+            frontierCount: frontierRes.rows[0]?.count || '0',
+            latestVertex: latestRes.rows[0]
+                ? dagVertexToApi(latestRes.rows[0], latestMetadata?.parentMap.get(latestRes.rows[0].hash), latestMetadata?.txMap.get(latestRes.rows[0].hash))
+                : null,
+        };
+    });
+    api.get('/dag/frontier', async () => {
+        const res = await pool.query(`SELECT v.hash, v.status, v.proposer_address, v.height_hint, v.block_number, v.block_hash,
+              v.created_at, v.availability_cert, v.tx_count, v.updated_at
+         FROM dag_vertices v
+        WHERE NOT EXISTS (
+          SELECT 1 FROM dag_edges e WHERE e.parent_hash = v.hash
+        )
+        ORDER BY v.block_number DESC NULLS LAST, v.height_hint DESC NULLS LAST, v.created_at DESC
+        LIMIT 50`);
+        const hashes = res.rows.map((row) => row.hash);
+        const { parentMap, txMap } = await queryDagMetadata(hashes);
+        return {
+            root: 'synergy-dag-root',
+            count: res.rows.length,
+            items: res.rows.map((row) => dagVertexToApi(row, parentMap.get(row.hash), txMap.get(row.hash))),
+        };
+    });
+    api.get('/dag/vertices', async (req) => {
+        const { limit, page, offset } = parseLimitPage(req.query);
+        const res = await pool.query(`SELECT hash, status, proposer_address, height_hint, block_number, block_hash,
+              created_at, availability_cert, tx_count, updated_at
+         FROM dag_vertices
+        ORDER BY block_number DESC NULLS LAST, height_hint DESC NULLS LAST, created_at DESC
+        LIMIT $1 OFFSET $2`, [limit, offset]);
+        const totalRes = await pool.query('SELECT COUNT(*)::text AS count FROM dag_vertices');
+        const hashes = res.rows.map((row) => row.hash);
+        const { parentMap, txMap } = await queryDagMetadata(hashes);
+        return {
+            page,
+            limit,
+            total: totalRes.rows[0]?.count || '0',
+            items: res.rows.map((row) => dagVertexToApi(row, parentMap.get(row.hash), txMap.get(row.hash))),
+        };
+    });
+    api.get('/dag/topology', async (req) => {
+        const limit = Math.max(1, Math.min(100, Number(req.query?.limit || 50)));
+        const verticesRes = await pool.query(`SELECT hash, status, proposer_address, height_hint, block_number, block_hash,
+              created_at, availability_cert, tx_count, updated_at
+         FROM dag_vertices
+        ORDER BY block_number DESC NULLS LAST, height_hint DESC NULLS LAST, created_at DESC
+        LIMIT $1`, [limit]);
+        const hashes = verticesRes.rows.map((row) => row.hash);
+        const { parentMap, txMap } = await queryDagMetadata(hashes);
+        const edgesRes = hashes.length === 0
+            ? { rows: [] }
+            : await pool.query(`SELECT parent_hash, child_hash
+             FROM dag_edges
+            WHERE child_hash = ANY($1)
+              AND (parent_hash = 'synergy-dag-root' OR parent_hash = ANY($1))
+            ORDER BY child_hash ASC, parent_hash ASC`, [hashes]);
+        return {
+            root: 'synergy-dag-root',
+            vertices: verticesRes.rows.map((row) => dagVertexToApi(row, parentMap.get(row.hash), txMap.get(row.hash))),
+            edges: edgesRes.rows.map((edge) => ({
+                parentHash: edge.parent_hash,
+                childHash: edge.child_hash,
+            })),
         };
     });
     api.get('/blocks', async (req) => {
@@ -475,7 +607,7 @@ app.register(async (api) => {
                 {
                     symbol: 'SNRG',
                     name: 'Synergy Testnet Token',
-                    category: 'Native testnet beta token',
+                    category: 'Native testnet token',
                     summary: 'Native Synergy Testnet asset used for balances, transfers, fees, staking, and validator onboarding.',
                     priceUsd: '0.00 USD',
                     change24h: '0.00%',

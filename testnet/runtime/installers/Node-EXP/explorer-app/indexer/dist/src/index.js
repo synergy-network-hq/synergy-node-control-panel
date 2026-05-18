@@ -6,7 +6,6 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 const synergyEnv = (process.env.SYNERGY_ENV || 'testnet');
 const defaultsByEnv = {
-    'testnet': { coreRpc: 'https://testnet-core-rpc.synergy-network.io' },
     testnet: { coreRpc: 'https://testnet-core-rpc.synergy-network.io' },
     'mainnet-beta': { coreRpc: 'https://mainnet-beta-core-rpc.synergy-network.io' },
     mainnet: { coreRpc: 'https://mainnet-core-rpc.synergy-network.io' },
@@ -20,6 +19,8 @@ if (!databaseUrl) {
 const rpcTimeoutMs = Math.max(250, Number(process.env.SYNERGY_RPC_TIMEOUT_MS || 2500));
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS || 2000);
 const batchSize = Math.max(1, Math.min(250, Number(process.env.BATCH_SIZE || 50)));
+const dagIndexLimit = Math.max(1, Math.min(1000, Number(process.env.DAG_INDEX_LIMIT || 500)));
+const dagRebuildBlockLimit = Math.max(1, Math.min(10000, Number(process.env.DAG_REBUILD_BLOCK_LIMIT || 5000)));
 const startBlockEnv = process.env.START_BLOCK;
 const pool = new Pool({ connectionString: databaseUrl });
 function sleep(ms) {
@@ -162,6 +163,122 @@ async function upsertTransaction(transaction, block, index) {
         asStringNumber(transaction.timestamp_unix ?? transaction.timestamp),
     ]);
 }
+async function upsertDagVertex(vertex) {
+    const vertexHash = normalizeHash(vertex.hash);
+    if (!vertexHash) {
+        logger.warn({ vertex }, 'Skipping DAG vertex without hash');
+        return;
+    }
+    const transactionHashes = Array.isArray(vertex.transaction_hashes) && vertex.transaction_hashes.length > 0
+        ? vertex.transaction_hashes
+        : (vertex.transactions || []).map((tx) => tx.hash || tx.tx_hash).filter(Boolean);
+    const parentHashes = Array.isArray(vertex.parent_hashes) ? vertex.parent_hashes : [];
+    await pool.query(`INSERT INTO dag_vertices (
+       hash, status, proposer_address, height_hint, block_number, block_hash,
+       created_at, availability_cert, tx_count, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+     ON CONFLICT (hash) DO UPDATE SET
+       status = EXCLUDED.status,
+       proposer_address = EXCLUDED.proposer_address,
+       height_hint = EXCLUDED.height_hint,
+       block_number = EXCLUDED.block_number,
+       block_hash = EXCLUDED.block_hash,
+       created_at = EXCLUDED.created_at,
+       availability_cert = EXCLUDED.availability_cert,
+       tx_count = EXCLUDED.tx_count,
+       updated_at = NOW()`, [
+        vertexHash,
+        vertex.status || 'committed',
+        normalizeAddress(vertex.proposer),
+        vertex.height_hint == null ? null : String(vertex.height_hint),
+        vertex.block_number == null ? null : String(vertex.block_number),
+        normalizeHash(vertex.block_hash || undefined),
+        timestampIso(vertex.created_at),
+        normalizeHash(vertex.availability_cert || undefined),
+        transactionHashes.length,
+    ]);
+    await pool.query('DELETE FROM dag_edges WHERE child_hash = $1', [vertexHash]);
+    for (const parentHashRaw of parentHashes) {
+        const parentHash = normalizeHash(parentHashRaw);
+        if (!parentHash)
+            continue;
+        await pool.query(`INSERT INTO dag_edges (parent_hash, child_hash)
+       VALUES ($1, $2)
+       ON CONFLICT (parent_hash, child_hash) DO NOTHING`, [parentHash, vertexHash]);
+    }
+    await pool.query('DELETE FROM dag_vertex_transactions WHERE vertex_hash = $1', [vertexHash]);
+    for (let index = 0; index < transactionHashes.length; index += 1) {
+        const txHash = normalizeHash(transactionHashes[index]);
+        if (!txHash)
+            continue;
+        await pool.query(`INSERT INTO dag_vertex_transactions (vertex_hash, tx_hash, tx_index)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (vertex_hash, tx_hash) DO UPDATE SET tx_index = EXCLUDED.tx_index`, [vertexHash, txHash, index]);
+    }
+}
+async function refreshDagIndex() {
+    const response = await rpcCallWithFallback('synergy_getDagVertices', [{ limit: dagIndexLimit }]).catch((error) => {
+        logger.warn({ error: error instanceof Error ? error.message : String(error) }, 'DAG runtime RPC unavailable');
+        return null;
+    });
+    const vertices = Array.isArray(response?.items) ? response.items : [];
+    for (const vertex of vertices) {
+        await upsertDagVertex(vertex);
+    }
+    if (vertices.length > 0) {
+        logger.info({ indexed: vertices.length }, 'Indexed Synergy DAG vertices');
+        return vertices.length;
+    }
+    const rebuilt = await rebuildDagFromIndexedBlocks();
+    if (rebuilt > 0) {
+        logger.warn({ indexed: rebuilt, source: 'committed_blocks', reason: response ? 'empty_runtime_dag' : 'runtime_rpc_unavailable' }, 'Rebuilt Synergy DAG index from committed transaction blocks');
+    }
+    return rebuilt;
+}
+async function rebuildDagFromIndexedBlocks() {
+    const result = await pool.query(`WITH recent_transaction_blocks AS (
+       SELECT b.number, b.hash, b.timestamp, b.validator_address
+         FROM blocks b
+        WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.block_number = b.number)
+        ORDER BY b.number DESC
+        LIMIT $1
+     )
+     SELECT b.number::text AS number,
+            b.hash,
+            EXTRACT(EPOCH FROM b.timestamp)::bigint::text AS timestamp_unix,
+            b.validator_address,
+            ARRAY_AGG(t.hash ORDER BY t.tx_index NULLS LAST, t.hash) AS tx_hashes
+       FROM recent_transaction_blocks b
+       JOIN transactions t ON t.block_number = b.number
+      GROUP BY b.number, b.hash, b.timestamp, b.validator_address
+      ORDER BY b.number ASC`, [dagRebuildBlockLimit]);
+    let parentHashes = ['synergy-dag-root'];
+    let indexed = 0;
+    for (const block of result.rows) {
+        const vertexHash = normalizeHash(block.hash);
+        const txHashes = Array.isArray(block.tx_hashes)
+            ? block.tx_hashes.map((hash) => normalizeHash(hash)).filter(Boolean)
+            : [];
+        if (!vertexHash || txHashes.length === 0) {
+            continue;
+        }
+        await upsertDagVertex({
+            hash: vertexHash,
+            parent_hashes: parentHashes,
+            transaction_hashes: txHashes,
+            proposer: block.validator_address || undefined,
+            created_at: block.timestamp_unix || undefined,
+            height_hint: block.number,
+            block_hash: block.hash,
+            block_number: block.number,
+            status: 'committed',
+            availability_cert: block.hash,
+        });
+        parentHashes = [vertexHash];
+        indexed += 1;
+    }
+    return indexed;
+}
 async function fetchTransactionsForBlock(block) {
     if (Array.isArray(block.transactions)) {
         return block.transactions;
@@ -254,6 +371,7 @@ async function main() {
                 cursor = end + 1;
             }
             await refreshNetworkSnapshot();
+            await refreshDagIndex();
         }
         catch (error) {
             logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Indexer loop failed');

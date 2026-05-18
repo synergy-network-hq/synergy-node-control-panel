@@ -6,9 +6,6 @@ function required(name, value) {
 export function loadConfig(env) {
     const synergyEnv = (env.SYNERGY_ENV || 'testnet');
     const defaultsByEnv = {
-        'testnet': {
-            coreRpc: 'https://testnet-core-rpc.synergy-network.io'
-        },
         testnet: {
             coreRpc: 'https://testnet-core-rpc.synergy-network.io'
         },

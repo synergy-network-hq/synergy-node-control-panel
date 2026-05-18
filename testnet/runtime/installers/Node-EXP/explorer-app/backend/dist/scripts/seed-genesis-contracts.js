@@ -13,7 +13,7 @@
  */
 import dotenv from 'dotenv';
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 const DB_URL = process.env.DATABASE_URL;
@@ -21,8 +21,14 @@ if (!DB_URL) {
     console.error('DATABASE_URL is not set. Copy .env.example to .env and configure it.');
     process.exit(1);
 }
-// Resolve genesis.json relative to the repo root
-const GENESIS_PATH = path.resolve(process.cwd(), '../../../synergy-testnet/config/genesis.json');
+// Resolve genesis.json from the deployed node bundle first, with an env override for local runs.
+const GENESIS_PATH = [
+    process.env.SYNERGY_GENESIS_PATH,
+    path.resolve(process.cwd(), '../../config/genesis.json'),
+    path.resolve(process.cwd(), '../config/genesis.json'),
+    path.resolve(process.cwd(), 'config/genesis.json'),
+].filter((candidate) => Boolean(candidate)).find((candidate) => existsSync(candidate))
+    || path.resolve(process.cwd(), '../../config/genesis.json');
 // Human-readable labels for each genesis contract key
 const CONTRACT_LABELS = {
     governance: 'Governance',
