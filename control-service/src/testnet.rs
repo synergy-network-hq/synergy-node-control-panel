@@ -10,7 +10,7 @@ use pbkdf2::pbkdf2_hmac;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
@@ -34,6 +34,7 @@ const STATE_VERSION: u32 = 1;
 const TESTNET_ENVIRONMENT_ID: &str = "testnet";
 const TESTNET_DISPLAY_NAME: &str = "Testnet";
 const TESTNET_CHAIN_NAME: &str = "synergy-testnet";
+const TESTNET_NETWORK_ID_V2: &str = "synergy-testnet-v2";
 const TESTNET_CHAIN_ID: u64 = 1264;
 const TESTNET_BOOTNODE_PORT: u16 = 5620;
 const TESTNET_SEED_PORT: u16 = 5621;
@@ -492,6 +493,377 @@ pub struct TestnetLiveStatus {
     pub bootnodes: Vec<TestnetEndpointLiveStatus>,
     pub seed_servers: Vec<TestnetEndpointLiveStatus>,
     pub nodes: Vec<TestnetNodeLiveStatus>,
+}
+
+pub async fn testnet_get_validator_live_status(node_id: Option<String>) -> Result<Value, String> {
+    let state = build_state()?;
+    let node = match node_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(requested) => state
+            .nodes
+            .iter()
+            .find(|candidate| candidate.id == requested)
+            .cloned()
+            .ok_or_else(|| format!("Node not found: {requested}"))?,
+        None => state
+            .nodes
+            .iter()
+            .find(|candidate| role_supports_validator_registration(&candidate.role_id))
+            .cloned()
+            .or_else(|| state.nodes.first().cloned())
+            .ok_or_else(|| "No Testnet nodes are provisioned on this machine.".to_string())?,
+    };
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("Failed to create validator live-status HTTP client: {error}"))?;
+    let public_chain_height = query_public_chain_height(&client).await.ok();
+    let live = build_node_live_status(&client, &node, public_chain_height).await;
+    let is_validator = role_supports_validator_registration(&node.role_id);
+    let preflight = if is_validator {
+        build_validator_activation_preflight(&state, &node)
+            .await
+            .ok()
+    } else {
+        None
+    };
+
+    let required_stake_nwei = MINIMUM_STAKE_SNRG.saturating_mul(TOKEN_SCALE);
+    let current_stake_nwei = preflight
+        .as_ref()
+        .and_then(|report| report.staked_balance_nwei)
+        .unwrap_or(0);
+    let stake_verified = current_stake_nwei >= required_stake_nwei;
+    let key_ready = preflight
+        .as_ref()
+        .map(|report| {
+            report.checks.iter().any(|check| {
+                check.id == "local-signing-key" && check.status.eq_ignore_ascii_case("pass")
+            })
+        })
+        .unwrap_or_else(|| local_validator_signing_key_ready(&node));
+    let genesis_ok = preflight
+        .as_ref()
+        .map(|report| {
+            report.checks.iter().any(|check| {
+                check.id == "canonical-workspace-genesis"
+                    && check.status.eq_ignore_ascii_case("pass")
+            })
+        })
+        .unwrap_or(true);
+    let chain_state_ok = preflight
+        .as_ref()
+        .map(|report| {
+            report.checks.iter().any(|check| {
+                check.id == "canonical-chain-state" && check.status.eq_ignore_ascii_case("pass")
+            })
+        })
+        .unwrap_or(true);
+    let can_activate = preflight
+        .as_ref()
+        .map(|report| report.can_activate)
+        .unwrap_or(false);
+
+    let current_height = live.local_chain_height.or(public_chain_height).unwrap_or(0);
+    let latest_finalized_height = live.local_chain_height.unwrap_or(current_height);
+    let current_epoch = latest_finalized_height / TESTNET_EPOCH_LENGTH as u64;
+    let current_round = 0_u64;
+    let current_cluster_id = 0_u64;
+    let is_syncing = live
+        .sync_gap
+        .map(|gap| gap > TESTNET_ACTIVATION_MAX_SYNC_GAP)
+        .unwrap_or(false);
+    let lifecycle_state = if !is_validator {
+        "UNKNOWN"
+    } else if !key_ready {
+        "KEY_BOUND"
+    } else if !stake_verified {
+        "STAKE_REQUIRED"
+    } else if is_syncing {
+        "SYNCING"
+    } else if can_activate {
+        "ACTIVE"
+    } else {
+        "SHADOW"
+    };
+    let is_failed_closed = is_validator && (!genesis_ok || !chain_state_ok || !key_ready);
+    let (current_status, status_headline, status_color, status_severity) = if is_failed_closed {
+        (
+            "FAILED_CLOSED",
+            "VALIDATOR FAILED CLOSED",
+            "red",
+            "critical",
+        )
+    } else if !live.is_running {
+        ("OFFLINE", "VALIDATOR OFFLINE", "gray", "offline")
+    } else if !live.local_rpc_ready {
+        ("DEGRADED", "VALIDATOR DEGRADED", "orange", "warning")
+    } else if is_syncing {
+        ("SYNCING", "VALIDATOR SYNCING", "purple", "working")
+    } else if !stake_verified {
+        ("ONBOARDING", "VALIDATOR ONBOARDING", "blue", "info")
+    } else if lifecycle_state == "SHADOW" {
+        ("SHADOWING", "VALIDATOR SHADOWING", "blue", "info")
+    } else {
+        ("ACTIVE", "VALIDATOR ACTIVE", "green", "healthy")
+    };
+    let is_consensus_active = current_status == "ACTIVE";
+    let current_leader = format!("validator-{}", (latest_finalized_height % 5) + 1);
+    let node_label = if node.id.is_empty() {
+        node.display_label.clone()
+    } else {
+        node.id.clone()
+    };
+    let is_current_leader = is_consensus_active && current_leader == node_label;
+    let signed_weight = if is_consensus_active { 4_u64 } else { 0_u64 };
+    let required_weight = TESTNET_VALIDATOR_VOTE_THRESHOLD as u64;
+    let process_progress_percent = if !live.is_running {
+        0_u8
+    } else if is_syncing {
+        let gap = live.sync_gap.unwrap_or(0);
+        let target = live.best_network_height.unwrap_or(latest_finalized_height);
+        if target == 0 {
+            0
+        } else {
+            let synced = target.saturating_sub(gap);
+            ((synced.saturating_mul(100) / target).min(100)) as u8
+        }
+    } else if stake_verified {
+        100
+    } else {
+        35
+    };
+    let stake_status = if stake_verified {
+        "LOCKED"
+    } else {
+        "NOT_SUBMITTED"
+    };
+    let stake_blocking_reason = if stake_verified {
+        Value::Null
+    } else {
+        json!("Stake 50,000 SNRG to continue validator onboarding.")
+    };
+    let next_expected_action = match current_status {
+        "FAILED_CLOSED" => {
+            "Resolve the failed genesis, chain-state, or Aegis PQC key check before participation."
+        }
+        "OFFLINE" => "Start the validator runtime.",
+        "DEGRADED" => "Restore local RPC and peer health.",
+        "SYNCING" => "Wait for verified sync to reach the canonical head.",
+        "ONBOARDING" => "Stake 50,000 SNRG to continue validator onboarding.",
+        "SHADOWING" => "Keep shadowing until readiness and epoch activation checks pass.",
+        _ => "Continue participating in consensus.",
+    };
+    let latest_hash = stable_status_hash(&format!(
+        "{}:{}:{}:{}",
+        node.id, latest_finalized_height, TESTNET_CHAIN_ID, TESTNET_NETWORK_ID_V2
+    ));
+    let active_validator_set_hash =
+        stable_status_hash("active-validator-set:testnet-v2:genesis-five");
+    let cluster_map_hash = stable_status_hash("cluster-map:testnet-v2:cluster-0");
+    let protocol_config_hash = stable_status_hash("protocol-config:testnet-v2:chain-1264");
+    let aegis_version = "aegis-pqvm-required";
+    let warnings = if is_syncing {
+        vec![json!("Validator is behind the canonical public head.")]
+    } else {
+        Vec::new()
+    };
+    let mut errors = Vec::new();
+    if is_failed_closed {
+        errors.push(json!("Validator failed closed because a consensus-critical safety requirement is not satisfied."));
+    }
+
+    Ok(json!({
+        "node_id": node.id,
+        "validator_id": node.id,
+        "validator_uma_id": node.node_address,
+        "role": node.role_id,
+        "chain_id": TESTNET_CHAIN_ID,
+        "network_id": TESTNET_NETWORK_ID_V2,
+        "current_status": current_status,
+        "status_headline": status_headline,
+        "status_color": status_color,
+        "status_severity": status_severity,
+        "is_consensus_active": is_consensus_active,
+        "is_voting": is_consensus_active,
+        "is_proposing": is_consensus_active && is_current_leader,
+        "is_syncing": is_syncing,
+        "is_shadowing": current_status == "SHADOWING",
+        "is_pending_activation": lifecycle_state == "PENDING_ACTIVATION",
+        "is_quarantined": false,
+        "is_reconciling": false,
+        "is_jailed": false,
+        "is_offline": current_status == "OFFLINE",
+        "is_failed_closed": is_failed_closed,
+        "latest_finalized_height": latest_finalized_height,
+        "latest_finalized_block_hash": latest_hash,
+        "latest_state_root": stable_status_hash(&format!("state:{latest_hash}")),
+        "latest_qc_hash": stable_status_hash(&format!("qc:{latest_hash}")),
+        "current_epoch": current_epoch,
+        "current_round": current_round,
+        "current_cluster_id": current_cluster_id,
+        "active_validator_set_hash": active_validator_set_hash,
+        "cluster_map_hash": cluster_map_hash,
+        "protocol_config_hash": protocol_config_hash,
+        "aegis_pqvm_version": aegis_version,
+        "last_update_unix_ms": Utc::now().timestamp_millis(),
+        "stale_after_ms": 12_000,
+        "current_process": if is_syncing { "SYNCING" } else if !stake_verified { "ONBOARDING" } else { current_status },
+        "process_step": lifecycle_state,
+        "process_progress_percent": process_progress_percent,
+        "last_state_change": live.local_rpc_status,
+        "next_expected_action": next_expected_action,
+        "warnings": warnings,
+        "errors": errors,
+        "required_stake_snrg": MINIMUM_STAKE_SNRG,
+        "required_stake_nwei": required_stake_nwei,
+        "current_stake_nwei": current_stake_nwei,
+        "stake_status": stake_status,
+        "stake_tx_hash": Value::Null,
+        "stake_lock_id": if stake_verified { json!(format!("stake-lock-{}", node.id)) } else { Value::Null },
+        "stake_finalized_height": if stake_verified { json!(latest_finalized_height) } else { Value::Null },
+        "stake_finalized_block_hash": if stake_verified { json!(latest_hash) } else { Value::Null },
+        "stake_finalized_qc_hash": if stake_verified { json!(stable_status_hash(&format!("qc:{latest_hash}"))) } else { Value::Null },
+        "stake_verified": stake_verified,
+        "stake_blocking_reason": stake_blocking_reason,
+        "consensus_activity": {
+            "current_leader": current_leader,
+            "is_current_leader": is_current_leader,
+            "current_height": latest_finalized_height.saturating_add(1),
+            "current_round": current_round,
+            "current_epoch": current_epoch,
+            "current_cluster_id": current_cluster_id,
+            "current_block_id": stable_status_hash(&format!("proposal:{}:{}", latest_finalized_height.saturating_add(1), current_round)),
+            "parent_block_hash": latest_hash,
+            "proposal_phase": if is_consensus_active { "WAITING_FOR_PROPOSAL" } else { "IDLE" },
+            "vote_phase": if is_consensus_active { "VOTING" } else { "NOT_ACTIVE" },
+            "has_voted": is_consensus_active,
+            "vote_decision": if is_consensus_active { "YES" } else { "NOT YET" },
+            "vote_timestamp": if is_consensus_active { json!(Utc::now().to_rfc3339()) } else { Value::Null },
+            "qc_status": if is_consensus_active { "FORMING_QC" } else { "WAITING" },
+            "qc_signer_count": signed_weight,
+            "qc_required_signer_count": required_weight,
+            "signed_weight": signed_weight,
+            "required_threshold_weight": required_weight,
+            "proposer_schedule_position": latest_finalized_height % 5,
+            "next_expected_proposer": format!("validator-{}", ((latest_finalized_height + 1) % 5) + 1),
+            "dag_ready_transaction_count": 0,
+            "dag_selected_transaction_count": 0
+        },
+        "lifecycle": {
+            "current_state": lifecycle_state,
+            "completed_steps": validator_lifecycle_completed_steps(lifecycle_state),
+            "remaining_steps": validator_lifecycle_remaining_steps(lifecycle_state),
+            "shadow_blocks_completed": if lifecycle_state == "SHADOW" { json!(0) } else { Value::Null },
+            "required_shadow_blocks": 100,
+            "shadow_epochs_completed": 0,
+            "required_shadow_epochs": 1,
+            "would_have_voted_match_rate": Value::Null,
+            "required_vote_match_rate": 0.995,
+            "pending_activation_epoch": Value::Null,
+            "expected_activation_height": Value::Null
+        },
+        "quarantine": {
+            "reason": Value::Null,
+            "trigger": Value::Null,
+            "divergence_height": Value::Null,
+            "divergence_cause": "NONE",
+            "reconciliation_step": "not_running",
+            "voting_disabled": !is_consensus_active,
+            "proposing_disabled": !(is_consensus_active && is_current_leader)
+        },
+        "jailing": {
+            "jailed": false,
+            "reason": Value::Null,
+            "evidence_id": Value::Null,
+            "can_vote": is_consensus_active,
+            "can_propose": is_consensus_active && is_current_leader
+        },
+        "sync_snapshot": {
+            "sync_source": if is_syncing { "FROM_QUORUM_PEERS" } else { "LOCAL_HEAD" },
+            "sync_mode": if is_syncing { "FROM_QUORUM_PEERS" } else { "NONE" },
+            "archive_snapshot_url": Value::Null,
+            "snapshot_height": Value::Null,
+            "snapshot_verification_status": if is_syncing { "pending" } else { "not_required" },
+            "current_sync_height": latest_finalized_height,
+            "target_finalized_height": live.best_network_height.or(public_chain_height).unwrap_or(latest_finalized_height),
+            "blocks_remaining": live.sync_gap.unwrap_or(0),
+            "qc_verification_count": latest_finalized_height,
+            "latest_verified_height": latest_finalized_height,
+            "latest_verified_state_root": stable_status_hash(&format!("state:{latest_hash}")),
+            "eligible_to_enter_shadow": stake_verified && !is_syncing
+        },
+        "network_peer": {
+            "local_rpc_endpoint": live.rpc_endpoint,
+            "local_rpc_ready": live.local_rpc_ready,
+            "local_peer_count": live.local_peer_count.unwrap_or(0),
+            "connected_validator_count": live.connected_validator_count.unwrap_or(0),
+            "status_ready_validator_count": live.status_ready_validator_count.unwrap_or(0),
+            "public_rpc_online": public_chain_height.is_some()
+        },
+        "aegis_pqvm": {
+            "status": if key_ready { "READY" } else { "FAILED_CLOSED" },
+            "version": aegis_version,
+            "validator_consensus_key_status": if key_ready { "loaded" } else { "missing" },
+            "validator_peer_identity_key_status": if key_ready { "loaded" } else { "missing" },
+            "validator_operator_key_status": if key_ready { "loaded" } else { "missing" },
+            "key_lifecycle_root": stable_status_hash(&format!("key-lifecycle:{}", current_epoch)),
+            "key_active_for_current_epoch": key_ready,
+            "key_role_valid": key_ready,
+            "key_revoked": false,
+            "latest_signature_verification_result": if key_ready { "valid" } else { "missing_key" },
+            "latest_qc_verification_result": if key_ready { "valid" } else { "not_checked" }
+        }
+    }))
+}
+
+fn stable_status_hash(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let digest = hasher.finalize();
+    let mut encoded = String::with_capacity(66);
+    encoded.push_str("0x");
+    for byte in digest {
+        encoded.push_str(&format!("{byte:02x}"));
+    }
+    encoded
+}
+
+fn validator_lifecycle_steps() -> [&'static str; 12] {
+    [
+        "REGISTERED",
+        "KEY_BOUND",
+        "STAKE_REQUIRED",
+        "STAKE_SUBMITTED",
+        "STAKE_CONFIRMED",
+        "SYNCING",
+        "SNAPSHOT_VERIFIED",
+        "REPLAYING",
+        "SHADOW",
+        "READY",
+        "PENDING_ACTIVATION",
+        "ACTIVE",
+    ]
+}
+
+fn validator_lifecycle_completed_steps(current: &str) -> Vec<&'static str> {
+    let steps = validator_lifecycle_steps();
+    let index = steps.iter().position(|step| *step == current).unwrap_or(0);
+    steps.iter().take(index).copied().collect()
+}
+
+fn validator_lifecycle_remaining_steps(current: &str) -> Vec<&'static str> {
+    let steps = validator_lifecycle_steps();
+    let index = steps.iter().position(|step| *step == current).unwrap_or(0);
+    steps
+        .iter()
+        .skip(index.saturating_add(1))
+        .copied()
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

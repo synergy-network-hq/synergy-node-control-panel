@@ -21,13 +21,13 @@ use crate::testnet::{
     testnet_force_peer_connect, testnet_get_catalog, testnet_get_chain_blocks,
     testnet_get_device_profile, testnet_get_feature_snapshot, testnet_get_live_status,
     testnet_get_node_logs, testnet_get_node_readiness, testnet_get_rewards_data, testnet_get_state,
-    testnet_get_validator_activation_preflight, testnet_node_control, testnet_remove_node,
-    testnet_run_register_with_seeds, testnet_setup_node, testnet_stake_validator,
-    testnet_sync_catch_up_rejoin, testnet_transfer_validator_tokens, testnet_unstake_validator,
-    TestnetEraseNodeDataInput, TestnetFeatureSnapshotInput, TestnetForcePeerConnectInput,
-    TestnetNodeControlInput, TestnetRemoveNodeInput, TestnetSetupInput,
-    TestnetValidatorActivateInput, TestnetValidatorCatchUpInput, TestnetValidatorStakeInput,
-    TestnetValidatorTransferInput, TestnetValidatorUnstakeInput,
+    testnet_get_validator_activation_preflight, testnet_get_validator_live_status,
+    testnet_node_control, testnet_remove_node, testnet_run_register_with_seeds, testnet_setup_node,
+    testnet_stake_validator, testnet_sync_catch_up_rejoin, testnet_transfer_validator_tokens,
+    testnet_unstake_validator, TestnetEraseNodeDataInput, TestnetFeatureSnapshotInput,
+    TestnetForcePeerConnectInput, TestnetNodeControlInput, TestnetRemoveNodeInput,
+    TestnetSetupInput, TestnetValidatorActivateInput, TestnetValidatorCatchUpInput,
+    TestnetValidatorStakeInput, TestnetValidatorTransferInput, TestnetValidatorUnstakeInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -69,6 +69,15 @@ struct InvokeRequest {
 #[derive(Debug, Deserialize)]
 struct EventQuery {
     token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidatorLiveStatusQuery {
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default, alias = "node_id")]
+    node_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,6 +220,13 @@ struct TestnetValidatorActivationPreflightArgs {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestnetValidatorLiveStatusArgs {
+    #[serde(default)]
+    node_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct TestnetValidatorStakeArgs {
     input: TestnetValidatorStakeInput,
 }
@@ -266,8 +282,21 @@ pub async fn serve(port: u16, token: String, app_context: AppContext) -> Result<
 
     let router = Router::new()
         .route("/health", get(health_handler))
+        .route("/validator/live-status", get(validator_live_status_handler))
+        .route(
+            "/v1/validator/live-status",
+            get(validator_live_status_handler),
+        )
+        .route(
+            "/events/validator/live-status",
+            get(validator_live_status_events_handler),
+        )
         .route("/v1/invoke", post(invoke_handler))
         .route("/v1/events/stream", get(events_handler))
+        .route(
+            "/v1/events/validator/live-status",
+            get(validator_live_status_events_handler),
+        )
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -356,6 +385,66 @@ async fn events_handler(
 
     Sse::new(stream)
         .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(15)))
+        .into_response()
+}
+
+async fn validator_live_status_handler(
+    State(state): State<ControlServiceState>,
+    headers: HeaderMap,
+    Query(query): Query<ValidatorLiveStatusQuery>,
+) -> impl IntoResponse {
+    if let Some(token) = query.token.as_ref() {
+        if token != state.token.as_ref() {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    } else if let Err(response) = authorize(&state, &headers) {
+        return response;
+    }
+
+    match testnet_get_validator_live_status(query.node_id).await {
+        Ok(payload) => (StatusCode::OK, Json(payload)).into_response(),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": error })),
+        )
+            .into_response(),
+    }
+}
+
+async fn validator_live_status_events_handler(
+    State(state): State<ControlServiceState>,
+    Query(query): Query<ValidatorLiveStatusQuery>,
+) -> impl IntoResponse {
+    if query.token.as_deref() != Some(state.token.as_str()) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let node_id = query.node_id.clone();
+    let stream = stream! {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(4));
+        loop {
+            interval.tick().await;
+            match testnet_get_validator_live_status(node_id.clone()).await {
+                Ok(payload) => {
+                    let event = Event::default()
+                        .event("validator.status.changed")
+                        .json_data(payload)
+                        .unwrap_or_else(|_| Event::default().event("error").data("{\"error\":\"failed to encode validator live status\"}"));
+                    yield Ok::<Event, Infallible>(event);
+                }
+                Err(error) => {
+                    let event = Event::default()
+                        .event("error")
+                        .json_data(json!({ "error": error }))
+                        .unwrap_or_else(|_| Event::default().event("error").data("{\"error\":\"validator live status failed\"}"));
+                    yield Ok::<Event, Infallible>(event);
+                }
+            }
+        }
+    };
+
+    Sse::new(stream)
+        .keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(10)))
         .into_response()
 }
 
@@ -498,6 +587,10 @@ async fn dispatch_command(
         "testnet_get_validator_activation_preflight" => {
             let args: TestnetValidatorActivationPreflightArgs = parse_args(request.args)?;
             to_value(testnet_get_validator_activation_preflight(args.node_id).await?)
+        }
+        "testnet_get_validator_live_status" => {
+            let args: TestnetValidatorLiveStatusArgs = parse_args(request.args)?;
+            to_value(testnet_get_validator_live_status(args.node_id).await?)
         }
         "testnet_stake_validator" => {
             let args: TestnetValidatorStakeArgs = parse_args(request.args)?;

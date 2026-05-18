@@ -134,6 +134,64 @@ export async function listen(eventName, handler) {
   };
 }
 
+export async function fetchValidatorLiveStatus(nodeId) {
+  const config = await getServiceConfig();
+  const url = new URL(`${config.baseUrl}/v1/validator/live-status`);
+  if (nodeId) {
+    url.searchParams.set('nodeId', nodeId);
+  }
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(String(payload?.error || 'Validator live status is unavailable.'));
+  }
+  return payload;
+}
+
+export async function listenValidatorLiveStatus(nodeId, handler) {
+  const config = await getServiceConfig();
+  const url = new URL(`${config.baseUrl}/v1/events/validator/live-status`);
+  url.searchParams.set('token', config.token);
+  if (nodeId) {
+    url.searchParams.set('nodeId', nodeId);
+  }
+  const source = new EventSource(url.toString());
+  const emit = (connection, payload = null) => {
+    handler({ connection, payload });
+  };
+  const onStatus = (event) => {
+    let payload = null;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      payload = { raw: event.data };
+    }
+    emit('live', payload);
+  };
+  const onErrorEvent = (event) => {
+    let payload = { error: 'Validator live status stream error.' };
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      // Keep the default error payload.
+    }
+    emit('error', payload);
+  };
+  source.addEventListener('validator.status.changed', onStatus);
+  source.addEventListener('error', onErrorEvent);
+  source.onopen = () => emit('live');
+  source.onerror = () => emit('reconnecting');
+  return () => {
+    source.removeEventListener('validator.status.changed', onStatus);
+    source.removeEventListener('error', onErrorEvent);
+    source.close();
+  };
+}
+
 export async function getVersion() {
   const bridge = getBridge();
   if (!bridge?.getVersion) {

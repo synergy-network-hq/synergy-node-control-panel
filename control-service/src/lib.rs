@@ -1,3 +1,5 @@
+#![recursion_limit = "512"]
+
 pub mod agent;
 pub mod app_context;
 pub mod control_service;

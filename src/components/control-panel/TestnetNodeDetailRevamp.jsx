@@ -43,6 +43,7 @@ import JsonInspectorPanel from './JsonInspectorPanel';
 import ActionAuditStream from './ActionAuditStream';
 import ConfigDiffViewer from './ConfigDiffViewer';
 import ValidatorCatchUpCard from './ValidatorCatchUpCard';
+import ValidatorLiveStatusPanel from './ValidatorLiveStatusPanel';
 import {
   boostSyncAction,
   registerWithSeedsAction,
@@ -786,6 +787,10 @@ export default function TestnetNodeDetailRevamp() {
               </div>
             </PanelCard>
 
+            {isValidatorNode ? (
+              <ValidatorLiveStatusPanel node={node} nodeLive={nodeLive} liveStatus={liveStatus} />
+            ) : null}
+
             <ValidatorActivationGuide
               node={node}
               nodeLive={nodeLive}
@@ -912,6 +917,10 @@ export default function TestnetNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Open logs</SNRGButton>
               </div>
             </PanelCard>
+
+            {isValidatorNode ? (
+              <ValidatorLiveStatusPanel node={node} nodeLive={nodeLive} liveStatus={liveStatus} />
+            ) : null}
 
             <ValidatorActivationGuide
               node={node}
@@ -1070,6 +1079,10 @@ export default function TestnetNodeDetailRevamp() {
                 <SNRGButton variant="blue" size="sm" onClick={() => openPath(`${node.workspace_directory}/logs`)}>Tail logs</SNRGButton>
               </div>
             </PanelCard>
+
+            {isValidatorNode ? (
+              <ValidatorLiveStatusPanel node={node} nodeLive={nodeLive} liveStatus={liveStatus} />
+            ) : null}
 
             <ValidatorActivationGuide
               node={node}
