@@ -1214,6 +1214,20 @@ fn reset_chain(workspace_root: &Path, install: &NodeInstall) -> Result<CommandOu
         data_dir.join("chain.json"),
         data_dir.join("token_state.json"),
         data_dir.join("validator_registry.json"),
+        data_dir.join("committed_qcs.json"),
+        data_dir.join("committed_qcs.json.tmp"),
+        data_dir.join("canonical_locks.json"),
+        data_dir.join("canonical_locks.json.tmp"),
+        data_dir.join("consensus_vote_locks.json"),
+        data_dir.join("consensus_vote_locks.json.tmp"),
+        data_dir.join("dag_state.json"),
+        node_data_dir.join("committed_qcs.json"),
+        node_data_dir.join("committed_qcs.json.tmp"),
+        node_data_dir.join("canonical_locks.json"),
+        node_data_dir.join("canonical_locks.json.tmp"),
+        node_data_dir.join("consensus_vote_locks.json"),
+        node_data_dir.join("consensus_vote_locks.json.tmp"),
+        node_data_dir.join("dag_state.json"),
         data_dir.join("synergy-testnet.pid"),
         data_dir.join(".reset_flag"),
         data_dir.join("node.pid"),
@@ -1259,7 +1273,15 @@ fn reset_chain(workspace_root: &Path, install: &NodeInstall) -> Result<CommandOu
             ));
         }
     }
-    for check_file in &["chain.json", "token_state.json", "validator_registry.json"] {
+    for check_file in &[
+        "chain.json",
+        "token_state.json",
+        "validator_registry.json",
+        "committed_qcs.json",
+        "canonical_locks.json",
+        "consensus_vote_locks.json",
+        "dag_state.json",
+    ] {
         if data_dir.join(check_file).exists() {
             return Err(format!(
                 "{} still exists after reset for {}",
