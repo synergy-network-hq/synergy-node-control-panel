@@ -1252,13 +1252,13 @@ pub async fn testnet_import_ceremony_package(
         )
     } else if package.runtime_identity.is_some() {
         format!(
-            "{} package imported into {}. The workspace now carries the approved validator identity and canonical beta manifests.",
+            "{} package imported into {}. The workspace now carries the approved validator identity and canonical Testnet manifests.",
             package.display_name,
             workspace_directory.display()
         )
     } else {
         format!(
-            "{} package imported into {}. The workspace now carries the canonical beta manifests and approved role metadata.",
+            "{} package imported into {}. The workspace now carries the canonical Testnet manifests and approved role metadata.",
             package.display_name,
             workspace_directory.display()
         )
@@ -4153,7 +4153,7 @@ pub async fn testnet_setup_node(input: TestnetSetupInput) -> Result<TestnetSetup
         .map(str::trim)
         .unwrap_or(role.display_name.as_str())
         .to_string();
-    let node_id = format!("tbeta-{}", Uuid::new_v4().simple());
+    let node_id = format!("testnet-{}", Uuid::new_v4().simple());
     let default_directory = root.join("nodes").join(format!(
         "{}-{}",
         role_slug,
@@ -4587,7 +4587,7 @@ pub async fn testnet_setup_node(input: TestnetSetupInput) -> Result<TestnetSetup
     save_network_profile(&root, &network_profile)?;
 
     // Refresh the canonical launch manifests everywhere so each managed workspace
-    // carries the same beta genesis and operational manifest data.
+    // carries the same Testnet genesis and operational manifest data.
     for n in &registry.nodes {
         if input.skip_canonical_manifests && n.id == node_record.id {
             continue;
@@ -10245,12 +10245,12 @@ async fn import_bootstrap_bundle(
     ];
     if requested_role == "bootnode" {
         next_steps.push(
-            "Run install_and_start.sh or install_and_start.ps1 from the imported bundle on the assigned beta bootstrap host."
+            "Run install_and_start.sh or install_and_start.ps1 from the imported bundle on the assigned Testnet bootstrap host."
                 .to_string(),
         );
     } else {
         next_steps.push(
-            "Run install_and_start.sh or install_and_start.ps1 from the imported bundle on the assigned beta seed-service host."
+            "Run install_and_start.sh or install_and_start.ps1 from the imported bundle on the assigned Testnet seed-service host."
                 .to_string(),
         );
     }
@@ -10267,7 +10267,7 @@ async fn import_bootstrap_bundle(
             paths
         },
         message: format!(
-            "{} imported into {}. The staged bundle is ready for deployment on the assigned beta host.",
+            "{} imported into {}. The staged bundle is ready for deployment on the assigned Testnet host.",
             display_name,
             bundle_directory.display()
         ),
@@ -11831,7 +11831,7 @@ mod tests {
     #[test]
     fn seed_peer_matches_current_validator_identity() {
         let node = TestnetProvisionedNode {
-            id: "tbeta-validator1".to_string(),
+            id: "testnet-validator1".to_string(),
             role_id: "validator".to_string(),
             role_display_name: "Validator Node".to_string(),
             class_name: "Consensus".to_string(),
@@ -11893,7 +11893,7 @@ public_address = "62.146.182.207:5622"
             .expect("manifest should write");
 
             let node = TestnetProvisionedNode {
-                id: "tbeta-validator1".to_string(),
+                id: "testnet-validator1".to_string(),
                 role_id: "validator".to_string(),
                 role_display_name: "Validator Node".to_string(),
                 class_name: "Consensus".to_string(),
@@ -12107,7 +12107,7 @@ block_timeout_secs = 30
             };
 
             let base_node_toml = build_node_toml(
-                "tbeta-validator4",
+                "testnet-validator4",
                 "Genesis Validator 4 Node",
                 &role,
                 "synv1validator4",
@@ -12130,7 +12130,7 @@ block_timeout_secs = 30
             let registry = TestnetRegistryFile {
                 version: STATE_VERSION,
                 nodes: vec![TestnetProvisionedNode {
-                    id: "tbeta-validator4".to_string(),
+                    id: "testnet-validator4".to_string(),
                     role_id: "validator".to_string(),
                     role_display_name: "Validator Node".to_string(),
                     class_name: "Consensus".to_string(),
@@ -12218,7 +12218,7 @@ block_timeout_secs = 30
         let registry = TestnetRegistryFile {
             version: STATE_VERSION,
             nodes: vec![TestnetProvisionedNode {
-                id: "tbeta-existing".to_string(),
+                id: "testnet-existing".to_string(),
                 role_id: "validator".to_string(),
                 role_display_name: "Validator Node".to_string(),
                 class_name: "Consensus".to_string(),
@@ -12273,7 +12273,7 @@ block_timeout_secs = 30
         let matched = find_existing_ceremony_node_match(&registry, &package, None)
             .expect("existing validator workspace should match by identity address");
 
-        assert_eq!(matched.id, "tbeta-existing");
+        assert_eq!(matched.id, "testnet-existing");
         assert_eq!(matched.workspace_directory, "/tmp/validator-workspace");
     }
 

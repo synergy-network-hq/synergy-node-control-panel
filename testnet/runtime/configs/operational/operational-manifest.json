@@ -204,8 +204,8 @@
   "launch_exceptions": {
     "peer_identity_key": {
       "algorithm": "Ed25519",
-      "status": "documented-beta-exception",
-      "note": "Retained only as an explicit beta exception per the technical specification until the approved replacement strategy is delivered."
+      "status": "documented-testnet-exception",
+      "note": "Retained only as an explicit Testnet exception per the technical specification until the approved replacement strategy is delivered."
     }
   }
 }
