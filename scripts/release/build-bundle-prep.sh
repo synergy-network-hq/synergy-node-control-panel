@@ -182,12 +182,21 @@ sync_bootstrap_bundle_binaries() {
 }
 
 sync_canonical_runtime_assets() {
+  local release_env_dir="$ROOT_DIR/testnet/runtime/env-files"
+  mkdir -p "$release_env_dir"
+
   echo "Syncing canonical runtime genesis"
-  ./scripts/testnet/generate-testnet-genesis.sh
+  TESTNET_ENV_DIR_RESOLVED="$release_env_dir" \
+    SYNERGY_TESTNET_ENV_DIR="$release_env_dir" \
+    ./scripts/testnet/generate-testnet-genesis.sh
   echo "Generating canonical Testnet node keys"
-  ./scripts/testnet/generate-node-keys.sh
+  TESTNET_ENV_DIR_RESOLVED="$release_env_dir" \
+    SYNERGY_TESTNET_ENV_DIR="$release_env_dir" \
+    ./scripts/testnet/generate-node-keys.sh
   echo "Rendering canonical Testnet configs"
-  ./scripts/testnet/render-configs.sh
+  TESTNET_ENV_DIR_RESOLVED="$release_env_dir" \
+    SYNERGY_TESTNET_ENV_DIR="$release_env_dir" \
+    ./scripts/testnet/render-configs.sh
   echo "Using committed canonical Testnet installer templates"
 }
 
@@ -217,22 +226,22 @@ installers_root = root / "testnet/runtime/installers"
 runtime_manifest_path = root / "testnet/runtime/configs/operational/operational-manifest.json"
 
 def normalize_manifest(manifest):
-	    if not isinstance(manifest, dict):
-	        return manifest
-	    manifest["chain_id"] = 1264
-	    manifest["chain_id_hex"] = "0x4f0"
-	    manifest["network_id"] = "synergy-testnet-v2"
-	    manifest["network_native_id"] = 1264
+    if not isinstance(manifest, dict):
+        return manifest
+    manifest["chain_id"] = 1264
+    manifest["chain_id_hex"] = "0x4f0"
+    manifest["network_id"] = "synergy-testnet-v2"
+    manifest["network_native_id"] = 1264
     for sentry in manifest.get("bootstrap", {}).get("sentries", []):
         if sentry.get("label") == "sentry1":
             sentry["private_host"] = "10.69.0.20"
     return manifest
 
 for package_path in sorted(installers_root.glob("GenVal-*/keys/setup-package.json")):
-	    package = json.loads(package_path.read_text(encoding="utf-8"))
-	    package["chain_id"] = 1264
-	    package["chain_id_hex"] = "0x4f0"
-	    package["network_id"] = "synergy-testnet-v2"
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    package["chain_id"] = 1264
+    package["chain_id_hex"] = "0x4f0"
+    package["network_id"] = "synergy-testnet-v2"
     operational_manifest = package.get("artifacts", {}).get("operational_manifest")
     if isinstance(operational_manifest, dict):
         normalize_manifest(operational_manifest)
@@ -404,11 +413,11 @@ for package_path in sorted(installers_root.glob("GenVal-*/keys/setup-package.jso
     }
 
     operational_manifest = package.get("artifacts", {}).get("operational_manifest")
-	    if isinstance(operational_manifest, dict):
-	        operational_manifest["chain_id"] = 1264
-	        operational_manifest["chain_id_hex"] = "0x4f0"
-	        operational_manifest["network_id"] = "synergy-testnet-v2"
-	        operational_manifest["network_native_id"] = 1264
+    if isinstance(operational_manifest, dict):
+        operational_manifest["chain_id"] = 1264
+        operational_manifest["chain_id_hex"] = "0x4f0"
+        operational_manifest["network_id"] = "synergy-testnet-v2"
+        operational_manifest["network_native_id"] = 1264
         for sentry in operational_manifest.get("bootstrap", {}).get("sentries", []):
             if sentry.get("label") == "sentry1":
                 sentry["private_host"] = "10.69.0.20"

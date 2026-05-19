@@ -558,6 +558,9 @@ while IFS=, read -r node_slot_id node_alias role_group role node_type _ p2p_port
       bootnodes="$BOOTNODE_TARGETS"
       additional_dial_targets="[]"
     fi
+    if [[ "$role_group" == "services" ]]; then
+      rpc_bind_address="0.0.0.0:${rpc_port}"
+    fi
     auto_register="$(normalize_bool "$auto_register")"
   fi
 

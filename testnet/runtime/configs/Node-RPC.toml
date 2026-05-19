@@ -81,12 +81,12 @@ cors_origins = []
 
 [p2p]
 listen_address = "0.0.0.0:5623"
-public_address = "genesisrpc.synergynode.xyz:5623"
+public_address = "testnet-core-rpc.synergy-network.io:5623"
 node_name = "genesisrpc"
 enable_discovery = false
 discovery_port = 5681
 discovery_listen_address = "0.0.0.0:5681"
-discovery_public_address = "genesisrpc.synergynode.xyz:5681"
+discovery_public_address = "testnet-core-rpc.synergy-network.io:5681"
 heartbeat_interval = 5
 bootstrap_refresh_secs = 3600
 
