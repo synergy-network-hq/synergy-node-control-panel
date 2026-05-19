@@ -9748,10 +9748,10 @@ fn validate_ceremony_package_identity(package: &TestnetCeremonyPackage) -> Resul
             TESTNET_CHAIN_ID, package.chain_id
         ));
     }
-    if package.network_id != TESTNET_CHAIN_NAME {
+    if package.network_id != TESTNET_NETWORK_ID_V2 {
         return Err(format!(
             "Ceremony package network ID mismatch. Expected {}, got {}.",
-            TESTNET_CHAIN_NAME, package.network_id
+            TESTNET_NETWORK_ID_V2, package.network_id
         ));
     }
     if package.token_symbol != TOKEN_SYMBOL {
@@ -9797,20 +9797,15 @@ fn validate_ceremony_package_identity(package: &TestnetCeremonyPackage) -> Resul
             "Ceremony package operational manifest is missing network_id.".to_string()
         })?;
     let manifest_network_matches = manifest_network_id
-        .as_u64()
-        .map(|value| value == TESTNET_CHAIN_ID)
-        .or_else(|| {
-            manifest_network_id
-                .as_str()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value == TESTNET_CHAIN_NAME || value == TESTNET_CHAIN_ID.to_string())
-        })
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value == TESTNET_NETWORK_ID_V2)
         .unwrap_or(false);
     if !manifest_network_matches {
         return Err(format!(
-            "Ceremony package operational manifest network_id mismatch. Expected {} or {}, got {}.",
-            TESTNET_CHAIN_NAME, TESTNET_CHAIN_ID, manifest_network_id
+            "Ceremony package operational manifest network_id mismatch. Expected {}, got {}.",
+            TESTNET_NETWORK_ID_V2, manifest_network_id
         ));
     }
 

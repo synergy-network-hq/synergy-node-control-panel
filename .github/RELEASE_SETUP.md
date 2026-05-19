@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Synergy Testnet Control Center uses a GitHub Actions pipeline to build
+The Synergy Node Control Panel uses a GitHub Actions pipeline to build
 cross-platform installers (macOS, Linux, Windows) and publish them to a
 **public releases repository** so that:
 
@@ -10,8 +10,8 @@ cross-platform installers (macOS, Linux, Windows) and publish them to a
 2. **Existing installations** can auto-update via the "Check for Updates" button
 
 ```
-Private source repo                     Public releases repo
-(testnet-control-panel)                  (testnet-control-panel-releases)
+Source repo                              Public releases repo
+(synergy-node-control-panel)             (synergy-node-control-panel-releases)
         │                                        │
         │  push tag v2.0.2                       │
         ├──────────────────►  GitHub Actions      │
@@ -29,7 +29,7 @@ Private source repo                     Public releases repo
 
 ### 1. Add secrets to the PRIVATE source repo
 
-Go to **https://github.com/synergy-network-hq/testnet-control-panel/settings/secrets/actions**
+Go to **https://github.com/synergy-network-hq/synergy-node-control-panel/settings/secrets/actions**
 and add these repository secrets:
 
 #### `CSC_LINK`
@@ -68,14 +68,14 @@ To create one:
 
 ### 2. Initialize the public releases repo
 
-The releases repo at `synergy-network-hq/testnet-control-panel-releases`
+The releases repo at `synergy-network-hq/synergy-node-control-panel-releases`
 should be **public** and can start empty. The first release build will
 create the initial release automatically.
 
 Optionally add a README:
 
 ```markdown
-# Synergy Testnet Control Center — Releases
+# Synergy Node Control Panel — Releases
 
 Download the latest installer for your platform from the
 [Releases page](../../releases).

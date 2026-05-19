@@ -2,7 +2,7 @@
   "version": 2,
   "environment_id": "testnet",
   "display_name": "Synergy Testnet",
-  "network_id": 1264,
+  "network_id": "synergy-testnet-v2",
   "chain_id": 1264,
   "token": {
     "symbol": "SNRG",
@@ -207,5 +207,7 @@
       "status": "documented-testnet-exception",
       "note": "Retained only as an explicit Testnet exception per the technical specification until the approved replacement strategy is delivered."
     }
-  }
+  },
+  "chain_id_hex": "0x4f0",
+  "network_native_id": 1264
 }

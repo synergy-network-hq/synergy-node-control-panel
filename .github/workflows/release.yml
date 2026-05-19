@@ -9,7 +9,7 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   TESTNET_REF: ${{ github.ref_name }}
-  TESTNET_SOURCE_REPOSITORY: ${{ vars.TESTNET_SOURCE_REPOSITORY }}
+  TESTNET_SOURCE_REPOSITORY: ${{ vars.TESTNET_SOURCE_REPOSITORY || 'synergy-network-hq/testnet' }}
 
 jobs:
   build:
@@ -65,19 +65,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${TESTNET_REPO_TOKEN:-}" ]]; then
-            echo "RELEASES_REPO_TOKEN is required to checkout the Testnet source repository." >&2
-            exit 1
-          fi
           TESTNET_SOURCE_REPOSITORY="${TESTNET_SOURCE_REPOSITORY:-synergy-network-hq/testnet}"
 
-          auth_header="$(printf 'x-access-token:%s' "$TESTNET_REPO_TOKEN" | base64 | tr -d '\n')"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" clone \
-            --depth 1 \
-            --branch "${TESTNET_REF}" \
-            --single-branch \
-            "https://github.com/${TESTNET_SOURCE_REPOSITORY}.git" \
-            testnet-source
+          if [[ -n "${TESTNET_REPO_TOKEN:-}" ]]; then
+            auth_header="$(printf 'x-access-token:%s' "$TESTNET_REPO_TOKEN" | base64 | tr -d '\n')"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" clone \
+              --depth 1 \
+              --branch "${TESTNET_REF}" \
+              --single-branch \
+              "https://github.com/${TESTNET_SOURCE_REPOSITORY}.git" \
+              testnet-source
+          else
+            git clone \
+              --depth 1 \
+              --branch "${TESTNET_REF}" \
+              --single-branch \
+              "https://github.com/${TESTNET_SOURCE_REPOSITORY}.git" \
+              testnet-source
+          fi
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -104,31 +109,42 @@ jobs:
               }
               return {
                 chainId: payload?.network?.chain_id,
-                networkId: payload?.network?.network_id,
+                nativeNetworkId: payload?.network?.network_id,
                 hash: String(hash).trim().toLowerCase(),
                 magic: String(payload?.p2p_identity?.network_magic_bytes || '').trim().toLowerCase(),
+                chainIdHex: String(payload?.network_identity?.synergy_native_chain_id_hex || '').trim().toLowerCase(),
               };
             };
 
             const source = readGenesisIdentity('testnet-source/config/genesis.json');
             const bundled = readGenesisIdentity('testnet/runtime/configs/genesis/genesis.json');
-            if (source.hash !== bundled.hash || source.magic !== bundled.magic || source.chainId !== bundled.chainId) {
+            if (source.hash !== bundled.hash || source.magic !== bundled.magic || source.chainId !== bundled.chainId || source.nativeNetworkId !== bundled.nativeNetworkId) {
               throw new Error(`Bundled genesis does not match testnet source. source=${JSON.stringify(source)} bundled=${JSON.stringify(bundled)}`);
             }
-            if (bundled.chainId !== 1264 || bundled.networkId !== 1264) {
+            if (bundled.chainId !== 1264 || bundled.nativeNetworkId !== 1264 || bundled.chainIdHex !== '0x4f0') {
               throw new Error(`Bundled genesis must be public Testnet chain 1264. got=${JSON.stringify(bundled)}`);
             }
 
             const identifiers = readJson('testnet-source/network-identifiers.testnet.json');
             const identifierHash = String(identifiers?.cryptographic_identity?.genesis_hash || '').trim().toLowerCase();
             const identifierMagic = String(identifiers?.cryptographic_identity?.network_magic_bytes?.value || '').trim().toLowerCase();
+            const identifierChainHex = String(identifiers?.wallet_metadata?.wallet_add_network_payload?.chainId || '').trim().toLowerCase();
             if (identifierHash !== bundled.hash || identifierMagic !== bundled.magic) {
               throw new Error(`Network identifiers do not match bundled genesis. identifiers=${identifierHash}/${identifierMagic} bundled=${bundled.hash}/${bundled.magic}`);
+            }
+            if (identifierChainHex && identifierChainHex !== '0x4f0') {
+              throw new Error(`Network identifiers must declare chain_id_hex 0x4f0. got=${identifierChainHex}`);
             }
 
             const manifest = readJson('testnet/runtime/workspace-manifest.json');
             if (manifest?.chain_id !== 1264 && manifest?.chainId !== 1264) {
               throw new Error('Workspace manifest must declare chain ID 1264');
+            }
+            if (manifest?.chain_id_hex !== '0x4f0') {
+              throw new Error('Workspace manifest must declare chain_id_hex 0x4f0');
+            }
+            if (manifest?.network_id !== 'synergy-testnet-v2') {
+              throw new Error('Workspace manifest must declare network_id synergy-testnet-v2');
             }
 
             console.log(`Testnet genesis alignment OK: ${bundled.hash}`);

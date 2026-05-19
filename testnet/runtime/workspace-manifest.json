@@ -1,8 +1,10 @@
 {
-  "workspace_resource_version": "12.2.12+5aa26c08258e",
-  "app_version": "12.2.12",
+  "workspace_resource_version": "12.2.13+5aa26c08258e",
+  "app_version": "12.2.13",
   "chain_id": 1264,
-  "network_id": 1264,
+  "chain_id_hex": "0x4f0",
+  "network_id": "synergy-testnet-v2",
+  "network_native_id": 1264,
   "network_slug": "synergy-testnet",
   "genesis_hash": "f79011f2aaddd40b120d47ba723104fafe3c998d4a17097fae018914b95f1789",
   "network_magic_bytes": "ec6a253c",

@@ -146,6 +146,35 @@ if ! rg -q '"chain_id"[[:space:]]*:[[:space:]]*1264' "$runtime_operational_manif
   exit 1
 fi
 
+if ! rg -q '"chain_id_hex"[[:space:]]*:[[:space:]]*"0x4f0"' "$runtime_operational_manifest_path"; then
+  echo "Runtime operational manifest is not pinned to chain_id_hex 0x4f0" >&2
+  exit 1
+fi
+
+if ! rg -q '"network_id"[[:space:]]*:[[:space:]]*"synergy-testnet-v2"' "$runtime_operational_manifest_path"; then
+  echo "Runtime operational manifest is not pinned to network_id synergy-testnet-v2" >&2
+  exit 1
+fi
+
+if ! rg -q '"network_id"[[:space:]]*:[[:space:]]*"synergy-testnet-v2"' "testnet/runtime/workspace-manifest.json"; then
+  echo "Workspace manifest is not pinned to network_id synergy-testnet-v2" >&2
+  exit 1
+fi
+
+if ! rg -q '"chain_id_hex"[[:space:]]*:[[:space:]]*"0x4f0"' "testnet/runtime/workspace-manifest.json"; then
+  echo "Workspace manifest is not pinned to chain_id_hex 0x4f0" >&2
+  exit 1
+fi
+
+stale_identity_hits="$(rg -l --hidden --glob '!.git/**' --glob '!node_modules/**' --glob '!dist/**' --glob '!electron-dist/**' --glob '!build/**' --glob '!*.log' \
+  'Testnet-Beta|testnet-beta|testbeta|Testnet Beta|Chain 1262|Chain 1263|chain_id[[:space:]]*[:=][[:space:]]*1262|chain_id[[:space:]]*[:=][[:space:]]*1263|0x4ee|0x4ef|synergy-testnet-beta|synergy-testbeta' \
+  testnet/runtime scripts/testnet scripts/reset-testnet.sh binaries 2>/dev/null || true)"
+if [[ -n "$stale_identity_hits" ]]; then
+  echo "Stale Testnet-Beta/testbeta/chain-1262/chain-1263 identity material is present in deployable artifacts:" >&2
+  printf '%s\n' "$stale_identity_hits" >&2
+  exit 1
+fi
+
 if ! rg -q '"private_host"[[:space:]]*:[[:space:]]*"10\.69\.0\.20"' "$runtime_operational_manifest_path"; then
   echo "Runtime operational manifest is missing the canonical relayer-1 private host 10.69.0.20" >&2
   exit 1
