@@ -6,11 +6,11 @@ Type: indexer
 
 Ports
 -----
-P2P: 5627
-RPC: 5647
-WebSocket: 5667
-gRPC: 5647
-Discovery: 5687
+P2P: 5622
+RPC: 5640
+WebSocket: 5660
+gRPC: 5640
+Discovery: 5680
 
 Linux/macOS Commands
 --------------------

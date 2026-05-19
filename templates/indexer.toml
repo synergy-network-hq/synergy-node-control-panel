@@ -12,9 +12,9 @@ services = []
 [network]
 id = 1264
 name = "synergy-testnet"
-p2p_port = 5627
-rpc_port = 5647
-ws_port = 5667
+p2p_port = 5622
+rpc_port = 5640
+ws_port = 5660
 max_peers = 100
 bootnodes = []
 seed_servers = []
@@ -63,24 +63,24 @@ max_file_size = 10485760
 max_files = 5
 
 [rpc]
-bind_address = "127.0.0.1:5647"
+bind_address = "127.0.0.1:5640"
 enable_http = true
-http_port = 5647
+http_port = 5640
 enable_ws = true
-ws_port = 5667
+ws_port = 5660
 enable_grpc = true
-grpc_port = 5647
+grpc_port = 5640
 cors_enabled = false
 cors_origins = []
 
 [p2p]
-listen_address = "0.0.0.0:5627"
-public_address = "replace-with-public-host:5627"
+listen_address = "0.0.0.0:5622"
+public_address = "replace-with-public-host:5622"
 node_name = "indexer-node-01"
 enable_discovery = false
-discovery_port = 5687
-discovery_listen_address = "0.0.0.0:5687"
-discovery_public_address = "replace-with-public-host:5687"
+discovery_port = 5680
+discovery_listen_address = "0.0.0.0:5680"
+discovery_public_address = "replace-with-public-host:5680"
 heartbeat_interval = 10
 bootstrap_refresh_secs = 3600
 
@@ -99,6 +99,6 @@ allowed_validator_addresses = ["synv11qen9x0g9p0f2pqznpqzfrwkrgnsussdwmvs", "syn
 
 [telemetry]
 enabled = true
-metrics_bind = "127.0.0.1:6037"
+metrics_bind = "127.0.0.1:6030"
 structured_logs = true
 log_level = "debug"

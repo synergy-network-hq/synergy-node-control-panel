@@ -635,6 +635,9 @@ foreach (\$target in @(
   'data/chain.json',
   'data/token_state.json',
   'data/validator_registry.json',
+  'data/committed_qcs.json',
+  'data/canonical_locks.json',
+  'data/dag_state.json',
   'data/synergy-testnet.pid',
   'data/.reset_flag',
   'data/node.pid'
@@ -655,7 +658,7 @@ cd '$REMOTE_NODE_DIR'
 # reinitializes from genesis on next start.
 rm -rf data/chain data/testnet15/'$NODE_SLOT_ID'/chain
 rm -rf data/testnet15/'$NODE_SLOT_ID'/logs
-rm -f  data/chain.json data/token_state.json data/validator_registry.json
+rm -f data/chain.json data/token_state.json data/validator_registry.json
 rm -f  data/synergy-testnet.pid data/.reset_flag
 rm -f  data/node.pid
 
