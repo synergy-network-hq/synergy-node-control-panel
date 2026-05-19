@@ -1,12 +1,12 @@
 {
-  "workspace_resource_version": "12.2.11+9d24a29ed581",
-  "app_version": "12.2.11",
+  "workspace_resource_version": "12.2.12+5aa26c08258e",
+  "app_version": "12.2.12",
   "chain_id": 1264,
   "network_id": 1264,
   "network_slug": "synergy-testnet",
   "genesis_hash": "f79011f2aaddd40b120d47ba723104fafe3c998d4a17097fae018914b95f1789",
   "network_magic_bytes": "ec6a253c",
-  "bundle_digest": "90a0e415c53f72624ccb54383a904d9bdc964b5aa4b800e5384e0fb2d40caba3",
+  "bundle_digest": "5aa26c08258e5237651a5bd5216bc7f3aec6089e027819f35c8aa6575006c9d8",
   "platform_binaries": [
     "binaries/synergy-testnet-darwin-arm64",
     "binaries/synergy-testnet-linux-amd64",
@@ -36,7 +36,7 @@
   ],
   "checksums": {
     "binaries/synergy-testnet-darwin-arm64": "0a453f97ceb89cd9ee2139995f72a18f84226ee067f06b26ef03690c59d6d594",
-    "binaries/synergy-testnet-linux-amd64": "431fb55f5215b17d42a244af21d2eb1a4c9469fd53b64bd4aed1ee1ca2f6fa5f",
+    "binaries/synergy-testnet-linux-amd64": "e5b4202694f39139cd58268c14575e8270a8a1257cadee36ad043613eab0e06d",
     "binaries/synergy-testnet-windows-amd64.exe": "e2977213c16abd5e482331b355a850ffb040106c94c97564f2d3e36671e2d38a"
   }
 }
