@@ -441,6 +441,43 @@ if canonical_packages:
 PY
 }
 
+harden_installer_runtime_wrappers() {
+  local installers_root="$ROOT_DIR/testnet/runtime/installers"
+
+  [[ -d "$installers_root" ]] || return 0
+
+  echo "Hardening installer runtime wrappers"
+  python3 - <<'PY' "$installers_root"
+import pathlib
+import sys
+
+installers_root = pathlib.Path(sys.argv[1])
+
+OLD_MATCH = '[[ "$cmdline" == *"synergy-testnet"* ]] || return 1'
+NEW_MATCH = '[[ "$cmdline" == *"/synergy-testnet-linux-amd64"* || "$cmdline" == *"./bin/synergy-testnet-linux-amd64"* ]] || return 1'
+EXCLUSIONS = [
+    '  [[ "$cmdline" != *"install_and_start.sh"* ]] || return 1',
+    '  [[ "$cmdline" != *"nodectl.sh"* ]] || return 1',
+    '  [[ "$cmdline" != *"bash -c"* ]] || return 1',
+]
+
+for wrapper in list(installers_root.glob("*/nodectl.sh")) + list(installers_root.glob("*/install_and_start.sh")):
+    text = wrapper.read_text(encoding="utf-8")
+    text = text.replace(OLD_MATCH, NEW_MATCH)
+    if EXCLUSIONS[0] not in text:
+        text = text.replace(NEW_MATCH, NEW_MATCH + "\n" + "\n".join(EXCLUSIONS))
+    text = text.replace("$DATA_DIR/testbeta15/$NODE_SLOT_ID", "$DATA_DIR/testnet-v2/$NODE_SLOT_ID")
+    wrapper.write_text(text, encoding="utf-8")
+
+for env_file in installers_root.glob("*/node.env"):
+    text = env_file.read_text(encoding="utf-8")
+    text = text.replace("NETWORK_NAME=synergy-testnet-beta", "NETWORK_NAME=synergy-testnet")
+    text = text.replace("/opt/synergy/testbeta/", "/opt/synergy/testnet/")
+    text = text.replace("SYNERGY_NETWORK_ID=1264", "SYNERGY_NETWORK_ID=synergy-testnet-v2")
+    env_file.write_text(text, encoding="utf-8")
+PY
+}
+
 resolve_explorer_root() {
   local candidate=""
   local candidates=()
@@ -717,6 +754,7 @@ sync_platform_binaries
 refresh_platform_binary_checksums
 sync_canonical_runtime_assets
 sync_installer_bundle_configs
+harden_installer_runtime_wrappers
 sync_installer_bundle_binaries
 sync_bootstrap_bundle_binaries
 sync_atlas_runtime_bundle

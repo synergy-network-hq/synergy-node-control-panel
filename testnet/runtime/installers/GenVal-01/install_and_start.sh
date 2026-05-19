@@ -289,7 +289,10 @@ pid_matches_node() {
   kill -0 "$pid" 2>/dev/null || return 1
 
   cmdline="$(read_pid_cmdline "$pid")"
-  [[ "$cmdline" == *"synergy-testnet"* ]] || return 1
+  [[ "$cmdline" == *"/synergy-testnet-linux-amd64"* || "$cmdline" == *"./bin/synergy-testnet-linux-amd64"* ]] || return 1
+  [[ "$cmdline" != *"install_and_start.sh"* ]] || return 1
+  [[ "$cmdline" != *"nodectl.sh"* ]] || return 1
+  [[ "$cmdline" != *"bash -c"* ]] || return 1
   [[ "$cmdline" != *"synergy-testnet-agent"* ]] || return 1
 
   config_path="$BASE_DIR/config/node.toml"
