@@ -162,43 +162,64 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build fresh Testnet node binary
+      - name: Download trusted Testnet node release binaries
         shell: bash
         run: |
           set -euo pipefail
 
-          cargo build --manifest-path testnet-source/src/Cargo.toml --release --bin synergy-testnet
-
+          TESTNET_SOURCE_REPOSITORY="${TESTNET_SOURCE_REPOSITORY:-synergy-network-hq/testnet}"
+          release_base="https://github.com/${TESTNET_SOURCE_REPOSITORY}/releases/download/${TESTNET_REF}"
           mkdir -p binaries
-          case "${{ matrix.artifact_name }}" in
-            macos)
-              cp testnet-source/target/release/synergy-testnet binaries/synergy-testnet-darwin-arm64
-              cp testnet-source/target/release/synergy-testnet binaries/synergy-testnet-macos-arm64
-              chmod +x binaries/synergy-testnet-darwin-arm64 binaries/synergy-testnet-macos-arm64
-              ;;
-            linux)
-              cp testnet-source/target/release/synergy-testnet binaries/synergy-testnet-linux-amd64
-              chmod +x binaries/synergy-testnet-linux-amd64
-              ;;
-            windows)
-              cp testnet-source/target/release/synergy-testnet.exe binaries/synergy-testnet-windows-amd64.exe
-              ;;
-            *)
-              echo "Unsupported release target: ${{ matrix.artifact_name }}" >&2
-              exit 1
-              ;;
-          esac
 
-          for binary in binaries/synergy-testnet-*; do
-            if [[ -f "$binary" && "$binary" != *.sha256 ]]; then
-              if command -v sha256sum >/dev/null 2>&1; then
-                digest="$(sha256sum "$binary" | awk '{print $1}')"
-              else
-                digest="$(shasum -a 256 "$binary" | awk '{print $1}')"
-              fi
-              printf "%s  %s\n" "$digest" "$(basename "$binary")" > "${binary}.sha256"
+          curl --fail --location --retry 5 --retry-delay 2 \
+            --output testnet-latest.json \
+            "${release_base}/latest.json"
+
+          sha256_file() {
+            node -e 'const crypto = require("node:crypto"); const fs = require("node:fs"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"));' "$1"
+          }
+
+          release_field() {
+            local platform="$1"
+            local binary="$2"
+            local field="$3"
+            node -e '
+              const fs = require("node:fs");
+              const [platform, binary, field] = process.argv.slice(1);
+              const manifest = JSON.parse(fs.readFileSync("testnet-latest.json", "utf8"));
+              const value = manifest?.binaries?.[platform]?.[binary]?.[field];
+              if (!value) {
+                throw new Error(`Missing ${platform}/${binary}/${field} in Testnet latest.json`);
+              }
+              process.stdout.write(value);
+            ' "$platform" "$binary" "$field"
+          }
+
+          download_binary() {
+            local platform="$1"
+            local binary="$2"
+            local output_path="$3"
+            local url expected actual
+
+            url="$(release_field "$platform" "$binary" url)"
+            expected="$(release_field "$platform" "$binary" sha256)"
+            curl --fail --location --retry 5 --retry-delay 2 --output "$output_path" "$url"
+            actual="$(sha256_file "$output_path")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Checksum mismatch for $output_path from $url" >&2
+              echo "expected=$expected actual=$actual" >&2
+              exit 1
             fi
-          done
+            printf "%s  %s\n" "$actual" "$(basename "$output_path")" > "${output_path}.sha256"
+          }
+
+          download_binary linux-amd64 synergy-testnet binaries/synergy-testnet-linux-amd64
+          download_binary macos-arm64 synergy-testnet binaries/synergy-testnet-darwin-arm64
+          cp binaries/synergy-testnet-darwin-arm64 binaries/synergy-testnet-macos-arm64
+          printf "%s  %s\n" "$(sha256_file binaries/synergy-testnet-macos-arm64)" "synergy-testnet-macos-arm64" > binaries/synergy-testnet-macos-arm64.sha256
+          download_binary windows-amd64 synergy-testnet binaries/synergy-testnet-windows-amd64.exe
+
+          chmod +x binaries/synergy-testnet-linux-amd64 binaries/synergy-testnet-darwin-arm64 binaries/synergy-testnet-macos-arm64
 
       - name: Regenerate workspace manifest for bundled binaries
         shell: bash
