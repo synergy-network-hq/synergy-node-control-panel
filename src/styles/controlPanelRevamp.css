@@ -872,7 +872,7 @@ body,
 
 .cp-sync-gate-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -910,6 +910,15 @@ body,
   display: flex;
   align-items: flex-start;
   gap: 12px;
+}
+
+.cp-sync-gate-warning {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 188, 66, 0.32);
+  border-radius: 12px;
+  background: rgba(255, 188, 66, 0.08);
+  color: #ffd48a;
 }
 
 .cp-sync-gate-status strong {

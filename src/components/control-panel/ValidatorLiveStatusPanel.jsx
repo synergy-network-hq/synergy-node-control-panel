@@ -51,7 +51,7 @@ function fallbackStatus(node, nodeLive = {}) {
     : (currentStatus === 'SYNCING'
       ? 'VALIDATOR SYNCING'
       : (currentStatus === 'DEGRADED' ? 'VALIDATOR DEGRADED' : 'VALIDATOR OFFLINE'));
-  const height = Number(nodeLive?.local_chain_height ?? nodeLive?.best_network_height ?? 0);
+  const height = Number(nodeLive?.local_chain_height ?? nodeLive?.sync_target_height ?? nodeLive?.best_network_height ?? 0);
   return {
     node_id: node?.id || 'unknown',
     validator_id: node?.id || 'unknown',
@@ -137,7 +137,10 @@ function fallbackStatus(node, nodeLive = {}) {
     sync_snapshot: {
       sync_mode: currentStatus === 'SYNCING' ? 'FROM_QUORUM_PEERS' : 'NONE',
       current_sync_height: height,
-      target_finalized_height: Number(nodeLive?.best_network_height ?? height),
+      sync_target_source: nodeLive?.sync_target_source || 'fallback-status',
+      sync_target_verified: nodeLive?.sync_target_verified === true,
+      sync_target_error: nodeLive?.sync_target_error || null,
+      target_finalized_height: Number(nodeLive?.sync_target_height ?? nodeLive?.best_network_height ?? height),
       blocks_remaining: Number(nodeLive?.sync_gap ?? 0),
       qc_verification_count: height,
       snapshot_verification_status: 'not_required',
@@ -391,6 +394,11 @@ export function SyncSnapshotProgressCard({ status }) {
     <StatusCard title="Sync / Snapshot Status">
       <DetailRow label="Sync source" value={sync.sync_source || sync.sync_mode || 'LOCAL_HEAD'} strong />
       <DetailRow label="Sync mode" value={sync.sync_mode || 'NONE'} />
+      <DetailRow label="Verified target source" value={sync.sync_target_source || status.sync_target_source || 'Pending'} />
+      <DetailRow label="Target verified" value={(sync.sync_target_verified ?? status.sync_target_verified) ? 'yes' : 'no'} />
+      {sync.sync_target_error || status.sync_target_error ? (
+        <p className="validator-live-warning">{sync.sync_target_error || status.sync_target_error}</p>
+      ) : null}
       <DetailRow label="Archive snapshot URL" value={sync.archive_snapshot_url || 'Not selected'} />
       <DetailRow label="Snapshot height" value={sync.snapshot_height ?? 'None'} />
       <DetailRow label="Snapshot manifest hash" value={formatHash(sync.snapshot_manifest_hash)} />

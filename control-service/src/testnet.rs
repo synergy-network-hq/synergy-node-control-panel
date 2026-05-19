@@ -320,6 +320,8 @@ pub struct TestnetNodeLiveStatus {
     pub pid: Option<u32>,
     pub process_uptime_secs: Option<u64>,
     pub local_chain_height: Option<u64>,
+    pub local_chain_height_verified: bool,
+    pub local_chain_height_source: String,
     pub local_peer_count: Option<usize>,
     pub connected_validator_count: Option<usize>,
     pub status_ready_validator_count: Option<usize>,
@@ -327,6 +329,11 @@ pub struct TestnetNodeLiveStatus {
     pub log_local_chain_height: Option<u64>,
     pub best_observed_peer_height: Option<u64>,
     pub best_network_height: Option<u64>,
+    pub sync_target_height: Option<u64>,
+    pub sync_target_source: String,
+    pub sync_target_verified: bool,
+    pub sync_target_error: Option<String>,
+    pub height_sources: Vec<TestnetHeightSourceRecord>,
     pub synergy_score: Option<f64>,
     pub synergy_score_status: String,
     pub wallet_ready: bool,
@@ -336,6 +343,21 @@ pub struct TestnetNodeLiveStatus {
     pub blocks_per_second: Option<f64>,
     pub estimated_sync_eta_secs: Option<u64>,
     pub readiness: Option<NodeReadinessReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TestnetHeightSourceRecord {
+    pub source: String,
+    pub source_url_or_path: String,
+    pub height: Option<u64>,
+    pub chain_id: Option<u64>,
+    pub network_id: Option<String>,
+    pub genesis_hash: Option<String>,
+    pub latest_hash: Option<String>,
+    pub latest_qc_hash: Option<String>,
+    pub verification_status: String,
+    pub usable_for_sync_target: bool,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -625,7 +647,7 @@ pub async fn testnet_get_validator_live_status(node_id: Option<String>) -> Resul
         0_u8
     } else if is_syncing {
         let gap = live.sync_gap.unwrap_or(0);
-        let target = live.best_network_height.unwrap_or(latest_finalized_height);
+        let target = live.sync_target_height.unwrap_or(latest_finalized_height);
         if target == 0 {
             0
         } else {
@@ -703,6 +725,11 @@ pub async fn testnet_get_validator_live_status(node_id: Option<String>) -> Resul
         "latest_finalized_block_hash": latest_hash,
         "latest_state_root": stable_status_hash(&format!("state:{latest_hash}")),
         "latest_qc_hash": stable_status_hash(&format!("qc:{latest_hash}")),
+        "sync_target_height": live.sync_target_height,
+        "sync_target_source": live.sync_target_source.clone(),
+        "sync_target_verified": live.sync_target_verified,
+        "sync_target_error": live.sync_target_error.clone(),
+        "height_sources": live.height_sources.clone(),
         "current_epoch": current_epoch,
         "current_round": current_round,
         "current_cluster_id": current_cluster_id,
@@ -786,11 +813,14 @@ pub async fn testnet_get_validator_live_status(node_id: Option<String>) -> Resul
         "sync_snapshot": {
             "sync_source": if is_syncing { "FROM_QUORUM_PEERS" } else { "LOCAL_HEAD" },
             "sync_mode": if is_syncing { "FROM_QUORUM_PEERS" } else { "NONE" },
+            "sync_target_source": live.sync_target_source.clone(),
+            "sync_target_verified": live.sync_target_verified,
+            "sync_target_error": live.sync_target_error.clone(),
             "archive_snapshot_url": Value::Null,
             "snapshot_height": Value::Null,
             "snapshot_verification_status": if is_syncing { "pending" } else { "not_required" },
             "current_sync_height": latest_finalized_height,
-            "target_finalized_height": live.best_network_height.or(public_chain_height).unwrap_or(latest_finalized_height),
+            "target_finalized_height": live.sync_target_height.unwrap_or(latest_finalized_height),
             "blocks_remaining": live.sync_gap.unwrap_or(0),
             "qc_verification_count": latest_finalized_height,
             "latest_verified_height": latest_finalized_height,
@@ -818,6 +848,54 @@ pub async fn testnet_get_validator_live_status(node_id: Option<String>) -> Resul
             "latest_signature_verification_result": if key_ready { "valid" } else { "missing_key" },
             "latest_qc_verification_result": if key_ready { "valid" } else { "not_checked" }
         }
+    }))
+}
+
+pub async fn testnet_diagnose_onboarding_sync(node_id: Option<String>) -> Result<Value, String> {
+    let state = build_state()?;
+    let node = match node_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(requested) => state
+            .nodes
+            .iter()
+            .find(|candidate| candidate.id == requested)
+            .cloned()
+            .ok_or_else(|| format!("Node not found: {requested}"))?,
+        None => state
+            .nodes
+            .iter()
+            .find(|candidate| role_supports_validator_registration(&candidate.role_id))
+            .cloned()
+            .or_else(|| state.nodes.first().cloned())
+            .ok_or_else(|| "No Testnet nodes are provisioned on this machine.".to_string())?,
+    };
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| {
+            format!("Failed to create onboarding sync diagnostic HTTP client: {error}")
+        })?;
+    let public_chain_height = query_public_chain_height(&client).await.ok();
+    let live = build_node_live_status(&client, &node, public_chain_height).await;
+
+    Ok(json!({
+        "node_id": node.id,
+        "workspace_directory": node.workspace_directory,
+        "chain_id": TESTNET_CHAIN_ID,
+        "network_id": TESTNET_NETWORK_ID_V2,
+        "final_selected_source": live.sync_target_source,
+        "final_selected_height": live.sync_target_height,
+        "final_selected_verified": live.sync_target_verified,
+        "selection_error": live.sync_target_error,
+        "local_height": live.local_chain_height,
+        "local_height_verified": live.local_chain_height_verified,
+        "local_height_source": live.local_chain_height_source,
+        "sync_gap": live.sync_gap,
+        "candidate_sources": live.height_sources
     }))
 }
 
@@ -4833,6 +4911,78 @@ async fn check_seed_endpoint(
     }
 }
 
+#[derive(Debug, Clone)]
+struct SyncTargetSelection {
+    height: Option<u64>,
+    source: String,
+    verified: bool,
+    error: Option<String>,
+}
+
+fn height_source_record(
+    source: &str,
+    source_url_or_path: impl Into<String>,
+    height: Option<u64>,
+    verification_status: &str,
+    usable_for_sync_target: bool,
+    detail: impl Into<String>,
+) -> TestnetHeightSourceRecord {
+    TestnetHeightSourceRecord {
+        source: source.to_string(),
+        source_url_or_path: source_url_or_path.into(),
+        height,
+        chain_id: usable_for_sync_target.then_some(TESTNET_CHAIN_ID),
+        network_id: usable_for_sync_target.then(|| TESTNET_NETWORK_ID_V2.to_string()),
+        genesis_hash: None,
+        latest_hash: None,
+        latest_qc_hash: None,
+        verification_status: verification_status.to_string(),
+        usable_for_sync_target,
+        detail: detail.into(),
+    }
+}
+
+fn select_verified_sync_target(
+    public_chain_height: Option<u64>,
+    best_observed_peer_height: Option<u64>,
+) -> SyncTargetSelection {
+    if let Some(public_height) = public_chain_height {
+        let error = best_observed_peer_height
+            .filter(|peer_height| {
+                *peer_height > public_height.saturating_add(TESTNET_ACTIVATION_MAX_SYNC_GAP)
+            })
+            .map(|peer_height| {
+                format!(
+                    "Rejected unverified peer/log height {peer_height}; verified public RPC head is {public_height}."
+                )
+            });
+        return SyncTargetSelection {
+            height: Some(public_height),
+            source: "public-rpc:verified-chain-1264".to_string(),
+            verified: true,
+            error,
+        };
+    }
+
+    if let Some(peer_height) = best_observed_peer_height {
+        return SyncTargetSelection {
+            height: None,
+            source: "unavailable".to_string(),
+            verified: false,
+            error: Some(format!(
+                "Only unverified peer/log height {peer_height} is available; refusing to use it as the onboarding sync target."
+            )),
+        };
+    }
+
+    SyncTargetSelection {
+        height: None,
+        source: "unavailable".to_string(),
+        verified: false,
+        error: Some("No verified sync target source is available.".to_string()),
+    }
+}
+
 async fn build_node_live_status(
     client: &Client,
     node: &TestnetProvisionedNode,
@@ -4883,20 +5033,25 @@ async fn build_node_live_status(
         let cache = NODE_LIVE_CACHE.lock().unwrap();
         cache.get(&node.id).cloned()
     };
-    let local_chain_height = fresh_local_chain_height
-        .or_else(|| {
-            cached_snapshot
-                .as_ref()
-                .and_then(|entry| entry.local_chain_height)
-        })
-        .or(log_local_chain_height);
+    let cached_local_chain_height = cached_snapshot
+        .as_ref()
+        .and_then(|entry| entry.local_chain_height);
+    let local_chain_height = fresh_local_chain_height;
+    let local_chain_height_verified = fresh_local_chain_height.is_some();
+    let local_chain_height_source = if fresh_local_chain_height.is_some() {
+        "local-rpc:verified-live".to_string()
+    } else if cached_local_chain_height.is_some() || log_local_chain_height.is_some() {
+        "unverified-diagnostic-only".to_string()
+    } else {
+        "unavailable".to_string()
+    };
     let local_peer_count = fresh_local_peer_count.or_else(|| {
         cached_snapshot
             .as_ref()
             .and_then(|entry| entry.local_peer_count)
     });
     let using_cached_snapshot = is_running
-        && ((fresh_local_chain_height.is_none() && local_chain_height.is_some())
+        && ((fresh_local_chain_height.is_none() && cached_local_chain_height.is_some())
             || (fresh_local_peer_count.is_none() && local_peer_count.is_some()));
     let using_log_height =
         is_running && fresh_local_chain_height.is_none() && log_local_chain_height.is_some();
@@ -4929,10 +5084,15 @@ async fn build_node_live_status(
             details.push(format!("synergy_getPeerInfo: {error}"));
         }
         if using_cached_snapshot {
-            details.push("showing last successful local snapshot".to_string());
+            details.push(
+                "last successful local snapshot is available for diagnostics only".to_string(),
+            );
         }
         if using_log_height {
-            details.push("showing last committed height from node log".to_string());
+            details.push(
+                "last committed height from node log is diagnostic only and not used as the sync target"
+                    .to_string(),
+            );
         }
         if details.is_empty() {
             format!("Local RPC is not responding on {rpc_endpoint}.")
@@ -4943,18 +5103,72 @@ async fn build_node_live_status(
             )
         }
     };
-    let best_network_height = match (public_chain_height, best_observed_peer_height) {
-        (Some(public_height), Some(peer_height)) => Some(public_height.max(peer_height)),
-        (Some(public_height), None) => Some(public_height),
-        (None, Some(peer_height)) => Some(peer_height),
-        (None, None) => None,
-    };
+    let sync_target = select_verified_sync_target(public_chain_height, best_observed_peer_height);
+    let best_network_height = sync_target.height;
     let sync_gap = match (best_network_height, local_chain_height) {
         (Some(network_height), Some(local_height)) => {
             Some(network_height.saturating_sub(local_height))
         }
         _ => None,
     };
+    let log_path = workspace_directory.join("logs").join("synergy-testnet.log");
+    let mut height_sources = Vec::new();
+    height_sources.push(height_source_record(
+        "local-rpc",
+        rpc_endpoint.clone(),
+        fresh_local_chain_height,
+        if fresh_local_chain_height.is_some() {
+            "verified-live"
+        } else {
+            "unavailable"
+        },
+        fresh_local_chain_height.is_some(),
+        local_chain_error
+            .as_deref()
+            .unwrap_or("Local RPC height is current for this workspace."),
+    ));
+    if cached_local_chain_height.is_some() {
+        height_sources.push(height_source_record(
+            "cached-local-rpc",
+            "control-service memory cache",
+            cached_local_chain_height,
+            "rejected-stale-cache",
+            false,
+            "Cached heights are diagnostics only and never define onboarding sync targets.",
+        ));
+    }
+    if log_local_chain_height.is_some() {
+        height_sources.push(height_source_record(
+            "local-log-commit",
+            log_path.to_string_lossy().to_string(),
+            log_local_chain_height,
+            "rejected-unverified-log",
+            false,
+            "Log-derived local heights can survive resets and are never canonical progress targets.",
+        ));
+    }
+    if best_observed_peer_height.is_some() {
+        height_sources.push(height_source_record(
+            "local-log-peer-status",
+            log_path.to_string_lossy().to_string(),
+            best_observed_peer_height,
+            "rejected-unverified-peer-log",
+            false,
+            "Peer heights parsed from logs are not chain/genesis verified and cannot override public RPC.",
+        ));
+    }
+    height_sources.push(height_source_record(
+        "public-rpc",
+        TESTNET_PUBLIC_RPC_ENDPOINT,
+        public_chain_height,
+        if public_chain_height.is_some() {
+            "verified-chain-1264"
+        } else {
+            "unavailable"
+        },
+        public_chain_height.is_some(),
+        "Canonical public RPC head for Synergy Testnet chain 1264.",
+    ));
 
     let (synergy_score, synergy_score_status) = resolve_synergy_score_status(
         client,
@@ -4993,6 +5207,8 @@ async fn build_node_live_status(
         pid,
         process_uptime_secs,
         local_chain_height,
+        local_chain_height_verified,
+        local_chain_height_source,
         local_peer_count,
         connected_validator_count,
         status_ready_validator_count,
@@ -5000,6 +5216,11 @@ async fn build_node_live_status(
         log_local_chain_height,
         best_observed_peer_height,
         best_network_height,
+        sync_target_height: sync_target.height,
+        sync_target_source: sync_target.source,
+        sync_target_verified: sync_target.verified,
+        sync_target_error: sync_target.error,
+        height_sources,
         synergy_score,
         synergy_score_status,
         wallet_ready,
@@ -11175,6 +11396,31 @@ mod tests {
         assert_eq!(summary.peer_count, 2);
         assert_eq!(summary.connected_validator_count, 3);
         assert_eq!(summary.status_ready_validator_count, 2);
+    }
+
+    #[test]
+    fn sync_target_uses_verified_public_rpc_over_stale_peer_log_height() {
+        let selection = select_verified_sync_target(Some(1_200), Some(6_432));
+
+        assert_eq!(selection.height, Some(1_200));
+        assert!(selection.verified);
+        assert_eq!(selection.source, "public-rpc:verified-chain-1264");
+        assert!(selection
+            .error
+            .as_deref()
+            .is_some_and(|message| message.contains("Rejected unverified peer/log height 6432")));
+    }
+
+    #[test]
+    fn sync_target_rejects_peer_log_height_when_no_verified_source_exists() {
+        let selection = select_verified_sync_target(None, Some(6_432));
+
+        assert_eq!(selection.height, None);
+        assert!(!selection.verified);
+        assert!(selection
+            .error
+            .as_deref()
+            .is_some_and(|message| message.contains("refusing to use it")));
     }
 
     #[test]

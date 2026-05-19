@@ -17,17 +17,18 @@ use crate::monitor::{
     MonitorOperatorInput, MonitorSshBindingInput, MonitorSshProfileInput,
 };
 use crate::testnet::{
-    testnet_activate_validator, testnet_boost_sync, testnet_erase_local_machine_data,
-    testnet_force_peer_connect, testnet_get_catalog, testnet_get_chain_blocks,
-    testnet_get_device_profile, testnet_get_feature_snapshot, testnet_get_live_status,
-    testnet_get_node_logs, testnet_get_node_readiness, testnet_get_rewards_data, testnet_get_state,
-    testnet_get_validator_activation_preflight, testnet_get_validator_live_status,
-    testnet_node_control, testnet_remove_node, testnet_run_register_with_seeds, testnet_setup_node,
-    testnet_stake_validator, testnet_sync_catch_up_rejoin, testnet_transfer_validator_tokens,
-    testnet_unstake_validator, TestnetEraseNodeDataInput, TestnetFeatureSnapshotInput,
-    TestnetForcePeerConnectInput, TestnetNodeControlInput, TestnetRemoveNodeInput,
-    TestnetSetupInput, TestnetValidatorActivateInput, TestnetValidatorCatchUpInput,
-    TestnetValidatorStakeInput, TestnetValidatorTransferInput, TestnetValidatorUnstakeInput,
+    testnet_activate_validator, testnet_boost_sync, testnet_diagnose_onboarding_sync,
+    testnet_erase_local_machine_data, testnet_force_peer_connect, testnet_get_catalog,
+    testnet_get_chain_blocks, testnet_get_device_profile, testnet_get_feature_snapshot,
+    testnet_get_live_status, testnet_get_node_logs, testnet_get_node_readiness,
+    testnet_get_rewards_data, testnet_get_state, testnet_get_validator_activation_preflight,
+    testnet_get_validator_live_status, testnet_node_control, testnet_remove_node,
+    testnet_run_register_with_seeds, testnet_setup_node, testnet_stake_validator,
+    testnet_sync_catch_up_rejoin, testnet_transfer_validator_tokens, testnet_unstake_validator,
+    TestnetEraseNodeDataInput, TestnetFeatureSnapshotInput, TestnetForcePeerConnectInput,
+    TestnetNodeControlInput, TestnetRemoveNodeInput, TestnetSetupInput,
+    TestnetValidatorActivateInput, TestnetValidatorCatchUpInput, TestnetValidatorStakeInput,
+    TestnetValidatorTransferInput, TestnetValidatorUnstakeInput,
 };
 use async_stream::stream;
 use axum::extract::{Query, State};
@@ -591,6 +592,10 @@ async fn dispatch_command(
         "testnet_get_validator_live_status" => {
             let args: TestnetValidatorLiveStatusArgs = parse_args(request.args)?;
             to_value(testnet_get_validator_live_status(args.node_id).await?)
+        }
+        "testnet_diagnose_onboarding_sync" | "diagnose_onboarding_sync" => {
+            let args: TestnetValidatorLiveStatusArgs = parse_args(request.args)?;
+            to_value(testnet_diagnose_onboarding_sync(args.node_id).await?)
         }
         "testnet_stake_validator" => {
             let args: TestnetValidatorStakeArgs = parse_args(request.args)?;

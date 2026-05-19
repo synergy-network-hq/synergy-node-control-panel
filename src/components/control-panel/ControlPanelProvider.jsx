@@ -51,9 +51,9 @@ function buildTelemetrySnapshot(liveStatus) {
         liveStatus?.public_chain_height
         ?? nodes.reduce((highest, entry) => {
           const candidate = Number(
-            entry?.best_network_height
+            entry?.sync_target_height
+            ?? entry?.best_network_height
             ?? entry?.local_chain_height
-            ?? entry?.log_local_chain_height,
           );
           return Number.isFinite(candidate) ? Math.max(highest, candidate) : highest;
         }, 0),
@@ -69,13 +69,13 @@ function buildTelemetrySnapshot(liveStatus) {
       syncGap: Number(entry?.sync_gap) || 0,
       blockHeight: Number(
         entry?.local_chain_height
-        ?? entry?.log_local_chain_height
+        ?? entry?.sync_target_height
         ?? entry?.best_network_height,
       ) || 0,
       score: Number(entry?.synergy_score) || 0,
       rpcReady: entry?.local_rpc_ready !== false,
       uptime: Number(entry?.process_uptime_secs) || 0,
-      bestNetworkHeight: Number(entry?.best_network_height) || 0,
+      bestNetworkHeight: Number(entry?.sync_target_height ?? entry?.best_network_height) || 0,
       rpcLatencyMs: Number(entry?.rpc_latency_ms) || 0,
       cpuPercent: Number(entry?.cpu_percent) || 0,
       memoryMb: Number(entry?.memory_mb) || 0,
@@ -254,9 +254,9 @@ export function ControlPanelProvider({ children }) {
     }, 0);
     const validatorMeshHeight = liveNodes.reduce((highest, entry) => {
       const candidate = Number(
-        entry?.best_network_height
+        entry?.sync_target_height
+          ?? entry?.best_network_height
           ?? entry?.local_chain_height
-          ?? entry?.log_local_chain_height,
       );
       return Number.isFinite(candidate) ? Math.max(highest, candidate) : highest;
     }, 0);

@@ -122,7 +122,10 @@ export function nodeRuntimeTone(nodeLive) {
 }
 
 export function effectiveLocalChainHeight(nodeLive) {
-  return nodeLive?.local_chain_height ?? nodeLive?.log_local_chain_height ?? null;
+  if (nodeLive?.local_chain_height_verified === false) {
+    return null;
+  }
+  return nodeLive?.local_chain_height ?? null;
 }
 
 export function nodeBlockHeightValue(nodeLive, liveStatus) {
@@ -154,7 +157,7 @@ export function nodeSyncPercent(nodeLive, liveStatus) {
     return 0;
   }
 
-  const networkHeight = Number(nodeLive?.best_network_height ?? liveStatus?.public_chain_height);
+  const networkHeight = Number(nodeLive?.sync_target_height ?? liveStatus?.public_chain_height);
   const localHeight = Number(effectiveLocalChainHeight(nodeLive));
 
   if (Number.isFinite(networkHeight) && networkHeight > 0 && Number.isFinite(localHeight) && localHeight >= 0) {

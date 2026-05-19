@@ -78,7 +78,7 @@ export default function NodeSyncGateModal({ nodeId, onComplete }) {
 
   const nodeLive = targetNode ? nodeLiveById[targetNode.id] || null : null;
   const localHeight = effectiveLocalChainHeight(nodeLive);
-  const networkHeight = Number(nodeLive?.best_network_height ?? liveStatus?.public_chain_height);
+  const networkHeight = Number(nodeLive?.sync_target_height ?? liveStatus?.public_chain_height);
   const syncPercent = nodeSyncPercent(nodeLive, liveStatus);
   const syncGap = Number(nodeLive?.sync_gap);
   const syncReady = Boolean(
@@ -273,6 +273,10 @@ export default function NodeSyncGateModal({ nodeId, onComplete }) {
             <strong>{formatNumber(Number.isFinite(networkHeight) ? networkHeight : liveStatus?.public_chain_height)}</strong>
           </article>
           <article>
+            <small>Verified source</small>
+            <strong>{nodeLive?.sync_target_verified ? (nodeLive?.sync_target_source || 'Verified') : 'Blocked'}</strong>
+          </article>
+          <article>
             <small>Sync progress</small>
             <strong>{formatPercent(syncPercent, 1)}</strong>
           </article>
@@ -281,6 +285,9 @@ export default function NodeSyncGateModal({ nodeId, onComplete }) {
             <strong>{Number.isFinite(syncGap) ? `${formatNumber(syncGap)} blocks` : 'Waiting'}</strong>
           </article>
         </div>
+        {nodeLive?.sync_target_error ? (
+          <p className="cp-sync-gate-warning">{nodeLive.sync_target_error}</p>
+        ) : null}
 
         <div className="cp-sync-gate-status">
           <span className={`cp-sync-dot is-${syncStatus}`}></span>
