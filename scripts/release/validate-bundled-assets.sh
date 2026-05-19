@@ -6,6 +6,15 @@ cd "$ROOT_DIR"
 
 host_os="$(uname -s)"
 
+sha256_file() {
+  local file_path="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file_path" | awk '{print $1}'
+  else
+    sha256sum "$file_path" | awk '{print $1}'
+  fi
+}
+
 # --- Platform binaries ---------------------------------------------------------
 # The three testnet platform binaries are the only bundled executables that
 # must exist here. Runtime configs are checked below; ignored key/setup-package
@@ -45,15 +54,36 @@ for binary_path in "${unix_binaries[@]}" "${windows_binaries[@]}"; do
     exit 1
   fi
   expected="$(awk '{print $1}' "$checksum_path")"
-  if command -v shasum >/dev/null 2>&1; then
-    actual="$(shasum -a 256 "$binary_path" | awk '{print $1}')"
-  else
-    actual="$(sha256sum "$binary_path" | awk '{print $1}')"
-  fi
+  actual="$(sha256_file "$binary_path")"
   if [[ "$expected" != "$actual" ]]; then
     echo "Checksum mismatch for $binary_path: expected $expected got $actual" >&2
     exit 1
   fi
+done
+
+# Runtime installer bundles are what the live Control Panel uses to refresh
+# node workspaces. Keep them byte-for-byte aligned with the trusted platform
+# binaries or the package can silently ship stale per-node runtimes.
+for installer_dir in testnet/runtime/installers/*; do
+  [[ -d "$installer_dir" ]] || continue
+  for binary_name in \
+    synergy-testnet-darwin-arm64 \
+    synergy-testnet-linux-amd64 \
+    synergy-testnet-windows-amd64.exe
+  do
+    top_level_path="binaries/$binary_name"
+    installer_path="$installer_dir/bin/$binary_name"
+    if [[ ! -f "$installer_path" ]]; then
+      echo "Missing installer runtime binary: $installer_path" >&2
+      exit 1
+    fi
+    top_level_hash="$(sha256_file "$top_level_path")"
+    installer_hash="$(sha256_file "$installer_path")"
+    if [[ "$top_level_hash" != "$installer_hash" ]]; then
+      echo "Installer runtime binary drift: $installer_path expected $top_level_hash got $installer_hash" >&2
+      exit 1
+    fi
+  done
 done
 
 # --- Workspace manifest --------------------------------------------------------
